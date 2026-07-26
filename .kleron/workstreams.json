@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "workstreams": [
+    {
+      "tag": "W1",
+      "name": "Foundation",
+      "description": "Project scaffolding and the seams everything else plugs into: electron-vite build, Vue 3 + Nuxt UI standalone renderer, the typed IPC contract in src/shared, context-isolated preload, lint/test baseline and CI. Owns the answer to R4 (Nuxt UI standalone integration, unverified).",
+      "color": "indigo",
+      "order": 0,
+      "cardCounter": 3
+    },
+    {
+      "tag": "W2",
+      "name": "Library",
+      "description": "Everything main-process and on-disk: schema v1 and migrations, root folders, recursive scanner, music-metadata parsing, incremental mtime rescan, filesystem watcher, artwork thumbnail cache, FTS5 index, background job queue. Owns R3 (inotify limits) and the relative-path portability rule.",
+      "color": "emerald",
+      "order": 1,
+      "cardCounter": 2,
+      "dependsOn": [
+        "W1"
+      ]
+    },
+    {
+      "tag": "W3",
+      "name": "Audio",
+      "description": "The Web Audio graph and everything scheduled through it: AudioEngine interface, decodeAudioData implementation, prefetch and sample-accurate scheduling, gapless, crossfade, ReplayGain application. Owns R1 (decode memory ceiling) and R2 (gapless/crossfade exclusivity) — the two risks most likely to force architectural change.",
+      "color": "amber",
+      "order": 2,
+      "cardCounter": 1,
+      "dependsOn": [
+        "W1"
+      ]
+    },
+    {
+      "tag": "W4",
+      "name": "UI",
+      "description": "The three-pane shell and its panel islands: Sources, TrackList, NowPlaying. Virtualized lists from the first commit, sortable configurable columns, shift/ctrl multi-select, transport controls, and the CSS custom-property token layer that makes theming structural rather than bolted on.",
+      "color": "violet",
+      "order": 3,
+      "cardCounter": 2,
+      "dependsOn": [
+        "W1"
+      ]
+    },
+    {
+      "tag": "W6",
+      "name": "Packaging and Ops",
+      "description": "electron-builder targets (NSIS on Windows, AppImage + deb on Linux), GitHub Actions matrix across windows-latest and ubuntu-latest, and the library export/import bundle that carries playlists, ratings and play counts between machines (D11).",
+      "color": "rose",
+      "order": 4,
+      "cardCounter": 2,
+      "dependsOn": [
+        "W1"
+      ]
+    },
+    {
+      "tag": "W5",
+      "name": "Playlists and Queue",
+      "description": "Playlist tabs as the backbone plus the transient play-next queue layered on top (D5). Owns the seven queue-semantics rules in design section 5 and their tests, fractional-position reordering, and m3u8 export. The interaction between tabs and queue is the specified surface most likely to grow bugs.",
+      "color": "sky",
+      "order": 5,
+      "cardCounter": 0,
+      "dependsOn": [
+        "W2",
+        "W4"
+      ]
+    }
+  ]
+}

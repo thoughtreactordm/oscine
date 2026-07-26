@@ -1,0 +1,35 @@
+{
+  "version": 2,
+  "columns": [
+    {
+      "id": "backlog",
+      "title": "Backlog",
+      "order": 0
+    },
+    {
+      "id": "blocked",
+      "title": "Blocked",
+      "order": 1
+    },
+    {
+      "id": "todo",
+      "title": "To Do",
+      "order": 2
+    },
+    {
+      "id": "in-progress",
+      "title": "In Progress",
+      "order": 3
+    },
+    {
+      "id": "in-review",
+      "title": "In Review",
+      "order": 4
+    },
+    {
+      "id": "done",
+      "title": "Done",
+      "order": 5
+    }
+  ]
+}

@@ -1,0 +1,299 @@
+---
+title: Fermata — Design Document
+created: '2026-07-26T04:53:06.799Z'
+updated: '2026-07-26T04:53:06.799Z'
+---
+# Fermata — Design Document
+
+Status: **approved, v1 scope frozen** · Owner: Michael · Repo: `C:\Users\Michael\Projects\fermata`
+
+## 1. What this is
+
+A desktop music player for local files: poweruser library control with a modern, themeable interface. The reference points are Foobar2000/fooyin for capability and Spotify for polish. No streaming-service integration, ever — the library is folders on disk.
+
+Primary user is Michael. Secondary audience is anyone who wants a stylish, customizable, poweruser-focused local player.
+
+**v1 is done when**: a library of pointed-at folders can be browsed and sorted by Artist/Album/Song, arbitrary multi-selections can be added to playlists, and MP3/FLAC/OGG all play correctly with gapless, crossfade and loudness normalization.
+
+## 2. Decisions
+
+Each row is settled. "Revisit when" is the trigger that would legitimately reopen it — absent that trigger, the decision stands.
+
+### D1 — Shell and audio: **Electron + Web Audio API**
+
+Chromium decodes MP3, FLAC, Vorbis and Opus identically on every target OS, and the Web Audio graph supplies crossfade, gain and future EQ without an audio engine being written from scratch.
+
+*Rejected*: Tauri + Rust engine (bit-perfect output, but the entire DSP chain becomes Rust work); Tauri + Web Audio (system webviews have patchy Ogg/FLAC support — unacceptable for a format-first player); Tauri hybrid with Rust decode feeding an AudioWorklet (correct on paper, but the streaming seam is where the time goes).
+
+*Accepted cost*: ~150MB bundle, higher RAM, and **no bit-perfect / exclusive-mode output** — Chromium always resamples to one device rate. This is a real concession to the audiophile end of the target audience and should be stated plainly in any README.
+
+*Revisit when*: exclusive-mode output becomes a blocking user requirement.
+
+### D2 — Playback pipeline: **`decodeAudioData` + prefetch next**
+
+Decode current and next track fully into `AudioBuffer`s, schedule with sample-accurate start times. Gapless, crossfade and instant seek all follow almost for free; the engine is small enough to reason about completely.
+
+*Rejected*: WebCodecs → AudioWorklet ring buffer (correct long-term, but WebCodecs supplies a decoder and no demuxer — FLAC/Ogg/MP3 container parsing is a workstream of its own); `<audio>` + MediaElementSource (not sample-accurate, so gapless is unreliable); stream-with-buffered-edges hybrid (two code paths meeting exactly where users listen for glitches).
+
+*Accepted cost*: memory. See **R1**.
+
+*Revisit when*: R1's guard starts firing on ordinary listening rather than edge-case files.
+
+### D3 — Renderer: **Vite + Vue 3 + Nuxt UI standalone**
+
+Component library and design system without SSR machinery inside a desktop shell. `vue-router` and Pinia wired explicitly — a small one-time cost. See **R4**.
+
+### D4 — Layout: **fixed three-pane, panels as islands**
+
+Sources / track list / now-playing, with configurable columns and theming. Every pane is self-contained and makes no assumptions about its neighbours, so a docking system can land later without a rewrite.
+
+*Rejected*: dockable panels in v1 (a project of its own, delaying first playback badly); theming-only (abandons the poweruser pitch); full skinning/scripting (a platform, not a feature — v3 at the earliest).
+
+### D5 — Queue model: **playlist tabs + play-next queue**
+
+Foobar's named playlist tabs as the backbone, with a transient "up next" queue layered on. Full semantics in §5 — this is the part most likely to grow bugs, so it is specified rather than discovered.
+
+### D6 — Library scan: **incremental at startup + live watcher**
+
+Index on add, mtime-based incremental rescan at launch, filesystem watcher for live changes. See **R3** for the Linux degradation path.
+
+### D7 — Tag authority: **DB overrides now, write-back later**
+
+Tags are parsed on scan; corrections live in `track_overrides` and never touch files in v1. Zero corruption risk while the library layer is young. Write-back is roadmapped as an explicit opt-in once there is a test corpus and atomic-write handling.
+
+*Accepted cost*: edits are invisible to other applications until write-back ships.
+
+### D8 — Search: **FTS5 instant search + sortable columns**
+
+Substring search over title/artist/album, click-to-sort columns, shift/ctrl multi-select. A Foobar-style query language with saved smart playlists is the natural v2 headline; it competes directly with the audio engine for v1 time.
+
+### D9 — Theming: **token layer + curated themes**
+
+Every component is built against CSS custom-property tokens over Nuxt UI, shipping several tuned themes and an accent picker. Themeable by construction, with no editor exposed yet — which keeps the token names private until they have settled. Sharable theme files would make those names a public API.
+
+### D10 — Platforms: **Windows and Linux**
+
+Both first-class. No Apple signing/notarization tax. Linux packaging via AppImage + deb. Path, filesystem and shell handling stays platform-neutral from the first commit, enforced by CI running on both.
+
+### D11 — Cross-machine: **independent library, explicit export/import**
+
+Each machine scans its own roots and owns its own SQLite database. An explicit export/import bundle carries playlists, ratings and play counts between them.
+
+*Rejected*: a synced portable library — SQLite over Dropbox/Syncthing corrupts when two machines touch it, and a music player sits open for hours.
+
+*Note*: track paths are stored **relative to a named root** regardless (§4). That is cheap insurance and makes the export bundle portable across differing folder layouts.
+
+### D12 — Playlists: **SQLite rows + m3u8 export**
+
+Real ordering semantics, stable per-entry ids, cheap dedup, and the same track may legitimately appear twice. m3u8 export for interop; import is backlog.
+
+### D13 — First milestone: **thin end-to-end slice**
+
+Every layer touched, none finished. Integration risk surfaces immediately; the specific audio risk is deliberately deferred to M2, which is why D2's implementation sits behind an interface from the start (§6).
+
+## 3. Risks
+
+### R1 — Decode memory ceiling *(high, architectural)*
+
+`decodeAudioData` yields float32 PCM: `duration_s × sample_rate × channels × 4` bytes. A five-minute stereo 44.1kHz track is ~105MB; current+next prefetch approaches 200MB; a twenty-minute DJ mix is ~400MB alone.
+
+**Mitigation — must ship with D2, not after**: estimate decoded size *before* decoding. Above a per-track cap (default 250MB) fall back to `<audio>` streaming for that track and accept a hard transition. Enforce a total decoded budget (default 600MB) across current+prefetch. Both configurable. Without this rule a long-track collection is a crash.
+
+### R2 — Gapless and crossfade are mutually exclusive *(medium, spec)*
+
+They cannot both apply to one track boundary. **Policy**: `crossfade_ms` is a per-playlist setting defaulting to 0; zero means gapless (next source scheduled at exactly `startTime + duration`), non-zero means crossfade (scheduled at `end − crossfade_ms` with equal-power ramps on both sources). Tracks in R1's streaming fallback get a hard transition regardless.
+
+### R3 — inotify watch limits on Linux *(medium, platform)*
+
+A 100k-file library can exhaust the default user watch limit; the watcher fails with `ENOSPC`. **Mitigation**: watch directories rather than files, catch `ENOSPC` explicitly, degrade to startup-scan-only, and surface a visible notice explaining the `fs.inotify.max_user_watches` fix. Failing silently is the outcome to avoid.
+
+### R4 — Nuxt UI standalone integration *(low, unverified)*
+
+D3 assumes current Nuxt UI supports plain Vue via its Vite plugin. **This is unverified against current docs** and is the first task in W1. If it does not hold cleanly, the fallback is Nuxt in SPA mode, which changes packaging but not architecture.
+
+## 4. Data model — schema v1
+
+Paths are stored relative to a root so roots can be remapped per machine (D11). `rel_path` is POSIX-normalised on write and rejoined per-platform on read — the single most important detail for Windows/Linux portability.
+
+```sql
+CREATE TABLE roots (
+  id           INTEGER PRIMARY KEY,
+  label        TEXT    NOT NULL,
+  path         TEXT    NOT NULL UNIQUE,  -- absolute, machine-local
+  added_at     INTEGER NOT NULL,
+  last_scan_at INTEGER
+);
+
+CREATE TABLE artists (
+  id        INTEGER PRIMARY KEY,
+  name      TEXT NOT NULL UNIQUE,
+  sort_name TEXT
+);
+
+CREATE TABLE albums (
+  id              INTEGER PRIMARY KEY,
+  title           TEXT NOT NULL,
+  album_artist_id INTEGER REFERENCES artists(id),
+  year            INTEGER,
+  artwork_hash    TEXT,                  -- key into on-disk thumbnail cache
+  UNIQUE(title, album_artist_id)
+);
+
+CREATE TABLE tracks (
+  id             INTEGER PRIMARY KEY,
+  root_id        INTEGER NOT NULL REFERENCES roots(id) ON DELETE CASCADE,
+  rel_path       TEXT    NOT NULL,       -- POSIX-normalised, relative to root
+  mtime          INTEGER NOT NULL,       -- incremental rescan key
+  size           INTEGER NOT NULL,
+  duration_ms    INTEGER,
+  codec          TEXT,                   -- flac | mp3 | vorbis | opus | aac
+  sample_rate    INTEGER,
+  channels       INTEGER,
+  bit_depth      INTEGER,
+  title          TEXT,
+  artist_id      INTEGER REFERENCES artists(id),
+  album_id       INTEGER REFERENCES albums(id),
+  track_no       INTEGER,
+  disc_no        INTEGER,
+  rg_track_gain  REAL,                   -- dB
+  rg_track_peak  REAL,
+  rg_album_gain  REAL,
+  rg_album_peak  REAL,
+  rg_source      TEXT,                   -- 'tag' | 'computed' | NULL
+  play_count     INTEGER NOT NULL DEFAULT 0,
+  last_played_at INTEGER,
+  rating         INTEGER,
+  UNIQUE(root_id, rel_path)
+);
+
+-- D7: corrections live here and never touch the file on disk.
+CREATE TABLE track_overrides (
+  track_id    INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+  title       TEXT,
+  artist_name TEXT,
+  album_title TEXT,
+  track_no    INTEGER,
+  disc_no     INTEGER,
+  updated_at  INTEGER NOT NULL
+);
+
+CREATE TABLE playlists (
+  id           INTEGER PRIMARY KEY,
+  name         TEXT    NOT NULL,
+  position     INTEGER NOT NULL,         -- tab order
+  crossfade_ms INTEGER NOT NULL DEFAULT 0,  -- R2 policy
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+
+CREATE TABLE playlist_entries (
+  id          INTEGER PRIMARY KEY,       -- stable across reordering
+  playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+  track_id    INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+  position    REAL    NOT NULL           -- fractional: O(1) insert between
+);
+
+CREATE VIRTUAL TABLE tracks_fts USING fts5(
+  title, artist, album,
+  content='', tokenize='unicode61 remove_diacritics 2'
+);
+```
+
+Two deliberate choices: `playlist_entries.id` is stable and separate from `track_id` because the same track may appear twice in a playlist; `position` is a REAL so inserting between two entries never rewrites the rest of the list.
+
+## 5. Queue semantics (D5)
+
+State: `viewedPlaylistId` and `playingPlaylistId` are **separate** — browsing a different tab must not disturb playback. The up-next queue is an ordered list of track ids.
+
+1. Next track = shift from the up-next queue if non-empty; otherwise the next entry after the current one in the playing playlist.
+2. Queueing a track never changes `playingPlaylistId` or the current position.
+3. Playing a track from any playlist sets `playingPlaylistId` to that playlist. **The queue survives** — it is not cleared.
+4. The queue holds track ids, so deleting a playlist that a queued track came from does not remove it from the queue. Deleting the *playing* playlist stops playback.
+5. The queue is transient in v1: not persisted across restarts. Playlists are persisted.
+6. Shuffle reorders traversal of the playing playlist only. It never reorders the queue.
+7. Repeat-one overrides everything. Repeat-all wraps the playing playlist; the queue still takes priority.
+
+Each of these seven rules gets a test. That is M4's exit criterion.
+
+## 6. Process architecture
+
+**Main (Node, privileged)** — SQLite via better-sqlite3, scanner, watcher, metadata via `music-metadata`, artwork cache, background job queue, playlist CRUD and m3u8 export.
+
+**Renderer (Chromium)** — all UI, and the Web Audio graph. Audio *must* live here; Web Audio has no main-process equivalent.
+
+**Preload** — a narrow typed `contextBridge` surface. Context isolation on, `nodeIntegration` off. The renderer never touches the filesystem directly; every library operation crosses IPC.
+
+**`src/shared`** — the IPC contract and its types, imported by both sides so they cannot drift.
+
+**`renderer/audio/AudioEngine`** — an interface, with the D2 `decodeAudioData` implementation behind it. This is the islands principle applied to the riskiest component: when R1 forces the issue, a WebCodecs pipeline replaces the implementation without the UI noticing. The interface goes in at M1, not M2.
+
+## 7. Repo structure
+
+```
+fermata/
+├─ docs/                      # mirror of this document
+├─ electron.vite.config.ts
+├─ electron-builder.yml
+├─ src/
+│  ├─ main/
+│  │  ├─ db/                  # better-sqlite3, schema + migrations
+│  │  ├─ library/             # scanner, watcher, metadata, artwork cache
+│  │  ├─ jobs/                # background queue: scan, ReplayGain
+│  │  ├─ playlists/           # CRUD + m3u8 export
+│  │  └─ ipc/                 # typed channel handlers
+│  ├─ preload/
+│  ├─ shared/                 # IPC contract + types
+│  └─ renderer/
+│     ├─ audio/               # AudioEngine iface, scheduler, crossfade, gain
+│     ├─ panels/              # islands: Sources, TrackList, NowPlaying
+│     ├─ stores/              # Pinia
+│     └─ theme/               # token layer
+└─ tests/
+```
+
+## 8. Workstreams
+
+| Tag | Stream | Depends on |
+|---|---|---|
+| W1 | Foundation — scaffolding, Nuxt UI, IPC contract, CI | — |
+| W2 | Library — schema, scanner, watcher, metadata, artwork | W1 |
+| W3 | Audio — engine, gapless, crossfade, ReplayGain | W1 |
+| W4 | UI — panel islands, virtualized list, sort/multiselect, tokens | W1 |
+| W5 | Playlists & Queue — tabs, play-next, m3u8 export | W2, W4 |
+| W6 | Packaging & Ops — builder, CI matrix, export/import | W1 |
+
+## 9. Milestones
+
+**M1 — "It plays"** *(thin end-to-end slice)* · Scaffold boots with HMR; schema v1 + migration runner; add-folder → scan → tracks in DB; one flat virtualized sortable list; double-click plays; transport and volume. No gapless, no crossfade, no watcher.
+*Exit*: a real mixed MP3/FLAC/OGG folder browses and plays, on Windows **and** Linux.
+
+**M2 — "It plays properly"** *(risk milestone)* · `AudioEngine` decode-ahead scheduler, gapless, crossfade with curve and duration, R1's memory guard and streaming fallback, ReplayGain read/apply plus compute-when-missing background job.
+*Exit*: gapless verified by a sample-accurate boundary test rather than by ear; a twenty-minute track stays inside the memory budget.
+
+**M3 — "It's a library"** · Three-pane Artist/Album/Song browsing, multi-select, FTS5 search, watcher with R3's degradation path, artwork cache.
+*Exit*: a synthetic 100k-track library browses and searches within frame budget.
+
+**M4 — "Playlists & queue"** · Tabs, play-next overlay, m3u8 export.
+*Exit*: all seven §5 rules have passing tests.
+
+**M5 — "Stylish"** · Token layer formalized, curated themes, accent picker, now-playing polish.
+*Exit*: swapping a theme touches zero component code.
+
+**M6 — "Shippable"** · NSIS + AppImage/deb, CI matrix, library export/import bundle.
+*Exit*: install from artifact on clean Windows and clean Linux; both play music.
+
+## 10. Conventions and assumptions
+
+- **Build**: electron-vite for dev/HMR, electron-builder for packaging.
+- **Scale target**: 100k tracks. Every list virtualized from the first commit — never retrofitted.
+- **ReplayGain**: read existing `REPLAYGAIN_*` tags first; compute only when absent, via a background job with progress, cancel and resume.
+- **Artwork**: extracted on scan to a content-hashed thumbnail cache, with `folder.jpg` fallback.
+- **Testing**: Vitest for units (scheduling math, query building, scanner, path round-tripping); Playwright for Electron smoke tests.
+- **CI**: GitHub Actions matrix on `windows-latest` and `ubuntu-latest` — lint, test, build artifacts.
+- **Commits**: Conventional Commits, one logical change each.
+
+## 11. Explicitly out of scope for v1
+
+Streaming-service integration · dockable/scriptable layouts · query language and smart playlists · tag write-back · EQ and DSP chain · noise reduction · visualizers · mobile or remote control · last.fm scrobbling.
+
+These are deferrals, not rejections. Query language, tag write-back and the EQ chain are the strongest v2 candidates.
