@@ -1,19 +1,23 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { registerIpcHandlers, setTrustedRendererUrl } from './ipc'
+import { PendingLibraryService } from './library/service'
+import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 
 const isDev = !app.isPackaged
 const rendererDir = join(__dirname, '../renderer')
+const indexHtml = join(rendererDir, 'index.html')
 
 /**
- * Only two origins may ever be loaded: the dev server in development, and the
- * packaged renderer on disk. Anything else is treated as hostile.
+ * The one URL the renderer is ever served from: the dev server in development,
+ * the packaged HTML on disk otherwise. Used both to load the window and to
+ * decide which sender IPC will answer.
  */
-function allowedOrigin(): string {
-  return isDev && process.env.ELECTRON_RENDERER_URL
-    ? new URL(process.env.ELECTRON_RENDERER_URL).origin
-    : pathToFileURL(join(rendererDir, 'index.html')).origin
-}
+const rendererUrl =
+  isDev && process.env.ELECTRON_RENDERER_URL
+    ? process.env.ELECTRON_RENDERER_URL
+    : pathToFileURL(indexHtml).toString()
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -49,8 +53,10 @@ function createWindow(): BrowserWindow {
   })
 
   // In-app routing is hash-based, so no top-level navigation should ever occur.
+  // Prefix rather than origin: every file:// URL reports its origin as "null",
+  // which would make an origin comparison accept any local file.
   win.webContents.on('will-navigate', (event, url) => {
-    if (new URL(url).origin !== allowedOrigin()) event.preventDefault()
+    if (!url.startsWith(rendererUrl)) event.preventDefault()
   })
 
   // Nothing in M1 needs a device permission. Grant explicitly when something does.
@@ -59,9 +65,9 @@ function createWindow(): BrowserWindow {
   })
 
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(process.env.ELECTRON_RENDERER_URL)
+    void win.loadURL(rendererUrl)
   } else {
-    void win.loadFile(join(rendererDir, 'index.html'))
+    void win.loadFile(indexHtml)
   }
 
   return win
@@ -72,6 +78,10 @@ function createWindow(): BrowserWindow {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  // Must happen before the app is ready, or the scheme is not privileged and
+  // fetch() against it fails in ways that look like a CSP problem.
+  registerTrackScheme()
+
   app.on('second-instance', () => {
     const [win] = BrowserWindow.getAllWindows()
     if (win) {
@@ -81,6 +91,14 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
+    // W2-1 swaps this for the real database-backed service. Nothing else here
+    // changes when it does — that is what the seam is for.
+    const library = new PendingLibraryService()
+
+    setTrustedRendererUrl(rendererUrl)
+    registerTrackProtocol(library)
+    registerIpcHandlers(library)
+
     createWindow()
   })
 

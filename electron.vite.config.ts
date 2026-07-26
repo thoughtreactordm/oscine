@@ -16,9 +16,11 @@ const BASE_CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  "img-src 'self' data: blob: fermata:",
   "font-src 'self' data:",
-  "media-src 'self' blob:",
+  // `fermata:` is the custom protocol main registers to serve track bytes.
+  // The renderer fetches it for decodeAudioData; it never sees a real path.
+  "media-src 'self' blob: fermata:",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
@@ -30,8 +32,11 @@ const BASE_CSP = [
 
 // The dev server needs a websocket back to Vite for HMR. Production must not
 // carry that allowance, so the policy is built per mode rather than shared.
-const devCsp = [...BASE_CSP, "connect-src 'self' ws://localhost:* http://localhost:*"].join('; ')
-const prodCsp = [...BASE_CSP, "connect-src 'self'"].join('; ')
+const devCsp = [
+  ...BASE_CSP,
+  "connect-src 'self' fermata: ws://localhost:* http://localhost:*"
+].join('; ')
+const prodCsp = [...BASE_CSP, "connect-src 'self' fermata:"].join('; ')
 
 function cspPlugin(): Plugin {
   return {
