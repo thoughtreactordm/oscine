@@ -1,3 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+release/
+.vite/
+
+# Test output
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local environment
+.env
+.env.local
+
+# OS cruft
+.DS_Store
+Thumbs.db
 
 # Agent worktrees
 .claude/worktrees/

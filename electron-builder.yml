@@ -1,0 +1,28 @@
+appId: dev.fermata.app
+productName: Fermata
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - '!**/*.map'
+
+# D10: Windows and Linux are both first-class. No macOS target — that is a
+# deliberate scope decision, not an omission.
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  category: AudioVideo
+  target:
+    - AppImage
+    - deb
+
+# better-sqlite3 arrives in W2-1 and is native: it must be unpacked from the
+# asar to be loadable at runtime.
+asarUnpack:
+  - '**/*.node'

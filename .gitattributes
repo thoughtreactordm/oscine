@@ -1,0 +1,26 @@
+# D10 makes Windows and Linux both first-class. Normalising to LF in the
+# repository keeps the two checkouts byte-identical, so diffs stay honest and
+# nobody has to reason about whether a change is real or just line endings.
+* text=auto eol=lf
+
+# Never touch binaries.
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.node binary
+
+# Audio fixtures for the scanner and engine tests.
+*.mp3 binary
+*.flac binary
+*.ogg binary
+*.opus binary
+*.m4a binary
+*.wav binary
+
+# Generated, but committed so a fresh clone typechecks without a build first.
+src/renderer/components.d.ts linguist-generated=true
+src/renderer/auto-imports.d.ts linguist-generated=true
+package-lock.json linguist-generated=true
