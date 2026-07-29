@@ -43,6 +43,7 @@ class FakeEngine implements AudioEngine {
   volume = 1
   status: PlaybackStatus = 'idle'
   trackId: number | null = null
+  transitionPolicy = 'sample-accurate' as const
 
   readonly loaded: number[] = []
   readonly seeks: number[] = []

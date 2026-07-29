@@ -1,5 +1,11 @@
 import type Database from 'better-sqlite3'
-import type { ListTracksQuery, ListTracksResult, Track, TrackSortColumn } from '@shared/library'
+import type {
+  ListTracksQuery,
+  ListTracksResult,
+  Track,
+  TrackAudioMetadata,
+  TrackSortColumn
+} from '@shared/library'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
 import type { TrackTags } from './metadata'
 import { fileStem, type AudioFile } from './walk'
@@ -251,6 +257,13 @@ function prepareStatements(db: Database.Database) {
       FROM tracks t
       JOIN roots r ON r.id = t.root_id
       WHERE t.id = ?
+    `),
+    trackAudioMetadata: db.prepare(`
+      SELECT t.duration_ms AS durationMs,
+             t.size        AS encodedBytes,
+             t.channels    AS channels
+      FROM tracks t
+      WHERE t.id = ?
     `)
   }
 }
@@ -468,6 +481,17 @@ export class LibraryStore {
       .all(params) as TrackRow[]
 
     return { tracks: rows.map(toTrack), total }
+  }
+
+  getTrackAudioMetadata(trackId: number): TrackAudioMetadata | null {
+    const row = this.statements.trackAudioMetadata.get(trackId) as
+      { durationMs: number | null; encodedBytes: number; channels: number | null } | undefined
+    if (!row) return null
+    return {
+      durationSec: row.durationMs === null ? null : row.durationMs / 1000,
+      encodedBytes: row.encodedBytes,
+      channels: row.channels
+    }
   }
 
   /**

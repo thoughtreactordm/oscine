@@ -27,6 +27,8 @@ export const library = {
   listRoots: () => unwrap(window.fermata.library.listRoots()),
   scanRoot: (rootId: number) => unwrap(window.fermata.library.scanRoot(rootId)),
   listTracks: (query: ListTracksQuery) => unwrap(window.fermata.library.listTracks(query)),
+  getTrackAudioMetadata: (trackId: number) =>
+    unwrap(window.fermata.library.getTrackAudioMetadata(trackId)),
   getTrackFileUrl: (trackId: number) => unwrap(window.fermata.library.getTrackFileUrl(trackId)),
   /** Returns an unsubscribe function. Call it on unmount. */
   onScanProgress: (listener: (progress: ScanProgress) => void) =>

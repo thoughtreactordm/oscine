@@ -1,4 +1,10 @@
-import type { LibraryRoot, ListTracksQuery, ListTracksResult, ScanSummary } from '@shared/library'
+import type {
+  LibraryRoot,
+  ListTracksQuery,
+  ListTracksResult,
+  ScanSummary,
+  TrackAudioMetadata
+} from '@shared/library'
 
 /**
  * Everything the IPC layer needs from the library, and nothing more.
@@ -13,6 +19,8 @@ export interface LibraryService {
   listRoots(): Promise<LibraryRoot[]>
   scanRoot(rootId: number): Promise<ScanSummary>
   listTracks(query: ListTracksQuery): Promise<ListTracksResult>
+  /** Metadata-only lookup used by the renderer's pre-fetch R1 admission guard. */
+  getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null>
   /**
    * Absolute path for a track id, or `null` if unknown.
    *

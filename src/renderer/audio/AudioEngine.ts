@@ -3,9 +3,9 @@
  *
  * This file is the deliverable. D2 chose a pipeline that decodes whole tracks
  * into memory and accepted a known ceiling (**R1**) on one condition: that the
- * choice stays invisible above this line. When R1 forces the WebCodecs rewrite,
- * a new class implements this interface, `createAudioEngine` returns it, and no
- * UI file changes.
+ * choice stays invisible above this line. M2's admission guard and media-element
+ * fallback both implement the controls here, and no UI file changes when a
+ * track switches paths.
  *
  * So: **no Web Audio type may appear below.** Not `AudioBuffer`, not
  * `AudioContext`, not `GainNode`, not `decodeAudioData`. Every quantity here is
@@ -27,6 +27,15 @@
  * second decode.
  */
 export type PlaybackStatus = 'idle' | 'loading' | 'ready' | 'playing' | 'paused' | 'ended'
+
+/**
+ * How the scheduler may join this track to its neighbour.
+ *
+ * Streaming fallback is deliberately `hard`: media elements are not
+ * sample-accurate and must never be presented to the scheduler as eligible for
+ * gapless or crossfade timing.
+ */
+export type AudioTransitionPolicy = 'sample-accurate' | 'hard'
 
 export const AUDIO_ERROR_CODES = [
   /** No such track, or main declined to serve its bytes. */
@@ -122,6 +131,8 @@ export interface AudioEngine {
   readonly status: PlaybackStatus
   /** The loaded track, or `null`. */
   readonly trackId: number | null
+  /** R2 boundary policy for the loaded track. */
+  readonly transitionPolicy: AudioTransitionPolicy
 
   on<K extends keyof AudioEngineEventMap>(
     type: K,

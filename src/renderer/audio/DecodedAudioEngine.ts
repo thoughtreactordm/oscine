@@ -1,12 +1,5 @@
-import { library } from '@renderer/ipc'
-import { FermataError } from '@shared/errors'
-import {
-  AudioEngineError,
-  type AudioEngine,
-  type AudioEngineEventMap,
-  type AudioErrorCode,
-  type PlaybackStatus
-} from './AudioEngine'
+import { AudioEngineError, type AudioEngineEventMap, type PlaybackStatus } from './AudioEngine'
+import type { DecodedAudioPath, TrackAudioSource } from './AudioPath'
 import { DecodedBufferLedger } from './decodedBufferLedger'
 import { decodedBytes, formatBytes } from './decodedSize'
 import { Emitter } from './emitter'
@@ -16,15 +9,9 @@ import { clamp, pausedAt, positionAt, type PlaybackClock } from './playbackClock
  * D2's pipeline: fetch the whole track, `decodeAudioData` it, play the
  * resulting buffer through `AudioBufferSourceNode` → `GainNode` → destination.
  *
- * This is the only file in the renderer that may name a Web Audio type. Nothing
- * imports it directly either — `createAudioEngine` in `./index` is the seam, so
- * the M2 WebCodecs implementation replaces this class by changing one return
- * statement.
- *
- * **R1 applies here and is unmitigated by design.** A long track allocates
- * hundreds of megabytes and M1 does not stop it. Every load logs its settled
- * cost; M2 combines that evidence with the measured decode transient when it
- * picks the admission threshold.
+ * The R1 guard lives immediately above this path and is the only production
+ * caller. By the time `load` is reached, metadata was priced at this context's
+ * sample rate and the whole-buffer decode was admitted.
  */
 
 /**
@@ -42,7 +29,7 @@ const VOLUME_RAMP_SEC = 0.015
  */
 const TIME_UPDATE_MS = 250
 
-export class DecodedAudioEngine implements AudioEngine {
+export class DecodedAudioEngine implements DecodedAudioPath {
   readonly #context: AudioContext
   readonly #gain: GainNode
   readonly #events = new Emitter<AudioEngineEventMap>()
@@ -58,6 +45,7 @@ export class DecodedAudioEngine implements AudioEngine {
   /** Bumped by every `load`, so a decode that finishes late can tell it lost. */
   #generation = 0
   #releaseGestureHooks: (() => void) | null = null
+  #fetchAbort: AbortController | null = null
   #disposed = false
 
   constructor() {
@@ -88,6 +76,14 @@ export class DecodedAudioEngine implements AudioEngine {
     return this.#trackId
   }
 
+  get targetSampleRateHz(): number {
+    return this.#context.sampleRate
+  }
+
+  get issuedNotFreedBytes(): number {
+    return this.#decodedBuffers.issuedNotFreedBytes
+  }
+
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void
@@ -95,24 +91,25 @@ export class DecodedAudioEngine implements AudioEngine {
     return this.#events.on(type, listener)
   }
 
-  async load(trackId: number): Promise<void> {
+  async load(source: TrackAudioSource): Promise<void> {
     this.#assertUsable()
 
+    const trackId = source.trackId
     const generation = ++this.#generation
     // Tear down before the await, not after: the old track must go silent the
     // moment a new one is asked for, not whenever the network gets around to it.
     this.#stopTicker()
     this.#teardownSource()
+    this.#fetchAbort?.abort()
+    const fetchAbort = new AbortController()
+    this.#fetchAbort = fetchAbort
     this.#buffer = null
     this.#trackId = trackId
     this.#clock = pausedAt(0)
     this.#setStatus('loading')
 
     try {
-      // An opaque `fermata://track/<id>` URL. Main resolves the id to a path;
-      // the renderer never learns one (W1-3).
-      const url = await library.getTrackFileUrl(trackId)
-      const response = await fetch(url)
+      const response = await fetch(source.url, { signal: fetchAbort.signal })
       if (!response.ok) {
         throw new AudioEngineError(
           response.status === 404 ? 'not-found' : 'io-error',
@@ -122,6 +119,9 @@ export class DecodedAudioEngine implements AudioEngine {
       }
 
       const encoded = await response.arrayBuffer()
+      if (generation !== this.#generation) {
+        throw new AudioEngineError('aborted', 'Load superseded by a newer track.', trackId)
+      }
       // Read this *before* decoding: `decodeAudioData` detaches the buffer it
       // is given, after which `byteLength` reads 0 and the R1 log line would
       // quietly record every file as empty.
@@ -135,6 +135,7 @@ export class DecodedAudioEngine implements AudioEngine {
       }
 
       this.#buffer = buffer
+      if (this.#fetchAbort === fetchAbort) this.#fetchAbort = null
       this.#logDecodeCost(trackId, encodedByteLength, buffer)
       this.#setStatus('ready')
       this.#emitTime()
@@ -150,11 +151,25 @@ export class DecodedAudioEngine implements AudioEngine {
       }
 
       const failure = this.#toFailure(err, trackId)
+      if (this.#fetchAbort === fetchAbort) this.#fetchAbort = null
       this.#trackId = null
       this.#setStatus('idle')
       this.#events.emit('error', failure)
       throw failure
     }
+  }
+
+  unload(): void {
+    if (this.#disposed) return
+    this.#generation += 1
+    this.#fetchAbort?.abort()
+    this.#fetchAbort = null
+    this.#stopTicker()
+    this.#teardownSource()
+    this.#buffer = null
+    this.#trackId = null
+    this.#clock = pausedAt(0)
+    this.#setStatus('idle')
   }
 
   async play(): Promise<void> {
@@ -234,6 +249,8 @@ export class DecodedAudioEngine implements AudioEngine {
     this.#disposed = true
 
     this.#generation += 1
+    this.#fetchAbort?.abort()
+    this.#fetchAbort = null
     this.#stopTicker()
     this.#teardownSource()
     this.#buffer = null
@@ -362,9 +379,9 @@ export class DecodedAudioEngine implements AudioEngine {
 
   /**
    * **R1 evidence.** The settled size checks the metadata estimator, while
-   * `issuedNotFreed` exposes the conservative floor M2 must add to its next
+   * `issuedNotFreed` exposes the conservative floor the guard adds to its next
    * decode admission cost. Comparing that figure with renderer RSS is how the
-   * exit probe catches accounting that assumes a dropped reference was freed.
+   * probe catches accounting that assumes a dropped reference was freed.
    */
   #logDecodeCost(trackId: number, encodedByteLength: number, buffer: AudioBuffer): void {
     const decoded = decodedBytes(buffer.length, buffer.numberOfChannels)
@@ -381,12 +398,6 @@ export class DecodedAudioEngine implements AudioEngine {
 
   #toFailure(err: unknown, trackId: number): AudioEngineError {
     if (err instanceof AudioEngineError) return err
-
-    if (err instanceof FermataError) {
-      const code: AudioErrorCode = err.code === 'not-found' ? 'not-found' : 'io-error'
-      // A FermataError's message is contractually safe to display.
-      return new AudioEngineError(code, err.message, trackId)
-    }
 
     // `decodeAudioData` rejects with an EncodingError DOMException whose message
     // is a Chromium internal string, so it gets replaced rather than shown.

@@ -6,12 +6,11 @@
  * regardless of how small the encoded file was. The source file's sample rate
  * is not part of that calculation.
  *
- * M1 ships no guard — that is D2's accepted cost and M2's job to fix. What M1
- * owes M2 is *evidence*: `estimateDecodedBytes` prices the settled buffer, and
- * `estimateDecodePeakBytes` turns that into the transient admission cost M2's
- * guard must add to `DecodedBufferLedger.issuedNotFreedBytes`. Both stay free of
- * Web Audio types so they remain testable under Node and usable before any
- * decoding has happened.
+ * `estimateDecodedBytes` prices the settled buffer, and
+ * `estimateDecodePeakBytes` turns that into the transient admission cost the R1
+ * guard adds to `DecodedBufferLedger.issuedNotFreedBytes`. Both stay free of Web
+ * Audio types so they remain testable under Node and usable before any decoding
+ * has happened.
  */
 
 const BYTES_PER_FLOAT32_SAMPLE = 4
@@ -32,9 +31,8 @@ const DECODE_PEAK_DECODED_MULTIPLIER = 2
  * allocating the returned buffer. The caller supplies the number so this
  * module remains free of Web Audio types.
  *
- * Returns 0 when any input is missing, which is honest — an unknown cost is not
- * a zero cost, and M2 must decide explicitly what to do with a track it cannot
- * price rather than inherit a silent default from here.
+ * Returns 0 when any input is missing, which is a sentinel — an unknown cost is
+ * not a zero cost, and the guard routes it to streaming explicitly.
  */
 export function estimateDecodedBytes(
   durationSec: number | null,

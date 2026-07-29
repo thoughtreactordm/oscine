@@ -304,6 +304,26 @@ describe('listTracks', () => {
     expect(result.tracks.map((track) => track.encodedBytes)).toEqual([1, 1, 1])
   })
 
+  it('looks up admission metadata by id without returning a filesystem path', async () => {
+    await seed()
+    const { tracks } = await service.listTracks({
+      sort: 'title',
+      direction: 'asc',
+      offset: 0,
+      limit: 1
+    })
+
+    const metadata = await service.getTrackAudioMetadata(tracks[0].id)
+
+    expect(metadata).toEqual({
+      durationSec: 300,
+      encodedBytes: 1,
+      channels: 2
+    })
+    expect(Object.keys(metadata!)).not.toContain('path')
+    expect(await service.getTrackAudioMetadata(999_999)).toBeNull()
+  })
+
   it('sorts descending, and by other columns', async () => {
     await seed()
 

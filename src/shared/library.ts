@@ -48,6 +48,20 @@ export interface Track {
   bitDepth: number | null
 }
 
+/**
+ * The metadata the audio engine needs before it decides whether fetching a
+ * whole file into the renderer is safe.
+ *
+ * Kept narrower than `Track`: admission does not need display tags, and a
+ * dedicated lookup lets `AudioEngine.load(trackId)` retain its id-only
+ * boundary when a track did not originate in the currently rendered page.
+ */
+export interface TrackAudioMetadata {
+  durationSec: number | null
+  encodedBytes: number
+  channels: number | null
+}
+
 export const TRACK_SORT_COLUMNS = ['trackNo', 'title', 'artist', 'album', 'durationSec'] as const
 export type TrackSortColumn = (typeof TRACK_SORT_COLUMNS)[number]
 

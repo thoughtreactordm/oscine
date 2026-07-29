@@ -75,7 +75,26 @@ export function registerTrackProtocol(library: LibraryService): void {
       return new Response('Not found', { status: 404 })
     }
 
-    // net.fetch streams the file and handles Range requests, which seeking needs.
-    return net.fetch(pathToFileURL(absolutePath).toString())
+    // Preserve a media element's Range request: seeking must not restart a
+    // long track from byte zero. Only the one relevant request header crosses
+    // to file:, rather than forwarding renderer-controlled headers wholesale.
+    const upstreamHeaders = new Headers()
+    const range = request.headers.get('range')
+    if (range) upstreamHeaders.set('range', range)
+    const upstream = await net.fetch(pathToFileURL(absolutePath).toString(), {
+      headers: upstreamHeaders
+    })
+
+    // The renderer and fermata: have different origins in development.
+    // Explicit CORS response headers keep MediaElementAudioSourceNode origin
+    // clean, so the graph is audible rather than silently producing zeros.
+    const headers = new Headers(upstream.headers)
+    headers.set('access-control-allow-origin', '*')
+    headers.set('access-control-expose-headers', 'accept-ranges, content-length, content-range')
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers
+    })
   })
 }

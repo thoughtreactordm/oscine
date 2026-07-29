@@ -61,6 +61,9 @@ const api = {
     listRoots: () => request('library.listRoots', null),
     scanRoot: (rootId: number) => request('library.scanRoot', { rootId }),
     listTracks: (query: ListTracksQuery) => request('library.listTracks', query),
+    /** Metadata-only lookup for the audio admission guard. */
+    getTrackAudioMetadata: (trackId: number) =>
+      request('library.getTrackAudioMetadata', { trackId }),
     /** Opaque `fermata://` URL for the track's bytes. Never a filesystem path. */
     getTrackFileUrl: (trackId: number) => request('library.getTrackFileUrl', { trackId }),
     onScanProgress: (listener: (progress: ScanProgress) => void) =>

@@ -7,7 +7,8 @@ import type {
   ListTracksQuery,
   ListTracksResult,
   ScanProgress,
-  ScanSummary
+  ScanSummary,
+  TrackAudioMetadata
 } from '@shared/library'
 import { readTrackTags, type MetadataReader } from './metadata'
 import { scanRoot } from './scanner'
@@ -119,6 +120,10 @@ export class SqliteLibraryService implements LibraryService {
 
   async listTracks(query: ListTracksQuery): Promise<ListTracksResult> {
     return this.store.listTracks(query)
+  }
+
+  async getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null> {
+    return this.store.getTrackAudioMetadata(trackId)
   }
 
   async resolveTrackPath(trackId: number): Promise<string | null> {

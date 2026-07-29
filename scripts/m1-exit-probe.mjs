@@ -319,7 +319,7 @@ for (const track of shortFixtures) {
     codec: track.codec,
     expectedDuration: track.durationSec,
     ...result,
-    decodeLog: (await logsSince(mark)).filter((l) => l.includes('[audio] R1'))
+    decodeLog: (await logsSince(mark)).filter((l) => l.includes('[audio] R1 track='))
   })
 }
 
@@ -361,7 +361,8 @@ record('step 5 — skip, scrub, pause', {
   paused: skips.paused,
   resumed: skips.resumed,
   decodesPerTransition:
-    (await logsSince(skipMark)).filter((l) => l.includes('[audio] R1')).length / skips.seen.length
+    (await logsSince(skipMark)).filter((l) => l.includes('[audio] R1 track=')).length /
+    skips.seen.length
 })
 
 if (indices.join(',') !== '2,3,4,5,6,5,4,3')
@@ -429,7 +430,7 @@ async function measureDecode(label, index) {
   sampling = false
   await sampler
 
-  const decodeLog = (await logsSince(mark)).find((l) => l.includes('[audio] R1')) ?? null
+  const decodeLog = (await logsSince(mark)).find((l) => l.includes('[audio] R1 track=')) ?? null
   const peak = Math.max(...samples, baseline)
   const settled = samples.at(-1) ?? baseline
   const chromiumPeak = (await appMetrics(main)).find((p) => p.type === 'Tab')?.peakKb ?? 0
@@ -578,7 +579,7 @@ const allLogs = await renderer.evaluate('return window.__probeLog')
 const complaints = allLogs.filter((l) => l.startsWith('warn:') || l.startsWith('error:'))
 record('cleanliness', {
   capturedLines: allLogs.length,
-  decodeLines: allLogs.filter((l) => l.includes('[audio] R1')).length,
+  decodeLines: allLogs.filter((l) => l.includes('[audio] R1 track=')).length,
   warningsAndErrors: complaints
 })
 if (complaints.length > 0) note(`${complaints.length} renderer warning(s)/error(s) — see report`)

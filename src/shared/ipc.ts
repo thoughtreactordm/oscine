@@ -3,7 +3,8 @@ import type {
   ListTracksQuery,
   ListTracksResult,
   ScanProgress,
-  ScanSummary
+  ScanSummary,
+  TrackAudioMetadata
 } from './library'
 
 /**
@@ -29,6 +30,15 @@ export interface IpcContract {
   'library.listRoots': { request: null; response: LibraryRoot[] }
   'library.scanRoot': { request: { rootId: number }; response: ScanSummary }
   'library.listTracks': { request: ListTracksQuery; response: ListTracksResult }
+  /**
+   * Supplies only the fields needed to price a decode. This is deliberately a
+   * separate metadata request: the R1 guard must decide before it fetches any
+   * track bytes.
+   */
+  'library.getTrackAudioMetadata': {
+    request: { trackId: number }
+    response: TrackAudioMetadata
+  }
   /**
    * Resolves a track id to an opaque `fermata://track/<id>` URL the renderer can
    * fetch. Never returns a filesystem path — see `docs`/the W1-3 card for the
@@ -69,6 +79,7 @@ export const IPC_CHANNELS = [
   'library.listRoots',
   'library.scanRoot',
   'library.listTracks',
+  'library.getTrackAudioMetadata',
   'library.getTrackFileUrl'
 ] as const satisfies readonly IpcChannel[]
 

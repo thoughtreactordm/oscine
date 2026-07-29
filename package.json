@@ -23,6 +23,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
     "probe:m1-exit": "node scripts/m1-exit-probe.mjs",
+    "probe:r1-fallback": "node scripts/r1-fallback-probe.mjs",
     "probe:fixture": "node scripts/make-probe-fixture.mjs"
   },
   "dependencies": {

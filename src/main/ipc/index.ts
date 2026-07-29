@@ -22,6 +22,15 @@ export function registerIpcHandlers(library: LibraryService): void {
 
   handle('library.listTracks', (request) => library.listTracks(assertListTracksQuery(request)))
 
+  handle('library.getTrackAudioMetadata', async (request) => {
+    const { trackId } = assertRecord(request, 'request')
+    const metadata = await library.getTrackAudioMetadata(assertPositiveInt(trackId, 'trackId'))
+    if (!metadata) {
+      throw new FermataError('not-found', 'That track is no longer in the library.')
+    }
+    return metadata
+  })
+
   handle('library.getTrackFileUrl', async (request) => {
     const { trackId } = assertRecord(request, 'request')
     const id = assertPositiveInt(trackId, 'trackId')
