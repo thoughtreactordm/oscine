@@ -1,25 +1,25 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { FermataError, library } from '@renderer/ipc'
-import { AudioEngineError, createAudioEngine, type AudioEngine, type PlaybackStatus } from '@renderer/audio'
+import NowPlaying from '@renderer/panels/NowPlaying.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
+import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
 import { useTrackListStore } from '@renderer/stores/trackList'
 import type { LibraryRoot, ScanProgress, Track } from '@shared/library'
 
-// Placeholder shell. The track list below is W4-1's real island; everything
-// around it is scaffolding that W4-2 replaces when it builds the three-pane
-// layout and the NowPlaying panel.
+// Placeholder shell, still. Two of the panels below are real islands now —
+// `TrackList` and `NowPlaying` — and the rest is scaffolding: the version card,
+// the roots list and the Add folder button all belong to a Sources panel that
+// does not exist yet. The three-pane layout is W4-3's.
 //
-// The transport controls below are a W3-1 verification harness, not a design.
-// The card's acceptance is behavioural — three codecs playing, seeking and
-// reporting duration — and none of it can be checked without something that
-// drives the engine. W4-2 deletes all of it and builds the real transport; what
-// should survive is the shape of the coupling, which is that this file imports
-// `createAudioEngine` and an `AudioEngine` handle and names no Web Audio type.
+// W3-1's transport harness lived here and is gone. What survives of it is the
+// shape of the coupling: this view names no audio type at all now, because the
+// engine sits behind the playback store and the transport is its own island.
 const shell = useShellStore()
 const versions = window.fermata.versions
 const trackList = useTrackListStore()
+const playback = usePlaybackStore()
 
 const roots = ref<LibraryRoot[]>([])
 const scan = ref<ScanProgress | null>(null)
@@ -30,36 +30,6 @@ const trackCount = computed(() => roots.value.reduce((total, root) => total + ro
 
 let stopListening: (() => void) | null = null
 
-// --- playback ------------------------------------------------------------
-
-// Deliberately NOT a `ref`. Vue's reactivity deep-proxies whatever it wraps,
-// and reading a `#private` field through a Proxy throws — the engine would blow
-// up on its first getter. It is not reactive data anyway; the refs below mirror
-// it from its events.
-let engine: AudioEngine | null = null
-let unsubscribes: Array<() => void> = []
-
-const status = ref<PlaybackStatus>('idle')
-const currentTime = ref(0)
-const duration = ref(0)
-const volume = ref(1)
-const nowPlaying = ref<Track | null>(null)
-const audioNotice = ref<string | null>(null)
-// While the scrub handle is held, timeupdate must not fight the user for the
-// slider's value.
-const scrubbing = ref(false)
-
-const isPlaying = computed(() => status.value === 'playing')
-const isBusy = computed(() => status.value === 'loading')
-const canPlay = computed(() => nowPlaying.value !== null && !isBusy.value)
-
-function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
-  const total = Math.floor(seconds)
-  const minutes = Math.floor(total / 60)
-  return `${minutes}:${String(total % 60).padStart(2, '0')}`
-}
-
 async function refreshRoots(): Promise<void> {
   try {
     roots.value = await library.listRoots()
@@ -68,46 +38,20 @@ async function refreshRoots(): Promise<void> {
   }
 }
 
-async function playTrack(track: Track): Promise<void> {
-  if (!engine) return
-  audioNotice.value = null
-  nowPlaying.value = track
-
-  try {
-    await engine.load(track.id)
-    await engine.play()
-  } catch (err) {
-    // `load` rejects *and* emits `error`, and the subscription below already
-    // turned that into a notice — handling both would double-report. The one
-    // case worth catching here is `aborted`, which is not a fault at all: it
-    // means a newer track was clicked while this one was still decoding.
-    if (err instanceof AudioEngineError && err.code === 'aborted') return
-  }
-}
-
-async function togglePlay(): Promise<void> {
-  if (!engine || !canPlay.value) return
-  if (isPlaying.value) engine.pause()
-  else await engine.play()
-}
-
-function onScrubStart(): void {
-  scrubbing.value = true
-}
-
-function onScrubInput(event: Event): void {
-  currentTime.value = Number((event.target as HTMLInputElement).value)
-}
-
-function onScrubEnd(): void {
-  engine?.seek(currentTime.value)
-  scrubbing.value = false
-}
-
-function onVolumeInput(event: Event): void {
-  const value = Number((event.target as HTMLInputElement).value)
-  volume.value = value
-  engine?.setVolume(value)
+/**
+ * Starts a row, handing the playback store the ordering the list is showing.
+ *
+ * This is the only place the two panels meet, and it is one call: the list
+ * says which row under which sort, and playback captures that as the order it
+ * will traverse. Neither panel holds a reference to the other.
+ */
+function playTrack(track: Track, index: number): void {
+  void playback.playFromList({
+    sort: trackList.sort,
+    direction: trackList.direction,
+    index,
+    track
+  })
 }
 
 onMounted(async () => {
@@ -123,42 +67,16 @@ onMounted(async () => {
     }
   })
 
-  engine = createAudioEngine()
-  unsubscribes = [
-    engine.on('statuschange', (next) => {
-      status.value = next
-      console.info(`[harness] status → ${next}`)
-    }),
-    engine.on('timeupdate', (position) => {
-      duration.value = position.duration
-      if (!scrubbing.value) currentTime.value = position.currentTime
-    }),
-    // M1 is one track at a time with a hard stop, so the end of a track is the
-    // end of playback. The queue that reacts to this arrives with M2.
-    //
-    // Logged because nothing else consumes it yet: an `ended` fired by a pause
-    // or a seek would be invisible in M1 and would then auto-advance M2's queue
-    // on every pause. This line is how that gets caught now instead of there.
-    engine.on('ended', (payload) => {
-      audioNotice.value = null
-      console.info(`[harness] ENDED track=${payload.trackId}`)
-    }),
-    engine.on('error', (err) => {
-      audioNotice.value = err.message
-    })
-  ]
-
   await refreshRoots()
 })
 
 onUnmounted(() => {
   // The bridge holds a listener on the main world; dropping this leaks it.
   stopListening?.()
-  for (const off of unsubscribes) off()
-  unsubscribes = []
-  // Releases the audio device and every listener the engine still holds.
-  engine?.dispose()
-  engine = null
+  // Releases the audio device and every listener the engine still holds. This
+  // sits here because this view is the app's only route, so its teardown is the
+  // app's; when the docking shell lands the lifetime moves up to the root.
+  playback.dispose()
 })
 
 async function addFolder(): Promise<void> {
@@ -188,8 +106,8 @@ async function addFolder(): Promise<void> {
       </div>
 
       <p class="text-muted">
-        Add a folder to index it, then pick a track to play. The transport below is a W3-1
-        verification harness — W4-1 replaces this whole view.
+        Add a folder to index it, then double-click a track to play it. Next and previous
+        follow the list's sort order as it was when playback started.
       </p>
 
       <UAlert
@@ -241,70 +159,7 @@ async function addFolder(): Promise<void> {
         </ul>
       </UCard>
 
-      <!-- Transport. W3-1 harness — see the note at the top of this file. -->
-      <UCard>
-        <div class="space-y-4">
-          <UAlert
-            v-if="audioNotice"
-            color="error"
-            variant="subtle"
-            icon="i-lucide-volume-x"
-            :description="audioNotice"
-          />
-
-          <div class="flex items-center gap-3">
-            <UButton
-              :icon="isPlaying ? 'i-lucide-pause' : 'i-lucide-play'"
-              :color="canPlay ? 'primary' : 'neutral'"
-              :loading="isBusy"
-              :disabled="!canPlay"
-              @click="togglePlay"
-            />
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm text-highlighted">
-                {{ nowPlaying?.title ?? 'Nothing loaded' }}
-              </p>
-              <p class="truncate text-xs text-muted">
-                {{ nowPlaying?.artist ?? '—' }} · {{ status }}
-              </p>
-            </div>
-            <span class="shrink-0 tabular-nums text-xs text-muted">
-              {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
-            </span>
-          </div>
-
-          <!-- Native range inputs, deliberately: this harness is temporary, and
-               a component's v-model semantics are one more thing that could be
-               wrong while diagnosing audio. W4-1 picks the real control. -->
-          <input
-            type="range"
-            class="w-full accent-primary"
-            min="0"
-            :max="duration || 1"
-            step="0.01"
-            :value="currentTime"
-            :disabled="!duration"
-            @pointerdown="onScrubStart"
-            @input="onScrubInput"
-            @change="onScrubEnd"
-            @pointerup="onScrubEnd"
-          />
-
-          <div class="flex items-center gap-3">
-            <UIcon name="i-lucide-volume-2" class="size-4 shrink-0 text-muted" />
-            <input
-              type="range"
-              class="w-40 accent-primary"
-              min="0"
-              max="1"
-              step="0.01"
-              :value="volume"
-              @input="onVolumeInput"
-            />
-            <span class="tabular-nums text-xs text-muted">{{ Math.round(volume * 100) }}%</span>
-          </div>
-        </div>
-      </UCard>
+      <NowPlaying />
 
       <!-- The island. Its height comes from here because a virtualized list
            needs a bounded viewport to virtualize against; nothing else about

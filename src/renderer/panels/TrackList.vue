@@ -19,7 +19,13 @@ import type { Track, TrackSortColumn } from '@shared/library'
 
 const emit = defineEmits<{
   select: [track: Track]
-  activate: [track: Track]
+  /**
+   * The row index rides along because it is the coordinate play order is
+   * expressed in. Letting the host read it back off the selection instead would
+   * work only for as long as activation always follows a click, which the Enter
+   * key already makes untrue.
+   */
+  activate: [track: Track, index: number]
 }>()
 
 const panel = useTrackListStore()
@@ -124,15 +130,16 @@ function onRowClick(index: number): void {
 
 function onRowActivate(index: number): void {
   const track = panel.rowAt(index)
-  if (track) emit('activate', track)
+  if (track) emit('activate', track, index)
 }
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Enter') {
     const track = panel.selectedTrack
-    if (!track) return
+    const index = panel.selectedIndex
+    if (!track || index === null) return
     event.preventDefault()
-    emit('activate', track)
+    emit('activate', track, index)
     return
   }
 
