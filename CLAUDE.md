@@ -37,6 +37,7 @@ W5 Playlists & Queue, W6 Packaging & Ops.
 | Seed test library | `npm run seed:synthetic` |
 | Mixed-format fixture | `npm run probe:fixture` (needs ffmpeg) |
 | M1 exit gate | `npm run probe:m1-exit` |
+| M2 exit gate | `npm run probe:m2-exit` (needs ffmpeg) |
 
 `lint`, `format:check`, `typecheck`, `test` and `build` are the pre-push gate, and
 `.github/workflows/ci.yml` runs all five on `ubuntu-latest` and `windows-latest`. Prettier owns
@@ -62,6 +63,19 @@ process inspector rather than from `/proc`, and the mixed-format fixture is synt
 scavenged from whatever library is to hand. That is the point: a gate whose two platforms are
 measured differently is not a gate. Anything it flags belongs in a triage card, not in a fix folded
 into the gate run.
+
+The M2 exit gate is self-contained and must be run from a clean commit on both platforms:
+
+```
+npm run probe:m2-exit
+```
+
+It runs the ordinary repository gate, synthesises an isolated lossless fixture library, launches
+the built app with a temporary user-data directory, and writes `m2-exit-<platform>.md` in the OS
+temporary directory. The isolated database is a safety property: the ReplayGain cancel/resume
+experiment must never enqueue the operator's library. Attach the Windows and Linux reports from
+the same commit to W6-4. `--skip-repo-gate --allow-dirty` is available only for developing the
+probe; a report carrying either condition is not milestone evidence.
 
 ## Context discipline
 

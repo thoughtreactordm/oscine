@@ -23,9 +23,11 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
     "probe:m1-exit": "node scripts/m1-exit-probe.mjs",
+    "probe:m2-exit": "node scripts/m2-exit-probe.mjs",
     "probe:r1-fallback": "node scripts/r1-fallback-probe.mjs",
     "probe:replaygain": "node scripts/replaygain-worker-probe.mjs",
-    "probe:fixture": "node scripts/make-probe-fixture.mjs"
+    "probe:fixture": "node scripts/make-probe-fixture.mjs",
+    "probe:m2-fixture": "node scripts/make-m2-probe-fixture.mjs"
   },
   "dependencies": {
     "@nuxt/ui": "^4.10.0",
