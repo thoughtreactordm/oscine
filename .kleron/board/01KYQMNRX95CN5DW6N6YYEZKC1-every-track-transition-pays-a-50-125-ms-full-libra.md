@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQMNRX95CN5DW6N6YYEZKC1
 title: Every track transition pays a 50–125 ms full-library sort query at 100k tracks
-status: todo
+status: in-review
 priority: high
 labels:
   - M2
@@ -13,7 +13,7 @@ workstream: W2
 workstreamId: W2-3
 order: 0
 created: '2026-07-29T19:12:28.513Z'
-updated: '2026-07-29T15:52:30.411Z'
+updated: '2026-07-29T16:12:00.000Z'
 ---
 Found by the M1 exit gate (W6-3) on Windows, 2026-07-29. **Not a Windows defect** —
 a scale defect that the Windows run was the first to be in a position to see,
@@ -88,3 +88,34 @@ blocking cost into a background one.
 
 Worth a regression test at 100k, since this is exactly the class of problem that
 does not reproduce on a developer-sized library.
+
+---
+
+# Outcome — in review
+
+The transition lookup keeps its existing renderer contract, but the main-process
+query no longer sorts or projects the whole library to resolve one position.
+
+- Migration 2 adds exact ascending/descending expression indexes for title,
+  duration, and disc/track number, including nulls-last and the stable id
+  tie-breaker.
+- Artist and album queries now start from their case-folded dimension index and
+  find tracks through the existing foreign-key indexes. Untagged rows are read as
+  a separate id-ordered tail, preserving nulls-last in both directions.
+- Pagination first walks only ids through covering indexes. Artist/album joins
+  and the full `Track` projection run only for the requested page, not for every
+  row skipped by `OFFSET`.
+
+Median of 7 on the local 102,970-row fixture at offset 95,000, `limit: 1`:
+
+| query family | before | after |
+|---|---:|---:|
+| title / duration / track number | 43–52 ms | 0.33–0.96 ms |
+| artist | ~40 ms | 6.75–6.78 ms |
+| album | ~89 ms | 8.50–8.63 ms |
+
+The new 100k regression exercises all five columns in both directions at a deep
+offset. Migration-from-v1, joined-sort ties, root scoping, null-tail boundary
+pages, and nulls-last in both directions are covered separately.
+
+Verification: 236 tests, both TypeScript projects, ESLint, and Prettier all pass.
