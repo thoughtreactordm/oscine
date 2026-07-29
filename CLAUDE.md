@@ -28,14 +28,24 @@ W5 Playlists & Queue, W6 Packaging & Ops.
 | Task | Command |
 |---|---|
 | Dev | `npm run dev` (electron-vite, HMR) · `npm run dev:raw` for unfiltered Chromium stderr |
+| Lint | `npm run lint` (ESLint, warnings are errors) · `npm run lint:fix` |
+| Format | `npm run format` (Prettier) · `npm run format:check` |
 | Test | `npm test` (Vitest) · `npm run test:watch` |
 | Typecheck | `npm run typecheck` (`tsc` for node, `vue-tsc` for web) |
 | Build | `npm run build` (typechecks first) |
 | Native ABI check | `npm run verify:native` |
 | Seed test library | `npm run seed:synthetic` |
 
-**There is no `lint` script, deliberately.** `typecheck` is the pre-push gate. The global pre-push
-hook will report lint as missing; that is expected, not a broken setup.
+`lint`, `format:check`, `typecheck`, `test` and `build` are the pre-push gate, and
+`.github/workflows/ci.yml` runs all five on `ubuntu-latest` and `windows-latest`. Prettier owns
+formatting and ESLint owns everything else — `eslint-config-prettier` is last in the flat config so
+the two never argue. Markdown and `.kleron/` are outside Prettier's reach on purpose; prose here is
+hand-wrapped.
+
+`fermata/no-windows-path-literals` (`tools/eslint/`) enforces the path invariant below across
+`src/`: no backslash separators, no hand-rolled path concatenation. It is off under `tests/`, where
+literal Windows paths are the fixtures. `tests/tooling/pathPortability.test.ts` lints broken paths
+through the real config on every run, so the rule cannot quietly stop being wired up.
 
 ## Context discipline
 

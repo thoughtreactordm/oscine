@@ -134,7 +134,7 @@ if (!app.requestSingleInstanceLock()) {
       const opened = openDatabase(filePath)
       db = opened.db
       const { from, to, applied } = opened.migration
-      console.log(
+      console.info(
         applied.length === 0
           ? `[db] ${filePath} — schema v${to}, up to date`
           : `[db] ${filePath} — migrated v${from} to v${to} (${applied
