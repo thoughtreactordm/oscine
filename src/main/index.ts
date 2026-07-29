@@ -2,9 +2,9 @@ import { app, BrowserWindow, dialog, shell } from 'electron'
 import type BetterSqlite3 from 'better-sqlite3'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { ReplayGainJobProgress, ScanProgress } from '@shared/library'
+import type { LibraryNotice, ReplayGainJobProgress, ScanProgress } from '@shared/library'
 import { openDatabase } from './db'
-import { libraryDatabasePath } from './db/location'
+import { artworkCachePath, libraryDatabasePath } from './db/location'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { SqliteLibraryService } from './library/sqliteService'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
@@ -49,6 +49,10 @@ function broadcastReplayGainProgress(progress: ReplayGainJobProgress): void {
   if (mainWindow) emit(mainWindow.webContents, 'library.replayGainProgress', progress)
 }
 
+function broadcastLibraryNotice(notice: LibraryNotice): void {
+  if (mainWindow) emit(mainWindow.webContents, 'library.notice', notice)
+}
+
 /**
  * The one URL the renderer is ever served from: the dev server in development,
  * the packaged HTML on disk otherwise. Used both to load the window and to
@@ -66,6 +70,7 @@ function createWindow(): BrowserWindow {
     minWidth: 940,
     minHeight: 600,
     show: false,
+    frame: false,
     autoHideMenuBar: true,
     // Matches the dark surface token so launch does not flash white.
     backgroundColor: '#0a0a0a',
@@ -158,8 +163,10 @@ if (!app.requestSingleInstanceLock()) {
 
     const library = new SqliteLibraryService({
       db,
+      artworkCacheDir: artworkCachePath(),
       pickFolder: pickMusicFolder,
       onProgress: broadcastScanProgress,
+      onNotice: broadcastLibraryNotice,
       onReplayGainProgress: broadcastReplayGainProgress
     })
 
@@ -186,10 +193,19 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     setTrustedRendererUrl(rendererUrl)
-    registerTrackProtocol(library)
+    registerTrackProtocol(library, artworkCachePath())
     registerIpcHandlers(library)
 
     mainWindow = createWindow()
+    mainWindow.on('maximize', () => {
+      if (mainWindow) emit(mainWindow.webContents, 'window.maximizedChange', true)
+    })
+    mainWindow.on('unmaximize', () => {
+      if (mainWindow) emit(mainWindow.webContents, 'window.maximizedChange', false)
+    })
+    void library.initialize().catch((error: unknown) => {
+      console.error('[scan] startup reconciliation failed:', error)
+    })
     mainWindow.on('closed', () => {
       mainWindow = null
     })

@@ -1,9 +1,11 @@
 import { basename } from 'node:path'
+import { stat } from 'node:fs/promises'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import type { ScanProgress, ScanSummary } from '@shared/library'
+import { toRelPath } from '../db/paths'
 import type { MetadataReader, TrackTags } from './metadata'
 import type { LibraryStore, RootRow, ScannedTrack } from './store'
-import { walkAudioFiles, type AudioFile } from './walk'
+import { hasSupportedExtension, walkAudioFiles, walkAudioFilesFrom, type AudioFile } from './walk'
 
 /**
  * The scan: a folder on disk becomes rows in the database.
@@ -41,6 +43,16 @@ const PROGRESS_INTERVAL_MS = 120
 export interface ScanDeps {
   readMetadata: MetadataReader
   onProgress?: (progress: ScanProgress) => void
+  /** Album ids whose candidate tracks changed, for bounded artwork reconciliation. */
+  onAlbumsChanged?: (albumIds: ReadonlySet<number>) => void
+  /**
+   * Skip metadata parsing when the stored mtime/size pair still matches.
+   *
+   * Startup reconciliation enables this. An explicit user rescan remains a
+   * force-reparse operation, which is useful when tags changed on a filesystem
+   * whose timestamp resolution did not.
+   */
+  incremental?: boolean
   /** Injectable so tests can drive the progress throttle deterministically. */
   now?: () => number
 }
@@ -107,6 +119,9 @@ export async function scanRoot(
   let filesSkipped = 0
   let currentFile: string | null = null
   let lastEmitAt = 0
+  const stored = new Map(store.listTrackFiles(root.id).map((file) => [file.relPath, file]))
+  const seen = new Set<string>()
+  const protectedPrefixes = new Set<string>()
 
   const report = (done: boolean, force = false): void => {
     if (!deps.onProgress) return
@@ -127,6 +142,15 @@ export async function scanRoot(
   const noteSkipped = (context: string, error: unknown): void => {
     filesSkipped++
     console.warn(`[scan] skipped ${context}: ${describe(error)}`)
+  }
+
+  const noteWalkError = (context: string, error: unknown): void => {
+    noteSkipped(context, error)
+    // A failed directory traversal is not evidence that all of its stored
+    // tracks vanished. Protect the affected path (or the whole root) from the
+    // deletion pass and let a later startup/event reconcile it.
+    const relPath = toRelPath(root.path, context)
+    protectedPrefixes.add(relPath ?? '')
   }
 
   let batch: AudioFile[] = []
@@ -156,7 +180,8 @@ export async function scanRoot(
     })
 
     const indexed = parsed.filter((entry): entry is ScannedTrack => entry !== null)
-    store.writeTracks(root.id, indexed)
+    const changedAlbums = store.writeTracks(root.id, indexed)
+    deps.onAlbumsChanged?.(changedAlbums)
     tracksIndexed += indexed.length
 
     report(false)
@@ -172,12 +197,32 @@ export async function scanRoot(
     // before the first batch has finished parsing.
     report(false, true)
 
-    for await (const file of walkAudioFiles(root.path, noteSkipped)) {
+    for await (const file of walkAudioFiles(root.path, noteWalkError)) {
       filesSeen++
+      seen.add(file.relPath)
+      const previous = stored.get(file.relPath)
+      if (
+        deps.incremental &&
+        previous &&
+        previous.mtime === file.mtime &&
+        previous.size === file.size
+      ) {
+        continue
+      }
       batch.push(file)
       if (batch.length >= BATCH_SIZE) await flush()
     }
     await flush()
+
+    const vanished = [...stored.keys()].filter(
+      (relPath) =>
+        !seen.has(relPath) &&
+        ![...protectedPrefixes].some(
+          (prefix) => prefix === '' || relPath === prefix || relPath.startsWith(`${prefix}/`)
+        )
+    )
+    const changedAlbums = store.deleteTracks(root.id, vanished)
+    deps.onAlbumsChanged?.(changedAlbums)
 
     const finishedAtMs = now()
     store.markScanned(root.id, finishedAtMs)
@@ -195,6 +240,162 @@ export async function scanRoot(
     // Without it, a scan that throws leaves a spinner running forever.
     report(true)
   }
+}
+
+/**
+ * Reconciles only paths named by a coalesced watcher burst.
+ *
+ * A path may be a file, a newly-created directory, or a vanished former file
+ * or directory. Directory scopes include their descendants; overlapping
+ * scopes are collapsed so a rename storm never parses the same file twice.
+ */
+export async function reconcilePaths(
+  store: LibraryStore,
+  root: Pick<RootRow, 'id' | 'path'>,
+  absPaths: readonly string[],
+  deps: ScanDeps
+): Promise<ScanSummary> {
+  const now = deps.now ?? Date.now
+  const startedAtMs = now()
+  let tracksIndexed = 0
+  let filesSkipped = 0
+
+  const scopes = collapseScopes(
+    absPaths
+      .map((absPath) => ({
+        absPath,
+        relPath: absPath === root.path ? '' : toRelPath(root.path, absPath)
+      }))
+      .filter((scope): scope is { absPath: string; relPath: string } => scope.relPath !== null)
+  )
+  const stored = store.listTrackFiles(root.id)
+  const affected = stored.filter((file) =>
+    scopes.some((scope) => inScope(file.relPath, scope.relPath))
+  )
+  const found = new Map<string, AudioFile>()
+  const forceParse = new Set<string>()
+  const protectedPrefixes = new Set<string>()
+
+  const noteError = (context: string, error: unknown): void => {
+    filesSkipped++
+    const relPath = context === root.path ? '' : toRelPath(root.path, context)
+    if (relPath !== null) protectedPrefixes.add(relPath)
+    console.warn(`[watch] skipped ${context}: ${describe(error)}`)
+  }
+
+  for (const scope of scopes) {
+    try {
+      const info = await stat(scope.absPath)
+      if (info.isDirectory()) {
+        for await (const file of walkAudioFilesFrom(root.path, scope.absPath, noteError)) {
+          found.set(file.relPath, file)
+        }
+      } else if (
+        info.isFile() &&
+        !basename(scope.absPath).startsWith('.') &&
+        hasSupportedExtension(scope.absPath)
+      ) {
+        forceParse.add(scope.relPath)
+        found.set(scope.relPath, {
+          absPath: scope.absPath,
+          relPath: scope.relPath,
+          mtime: Math.floor(info.mtimeMs),
+          size: info.size
+        })
+      }
+    } catch (error) {
+      // ENOENT is the normal delete/rename half of a watcher burst. Any other
+      // failure is recoverable and protects the old row until a later event.
+      if (!hasErrorCode(error, 'ENOENT')) noteError(scope.absPath, error)
+    }
+  }
+
+  const filesSeen = found.size
+  const previous = new Map(stored.map((file) => [file.relPath, file]))
+  const changed = [...found.values()].filter((file) => {
+    const old = previous.get(file.relPath)
+    return (
+      forceParse.has(file.relPath) || !old || old.mtime !== file.mtime || old.size !== file.size
+    )
+  })
+
+  for (let offset = 0; offset < changed.length; offset += BATCH_SIZE) {
+    const pending = changed.slice(offset, offset + BATCH_SIZE)
+    const parsed = await mapPool(pending, PARSE_CONCURRENCY, async (file) => {
+      try {
+        const tags = await deps.readMetadata(file.absPath)
+        if (!describesAudio(tags)) {
+          filesSkipped++
+          console.warn(`[watch] skipped ${file.relPath}: no audio stream found`)
+          return null
+        }
+        return { file, tags } satisfies ScannedTrack
+      } catch (error) {
+        filesSkipped++
+        console.warn(`[watch] skipped ${file.relPath}: ${describe(error)}`)
+        return null
+      }
+    })
+    const indexed = parsed.filter((entry): entry is ScannedTrack => entry !== null)
+    const changedAlbums = store.writeTracks(root.id, indexed)
+    deps.onAlbumsChanged?.(changedAlbums)
+    tracksIndexed += indexed.length
+    await yieldToEventLoop()
+  }
+
+  const vanished = affected
+    .filter((file) => !found.has(file.relPath))
+    .filter(
+      (file) =>
+        ![...protectedPrefixes].some(
+          (prefix) => file.relPath === prefix || file.relPath.startsWith(`${prefix}/`)
+        )
+    )
+    .map((file) => file.relPath)
+  const changedAlbums = store.deleteTracks(root.id, vanished)
+  deps.onAlbumsChanged?.(changedAlbums)
+
+  const finishedAtMs = now()
+  const progress: ScanProgress = {
+    rootId: root.id,
+    filesSeen,
+    tracksIndexed,
+    currentFile: null,
+    done: true
+  }
+  deps.onProgress?.(progress)
+  return {
+    rootId: root.id,
+    filesSeen,
+    tracksIndexed,
+    filesSkipped,
+    startedAt: new Date(startedAtMs).toISOString(),
+    finishedAt: new Date(finishedAtMs).toISOString()
+  }
+}
+
+function collapseScopes(
+  scopes: Array<{ absPath: string; relPath: string }>
+): Array<{ absPath: string; relPath: string }> {
+  return scopes
+    .sort((a, b) => a.relPath.length - b.relPath.length)
+    .filter(
+      (scope, index, all) =>
+        !all.slice(0, index).some((parent) => inScope(scope.relPath, parent.relPath))
+    )
+}
+
+function inScope(relPath: string, scope: string): boolean {
+  return scope === '' || relPath === scope || relPath.startsWith(`${scope}/`)
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === code
+  )
 }
 
 function describe(error: unknown): string {

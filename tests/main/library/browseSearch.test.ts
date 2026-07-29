@@ -188,7 +188,11 @@ describe('library browse and infix search', () => {
           title: 'A Night at the Opera',
           albumArtist: 'Queen',
           year: 1975,
-          trackCount: 2
+          trackCount: 2,
+          artwork: {
+            small: 'fermata://artwork/missing/small',
+            large: 'fermata://artwork/missing/large'
+          }
         }
       ]
     })
@@ -199,6 +203,37 @@ describe('library browse and infix search', () => {
       limit: 100
     })
     expect(searched.artists.map((artist) => artist.id)).toEqual([ids.other, ids.queen])
+  })
+
+  it('groups featured performers under the album artist', async () => {
+    const featuredArtist = insertId(
+      opened.db.prepare('INSERT INTO artists(name) VALUES (?)').run('Queen feat. David Bowie')
+    )
+    opened.db
+      .prepare(
+        `INSERT INTO tracks(
+           root_id, rel_path, mtime, size, title, artist_id, album_id, track_no, disc_no
+         ) VALUES (?, ?, 1, 100, ?, ?, ?, ?, 1)`
+      )
+      .run(ids.rootOne, 'queen/pressure.flac', 'Under Pressure', featuredArtist, ids.opera, 3)
+
+    const artists = await service.listArtists({ offset: 0, limit: 100 })
+    expect(artists.artists).toEqual([
+      { id: ids.other, name: 'Other Artist', trackCount: 1 },
+      { id: ids.queen, name: 'Queen', trackCount: 3 },
+      { id: ids.sigur, name: 'Sigur Rós', trackCount: 1 }
+    ])
+
+    const queenTracks = await service.listTracks({
+      ...window,
+      artistId: ids.queen
+    })
+    expect(queenTracks.tracks.map((track) => track.title)).toEqual([
+      'Bohemian Rhapsody',
+      'Love of My Life',
+      'Under Pressure'
+    ])
+    expect(queenTracks.tracks.at(-1)?.artist).toBe('Queen feat. David Bowie')
   })
 
   it('updates and deletes FTS rows in the same transaction as track metadata', async () => {

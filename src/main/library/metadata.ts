@@ -41,6 +41,17 @@ export interface TrackTags {
 /** Injection seam: the scanner takes one of these rather than importing a parser. */
 export type MetadataReader = (absPath: string) => Promise<TrackTags>
 
+export interface EmbeddedArtwork {
+  /** Parser order, retained as the deterministic tiebreaker after cover type. */
+  index: number
+  format: string
+  type: string | null
+  bytes: Uint8Array
+}
+
+/** Injection seam for artwork reconciliation and malformed-image tests. */
+export type EmbeddedArtworkReader = (absPath: string) => Promise<EmbeddedArtwork[]>
+
 /** Trimmed, with blank and whitespace-only tags treated as absent. */
 function text(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -163,3 +174,28 @@ export function toTrackTags(metadata: IAudioMetadata): TrackTags {
  */
 export const readTrackTags: MetadataReader = async (absPath) =>
   toTrackTags(await parseFile(absPath, { duration: true, skipCovers: true }))
+
+/**
+ * Reads embedded pictures without making them part of every track parse.
+ *
+ * Album reconciliation calls this only for deterministic candidate tracks.
+ * Front covers sort first and parser order breaks ties, so identical library
+ * contents select the same bytes on every platform. Image decoding remains the
+ * artwork worker's job: an advertised MIME type is not proof that bytes form a
+ * valid image.
+ */
+export const readEmbeddedArtwork: EmbeddedArtworkReader = async (absPath) => {
+  const metadata = await parseFile(absPath, { duration: false, skipCovers: false })
+  return (metadata.common.picture ?? [])
+    .map((picture, index) => ({
+      index,
+      format: picture.format,
+      type: picture.type ?? null,
+      bytes: picture.data
+    }))
+    .sort((a, b) => coverRank(a.type) - coverRank(b.type) || a.index - b.index)
+}
+
+function coverRank(type: string | null): number {
+  return type?.toLowerCase().includes('front') ? 0 : 1
+}

@@ -1,8 +1,10 @@
 import type {
+  ArtworkVariant,
   ListAlbumsResult,
   ListArtistsResult,
   ListFacetsQuery,
   LibraryRoot,
+  LibraryNotice,
   ListTracksQuery,
   ListTracksResult,
   ReplayGainJobProgress,
@@ -29,6 +31,11 @@ import type {
  * cloning unambiguously and keeps the call sites uniform.
  */
 export interface IpcContract {
+  /** Controls for Fermata's frameless application window. */
+  'window.minimize': { request: null; response: null }
+  'window.toggleMaximize': { request: null; response: boolean }
+  'window.isMaximized': { request: null; response: boolean }
+  'window.close': { request: null; response: null }
   /** Opens a native folder picker in main. Resolves `null` if the user cancels. */
   'library.addRoot': { request: null; response: LibraryRoot | null }
   'library.listRoots': { request: null; response: LibraryRoot[] }
@@ -77,7 +84,9 @@ export type IpcResponse<C extends IpcChannel> = IpcContract[C]['response']
  * pressure is how this boundary gets widened badly.
  */
 export interface IpcEventContract {
+  'window.maximizedChange': boolean
   'library.scanProgress': ScanProgress
+  'library.notice': LibraryNotice
   'library.replayGainProgress': ReplayGainJobProgress
 }
 
@@ -92,6 +101,10 @@ export type IpcEventPayload<E extends IpcEventChannel> = IpcEventContract[E]
  * that no channel was left unhandled.
  */
 export const IPC_CHANNELS = [
+  'window.minimize',
+  'window.toggleMaximize',
+  'window.isMaximized',
+  'window.close',
   'library.addRoot',
   'library.listRoots',
   'library.scanRoot',
@@ -107,7 +120,9 @@ export const IPC_CHANNELS = [
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [
+  'window.maximizedChange',
   'library.scanProgress',
+  'library.notice',
   'library.replayGainProgress'
 ] as const satisfies readonly IpcEventChannel[]
 
@@ -133,4 +148,12 @@ export const TRACK_SCHEME = 'fermata'
  */
 export function trackUrl(trackId: number): string {
   return `${TRACK_SCHEME}://track/${trackId}`
+}
+
+/**
+ * Builds a closed artwork route. `missing` is a real route backed by the
+ * built-in placeholder, so views never need a filesystem path or data payload.
+ */
+export function artworkUrl(hash: string | null, variant: ArtworkVariant): string {
+  return `${TRACK_SCHEME}://artwork/${hash ?? 'missing'}/${variant}`
 }

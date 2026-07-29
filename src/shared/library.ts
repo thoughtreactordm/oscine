@@ -18,6 +18,17 @@ export interface LibraryRoot {
   /** ISO 8601, UTC. */
   addedAt: string
   trackCount: number
+  watchMode: LibraryWatchMode
+}
+
+export type LibraryWatchMode = 'starting' | 'live' | 'startup-scan-only'
+
+/** A typed, user-visible lifecycle finding pushed by main. */
+export interface LibraryNotice {
+  kind: 'watch-degraded'
+  rootId: number
+  code: 'ENOSPC'
+  message: string
 }
 
 /** Where persisted ReplayGain values came from. */
@@ -65,6 +76,7 @@ export interface Track extends TrackReplayGain {
   sampleRateHz: number | null
   channels: number | null
   bitDepth: number | null
+  artwork: ArtworkUrls
 }
 
 /**
@@ -86,6 +98,14 @@ export type TrackSortColumn = (typeof TRACK_SORT_COLUMNS)[number]
 
 export type SortDirection = 'asc' | 'desc'
 
+export type ArtworkVariant = 'small' | 'large'
+
+/** Opaque display URLs. No source bytes or cache paths cross the boundary. */
+export interface ArtworkUrls {
+  small: string
+  large: string
+}
+
 /**
  * Filters shared by every library browser query.
  *
@@ -94,6 +114,7 @@ export type SortDirection = 'asc' | 'desc'
  */
 export interface LibraryBrowseFilters {
   rootId?: number
+  /** Album artist identity, falling back to track artist for loose tracks. */
   artistId?: number
   albumId?: number
   /**
@@ -152,6 +173,7 @@ export interface AlbumFacet {
   albumArtist: string | null
   year: number | null
   trackCount: number
+  artwork: ArtworkUrls
 }
 
 export interface ListFacetsQuery extends LibraryBrowseFilters {

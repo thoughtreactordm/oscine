@@ -90,6 +90,72 @@ export async function* walkAudioFiles(
   yield* walkDirectory(rootPath, rootPath, new Set<string>(), onError)
 }
 
+/** Walks one subtree while retaining paths relative to the registered root. */
+export async function* walkAudioFilesFrom(
+  rootPath: string,
+  startPath: string,
+  onError: WalkErrorHandler = () => {}
+): AsyncGenerator<AudioFile> {
+  yield* walkDirectory(rootPath, startPath, new Set<string>(), onError)
+}
+
+/**
+ * Enumerates watch targets. There is one native handle per directory, never
+ * per track, which keeps Linux inotify consumption proportional to the folder
+ * tree rather than the size of the music collection.
+ */
+export async function listLibraryDirectories(
+  rootPath: string,
+  onError: WalkErrorHandler = () => {}
+): Promise<string[]> {
+  const directories: string[] = []
+  await collectDirectories(rootPath, new Set<string>(), directories, onError)
+  return directories
+}
+
+async function collectDirectories(
+  dirPath: string,
+  visited: Set<string>,
+  directories: string[],
+  onError: WalkErrorHandler
+): Promise<void> {
+  let realDirPath: string
+  try {
+    realDirPath = await realpath(dirPath)
+  } catch (error) {
+    onError(dirPath, error)
+    return
+  }
+  if (visited.has(realDirPath)) return
+  visited.add(realDirPath)
+
+  let entries: Dirent[]
+  try {
+    entries = await readdir(dirPath, { withFileTypes: true })
+  } catch (error) {
+    onError(dirPath, error)
+    return
+  }
+  directories.push(dirPath)
+
+  for (const entry of entries) {
+    if (isSkippedDirectory(entry.name)) continue
+    const childPath = join(dirPath, entry.name)
+    let isDirectory = entry.isDirectory()
+    if (entry.isSymbolicLink()) {
+      try {
+        isDirectory = (await stat(childPath)).isDirectory()
+      } catch (error) {
+        onError(childPath, error)
+        continue
+      }
+    }
+    if (isDirectory) {
+      await collectDirectories(childPath, visited, directories, onError)
+    }
+  }
+}
+
 async function* walkDirectory(
   rootPath: string,
   dirPath: string,

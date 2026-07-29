@@ -1,9 +1,11 @@
 import type Database from 'better-sqlite3'
 import { stat } from 'node:fs/promises'
-import { basename, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { FermataError } from '@shared/errors'
 import type {
   LibraryRoot,
+  LibraryNotice,
+  LibraryWatchMode,
   ListAlbumsResult,
   ListArtistsResult,
   ListFacetsQuery,
@@ -15,11 +17,16 @@ import type {
   TrackAudioMetadata
 } from '@shared/library'
 import { readTrackTags, type MetadataReader } from './metadata'
-import { scanRoot } from './scanner'
+import type { EmbeddedArtworkReader } from './metadata'
+import { reconcilePaths, scanRoot } from './scanner'
 import { LibraryStore, type RootConflict, type RootRow } from './store'
+import { ArtworkCacheService, isArtworkSidecarPath } from './artwork'
+import type { ArtworkImageProcessor } from './artworkProcessor'
+import { RootDirectoryWatcher, type DirectoryWatchAdapter, type WatchMode } from './watcher'
 import type { LibraryService } from './service'
 import type { ReplayGainAnalyzer } from '../replaygain/analyzer'
 import { ReplayGainJobService } from '../replaygain/jobService'
+import { toRelPath } from '../db/paths'
 
 /**
  * The database-backed library.
@@ -37,8 +44,18 @@ export interface SqliteLibraryDeps {
   onProgress: (progress: ScanProgress) => void
   /** Pushes durable ReplayGain job progress at the renderer. */
   onReplayGainProgress?: (progress: ReplayGainJobProgress) => void
+  /** Pushes actionable lifecycle findings at the renderer. */
+  onNotice?: (notice: LibraryNotice) => void
   /** Overridable so tests need no audio files. */
   readMetadata?: MetadataReader
+  /** Enables the derived artwork service. Omitted by tests that do not exercise it. */
+  artworkCacheDir?: string
+  readArtwork?: EmbeddedArtworkReader
+  artworkProcessor?: ArtworkImageProcessor
+  /** Cross-platform watcher test seam. */
+  watchAdapter?: DirectoryWatchAdapter
+  watchDebounceMs?: number
+  watchSettleMs?: number
   /** Test seam; production uses the packaged worker-thread adapter. */
   createReplayGainAnalyzer?: () => ReplayGainAnalyzer
 }
@@ -56,12 +73,13 @@ function conflictMessage(conflict: RootConflict): string {
   }
 }
 
-function toLibraryRoot(row: RootRow): LibraryRoot {
+function toLibraryRoot(row: RootRow, watchMode: LibraryWatchMode): LibraryRoot {
   return {
     id: row.id,
     path: row.path,
     addedAt: new Date(row.addedAt).toISOString(),
-    trackCount: row.trackCount
+    trackCount: row.trackCount,
+    watchMode
   }
 }
 
@@ -69,6 +87,14 @@ export class SqliteLibraryService implements LibraryService {
   private readonly store: LibraryStore
   private readonly readMetadata: MetadataReader
   private readonly replayGain: ReplayGainJobService
+  private readonly watcher: RootDirectoryWatcher
+  private readonly artwork: ArtworkCacheService | null
+  private readonly watchModes = new Map<number, LibraryWatchMode>()
+  private readonly degradedRoots = new Set<number>()
+  private readonly watchQueues = new Map<number, Promise<void>>()
+  private artworkQueue: Promise<void> = Promise.resolve()
+  private initialized = false
+  private closing = false
 
   /**
    * Scans currently running, keyed by root.
@@ -84,11 +110,44 @@ export class SqliteLibraryService implements LibraryService {
   constructor(private readonly deps: SqliteLibraryDeps) {
     this.store = new LibraryStore(deps.db)
     this.readMetadata = deps.readMetadata ?? readTrackTags
+    this.artwork = deps.artworkCacheDir
+      ? new ArtworkCacheService({
+          store: this.store,
+          cacheDir: deps.artworkCacheDir,
+          ...(deps.readArtwork ? { readArtwork: deps.readArtwork } : {}),
+          ...(deps.artworkProcessor ? { processor: deps.artworkProcessor } : {})
+        })
+      : null
     this.replayGain = new ReplayGainJobService({
       db: deps.db,
       onProgress: deps.onReplayGainProgress ?? (() => {}),
       ...(deps.createReplayGainAnalyzer ? { createAnalyzer: deps.createReplayGainAnalyzer } : {})
     })
+    this.watcher = new RootDirectoryWatcher({
+      ...(deps.watchAdapter ? { adapter: deps.watchAdapter } : {}),
+      ...(deps.watchDebounceMs !== undefined ? { debounceMs: deps.watchDebounceMs } : {}),
+      ...(deps.watchSettleMs !== undefined ? { settleMs: deps.watchSettleMs } : {}),
+      onPaths: (rootId, paths) => this.queueWatchReconcile(rootId, paths),
+      onModeChange: (rootId, mode, error) => this.setWatchMode(rootId, mode, error),
+      onFinding: ({ rootId, path, error }) => {
+        console.warn(`[watch] root ${rootId} skipped ${path}:`, error)
+      }
+    })
+  }
+
+  /**
+   * Performs the cheap startup reconciliation, then attaches live watchers.
+   * Idempotent so application lifecycle wiring cannot duplicate subscriptions.
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return
+    this.initialized = true
+    await Promise.all(
+      this.store.listRoots().map(async (root) => {
+        this.watchModes.set(root.id, 'starting')
+        await this.startScan(root.id, true)
+      })
+    )
   }
 
   async addRoot(): Promise<LibraryRoot | null> {
@@ -123,11 +182,13 @@ export class SqliteLibraryService implements LibraryService {
       console.error(`[scan] root ${root.id} failed:`, error)
     })
 
-    return toLibraryRoot(root)
+    return toLibraryRoot(root, 'starting')
   }
 
   async listRoots(): Promise<LibraryRoot[]> {
-    return this.store.listRoots().map(toLibraryRoot)
+    return this.store
+      .listRoots()
+      .map((root) => toLibraryRoot(root, this.watchModes.get(root.id) ?? 'starting'))
   }
 
   async scanRoot(rootId: number): Promise<ScanSummary> {
@@ -171,10 +232,15 @@ export class SqliteLibraryService implements LibraryService {
   }
 
   async close(): Promise<void> {
+    this.closing = true
+    this.watcher.close()
+    await Promise.allSettled([...this.inFlight.values(), ...this.watchQueues.values()])
+    await this.artworkQueue.catch(() => {})
+    await this.artwork?.close()
     await this.replayGain.close()
   }
 
-  private startScan(rootId: number): Promise<ScanSummary> {
+  private startScan(rootId: number, incremental = false): Promise<ScanSummary> {
     const running = this.inFlight.get(rootId)
     if (running) return running
 
@@ -185,14 +251,126 @@ export class SqliteLibraryService implements LibraryService {
       )
     }
 
+    if (this.initialized) {
+      this.watcher.stopRoot(rootId)
+      this.watchModes.set(rootId, 'starting')
+    }
+
+    const changedAlbums = new Set<number>()
+    let completedProgress: ScanProgress | null = null
     const run = scanRoot(this.store, root, {
       readMetadata: this.readMetadata,
-      onProgress: this.deps.onProgress
-    }).finally(() => {
-      this.inFlight.delete(rootId)
+      // `done` means the renderer may safely refresh all library data. Hold it
+      // until derived artwork has caught up with the rows the scan just wrote.
+      onProgress: (progress) => {
+        if (progress.done) completedProgress = progress
+        else this.deps.onProgress(progress)
+      },
+      incremental,
+      onAlbumsChanged: (albumIds) => {
+        for (const albumId of albumIds) changedAlbums.add(albumId)
+      }
     })
+      .then(async (summary) => {
+        const artworkAlbums = incremental
+          ? this.store.listAlbumIdsUnderDirectories(root.id, [''])
+          : changedAlbums
+        await this.queueArtwork([...artworkAlbums], !incremental)
+        if (completedProgress) this.deps.onProgress(completedProgress)
+        return summary
+      })
+      .finally(async () => {
+        this.inFlight.delete(rootId)
+        if (this.initialized && !this.closing) {
+          if (this.degradedRoots.has(root.id)) {
+            this.watchModes.set(root.id, 'startup-scan-only')
+          } else {
+            await this.watcher.startRoot(root)
+          }
+        }
+      })
 
     this.inFlight.set(rootId, run)
     return run
   }
+
+  private queueWatchReconcile(rootId: number, paths: readonly string[]): Promise<void> {
+    const previous = this.watchQueues.get(rootId) ?? Promise.resolve()
+    const next = previous
+      .catch(() => {})
+      .then(async () => {
+        const running = this.inFlight.get(rootId)
+        if (running) await running
+        const root = this.store.getRoot(rootId)
+        if (!root || this.closing) return
+        const changedAlbums = new Set<number>()
+        let completedProgress: ScanProgress | null = null
+        const sidecarDirectories = paths
+          .filter(isArtworkSidecarPath)
+          .map((path) => toRelativeDirectory(root.path, dirname(path)))
+          .filter((path): path is string => path !== null)
+        await reconcilePaths(this.store, root, paths, {
+          readMetadata: this.readMetadata,
+          onProgress: (progress) => {
+            if (progress.done) completedProgress = progress
+            else this.deps.onProgress(progress)
+          },
+          onAlbumsChanged: (albumIds) => {
+            for (const albumId of albumIds) changedAlbums.add(albumId)
+          }
+        })
+        for (const albumId of this.store.listAlbumIdsUnderDirectories(rootId, sidecarDirectories)) {
+          changedAlbums.add(albumId)
+        }
+        await this.queueArtwork([...changedAlbums], true)
+        if (completedProgress) this.deps.onProgress(completedProgress)
+      })
+      .finally(() => {
+        if (this.watchQueues.get(rootId) === next) this.watchQueues.delete(rootId)
+      })
+    this.watchQueues.set(rootId, next)
+    return next
+  }
+
+  private setWatchMode(rootId: number, mode: WatchMode, error?: unknown): void {
+    const previous = this.watchModes.get(rootId)
+    this.watchModes.set(rootId, mode)
+    if (mode !== 'startup-scan-only' || previous === mode) return
+
+    this.degradedRoots.add(rootId)
+    console.warn(`[watch] root ${rootId} degraded to startup-scan-only:`, error)
+    this.deps.onNotice?.({
+      kind: 'watch-degraded',
+      rootId,
+      code: 'ENOSPC',
+      message:
+        'Live library updates are unavailable because Linux exhausted its inotify watches. ' +
+        'Increase fs.inotify.max_user_watches, then restart Fermata. This folder will still ' +
+        'be reconciled at startup.'
+    })
+  }
+
+  private queueArtwork(albumIds?: readonly number[], force = false): Promise<void> {
+    if (!this.artwork || albumIds?.length === 0) return Promise.resolve()
+    const next = this.artworkQueue
+      .catch(() => {})
+      .then(async () => {
+        try {
+          await this.artwork!.reconcile(albumIds, force)
+        } catch (error) {
+          // Artwork is derived data. Cache I/O or a worker failure may leave a
+          // placeholder temporarily, but must never turn a valid music scan
+          // into a failed scan.
+          console.warn('[artwork] reconciliation failed:', error)
+        }
+      })
+    this.artworkQueue = next
+    return next
+  }
+}
+
+function toRelativeDirectory(rootPath: string, directory: string): string | null {
+  if (resolve(rootPath) === resolve(directory)) return ''
+  const relative = toRelPath(rootPath, directory)
+  return relative
 }

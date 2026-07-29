@@ -12,6 +12,7 @@ import type {
   TrackAudioMetadata,
   TrackSortColumn
 } from '@shared/library'
+import { artworkUrl } from '@shared/ipc'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
 import type { TrackTags } from './metadata'
 import { fileStem, type AudioFile } from './walk'
@@ -41,6 +42,20 @@ export interface RootRow {
 export interface ScannedTrack {
   file: AudioFile
   tags: TrackTags
+}
+
+/** The cheap on-disk identity used by incremental reconciliation. */
+export interface StoredTrackFile {
+  id: number
+  relPath: string
+  mtime: number
+  size: number
+}
+
+export interface ArtworkAlbum {
+  albumId: number
+  artworkHash: string | null
+  tracks: Array<{ trackId: number; absPath: string }>
 }
 
 export interface RootConflict {
@@ -124,6 +139,12 @@ const TRACK_JOINS = `
   LEFT JOIN artists aa ON aa.id = al.album_artist_id
 `
 
+/**
+ * The Artist browser is an album-artist dimension. A loose track without an
+ * album (or legacy data with no album artist) falls back to its performer.
+ */
+const BROWSE_ARTIST_ID = 'COALESCE(al.album_artist_id, t.artist_id)' as const
+
 const TRACK_PROJECTION = `
   t.id           AS id,
   t.root_id      AS rootId,
@@ -140,6 +161,7 @@ const TRACK_PROJECTION = `
   t.sample_rate  AS sampleRate,
   t.channels     AS channels,
   t.bit_depth    AS bitDepth,
+  al.artwork_hash AS artworkHash,
   t.rg_track_gain AS rgTrackGain,
   t.rg_track_peak AS rgTrackPeak,
   t.rg_album_gain AS rgAlbumGain,
@@ -163,6 +185,7 @@ interface TrackRow {
   sampleRate: number | null
   channels: number | null
   bitDepth: number | null
+  artworkHash: string | null
   rgTrackGain: number | null
   rgTrackPeak: number | null
   rgAlbumGain: number | null
@@ -203,6 +226,15 @@ function prepareStatements(db: Database.Database) {
       'INSERT INTO roots (label, path, added_at) VALUES (?, ?, ?) RETURNING id'
     ),
     markScanned: db.prepare('UPDATE roots SET last_scan_at = ? WHERE id = ?'),
+    listTrackFiles: db.prepare(`
+      SELECT id, rel_path AS relPath, mtime, size
+      FROM tracks
+      WHERE root_id = ?
+    `),
+    deleteTrack: db.prepare('DELETE FROM tracks WHERE root_id = ? AND rel_path = ?'),
+    findTrackAlbum: db.prepare(
+      'SELECT album_id AS albumId FROM tracks WHERE root_id = ? AND rel_path = ?'
+    ),
 
     findArtist: db.prepare('SELECT id FROM artists WHERE name = ?'),
     insertArtist: db.prepare('INSERT INTO artists (name) VALUES (?) RETURNING id'),
@@ -218,6 +250,20 @@ function prepareStatements(db: Database.Database) {
     ),
     // Only fills a gap. The first track of an album may be the untagged one.
     fillAlbumYear: db.prepare('UPDATE albums SET year = ? WHERE id = ? AND year IS NULL'),
+    setAlbumArtwork: db.prepare('UPDATE albums SET artwork_hash = ? WHERE id = ?'),
+    listReferencedArtworkHashes: db.prepare(`
+      SELECT DISTINCT al.artwork_hash AS artworkHash
+      FROM albums al
+      WHERE al.artwork_hash IS NOT NULL
+        AND EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = al.id)
+    `),
+    listAlbumsUnderDirectory: db.prepare(`
+      SELECT DISTINCT t.album_id AS albumId
+      FROM tracks t
+      WHERE t.root_id = @rootId
+        AND t.album_id IS NOT NULL
+        AND (@directory = '' OR substr(t.rel_path, 1, length(@prefix)) = @prefix)
+    `),
 
     upsertTrack: db.prepare(`
       INSERT INTO tracks (
@@ -334,6 +380,34 @@ export class LibraryStore {
     this.statements.markScanned.run(at, rootId)
   }
 
+  listTrackFiles(rootId: number): StoredTrackFile[] {
+    return this.statements.listTrackFiles.all(rootId) as StoredTrackFile[]
+  }
+
+  /**
+   * Deletes a set of vanished logical files atomically.
+   *
+   * The schema's track-delete triggers remove the corresponding FTS rows in
+   * this same transaction, so a watcher deletion cannot leave stale search
+   * results behind.
+   */
+  deleteTracks(rootId: number, relPaths: readonly string[]): Set<number> {
+    const albumIds = new Set<number>()
+    if (relPaths.length === 0) return albumIds
+
+    this.db.transaction((paths: readonly string[]) => {
+      for (const relPath of paths) {
+        const previous = this.statements.findTrackAlbum.get(rootId, relPath) as
+          { albumId: number | null } | undefined
+        if (previous?.albumId !== null && previous?.albumId !== undefined) {
+          albumIds.add(previous.albumId)
+        }
+        this.statements.deleteTrack.run(rootId, relPath)
+      }
+    })(relPaths)
+    return albumIds
+  }
+
   /**
    * Writes one batch inside a single transaction.
    *
@@ -345,11 +419,14 @@ export class LibraryStore {
    * are written, so a rollback would leave them naming rows that no longer
    * exist — hence the clear on failure.
    */
-  writeTracks(rootId: number, entries: readonly ScannedTrack[]): void {
-    if (entries.length === 0) return
+  writeTracks(rootId: number, entries: readonly ScannedTrack[]): Set<number> {
+    const albumIds = new Set<number>()
+    if (entries.length === 0) return albumIds
 
     const write = this.db.transaction((items: readonly ScannedTrack[]) => {
-      for (const item of items) this.writeTrack(rootId, item)
+      for (const item of items) {
+        for (const albumId of this.writeTrack(rootId, item)) albumIds.add(albumId)
+      }
     })
 
     try {
@@ -359,9 +436,16 @@ export class LibraryStore {
       this.albumIds.clear()
       throw error
     }
+    return albumIds
   }
 
-  private writeTrack(rootId: number, { file, tags }: ScannedTrack): void {
+  private writeTrack(rootId: number, { file, tags }: ScannedTrack): Set<number> {
+    const affected = new Set<number>()
+    const previous = this.statements.findTrackAlbum.get(rootId, file.relPath) as
+      { albumId: number | null } | undefined
+    if (previous?.albumId !== null && previous?.albumId !== undefined) {
+      affected.add(previous.albumId)
+    }
     const artistId = tags.artist === null ? null : this.upsertArtist(tags.artist)
 
     // The card's compilation rule. Without the fallback, an album whose tracks
@@ -372,6 +456,7 @@ export class LibraryStore {
 
     const albumId =
       tags.album === null ? null : this.upsertAlbum(tags.album, albumArtistId, tags.year)
+    if (albumId !== null) affected.add(albumId)
 
     // Foobar's behaviour, and the reason `Track.title` is non-nullable across
     // IPC: a file with no title tag shows its filename rather than a blank row.
@@ -403,6 +488,7 @@ export class LibraryStore {
 
     // Migration 4's metadata triggers update FTS in the same transaction as
     // this row. Keeping it in SQL also covers direct deletes and root cascades.
+    return affected
   }
 
   private upsertArtist(name: string): number {
@@ -499,33 +585,41 @@ export class LibraryStore {
   listArtists(query: ListFacetsQuery): ListArtistsResult {
     const filter = buildFilter(query)
     const params = { ...filter.params, limit: query.limit, offset: query.offset }
-    const total = facetTotal(this.db, 't.artist_id', filter, params)
-    const artists = this.db
+    const rows = this.db
       .prepare(
-        `SELECT ar.id AS id, ar.name AS name, count(*) AS trackCount
+        `SELECT browse_artist.id AS id,
+                browse_artist.name AS name,
+                count(*) AS trackCount,
+                count(*) OVER () AS facetTotal
          FROM tracks t
          ${filter.ftsJoin}
-         JOIN artists ar ON ar.id = t.artist_id
+         LEFT JOIN albums al ON al.id = t.album_id
+         JOIN artists browse_artist ON browse_artist.id = ${BROWSE_ARTIST_ID}
          ${filter.where}
-         GROUP BY ar.id
-         ORDER BY ar.name COLLATE NOCASE ASC, ar.id ASC
+         GROUP BY browse_artist.id
+         ORDER BY browse_artist.name COLLATE NOCASE ASC, browse_artist.id ASC
          LIMIT @limit OFFSET @offset`
       )
-      .all(params) as ArtistFacet[]
+      .all(params) as Array<ArtistFacet & { facetTotal: number }>
 
-    return { artists, total }
+    const total = rows[0]?.facetTotal ?? facetTotal(this.db, BROWSE_ARTIST_ID, filter, params)
+    return {
+      artists: rows.map(({ facetTotal: _, ...artist }) => artist),
+      total
+    }
   }
 
   listAlbums(query: ListFacetsQuery): ListAlbumsResult {
     const filter = buildFilter(query)
     const params = { ...filter.params, limit: query.limit, offset: query.offset }
     const total = facetTotal(this.db, 't.album_id', filter, params)
-    const albums = this.db
+    const rows = this.db
       .prepare(
         `SELECT al.id AS id,
                 al.title AS title,
                 aa.name AS albumArtist,
                 al.year AS year,
+                al.artwork_hash AS artworkHash,
                 count(*) AS trackCount
          FROM tracks t
          ${filter.ftsJoin}
@@ -536,9 +630,15 @@ export class LibraryStore {
          ORDER BY al.title COLLATE NOCASE ASC, al.id ASC
          LIMIT @limit OFFSET @offset`
       )
-      .all(params) as AlbumFacet[]
+      .all(params) as Array<Omit<AlbumFacet, 'artwork'> & { artworkHash: string | null }>
 
-    return { albums, total }
+    return {
+      albums: rows.map(({ artworkHash, ...album }) => ({
+        ...album,
+        artwork: artworkUrls(artworkHash)
+      })),
+      total
+    }
   }
 
   getTrackAudioMetadata(trackId: number): TrackAudioMetadata | null {
@@ -663,6 +763,7 @@ export class LibraryStore {
         `SELECT count(*) AS total
          FROM tracks t
          ${filter.ftsJoin}
+         LEFT JOIN albums al ON al.id = t.album_id
          ${filter.where}`
       )
       .get(params) as { total: number }
@@ -708,6 +809,87 @@ export class LibraryStore {
       { rootPath: string; relPath: string } | undefined
     return row ? toAbsPath(row.rootPath, row.relPath) : null
   }
+
+  /**
+   * Candidate tracks are ordered by stored root id and POSIX relative path.
+   * Reconciliation uses this order for embedded and folder-art discovery.
+   */
+  listArtworkAlbums(albumIds?: readonly number[]): ArtworkAlbum[] {
+    if (albumIds?.length === 0) return []
+    const filter =
+      albumIds && albumIds.length <= 500
+        ? `WHERE al.id IN (${albumIds.map(() => '?').join(', ')})`
+        : ''
+    const params = filter === '' ? [] : [...albumIds!]
+    const rows = this.db
+      .prepare(
+        `SELECT al.id AS albumId,
+                al.artwork_hash AS artworkHash,
+                t.id AS trackId,
+                r.path AS rootPath,
+                t.rel_path AS relPath
+         FROM albums al
+         JOIN tracks t ON t.album_id = al.id
+         JOIN roots r ON r.id = t.root_id
+         ${filter}
+         ORDER BY al.id ASC, t.root_id ASC, t.rel_path COLLATE BINARY ASC, t.id ASC`
+      )
+      .all(...params) as Array<{
+      albumId: number
+      artworkHash: string | null
+      trackId: number
+      rootPath: string
+      relPath: string
+    }>
+
+    const wanted = albumIds && filter === '' ? new Set(albumIds) : null
+    const albums = new Map<number, ArtworkAlbum>()
+    for (const row of rows) {
+      if (wanted && !wanted.has(row.albumId)) continue
+      const absPath = toAbsPath(row.rootPath, row.relPath)
+      if (!absPath) continue
+      const album =
+        albums.get(row.albumId) ??
+        ({
+          albumId: row.albumId,
+          artworkHash: row.artworkHash,
+          tracks: []
+        } satisfies ArtworkAlbum)
+      album.tracks.push({ trackId: row.trackId, absPath })
+      albums.set(row.albumId, album)
+    }
+    return [...albums.values()]
+  }
+
+  setAlbumArtwork(albumId: number, artworkHash: string | null): void {
+    this.statements.setAlbumArtwork.run(artworkHash, albumId)
+  }
+
+  listReferencedArtworkHashes(): Set<string> {
+    const rows = this.statements.listReferencedArtworkHashes.all() as Array<{
+      artworkHash: string
+    }>
+    return new Set(rows.map((row) => row.artworkHash))
+  }
+
+  /**
+   * Albums with tracks in or below a POSIX-relative directory.
+   *
+   * Folder artwork applies to descendants as well as direct children so an
+   * album-level image can cover CD1/CD2 subdirectories.
+   */
+  listAlbumIdsUnderDirectories(rootId: number, directories: readonly string[]): Set<number> {
+    const albumIds = new Set<number>()
+    for (const directory of new Set(directories)) {
+      const rows = this.statements.listAlbumsUnderDirectory.all({
+        rootId,
+        directory,
+        prefix: `${directory}/`
+      }) as Array<{ albumId: number }>
+      for (const row of rows) albumIds.add(row.albumId)
+    }
+    return albumIds
+  }
 }
 
 interface FilterSql {
@@ -740,7 +922,7 @@ function buildFilter(filters: LibraryBrowseFilters): FilterSql {
     params.rootId = filters.rootId
   }
   if (filters.artistId !== undefined) {
-    predicates.push('t.artist_id = @artistId')
+    predicates.push(`${BROWSE_ARTIST_ID} = @artistId`)
     params.artistId = filters.artistId
   }
   if (filters.albumId !== undefined) {
@@ -761,7 +943,7 @@ function buildFilter(filters: LibraryBrowseFilters): FilterSql {
 
 function facetTotal(
   db: Database.Database,
-  dimension: 't.artist_id' | 't.album_id',
+  dimension: typeof BROWSE_ARTIST_ID | 't.album_id',
   filter: FilterSql,
   params: Record<string, string | number>
 ): number {
@@ -772,6 +954,7 @@ function facetTotal(
          SELECT ${dimension}
          FROM tracks t
          ${filter.ftsJoin}
+         LEFT JOIN albums al ON al.id = t.album_id
          ${filter.where}
            ${filter.where === '' ? 'WHERE' : 'AND'} ${dimension} IS NOT NULL
          GROUP BY ${dimension}
@@ -800,10 +983,18 @@ function toTrack(row: TrackRow): Track {
     sampleRateHz: row.sampleRate,
     channels: row.channels,
     bitDepth: row.bitDepth,
+    artwork: artworkUrls(row.artworkHash),
     rgTrackGainDb: row.rgTrackGain,
     rgTrackPeak: row.rgTrackPeak,
     rgAlbumGainDb: row.rgAlbumGain,
     rgAlbumPeak: row.rgAlbumPeak,
     rgSource: row.rgSource
+  }
+}
+
+function artworkUrls(hash: string | null): Track['artwork'] {
+  return {
+    small: artworkUrl(hash, 'small'),
+    large: artworkUrl(hash, 'large')
   }
 }

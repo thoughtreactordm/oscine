@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { join } from 'node:path'
 
 export const DATABASE_FILENAME = 'library.db'
+export const ARTWORK_CACHE_DIRECTORY = 'artwork-cache-v1'
 
 /**
  * Where the library lives on this machine.
@@ -15,4 +16,9 @@ export const DATABASE_FILENAME = 'library.db'
  */
 export function libraryDatabasePath(): string {
   return join(app.getPath('userData'), DATABASE_FILENAME)
+}
+
+/** Derived, disposable display thumbnails; never exposed as a renderer path. */
+export function artworkCachePath(): string {
+  return join(app.getPath('userData'), ARTWORK_CACHE_DIRECTORY)
 }
