@@ -80,7 +80,9 @@ try {
   })
 
   check('unicode61 remove_diacritics 2 tokenizer', () => {
-    db.exec("CREATE VIRTUAL TABLE probe_tok USING fts5(a, tokenize='unicode61 remove_diacritics 2')")
+    db.exec(
+      "CREATE VIRTUAL TABLE probe_tok USING fts5(a, tokenize='unicode61 remove_diacritics 2')"
+    )
     return 'yes'
   })
 

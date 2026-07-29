@@ -1,9 +1,5 @@
 import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import {
-  isFermataError,
-  type IpcErrorPayload,
-  type IpcResult
-} from '@shared/errors'
+import { isFermataError, type IpcErrorPayload, type IpcResult } from '@shared/errors'
 import {
   IPC_CHANNELS,
   type IpcChannel,

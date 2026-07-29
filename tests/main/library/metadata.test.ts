@@ -3,11 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IAudioMetadata } from 'music-metadata'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  normaliseCodec,
-  readTrackTags,
-  toTrackTags
-} from '../../../src/main/library/metadata'
+import { normaliseCodec, readTrackTags, toTrackTags } from '../../../src/main/library/metadata'
 
 let dir: string
 
@@ -269,7 +265,9 @@ describe('toTrackTags', () => {
   })
 
   it('discards a non-finite number rather than storing it', () => {
-    const tags = toTrackTags(parsed({}, { duration: Number.NaN, sampleRate: Number.POSITIVE_INFINITY }))
+    const tags = toTrackTags(
+      parsed({}, { duration: Number.NaN, sampleRate: Number.POSITIVE_INFINITY })
+    )
 
     expect(tags.durationMs).toBeNull()
     expect(tags.sampleRate).toBeNull()

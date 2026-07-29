@@ -1,9 +1,4 @@
-import type {
-  LibraryRoot,
-  ListTracksQuery,
-  ListTracksResult,
-  ScanSummary
-} from '@shared/library'
+import type { LibraryRoot, ListTracksQuery, ListTracksResult, ScanSummary } from '@shared/library'
 
 /**
  * Everything the IPC layer needs from the library, and nothing more.

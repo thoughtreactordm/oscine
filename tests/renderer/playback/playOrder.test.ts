@@ -24,8 +24,9 @@ function track(id: number): Track {
 /** A source of `total` rows, answering any window over them. */
 function library(total: number): (query: ListTracksQuery) => Promise<ListTracksResult> {
   return async (query) => ({
-    tracks: Array.from({ length: Math.max(0, Math.min(query.limit, total - query.offset)) }, (_, i) =>
-      track(query.offset + i)
+    tracks: Array.from(
+      { length: Math.max(0, Math.min(query.limit, total - query.offset)) },
+      (_, i) => track(query.offset + i)
     ),
     total
   })
