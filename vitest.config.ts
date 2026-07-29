@@ -10,9 +10,16 @@ import { defineConfig } from 'vitest/config'
  * against the Electron binary itself; these tests get to stay fast and plain.
  */
 export default defineConfig({
-  // Only the aliases the app itself defines. Tests reach into src/main by
-  // relative path rather than through a test-only alias that would resolve here
-  // and fail in the electron-vite build.
+  // Only the aliases the app itself defines. Tests reach into src/main and
+  // src/renderer by relative path rather than through a test-only alias that
+  // would resolve here and fail in the electron-vite build.
+  //
+  // `@renderer` is deliberately absent even though the renderer build defines
+  // it. `tests/` compiles under tsconfig.node.json, which maps only `@shared`
+  // and has no DOM lib; adding the alias here would let a test import an
+  // alias-using renderer module, pass, and then fail typecheck. A renderer
+  // module meant to be unit-tested stays free of both — see `trackWindow.ts`
+  // and `playback/`.
   resolve: {
     alias: {
       '@shared': resolve(__dirname, 'src/shared')
