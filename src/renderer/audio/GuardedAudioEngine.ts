@@ -11,6 +11,7 @@ import type { AudioPath, DecodedAudioPath, TrackAudioSource } from './AudioPath'
 import { Emitter } from './emitter'
 import {
   decideR1Admission,
+  R1ReservationLedger,
   resolveR1Policy,
   type R1AdmissionDecision,
   type R1Policy
@@ -22,6 +23,7 @@ export interface GuardedAudioEngineDeps {
   resolveTrack: (trackId: number) => Promise<TrackAudioSource>
   policy?: Partial<R1Policy>
   diagnostic?: (decision: R1AdmissionDecision) => void
+  reservations?: R1ReservationLedger
 }
 
 /**
@@ -38,6 +40,7 @@ export class GuardedAudioEngine implements AudioEngine {
   readonly #resolveTrack: (trackId: number) => Promise<TrackAudioSource>
   readonly #policy: R1Policy
   readonly #diagnostic: (decision: R1AdmissionDecision) => void
+  readonly #reservations: R1ReservationLedger
   readonly #unsubscribes: Array<() => void> = []
 
   #streaming: AudioPath | null = null
@@ -54,6 +57,7 @@ export class GuardedAudioEngine implements AudioEngine {
     this.#createStreaming = deps.createStreaming
     this.#resolveTrack = deps.resolveTrack
     this.#policy = resolveR1Policy(deps.policy)
+    this.#reservations = deps.reservations ?? new R1ReservationLedger()
     this.#diagnostic =
       deps.diagnostic ??
       ((decision) => {
@@ -116,7 +120,8 @@ export class GuardedAudioEngine implements AudioEngine {
           channels: source.channels,
           encodedBytes: source.encodedBytes,
           targetSampleRateHz: this.#decoded.targetSampleRateHz,
-          issuedNotFreedBytes: this.#decoded.issuedNotFreedBytes
+          issuedNotFreedBytes: this.#decoded.issuedNotFreedBytes,
+          reservedDecodeBytes: this.#reservations.reservedBytes
         },
         this.#policy
       )
@@ -125,7 +130,15 @@ export class GuardedAudioEngine implements AudioEngine {
 
       const path = decision.path === 'decoded' ? this.#decoded : this.#streamingPath()
       this.#active = path
-      await path.load(source)
+      const releaseReservation =
+        decision.path === 'decoded' && decision.transientReservationBytes !== null
+          ? this.#reservations.reserve(decision.transientReservationBytes)
+          : null
+      try {
+        await path.load(source)
+      } finally {
+        releaseReservation?.()
+      }
       this.#assertCurrent(generation, trackId)
     } catch (err) {
       if (generation !== this.#generation) {

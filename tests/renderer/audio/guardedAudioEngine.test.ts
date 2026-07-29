@@ -10,7 +10,10 @@ import type {
   TrackAudioSource
 } from '../../../src/renderer/audio/AudioPath'
 import { GuardedAudioEngine } from '../../../src/renderer/audio/GuardedAudioEngine'
-import type { R1AdmissionDecision } from '../../../src/renderer/audio/r1Admission'
+import {
+  R1ReservationLedger,
+  type R1AdmissionDecision
+} from '../../../src/renderer/audio/r1Admission'
 
 const MIB = 1024 ** 2
 
@@ -142,6 +145,48 @@ function harness(sources: Map<number, TrackAudioSource>) {
 }
 
 describe('GuardedAudioEngine', () => {
+  it('reserves in-flight decode cost across current and prefetch engines', async () => {
+    const reservations = new R1ReservationLedger()
+    const firstDecoded = new FakeDecodedPath()
+    const secondDecoded = new FakeDecodedPath()
+    const firstStreaming = new FakePath()
+    const secondStreaming = new FakePath()
+    firstDecoded.manual = true
+    const resolveTrack = async (trackId: number): Promise<TrackAudioSource> => track(trackId)
+    const policy = { maxDecodedResidencyBytes: 70 * MIB }
+    const first = new GuardedAudioEngine({
+      decoded: firstDecoded,
+      createStreaming: () => firstStreaming,
+      resolveTrack,
+      policy,
+      reservations,
+      diagnostic: () => {}
+    })
+    const second = new GuardedAudioEngine({
+      decoded: secondDecoded,
+      createStreaming: () => secondStreaming,
+      resolveTrack,
+      policy,
+      reservations,
+      diagnostic: () => {}
+    })
+
+    const current = first.load(1)
+    await Promise.resolve()
+    expect(reservations.reservedBytes).toBeGreaterThan(0)
+
+    await second.load(2)
+    expect(secondDecoded.loads).toHaveLength(0)
+    expect(secondStreaming.loads.map((source) => source.trackId)).toEqual([2])
+
+    firstDecoded.settle(0)
+    await current
+    expect(reservations.reservedBytes).toBe(0)
+
+    await second.load(3)
+    expect(secondDecoded.loads.map((source) => source.trackId)).toEqual([3])
+  })
+
   it('keeps ordinary tracks on whole-buffer decode', async () => {
     const h = harness(new Map([[1, track(1)]]))
 

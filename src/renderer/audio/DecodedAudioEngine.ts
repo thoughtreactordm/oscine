@@ -1,6 +1,7 @@
 import { AudioEngineError, type AudioEngineEventMap, type PlaybackStatus } from './AudioEngine'
 import type { DecodedAudioPath, TrackAudioSource } from './AudioPath'
 import { DecodedBufferLedger } from './decodedBufferLedger'
+import { DecodedAudioContextPool, type DecodedAudioContextLease } from './decodedAudioContext'
 import { decodedBytes, formatBytes } from './decodedSize'
 import { Emitter } from './emitter'
 import { clamp, pausedAt, positionAt, type PlaybackClock } from './playbackClock'
@@ -31,9 +32,10 @@ const TIME_UPDATE_MS = 250
 
 export class DecodedAudioEngine implements DecodedAudioPath {
   readonly #context: AudioContext
+  readonly #contextLease: DecodedAudioContextLease<AudioContext>
   readonly #gain: GainNode
   readonly #events = new Emitter<AudioEngineEventMap>()
-  readonly #decodedBuffers = new DecodedBufferLedger()
+  readonly #decodedBuffers: DecodedBufferLedger
 
   #buffer: AudioBuffer | null = null
   #source: AudioBufferSourceNode | null = null
@@ -48,8 +50,15 @@ export class DecodedAudioEngine implements DecodedAudioPath {
   #fetchAbort: AbortController | null = null
   #disposed = false
 
-  constructor() {
-    this.#context = new AudioContext()
+  constructor(
+    decodedBuffers: DecodedBufferLedger = new DecodedBufferLedger(),
+    contextLease: DecodedAudioContextLease<AudioContext> = new DecodedAudioContextPool(
+      () => new AudioContext()
+    ).acquire()
+  ) {
+    this.#decodedBuffers = decodedBuffers
+    this.#contextLease = contextLease
+    this.#context = contextLease.context
     this.#gain = this.#context.createGain()
     this.#gain.gain.value = this.#volume
     this.#gain.connect(this.#context.destination)
@@ -258,7 +267,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     this.#releaseGestureHooks = null
     this.#gain.disconnect()
     this.#events.clear()
-    void this.#context.close()
+    this.#contextLease.release()
   }
 
   // --- internals ---------------------------------------------------------

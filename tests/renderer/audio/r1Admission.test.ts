@@ -17,6 +17,7 @@ function input(overrides: Partial<R1AdmissionInput> = {}): R1AdmissionInput {
     encodedBytes: 5 * MIB,
     targetSampleRateHz: 48_000,
     issuedNotFreedBytes: 0,
+    reservedDecodeBytes: 0,
     ...overrides
   }
 }
@@ -84,6 +85,20 @@ describe('R1 admission policy', () => {
     expect(decision.path).toBe('streaming')
     expect(decision.reason).toBe('residency-budget')
     expect(decision.projectedResidencyBytes).toBe(DEFAULT_R1_POLICY.maxDecodedResidencyBytes + 1)
+  })
+
+  it('counts in-flight reservations without misreporting them as issued buffers', () => {
+    const decodedBytes = 100 * MIB
+    const durationSec = decodedBytes / (48_000 * 2 * 4)
+    const reservation = 2 * decodedBytes + 5 * MIB
+    const reservedDecodeBytes = DEFAULT_R1_POLICY.maxDecodedResidencyBytes - reservation + 1
+
+    const decision = decideR1Admission(input({ durationSec, reservedDecodeBytes }))
+
+    expect(decision.path).toBe('streaming')
+    expect(decision.reason).toBe('residency-budget')
+    expect(decision.issuedNotFreedBytes).toBe(0)
+    expect(decision.reservedDecodeBytes).toBe(reservedDecodeBytes)
   })
 
   it('streams metadata it cannot price instead of interpreting it as free', () => {

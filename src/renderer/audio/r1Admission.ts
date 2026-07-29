@@ -28,6 +28,33 @@ export interface R1AdmissionInput {
   encodedBytes: number
   targetSampleRateHz: number
   issuedNotFreedBytes: number
+  reservedDecodeBytes: number
+}
+
+/**
+ * Bytes promised to decodes which have been admitted but have not settled.
+ *
+ * This sits beside the proven-freed buffer ledger: one prices work already
+ * issued by Web Audio, the other prevents concurrent current/prefetch or stale
+ * superseded decodes from each spending the same remaining headroom.
+ */
+export class R1ReservationLedger {
+  #reservedBytes = 0
+
+  get reservedBytes(): number {
+    return this.#reservedBytes
+  }
+
+  reserve(bytes: number): () => void {
+    const amount = Number.isFinite(bytes) && bytes > 0 ? bytes : 0
+    this.#reservedBytes += amount
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.#reservedBytes = Math.max(0, this.#reservedBytes - amount)
+    }
+  }
 }
 
 /**
@@ -42,6 +69,7 @@ export interface R1AdmissionDecision {
   estimatedDecodedBytes: number | null
   transientReservationBytes: number | null
   issuedNotFreedBytes: number
+  reservedDecodeBytes: number
   projectedResidencyBytes: number | null
   maxTrackDecodedBytes: number
   maxDecodedResidencyBytes: number
@@ -66,6 +94,10 @@ export function decideR1Admission(
     Number.isFinite(input.issuedNotFreedBytes) && input.issuedNotFreedBytes > 0
       ? input.issuedNotFreedBytes
       : 0
+  const reservedDecodeBytes =
+    Number.isFinite(input.reservedDecodeBytes) && input.reservedDecodeBytes > 0
+      ? input.reservedDecodeBytes
+      : 0
   const estimated = estimateDecodedBytes(
     input.durationSec,
     input.targetSampleRateHz,
@@ -75,6 +107,7 @@ export function decideR1Admission(
   const common = {
     trackId: input.trackId,
     issuedNotFreedBytes,
+    reservedDecodeBytes,
     maxTrackDecodedBytes: policy.maxTrackDecodedBytes,
     maxDecodedResidencyBytes: policy.maxDecodedResidencyBytes,
     targetSampleRateHz: input.targetSampleRateHz
@@ -92,7 +125,7 @@ export function decideR1Admission(
     }
   }
 
-  const projectedResidencyBytes = issuedNotFreedBytes + reservation
+  const projectedResidencyBytes = issuedNotFreedBytes + reservedDecodeBytes + reservation
   if (estimated > policy.maxTrackDecodedBytes) {
     return {
       ...common,

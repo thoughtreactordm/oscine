@@ -26,6 +26,7 @@ export { estimateDecodedBytes, estimateDecodePeakBytes } from './decodedSize'
 export {
   DEFAULT_R1_POLICY,
   decideR1Admission,
+  R1ReservationLedger,
   type R1AdmissionDecision,
   type R1Policy
 } from './r1Admission'
@@ -33,10 +34,13 @@ export {
 import { library } from '@renderer/ipc'
 import type { AudioEngine } from './AudioEngine'
 import { DecodedAudioEngine } from './DecodedAudioEngine'
+import { DecodedAudioContextPool } from './decodedAudioContext'
+import { DecodedBufferLedger } from './decodedBufferLedger'
 import { GuardedAudioEngine } from './GuardedAudioEngine'
 import { StreamingAudioEngine } from './StreamingAudioEngine'
 import { createBrowserStreamingPlatform } from './browserStreamingPlatform'
 import type { R1Policy } from './r1Admission'
+import { R1ReservationLedger } from './r1Admission'
 
 /**
  * Build the engine. The only supported way to get one.
@@ -46,16 +50,33 @@ import type { R1Policy } from './r1Admission'
  * than making one per view.
  */
 export function createAudioEngine(policy: Partial<R1Policy> = {}): AudioEngine {
-  return new GuardedAudioEngine({
-    decoded: new DecodedAudioEngine(),
-    createStreaming: () => new StreamingAudioEngine(createBrowserStreamingPlatform()),
-    policy,
-    resolveTrack: async (trackId) => {
-      // Both calls are metadata/control-plane IPC. No response body containing
-      // track bytes is requested until the selected path begins its own load.
-      const metadata = await library.getTrackAudioMetadata(trackId)
-      const url = await library.getTrackFileUrl(trackId)
-      return { trackId, url, ...metadata }
-    }
-  })
+  return createAudioEngineFactory(policy)()
+}
+
+/**
+ * Build engines which account decoded memory in one proven-freed ledger.
+ *
+ * The playback scheduler owns two engines (current and prefetched-next). A
+ * ledger per engine would let both independently admit almost the full R1
+ * budget, defeating the current+prefetch ceiling precisely when it matters.
+ */
+export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): () => AudioEngine {
+  const decodedBuffers = new DecodedBufferLedger()
+  const decodedContext = new DecodedAudioContextPool(() => new AudioContext())
+  const reservations = new R1ReservationLedger()
+
+  return () =>
+    new GuardedAudioEngine({
+      decoded: new DecodedAudioEngine(decodedBuffers, decodedContext.acquire()),
+      createStreaming: () => new StreamingAudioEngine(createBrowserStreamingPlatform()),
+      policy,
+      reservations,
+      resolveTrack: async (trackId) => {
+        // Both calls are metadata/control-plane IPC. No response body containing
+        // track bytes is requested until the selected path begins its own load.
+        const metadata = await library.getTrackAudioMetadata(trackId)
+        const url = await library.getTrackFileUrl(trackId)
+        return { trackId, url, ...metadata }
+      }
+    })
 }
