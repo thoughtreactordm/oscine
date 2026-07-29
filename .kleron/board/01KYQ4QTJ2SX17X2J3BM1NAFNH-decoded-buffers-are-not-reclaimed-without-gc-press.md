@@ -3,7 +3,7 @@ taskId: 01KYQ4QTJ2SX17X2J3BM1NAFNH
 title: >-
   Decoded buffers are not reclaimed without GC pressure — R1's budget must count
   uncollected garbage as live
-status: todo
+status: in-review
 priority: medium
 labels:
   - R1
@@ -14,7 +14,7 @@ workstream: W3
 workstreamId: W3-4
 order: 2
 created: '2026-07-29T14:33:58.593Z'
-updated: '2026-07-29T19:35:12.711Z'
+updated: '2026-07-29T15:50:46.067Z'
 ---
 Found by the M1 exit gate (W6-2) on Linux, 2026-07-29.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQMNRX95CN5DW6N6YYEZKC1
 title: Every track transition pays a 50–125 ms full-library sort query at 100k tracks
-status: triage
+status: todo
 priority: high
 labels:
   - M2
@@ -13,7 +13,7 @@ workstream: W2
 workstreamId: W2-3
 order: 0
 created: '2026-07-29T19:12:28.513Z'
-updated: '2026-07-29T19:12:28.513Z'
+updated: '2026-07-29T15:52:30.411Z'
 ---
 Found by the M1 exit gate (W6-3) on Windows, 2026-07-29. **Not a Windows defect** —
 a scale defect that the Windows run was the first to be in a position to see,
