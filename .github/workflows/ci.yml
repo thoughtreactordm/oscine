@@ -1,0 +1,72 @@
+name: CI
+
+# D10 makes Windows and Linux both first-class, which is only true if both are
+# checked. A path bug introduced on one is invisible there and obvious on the
+# other, so the matrix is the point of this workflow rather than a nicety.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A force-push or a second push to a PR makes the run in flight irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One runner failing is a result about that platform, not a reason to stop
+      # learning what the other one would have said.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the ABI story in vitest.config.ts: better-sqlite3's Node-API
+          # prebuild has to load under both this Node and Electron's.
+          node-version: 24
+          cache: npm
+
+      # `npm ci` over `npm install` so the lockfile is what is tested. Native
+      # deps resolve to prebuilds on both runners; if that ever stops being true
+      # this is the step that will say so, loudly, instead of a later one
+      # failing in a way that looks unrelated.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Includes tests/tooling/pathPortability.test.ts, which lints deliberately
+      # broken path handling through the real ESLint config and fails if it is
+      # not reported. That is W6-1's "prove the check works" acceptance, checked
+      # on every run rather than once by hand.
+      - name: Test
+        run: npm test
+
+      # `build` re-runs typecheck by way of its npm script. Cheap, and it keeps
+      # the local command and the CI command the same thing.
+      - name: Build
+        run: npm run build
+
+      # `verify:native` is deliberately not here. It launches Electron to prove
+      # better-sqlite3's prebuild loads under Electron's ABI rather than Node's,
+      # which needs a display server on the Linux runner and is the one gate in
+      # this repo with a plausible flake mode. It belongs in CI eventually, on
+      # its own job where a failure reads as "the native binary broke" and not
+      # as "the lint job is red" — W6's packaging work is where that lands.
