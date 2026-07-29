@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQAQKV9YX20XQF9NE4WSKJK
 title: ReplayGain compute-when-missing background job
-status: todo
+status: in-review
 priority: high
 labels:
   - M2
@@ -16,7 +16,7 @@ dependsOn:
 effort: xhigh
 order: 5
 created: '2026-07-29T16:18:43.176Z'
-updated: '2026-07-29T16:18:43.176Z'
+updated: '2026-07-29T19:02:26.000Z'
 ---
 Compute ReplayGain only for tracks that do not already carry tags, using a resumable background job that never blocks the main process or reaches into the renderer filesystem boundary.
 
@@ -47,3 +47,25 @@ This is in W2 because it owns SQLite, absolute-path resolution and the backgroun
 ## Non-goals
 
 No waveform cache, BPM/key analysis or general-purpose media job UI. Build only the reusable job seam M2 needs for ReplayGain.
+
+## Verification
+
+- ReplayGain 2.0 DSP uses BS.1770 K-weighting, 400 ms gated blocks, a -18 LUFS target and sample
+  peak. The deterministic 1 kHz fixture tolerance and backend/packaging contract are recorded in
+  `docs/REPLAYGAIN.md`.
+- `node-web-audio-api` is a production dependency and adapter implementation; no external
+  executable is assumed. The named worker build entry is exercised after build by
+  `npm run probe:replaygain` on both platforms in the CI matrix.
+- SQLite migration 3 adds durable job and track-sized checkpoint rows. Tests cover tagged-row
+  exclusion, guarded writes, two-worker concurrency, per-file failure, explicit fresh-job retry,
+  cancel, database close/reopen/resume without recomputing completed work, and album finalisation
+  from results retained across jobs.
+- The typed shared contract exposes start, status, cancel, resume and progress events. Progress
+  contains counts and a track title only; absolute-path resolution stays in main and safe errors
+  persist no path.
+- Shutdown pauses the job, returns running items to pending, awaits worker termination, then closes
+  SQLite. Scanner tests already prove untagged rescans preserve computed values and real tags replace
+  them.
+- Local gate: format, lint, typecheck, 322 tests, production build, the emitted Linux/x64 worker
+  probe, and the Electron 43 native-ABI decoder check pass. The matrixed Windows probe remains the
+  review/CI platform check.

@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQARC68EEJ2MR3FVQC62WDN
 title: 'M2 exit: prove proper playback on Windows and Linux'
-status: todo
+status: in-progress
 priority: high
 labels:
   - M2
@@ -16,7 +16,7 @@ dependsOn:
 effort: high
 order: 6
 created: '2026-07-29T16:19:08.103Z'
-updated: '2026-07-29T16:19:08.103Z'
+updated: '2026-07-29T19:30:00.000Z'
 ---
 Turn M2's exit criteria into one repeatable, cross-platform gate. The result is evidence attached to this card, not a listening-session recollection.
 
@@ -47,3 +47,13 @@ Turn M2's exit criteria into one repeatable, cross-platform gate. The result is 
 ## Handoff
 
 Once both columns pass, update the project status from M2 to M3 in the planning/readme pointers as a separate documentation commit. That status change is the declaration that M2 exited, not a substitute for the evidence above.
+
+## Gate runbook
+
+Run `npm run probe:m2-exit` from a clean commit on Windows and Linux. The command runs the ordinary
+repository checks, builds deterministic lossless fixtures, launches the built app against an
+isolated temporary database, and writes `m2-exit-<platform>.md` to the OS temporary directory.
+Attach both reports here only when their commit hashes match.
+
+The probe's `--skip-repo-gate --allow-dirty` flags are for development only. A report that records
+either a skipped repository gate or a dirty tree is not exit evidence.
