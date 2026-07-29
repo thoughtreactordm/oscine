@@ -72,7 +72,9 @@ export const IPC_CHANNELS = [
   'library.getTrackFileUrl'
 ] as const satisfies readonly IpcChannel[]
 
-export const IPC_EVENT_CHANNELS = ['library.scanProgress'] as const satisfies readonly IpcEventChannel[]
+export const IPC_EVENT_CHANNELS = [
+  'library.scanProgress'
+] as const satisfies readonly IpcEventChannel[]
 
 /**
  * Compile-time proof that `IPC_CHANNELS` covers the contract in both directions.

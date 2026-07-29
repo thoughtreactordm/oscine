@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_TRACK_PAGE, type ListTracksQuery, type ListTracksResult, type Track } from '@shared/library'
+import {
+  MAX_TRACK_PAGE,
+  type ListTracksQuery,
+  type ListTracksResult,
+  type Track
+} from '@shared/library'
 import { createTrackWindow, nextSelectionIndex } from '../../../src/renderer/panels/trackWindow'
 
 /**
@@ -77,9 +82,7 @@ describe('createTrackWindow', () => {
     win.ensureRange(99_970, 99_999)
     await flush()
 
-    expect(source.calls).toEqual([
-      { sort: 'artist', direction: 'asc', offset: 99_800, limit: 200 }
-    ])
+    expect(source.calls).toEqual([{ sort: 'artist', direction: 'asc', offset: 99_800, limit: 200 }])
     expect(win.rowAt(99_999)?.id).toBe(100_000)
   })
 

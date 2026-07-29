@@ -136,8 +136,57 @@ function pick(list) {
   return list[Math.floor(random() * list.length)]
 }
 
-const FIRST = ['Ash', 'Bell', 'Corvid', 'Dust', 'Ember', 'Fathom', 'Glass', 'Hollow', 'Iron', 'Juniper', 'Kestrel', 'Lantern', 'Marrow', 'North', 'Oxide', 'Pallor', 'Quartz', 'Rivet', 'Salt', 'Tundra', 'Umber', 'Vellum', 'Winter', 'Yarrow']
-const SECOND = ['Anchor', 'Bloom', 'Cinder', 'Drift', 'Echo', 'Fable', 'Grain', 'Haze', 'Inlet', 'Junction', 'Knot', 'Ledger', 'Mire', 'Nocturne', 'Orbit', 'Pier', 'Quarry', 'Relay', 'Shoal', 'Threshold', 'Undertow', 'Vault', 'Wane']
+const FIRST = [
+  'Ash',
+  'Bell',
+  'Corvid',
+  'Dust',
+  'Ember',
+  'Fathom',
+  'Glass',
+  'Hollow',
+  'Iron',
+  'Juniper',
+  'Kestrel',
+  'Lantern',
+  'Marrow',
+  'North',
+  'Oxide',
+  'Pallor',
+  'Quartz',
+  'Rivet',
+  'Salt',
+  'Tundra',
+  'Umber',
+  'Vellum',
+  'Winter',
+  'Yarrow'
+]
+const SECOND = [
+  'Anchor',
+  'Bloom',
+  'Cinder',
+  'Drift',
+  'Echo',
+  'Fable',
+  'Grain',
+  'Haze',
+  'Inlet',
+  'Junction',
+  'Knot',
+  'Ledger',
+  'Mire',
+  'Nocturne',
+  'Orbit',
+  'Pier',
+  'Quarry',
+  'Relay',
+  'Shoal',
+  'Threshold',
+  'Undertow',
+  'Vault',
+  'Wane'
+]
 const CODECS = ['flac', 'mp3', 'vorbis', 'opus']
 
 function phrase() {
@@ -160,9 +209,7 @@ const insertAlbum = db.prepare(
   `INSERT INTO albums (title, album_artist_id, year) VALUES (?, ?, ?)
    ON CONFLICT(title, album_artist_id) DO NOTHING`
 )
-const albumId = db
-  .prepare('SELECT id FROM albums WHERE title = ? AND album_artist_id IS ?')
-  .pluck()
+const albumId = db.prepare('SELECT id FROM albums WHERE title = ? AND album_artist_id IS ?').pluck()
 const insertTrack = db.prepare(
   `INSERT INTO tracks (
      root_id, rel_path, mtime, size, duration_ms, codec, sample_rate, channels,
@@ -175,8 +222,7 @@ const insertTrack = db.prepare(
 
 const seedAll = db.transaction(() => {
   const now = Date.now()
-  const rootId = insertRoot.run(SYNTHETIC_ROOT_LABEL, SYNTHETIC_ROOT_PATH, now, now)
-    .lastInsertRowid
+  const rootId = insertRoot.run(SYNTHETIC_ROOT_LABEL, SYNTHETIC_ROOT_PATH, now, now).lastInsertRowid
 
   const artistIds = []
   for (let index = 0; index < ARTIST_COUNT; index++) {

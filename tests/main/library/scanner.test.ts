@@ -68,16 +68,15 @@ function tags(overrides: Partial<TrackTags> = {}): TrackTags {
 /** Serves tags by rel_path; anything unlisted parses as a bare audio file. */
 function readerFor(byRelPath: Record<string, TrackTags>): MetadataReader {
   return async (absPath) => {
-    const rel = absPath.slice(musicDir.length + 1).split(/[\\/]/).join('/')
+    const rel = absPath
+      .slice(musicDir.length + 1)
+      .split(/[\\/]/)
+      .join('/')
     return byRelPath[rel] ?? tags()
   }
 }
 
-function scan(
-  reader: MetadataReader,
-  onProgress?: (p: ScanProgress) => void,
-  now?: () => number
-) {
+function scan(reader: MetadataReader, onProgress?: (p: ScanProgress) => void, now?: () => number) {
   return scanRoot(store, { id: rootId, path: musicDir }, { readMetadata: reader, onProgress, now })
 }
 
@@ -372,9 +371,7 @@ describe('scanRoot and the FTS index', () => {
     await scan(reader)
     await scan(reader)
 
-    const hits = db
-      .prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'julie'")
-      .all()
+    const hits = db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'julie'").all()
     expect(hits).toHaveLength(1)
   })
 

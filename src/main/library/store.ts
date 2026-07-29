@@ -1,10 +1,5 @@
 import type Database from 'better-sqlite3'
-import type {
-  ListTracksQuery,
-  ListTracksResult,
-  Track,
-  TrackSortColumn
-} from '@shared/library'
+import type { ListTracksQuery, ListTracksResult, Track, TrackSortColumn } from '@shared/library'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
 import type { TrackTags } from './metadata'
 import { fileStem, type AudioFile } from './walk'
@@ -287,8 +282,7 @@ export class LibraryStore {
     // carry no ALBUMARTIST resolves to album_artist_id NULL for every track —
     // and because NULLs do not collide in a UNIQUE constraint, the album
     // shatters into one row per track.
-    const albumArtistId =
-      tags.albumArtist === null ? artistId : this.upsertArtist(tags.albumArtist)
+    const albumArtistId = tags.albumArtist === null ? artistId : this.upsertArtist(tags.albumArtist)
 
     const albumId =
       tags.album === null ? null : this.upsertAlbum(tags.album, albumArtistId, tags.year)
@@ -299,8 +293,7 @@ export class LibraryStore {
     const title = tags.title ?? fileStem(file.relPath)
 
     const previous = this.statements.ftsSource.get(rootId, file.relPath) as
-      | { id: number; title: string; artist: string; album: string }
-      | undefined
+      { id: number; title: string; artist: string; album: string } | undefined
     if (previous) {
       this.statements.ftsDelete.run(previous.id, previous.title, previous.artist, previous.album)
     }
@@ -430,8 +423,7 @@ export class LibraryStore {
    */
   resolveTrackPath(trackId: number): string | null {
     const row = this.statements.resolveTrack.get(trackId) as
-      | { rootPath: string; relPath: string }
-      | undefined
+      { rootPath: string; relPath: string } | undefined
     return row ? toAbsPath(row.rootPath, row.relPath) : null
   }
 }

@@ -106,8 +106,8 @@ async function addFolder(): Promise<void> {
       </div>
 
       <p class="text-muted">
-        Add a folder to index it, then double-click a track to play it. Next and previous
-        follow the list's sort order as it was when playback started.
+        Add a folder to index it, then double-click a track to play it. Next and previous follow the
+        list's sort order as it was when playback started.
       </p>
 
       <UAlert

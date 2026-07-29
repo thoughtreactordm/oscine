@@ -51,11 +51,21 @@ interface Column {
 }
 
 const COLUMNS: readonly Column[] = [
-  { key: 'trackNo', label: '#', cell: 'justify-end tabular-nums text-dimmed', header: 'justify-end' },
+  {
+    key: 'trackNo',
+    label: '#',
+    cell: 'justify-end tabular-nums text-dimmed',
+    header: 'justify-end'
+  },
   { key: 'title', label: 'Title', cell: 'text-highlighted', header: '' },
   { key: 'artist', label: 'Artist', cell: 'text-muted', header: '' },
   { key: 'album', label: 'Album', cell: 'text-muted', header: '' },
-  { key: 'durationSec', label: 'Time', cell: 'justify-end tabular-nums text-muted', header: 'justify-end' }
+  {
+    key: 'durationSec',
+    label: 'Time',
+    cell: 'justify-end tabular-nums text-muted',
+    header: 'justify-end'
+  }
 ]
 
 const GRID_TEMPLATE = '3rem minmax(8rem, 2.2fr) minmax(6rem, 1.3fr) minmax(6rem, 1.3fr) 4rem'
@@ -67,9 +77,7 @@ const viewportHeight = ref(0)
 const rowsPerViewport = computed(() => Math.max(1, Math.ceil(viewportHeight.value / ROW_HEIGHT)))
 const totalHeight = computed(() => panel.total * ROW_HEIGHT)
 
-const firstIndex = computed(() =>
-  Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - OVERSCAN)
-)
+const firstIndex = computed(() => Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - OVERSCAN))
 const lastIndex = computed(() =>
   Math.min(panel.total - 1, firstIndex.value + rowsPerViewport.value + OVERSCAN * 2)
 )
@@ -89,11 +97,9 @@ const renderedRows = computed(() => {
 
 const isEmpty = computed(() => panel.total === 0 && !panel.loading)
 
-watch(
-  [firstIndex, lastIndex],
-  ([first, last]) => panel.ensureRange(first, Math.max(first, last)),
-  { immediate: true }
-)
+watch([firstIndex, lastIndex], ([first, last]) => panel.ensureRange(first, Math.max(first, last)), {
+  immediate: true
+})
 
 // A re-sort renumbers every row, so the old scroll offset points at unrelated
 // music. Returning to the top is the only position that still means something.

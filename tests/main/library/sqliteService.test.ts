@@ -238,9 +238,7 @@ describe('scanRoot', () => {
     const path = musicFolder('Music', ['a.flac'])
     await addAndScan(path)
 
-    const summary = await service.scanRoot(
-      (await service.listRoots())[0].id
-    )
+    const summary = await service.scanRoot((await service.listRoots())[0].id)
 
     expect(summary.tracksIndexed).toBe(1)
     expect((await service.listRoots())[0].trackCount).toBe(1)
@@ -257,7 +255,12 @@ describe('listTracks', () => {
     const byName: Record<string, TrackTags> = {
       'a.flac': tags({ title: 'Anthem', artist: 'Zoviet France', durationMs: 300_000, trackNo: 3 }),
       'b.flac': tags({ title: 'Beacon', artist: 'Aphex Twin', durationMs: 100_000, trackNo: 1 }),
-      'c.flac': tags({ title: 'Cirrus', artist: 'Boards of Canada', durationMs: 200_000, trackNo: 2 })
+      'c.flac': tags({
+        title: 'Cirrus',
+        artist: 'Boards of Canada',
+        durationMs: 200_000,
+        trackNo: 2
+      })
     }
 
     service = new SqliteLibraryService({

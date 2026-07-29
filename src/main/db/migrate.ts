@@ -72,10 +72,7 @@ function assertContiguous(migrations: readonly Migration[]): void {
  * a transaction, so a migration needing the 12-step table rebuild cannot simply
  * turn it off here. It has to be toggled by the caller around `migrate`.
  */
-export function migrate(
-  db: Database.Database,
-  migrations: readonly Migration[]
-): MigrationResult {
+export function migrate(db: Database.Database, migrations: readonly Migration[]): MigrationResult {
   assertContiguous(migrations)
 
   const from = db.pragma('user_version', { simple: true }) as number

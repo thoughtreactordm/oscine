@@ -118,15 +118,13 @@ class FakeEngine implements AudioEngine {
 function harness(options: { total?: number; manualLoad?: boolean } = {}) {
   const total = options.total ?? 10
   const engine = new FakeEngine(options.manualLoad ?? false)
-  const fetchPage = vi.fn(
-    async (query: ListTracksQuery): Promise<ListTracksResult> => ({
-      tracks: Array.from(
-        { length: Math.max(0, Math.min(query.limit, total - query.offset)) },
-        (_, i) => track(query.offset + i)
-      ),
-      total
-    })
-  )
+  const fetchPage = vi.fn(async (query: ListTracksQuery): Promise<ListTracksResult> => ({
+    tracks: Array.from(
+      { length: Math.max(0, Math.min(query.limit, total - query.offset)) },
+      (_, i) => track(query.offset + i)
+    ),
+    total
+  }))
 
   const controller = createPlaybackController({ createEngine: () => engine, fetchPage })
   return { controller, engine, fetchPage }
@@ -153,7 +151,12 @@ describe('createPlaybackController', () => {
       h.controller.setVolume(0.25)
       expect(h.controller.hasEngine()).toBe(false)
 
-      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0, track: track(0) })
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 0,
+        track: track(0)
+      })
 
       expect(h.engine.volumes[0]).toBe(0.25)
     })
@@ -186,7 +189,12 @@ describe('createPlaybackController', () => {
     })
 
     it('captures the list ordering as the play order', async () => {
-      await h.controller.playFromList({ sort: 'album', direction: 'desc', index: 0, track: track(0) })
+      await h.controller.playFromList({
+        sort: 'album',
+        direction: 'desc',
+        index: 0,
+        track: track(0)
+      })
       expect(h.controller.orderId()).toBe('list:album:desc')
     })
   })
