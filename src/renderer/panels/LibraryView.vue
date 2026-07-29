@@ -1,16 +1,25 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { FermataError, library } from '@renderer/ipc'
+import { AudioEngineError, createAudioEngine, type AudioEngine, type PlaybackStatus } from '@renderer/audio'
 import { useShellStore } from '@renderer/stores/shell'
-import type { LibraryRoot, ScanProgress } from '@shared/library'
+import type { LibraryRoot, ScanProgress, Track } from '@shared/library'
 
 // Placeholder shell. W4-1 replaces this with the real virtualized TrackList
 // island; for now it exercises the IPC boundary end to end, which is also the
 // only way to drive W2-2's add-root flow by hand.
+//
+// The transport controls below are a W3-1 verification harness, not a design.
+// The card's acceptance is behavioural — three codecs playing, seeking and
+// reporting duration — and none of it can be checked without something that
+// drives the engine. W4-1 deletes all of it and builds the real player UI; what
+// should survive is the shape of the coupling, which is that this file imports
+// `createAudioEngine` and an `AudioEngine` handle and names no Web Audio type.
 const shell = useShellStore()
 const versions = window.fermata.versions
 
 const roots = ref<LibraryRoot[]>([])
+const tracks = ref<Track[]>([])
 const scan = ref<ScanProgress | null>(null)
 const adding = ref(false)
 const notice = ref<string | null>(null)
@@ -18,6 +27,36 @@ const notice = ref<string | null>(null)
 const trackCount = computed(() => roots.value.reduce((total, root) => total + root.trackCount, 0))
 
 let stopListening: (() => void) | null = null
+
+// --- playback ------------------------------------------------------------
+
+// Deliberately NOT a `ref`. Vue's reactivity deep-proxies whatever it wraps,
+// and reading a `#private` field through a Proxy throws — the engine would blow
+// up on its first getter. It is not reactive data anyway; the refs below mirror
+// it from its events.
+let engine: AudioEngine | null = null
+let unsubscribes: Array<() => void> = []
+
+const status = ref<PlaybackStatus>('idle')
+const currentTime = ref(0)
+const duration = ref(0)
+const volume = ref(1)
+const nowPlaying = ref<Track | null>(null)
+const audioNotice = ref<string | null>(null)
+// While the scrub handle is held, timeupdate must not fight the user for the
+// slider's value.
+const scrubbing = ref(false)
+
+const isPlaying = computed(() => status.value === 'playing')
+const isBusy = computed(() => status.value === 'loading')
+const canPlay = computed(() => nowPlaying.value !== null && !isBusy.value)
+
+function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+  const total = Math.floor(seconds)
+  const minutes = Math.floor(total / 60)
+  return `${minutes}:${String(total % 60).padStart(2, '0')}`
+}
 
 async function refreshRoots(): Promise<void> {
   try {
@@ -27,19 +66,104 @@ async function refreshRoots(): Promise<void> {
   }
 }
 
+async function refreshTracks(): Promise<void> {
+  try {
+    const result = await library.listTracks({
+      sort: 'title',
+      direction: 'asc',
+      offset: 0,
+      limit: 200
+    })
+    tracks.value = result.tracks
+  } catch {
+    notice.value = 'Could not list tracks.'
+  }
+}
+
+async function playTrack(track: Track): Promise<void> {
+  if (!engine) return
+  audioNotice.value = null
+  nowPlaying.value = track
+
+  try {
+    await engine.load(track.id)
+    await engine.play()
+  } catch (err) {
+    // `load` rejects *and* emits `error`, and the subscription below already
+    // turned that into a notice — handling both would double-report. The one
+    // case worth catching here is `aborted`, which is not a fault at all: it
+    // means a newer track was clicked while this one was still decoding.
+    if (err instanceof AudioEngineError && err.code === 'aborted') return
+  }
+}
+
+async function togglePlay(): Promise<void> {
+  if (!engine || !canPlay.value) return
+  if (isPlaying.value) engine.pause()
+  else await engine.play()
+}
+
+function onScrubStart(): void {
+  scrubbing.value = true
+}
+
+function onScrubInput(event: Event): void {
+  currentTime.value = Number((event.target as HTMLInputElement).value)
+}
+
+function onScrubEnd(): void {
+  engine?.seek(currentTime.value)
+  scrubbing.value = false
+}
+
+function onVolumeInput(event: Event): void {
+  const value = Number((event.target as HTMLInputElement).value)
+  volume.value = value
+  engine?.setVolume(value)
+}
+
 onMounted(async () => {
   stopListening = library.onScanProgress((progress) => {
     // The final event clears the indicator rather than freezing it at 100%.
     scan.value = progress.done ? null : progress
     // Counts only become visible once the scan has committed its last batch.
-    if (progress.done) void refreshRoots()
+    if (progress.done) {
+      void refreshRoots()
+      void refreshTracks()
+    }
   })
 
-  await refreshRoots()
+  engine = createAudioEngine()
+  unsubscribes = [
+    engine.on('statuschange', (next) => {
+      status.value = next
+    }),
+    engine.on('timeupdate', (position) => {
+      duration.value = position.duration
+      if (!scrubbing.value) currentTime.value = position.currentTime
+    }),
+    // M1 is one track at a time with a hard stop, so the end of a track is the
+    // end of playback. The queue that reacts to this arrives with M2.
+    engine.on('ended', () => {
+      audioNotice.value = null
+    }),
+    engine.on('error', (err) => {
+      audioNotice.value = err.message
+    })
+  ]
+
+  await Promise.all([refreshRoots(), refreshTracks()])
 })
 
-// The bridge holds a listener on the main world; dropping this leaks it.
-onUnmounted(() => stopListening?.())
+onUnmounted(() => {
+  // The bridge holds a listener on the main world; dropping this leaks it.
+  stopListening?.()
+  for (const off of unsubscribes) off()
+  unsubscribes = []
+  // Releases the audio device and every listener the engine still holds.
+  engine?.dispose()
+  engine = null
+})
 
 async function addFolder(): Promise<void> {
   adding.value = true
@@ -52,8 +176,7 @@ async function addFolder(): Promise<void> {
   } catch (err) {
     // A FermataError's message is contractually safe to show; anything else
     // could be carrying a path or a stack, so it gets a generic line.
-    notice.value =
-      err instanceof FermataError ? err.message : 'That folder could not be added.'
+    notice.value = err instanceof FermataError ? err.message : 'That folder could not be added.'
   } finally {
     adding.value = false
   }
@@ -69,8 +192,8 @@ async function addFolder(): Promise<void> {
       </div>
 
       <p class="text-muted">
-        Add a folder to index it. Browsing and playback arrive with W4 and W3 — this view exists to
-        drive the library and prove the seam.
+        Add a folder to index it, then pick a track to play. The transport below is a W3-1
+        verification harness — W4-1 replaces this whole view.
       </p>
 
       <UAlert
@@ -122,6 +245,96 @@ async function addFolder(): Promise<void> {
         </ul>
       </UCard>
 
+      <!-- Transport. W3-1 harness — see the note at the top of this file. -->
+      <UCard>
+        <div class="space-y-4">
+          <UAlert
+            v-if="audioNotice"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-volume-x"
+            :description="audioNotice"
+          />
+
+          <div class="flex items-center gap-3">
+            <UButton
+              :icon="isPlaying ? 'i-lucide-pause' : 'i-lucide-play'"
+              :color="canPlay ? 'primary' : 'neutral'"
+              :loading="isBusy"
+              :disabled="!canPlay"
+              @click="togglePlay"
+            />
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm text-highlighted">
+                {{ nowPlaying?.title ?? 'Nothing loaded' }}
+              </p>
+              <p class="truncate text-xs text-muted">
+                {{ nowPlaying?.artist ?? '—' }} · {{ status }}
+              </p>
+            </div>
+            <span class="shrink-0 tabular-nums text-xs text-muted">
+              {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
+            </span>
+          </div>
+
+          <!-- Native range inputs, deliberately: this harness is temporary, and
+               a component's v-model semantics are one more thing that could be
+               wrong while diagnosing audio. W4-1 picks the real control. -->
+          <input
+            type="range"
+            class="w-full accent-primary"
+            min="0"
+            :max="duration || 1"
+            step="0.01"
+            :value="currentTime"
+            :disabled="!duration"
+            @pointerdown="onScrubStart"
+            @input="onScrubInput"
+            @change="onScrubEnd"
+            @pointerup="onScrubEnd"
+          />
+
+          <div class="flex items-center gap-3">
+            <UIcon name="i-lucide-volume-2" class="size-4 shrink-0 text-muted" />
+            <input
+              type="range"
+              class="w-40 accent-primary"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="volume"
+              @input="onVolumeInput"
+            />
+            <span class="tabular-nums text-xs text-muted">{{ Math.round(volume * 100) }}%</span>
+          </div>
+        </div>
+      </UCard>
+
+      <UCard v-if="tracks.length">
+        <ul class="divide-y divide-default text-sm">
+          <li v-for="track in tracks" :key="track.id">
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 py-2 text-left hover:text-primary"
+              :class="{ 'text-primary': nowPlaying?.id === track.id }"
+              @click="playTrack(track)"
+            >
+              <UIcon
+                :name="
+                  nowPlaying?.id === track.id && isPlaying ? 'i-lucide-volume-2' : 'i-lucide-play'
+                "
+                class="size-4 shrink-0 text-muted"
+              />
+              <span class="truncate">{{ track.title }}</span>
+              <span class="truncate text-muted">{{ track.artist ?? '' }}</span>
+              <span class="ml-auto shrink-0 tabular-nums text-muted">
+                {{ track.codec ?? '' }}
+              </span>
+            </button>
+          </li>
+        </ul>
+      </UCard>
+
       <div class="flex gap-3">
         <UButton
           color="primary"
@@ -132,7 +345,6 @@ async function addFolder(): Promise<void> {
         >
           Add folder
         </UButton>
-        <UButton color="neutral" variant="subtle" icon="i-lucide-play" disabled>Play</UButton>
       </div>
     </div>
   </main>
