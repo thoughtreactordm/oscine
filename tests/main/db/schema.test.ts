@@ -1,8 +1,9 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { openDatabase } from '../../../src/main/db'
+import { MIGRATIONS, migrate, openDatabase } from '../../../src/main/db'
 
 let dir: string
 let file: string
@@ -39,9 +40,9 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(0)
-      expect(migration.to).toBe(1)
-      expect(migration.applied.map((m) => m.name)).toEqual(['schema-v1'])
-      expect(db.pragma('user_version', { simple: true })).toBe(1)
+      expect(migration.to).toBe(2)
+      expect(migration.applied.map((m) => m.name)).toEqual(['schema-v1', 'index-track-order'])
+      expect(db.pragma('user_version', { simple: true })).toBe(2)
     } finally {
       db.close()
     }
@@ -53,9 +54,26 @@ describe('openDatabase', () => {
 
     const { db, migration } = openDatabase(file)
     try {
-      expect(migration.from).toBe(1)
-      expect(migration.to).toBe(1)
+      expect(migration.from).toBe(2)
+      expect(migration.to).toBe(2)
       expect(migration.applied).toEqual([])
+    } finally {
+      db.close()
+    }
+  })
+
+  it('adds the ordering indexes to an existing library without losing rows', () => {
+    const old = new Database(file)
+    migrate(old, MIGRATIONS.slice(0, 1))
+    const seeded = seedRootAndTrack(old)
+    old.close()
+
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.from).toBe(1)
+      expect(migration.to).toBe(2)
+      expect(migration.applied.map((m) => m.name)).toEqual(['index-track-order'])
+      expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
       db.close()
     }
@@ -80,6 +98,31 @@ describe('openDatabase', () => {
         'tracks_fts'
       ]) {
         expect(names).toContain(table)
+      }
+    } finally {
+      db.close()
+    }
+  })
+
+  it('creates indexes covering every library ordering', () => {
+    const { db } = openDatabase(file)
+    try {
+      const names = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index'")
+        .all()
+        .map((row) => (row as { name: string }).name)
+
+      for (const index of [
+        'idx_tracks_order_title_asc',
+        'idx_tracks_order_title_desc',
+        'idx_tracks_order_duration_asc',
+        'idx_tracks_order_duration_desc',
+        'idx_tracks_order_number_asc',
+        'idx_tracks_order_number_desc',
+        'idx_artists_order_name',
+        'idx_albums_order_title'
+      ]) {
+        expect(names).toContain(index)
       }
     } finally {
       db.close()

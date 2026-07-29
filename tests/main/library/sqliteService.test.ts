@@ -253,13 +253,26 @@ describe('listTracks', () => {
   async function seed(): Promise<void> {
     const path = musicFolder('Music', ['c.flac', 'a.flac', 'b.flac'])
     const byName: Record<string, TrackTags> = {
-      'a.flac': tags({ title: 'Anthem', artist: 'Zoviet France', durationMs: 300_000, trackNo: 3 }),
-      'b.flac': tags({ title: 'Beacon', artist: 'Aphex Twin', durationMs: 100_000, trackNo: 1 }),
+      'b.flac': tags({
+        title: 'Beacon',
+        artist: 'Aphex Twin',
+        album: 'Selected Ambient Works',
+        durationMs: 100_000,
+        trackNo: 1
+      }),
       'c.flac': tags({
         title: 'Cirrus',
         artist: 'Boards of Canada',
+        album: 'Geogaddi',
         durationMs: 200_000,
         trackNo: 2
+      }),
+      'a.flac': tags({
+        title: 'Anthem',
+        artist: 'Zoviet France',
+        album: 'Shouting at the Ground',
+        durationMs: 300_000,
+        trackNo: 3
       })
     }
 
@@ -313,6 +326,18 @@ describe('listTracks', () => {
       limit: 10
     })
     expect(byDuration.tracks.map((track) => track.durationSec)).toEqual([300, 200, 100])
+
+    const byAlbum = await service.listTracks({
+      sort: 'album',
+      direction: 'asc',
+      offset: 0,
+      limit: 10
+    })
+    expect(byAlbum.tracks.map((track) => track.album)).toEqual([
+      'Geogaddi',
+      'Selected Ambient Works',
+      'Shouting at the Ground'
+    ])
   })
 
   it('pages without dropping or repeating a row', async () => {
@@ -340,24 +365,26 @@ describe('listTracks', () => {
     await seed()
     const [root] = await service.listRoots()
 
-    const mine = await service.listTracks({
-      rootId: root.id,
-      sort: 'title',
-      direction: 'asc',
-      offset: 0,
-      limit: 10
-    })
-    const other = await service.listTracks({
-      rootId: root.id + 999,
-      sort: 'title',
-      direction: 'asc',
-      offset: 0,
-      limit: 10
-    })
+    for (const sort of ['title', 'artist', 'album'] as const) {
+      const mine = await service.listTracks({
+        rootId: root.id,
+        sort,
+        direction: 'asc',
+        offset: 0,
+        limit: 10
+      })
+      const other = await service.listTracks({
+        rootId: root.id + 999,
+        sort,
+        direction: 'asc',
+        offset: 0,
+        limit: 10
+      })
 
-    expect(mine.total).toBe(3)
-    expect(other.total).toBe(0)
-    expect(other.tracks).toEqual([])
+      expect(mine.total).toBe(3)
+      expect(other.total).toBe(0)
+      expect(other.tracks).toEqual([])
+    }
   })
 
   it('never exposes a filesystem path to the renderer', async () => {
@@ -386,19 +413,72 @@ describe('listTracks', () => {
       pickFolder: async () => path,
       onProgress: () => {},
       readMetadata: async (absPath) =>
-        absPath.endsWith('tagged.flac') ? tags({ artist: 'Autechre' }) : tags()
+        absPath.endsWith('tagged.flac')
+          ? tags({ artist: 'Autechre', album: 'Tri Repetae' })
+          : tags()
     })
     const root = await service.addRoot()
     await service.scanRoot(root!.id)
 
-    for (const direction of ['asc', 'desc'] as const) {
-      const { tracks } = await service.listTracks({
-        sort: 'artist',
-        direction,
+    for (const sort of ['artist', 'album'] as const) {
+      for (const direction of ['asc', 'desc'] as const) {
+        const { tracks } = await service.listTracks({
+          sort,
+          direction,
+          offset: 0,
+          limit: 10
+        })
+        expect(tracks[tracks.length - 1][sort]).toBeNull()
+      }
+    }
+  })
+
+  it('keeps joined-sort ties stable and pages across the null tail', async () => {
+    const path = musicFolder('Music', [
+      '01-upper.flac',
+      '02-lower.flac',
+      '03-zulu.flac',
+      '04-bare.flac',
+      '05-bare.flac'
+    ])
+    const byName: Record<string, TrackTags> = {
+      '01-upper.flac': tags({ artist: 'Alpha', album: 'Echo' }),
+      '02-lower.flac': tags({ artist: 'alpha', album: 'echo' }),
+      '03-zulu.flac': tags({ artist: 'Zulu', album: 'Zulu' }),
+      '04-bare.flac': tags(),
+      '05-bare.flac': tags()
+    }
+    service = new SqliteLibraryService({
+      db,
+      pickFolder: async () => path,
+      onProgress: () => {},
+      readMetadata: async (absPath) => byName[absPath.split(/[\\/]/).pop()!] ?? tags()
+    })
+    const root = await service.addRoot()
+    await service.scanRoot(root!.id)
+
+    for (const sort of ['artist', 'album'] as const) {
+      const full = await service.listTracks({
+        sort,
+        direction: 'asc',
         offset: 0,
         limit: 10
       })
-      expect(tracks[tracks.length - 1].artist).toBeNull()
+      const tied = full.tracks.slice(0, 2)
+      expect(tied.map((track) => track.id)).toEqual(
+        tied.map((track) => track.id).toSorted((a, b) => a - b)
+      )
+      expect(full.tracks.slice(3).map((track) => track[sort])).toEqual([null, null])
+
+      const crossing = await service.listTracks({
+        sort,
+        direction: 'asc',
+        offset: 2,
+        limit: 3
+      })
+      expect(crossing.tracks.map((track) => track.id)).toEqual(
+        full.tracks.slice(2, 5).map((track) => track.id)
+      )
     }
   })
 })

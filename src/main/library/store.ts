@@ -62,17 +62,72 @@ const SORT_KEYS: Record<TrackSortColumn, readonly SortKey[]> = {
   durationSec: [{ expr: 't.duration_ms' }]
 }
 
+interface JoinedSort {
+  /** Table holding the displayed value, scanned in its indexed order. */
+  readonly table: 'artists' | 'albums'
+  readonly alias: 'sort_ar' | 'sort_al'
+  readonly index: 'idx_artists_order_name' | 'idx_albums_order_title'
+  readonly trackIndex: 'idx_tracks_artist' | 'idx_tracks_album'
+  readonly foreignKey: 'artist_id' | 'album_id'
+  readonly value: string
+}
+
 /**
- * The projection `listTracks` and the FTS bookkeeping both read from.
+ * Sort keys that live across a join.
+ *
+ * Starting the ordinary track query from `tracks` makes SQLite look up the
+ * artist/album for all 100k rows and sort the result. These definitions let the
+ * query start at the already-ordered dimension instead, then find that
+ * dimension's tracks through the existing foreign-key index. SQLite only has
+ * to sort ids within one equal name/title group.
+ */
+const JOINED_SORTS: Partial<Record<TrackSortColumn, JoinedSort>> = {
+  artist: {
+    table: 'artists',
+    alias: 'sort_ar',
+    index: 'idx_artists_order_name',
+    trackIndex: 'idx_tracks_artist',
+    foreignKey: 'artist_id',
+    value: 'sort_ar.name'
+  },
+  album: {
+    table: 'albums',
+    alias: 'sort_al',
+    index: 'idx_albums_order_title',
+    trackIndex: 'idx_tracks_album',
+    foreignKey: 'album_id',
+    value: 'sort_al.title'
+  }
+}
+
+/**
+ * Joins and projection shared by every list shape.
  *
  * `aa` is the album's artist, which is a different join from the track's own —
  * a compilation has one album artist and a different artist per track.
  */
-const TRACK_SOURCE = `
-  FROM tracks t
+const TRACK_JOINS = `
   LEFT JOIN artists ar ON ar.id = t.artist_id
   LEFT JOIN albums  al ON al.id = t.album_id
   LEFT JOIN artists aa ON aa.id = al.album_artist_id
+`
+
+const TRACK_PROJECTION = `
+  t.id           AS id,
+  t.root_id      AS rootId,
+  t.title        AS title,
+  ar.name        AS artist,
+  al.title       AS album,
+  aa.name        AS albumArtist,
+  t.track_no     AS trackNo,
+  t.disc_no      AS discNo,
+  al.year        AS year,
+  t.duration_ms  AS durationMs,
+  t.codec        AS codec,
+  t.size         AS encodedBytes,
+  t.sample_rate  AS sampleRate,
+  t.channels     AS channels,
+  t.bit_depth    AS bitDepth
 `
 
 interface TrackRow {
@@ -368,6 +423,20 @@ export class LibraryStore {
     const keys = SORT_KEYS[query.sort]
     if (!keys) throw new Error(`Unsupported sort column: ${String(query.sort)}`)
     const direction = query.direction === 'desc' ? 'DESC' : 'ASC'
+    const where = query.rootId === undefined ? '' : 'WHERE t.root_id = @rootId'
+    const params = { rootId: query.rootId ?? null, limit: query.limit, offset: query.offset }
+
+    const { total } = this.db
+      .prepare(`SELECT count(*) AS total FROM tracks t ${where}`)
+      .get(params) as { total: number }
+
+    const joinedSort = JOINED_SORTS[query.sort]
+    if (joinedSort) {
+      return {
+        tracks: this.listTracksByJoinedSort(query, joinedSort, direction),
+        total
+      }
+    }
 
     // Nulls last in both directions: an untagged artist belongs at the bottom of
     // the list whichever way it is sorted, and SQLite's default puts NULL first
@@ -382,38 +451,100 @@ export class LibraryStore {
       })
       .join(', ')
 
-    const where = query.rootId === undefined ? '' : 'WHERE t.root_id = @rootId'
-    const params = { rootId: query.rootId ?? null, limit: query.limit, offset: query.offset }
-
     const rows = this.db
       .prepare(
-        `SELECT t.id           AS id,
-                t.root_id      AS rootId,
-                t.title        AS title,
-                ar.name        AS artist,
-                al.title       AS album,
-                aa.name        AS albumArtist,
-                t.track_no     AS trackNo,
-                t.disc_no      AS discNo,
-                al.year        AS year,
-                t.duration_ms  AS durationMs,
-                t.codec        AS codec,
-                t.size         AS encodedBytes,
-                t.sample_rate  AS sampleRate,
-                t.channels     AS channels,
-                t.bit_depth    AS bitDepth
-         ${TRACK_SOURCE}
-         ${where}
-         ORDER BY ${orderBy}, t.id ASC
-         LIMIT @limit OFFSET @offset`
+        `SELECT ${TRACK_PROJECTION}
+         FROM (
+           SELECT t.id
+           FROM tracks t
+           ${where}
+           ORDER BY ${orderBy}, t.id ASC
+           LIMIT @limit OFFSET @offset
+         ) page
+         JOIN tracks t ON t.id = page.id
+         ${TRACK_JOINS}
+         ORDER BY ${orderBy}, t.id ASC`
       )
       .all(params) as TrackRow[]
 
-    const { total } = this.db
-      .prepare(`SELECT count(*) AS total FROM tracks t ${where}`)
+    return { tracks: rows.map(toTrack), total }
+  }
+
+  /**
+   * Reads an artist/album page without sorting the whole track table.
+   *
+   * The dimension table supplies non-null rows in indexed order. Null rows are
+   * a separate id-ordered tail, which exactly matches listTracks' nulls-last
+   * contract. Splitting the query also makes a page that crosses that boundary
+   * cheap instead of forcing a compound-query sort.
+   */
+  private listTracksByJoinedSort(
+    query: ListTracksQuery,
+    sort: JoinedSort,
+    direction: 'ASC' | 'DESC'
+  ): Track[] {
+    const rootPredicate = query.rootId === undefined ? '' : 'AND t.root_id = @rootId'
+    const params = { rootId: query.rootId ?? null, limit: query.limit, offset: query.offset }
+    const { total: taggedTotal } = this.db
+      .prepare(
+        `SELECT count(*) AS total
+         FROM tracks t
+         WHERE t.${sort.foreignKey} IS NOT NULL
+         ${rootPredicate}`
+      )
       .get(params) as { total: number }
 
-    return { tracks: rows.map(toTrack), total }
+    const rows: TrackRow[] = []
+    const taggedAvailable = Math.max(0, taggedTotal - query.offset)
+    const taggedLimit = Math.min(query.limit, taggedAvailable)
+
+    if (taggedLimit > 0) {
+      rows.push(
+        ...(this.db
+          .prepare(
+            `SELECT ${TRACK_PROJECTION}
+             FROM (
+               SELECT t.id, ${sort.value} AS sortValue
+               FROM ${sort.table} ${sort.alias} INDEXED BY ${sort.index}
+               JOIN tracks t INDEXED BY ${sort.trackIndex}
+                 ON t.${sort.foreignKey} = ${sort.alias}.id
+               WHERE 1 = 1
+               ${rootPredicate}
+               ORDER BY ${sort.value} COLLATE NOCASE ${direction}, t.id ASC
+               LIMIT @limit OFFSET @offset
+             ) page
+             JOIN tracks t ON t.id = page.id
+             ${TRACK_JOINS}
+             ORDER BY page.sortValue COLLATE NOCASE ${direction}, t.id ASC`
+          )
+          .all({ ...params, limit: taggedLimit }) as TrackRow[])
+      )
+    }
+
+    const nullLimit = query.limit - rows.length
+    if (nullLimit > 0) {
+      const nullOffset = Math.max(0, query.offset - taggedTotal)
+      rows.push(
+        ...(this.db
+          .prepare(
+            `SELECT ${TRACK_PROJECTION}
+             FROM (
+               SELECT t.id
+               FROM tracks t
+               WHERE t.${sort.foreignKey} IS NULL
+               ${rootPredicate}
+               ORDER BY t.id ASC
+               LIMIT @limit OFFSET @offset
+             ) page
+             JOIN tracks t ON t.id = page.id
+             ${TRACK_JOINS}
+             ORDER BY t.id ASC`
+          )
+          .all({ ...params, limit: nullLimit, offset: nullOffset }) as TrackRow[])
+      )
+    }
+
+    return rows.map(toTrack)
   }
 
   /**
