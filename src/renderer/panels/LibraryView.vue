@@ -137,6 +137,7 @@ onMounted(async () => {
   unsubscribes = [
     engine.on('statuschange', (next) => {
       status.value = next
+      console.info(`[harness] status → ${next}`)
     }),
     engine.on('timeupdate', (position) => {
       duration.value = position.duration
@@ -144,8 +145,13 @@ onMounted(async () => {
     }),
     // M1 is one track at a time with a hard stop, so the end of a track is the
     // end of playback. The queue that reacts to this arrives with M2.
-    engine.on('ended', () => {
+    //
+    // Logged because nothing else consumes it yet: an `ended` fired by a pause
+    // or a seek would be invisible in M1 and would then auto-advance M2's queue
+    // on every pause. This line is how that gets caught now instead of there.
+    engine.on('ended', (payload) => {
       audioNotice.value = null
+      console.info(`[harness] ENDED track=${payload.trackId}`)
     }),
     engine.on('error', (err) => {
       audioNotice.value = err.message
