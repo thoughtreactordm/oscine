@@ -10,18 +10,23 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify:native": "node scripts/check-native-abi.mjs",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json"
   },
   "dependencies": {
     "@nuxt/ui": "^4.10.0",
+    "better-sqlite3": "^13.0.1",
     "pinia": "^3.0.3",
     "vue": "^3.5.40",
     "vue-router": "^5.2.0"
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.75",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.13.2",
     "@vitejs/plugin-vue": "^6.0.7",
     "electron": "^43.2.0",
@@ -29,6 +34,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "^7.1.12",
+    "vitest": "^4.1.10",
     "vue-tsc": "^3.3.5"
   }
 }
