@@ -119,7 +119,11 @@ class FakeEngine implements AudioEngine {
 
 function harness(options: { total?: number; manualLoad?: boolean } = {}) {
   const total = options.total ?? 10
-  const engine = new FakeEngine(options.manualLoad ?? false)
+  const engines = [
+    new FakeEngine(options.manualLoad ?? false),
+    new FakeEngine(options.manualLoad ?? false)
+  ]
+  let engineIndex = 0
   const fetchPage = vi.fn(async (query: ListTracksQuery): Promise<ListTracksResult> => ({
     tracks: Array.from(
       { length: Math.max(0, Math.min(query.limit, total - query.offset)) },
@@ -128,8 +132,15 @@ function harness(options: { total?: number; manualLoad?: boolean } = {}) {
     total
   }))
 
-  const controller = createPlaybackController({ createEngine: () => engine, fetchPage })
-  return { controller, engine, fetchPage }
+  const controller = createPlaybackController({
+    createEngine: () => {
+      const engine = engines[engineIndex++]
+      if (!engine) throw new Error('Scheduler created more than two engines')
+      return engine
+    },
+    fetchPage
+  })
+  return { controller, engine: engines[0], engines, fetchPage }
 }
 
 /** Lets every already-queued microtask run. */
@@ -186,8 +197,14 @@ describe('createPlaybackController', () => {
       expect(h.engine.playCount).toBe(1)
       expect(h.controller.orderIndex.value).toBe(4)
       expect(h.controller.nowPlaying.value?.id).toBe(4)
-      // The row was handed over, so no round trip was needed for it.
-      expect(h.fetchPage).not.toHaveBeenCalled()
+      // The row was handed over, so the only lookup is the decode-ahead row.
+      expect(h.fetchPage).toHaveBeenCalledTimes(1)
+      expect(h.fetchPage).toHaveBeenCalledWith({
+        sort: 'artist',
+        direction: 'asc',
+        offset: 5,
+        limit: 1
+      })
     })
 
     it('captures the list ordering as the play order', async () => {
@@ -216,14 +233,16 @@ describe('createPlaybackController', () => {
 
       expect(h.controller.orderIndex.value).toBe(3)
       expect(h.controller.nowPlaying.value?.id).toBe(3)
-      expect(h.engine.loaded).toEqual([2, 3])
+      expect(h.engines[0].loaded).toEqual([2, 4])
+      expect(h.engines[1].loaded).toEqual([3])
     })
 
     it('steps back to the preceding row', async () => {
       await h.controller.previous()
 
       expect(h.controller.orderIndex.value).toBe(1)
-      expect(h.engine.loaded).toEqual([2, 1])
+      expect(h.engines[0].loaded).toEqual([2])
+      expect(h.engines[1].loaded).toEqual([3, 1])
     })
 
     it('keeps traversing the ordering it started with, not whatever is browsed now', async () => {
@@ -231,7 +250,7 @@ describe('createPlaybackController', () => {
       // change to what is viewed; the play order was snapshotted at play time.
       await h.controller.next()
 
-      expect(h.fetchPage).toHaveBeenLastCalledWith({
+      expect(h.fetchPage).toHaveBeenCalledWith({
         sort: 'artist',
         direction: 'asc',
         offset: 3,
@@ -331,8 +350,8 @@ describe('createPlaybackController', () => {
       void h.controller.next()
       await settle()
 
-      expect(h.engine.loaded).toEqual([0, 2])
-      expect(h.engine.playCount).toBe(playsBefore + 1)
+      expect(h.engines.flatMap((engine) => engine.loaded)).toContain(2)
+      expect(h.engines.reduce((sum, engine) => sum + engine.playCount, 0)).toBe(playsBefore + 1)
     })
 
     it('abandons a slow decode that a newer request overtook', async () => {
@@ -352,12 +371,12 @@ describe('createPlaybackController', () => {
       await settle()
 
       // The first decode finishes late — after it has already been superseded.
-      slow.engine.settleLoad(1)
+      slow.engines[1].settleLoad(0)
       await settle()
-      slow.engine.settleLoad(0)
+      slow.engines[0].settleLoad(0)
       await settle()
 
-      expect(slow.engine.playCount).toBe(1)
+      expect(slow.engines.reduce((sum, engine) => sum + engine.playCount, 0)).toBe(1)
       expect(slow.controller.nowPlaying.value?.id).toBe(5)
     })
   })
@@ -410,12 +429,13 @@ describe('createPlaybackController', () => {
       expect(aborted.controller.error.value).toBeNull()
     })
 
-    it('does not advance on its own when a track ends', () => {
-      // M1 stops at the end of a track; the queue that reacts to this is W5's.
+    it('promotes the prefetched track when the current engine ends', async () => {
       h.engine.emit('ended', { trackId: 0 })
+      await settle()
 
-      expect(h.engine.loaded).toEqual([0])
-      expect(h.controller.orderIndex.value).toBe(0)
+      expect(h.engines[1].loaded).toEqual([1])
+      expect(h.controller.orderIndex.value).toBe(1)
+      expect(h.controller.nowPlaying.value?.id).toBe(1)
     })
   })
 

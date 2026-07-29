@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { createAudioEngine } from '@renderer/audio'
+import { createAudioEngineFactory } from '@renderer/audio'
 import { library } from '@renderer/ipc'
 import { createPlaybackController } from '@renderer/playback/controller'
 
@@ -17,9 +17,12 @@ import { createPlaybackController } from '@renderer/playback/controller'
  * Audio; this is the one place the real engine and the real page fetch are
  * bolted on.
  */
-export const usePlaybackStore = defineStore('playback', () =>
-  createPlaybackController({
-    createEngine: createAudioEngine,
+export const usePlaybackStore = defineStore('playback', () => {
+  // Both scheduler slots come from one factory so R1 accounts current and
+  // prefetched decoded buffers in the same proven-freed ledger.
+  const createEngine = createAudioEngineFactory()
+  return createPlaybackController({
+    createEngine,
     fetchPage: (query) => library.listTracks(query)
   })
-)
+})

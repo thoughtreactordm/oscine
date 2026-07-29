@@ -14,6 +14,7 @@ import type {
   TrackSortColumn
 } from '@shared/library'
 import { createListPlayOrder, type PlayOrder } from './playOrder'
+import { PlaybackScheduler, type PrefetchState, type PrefetchStatus } from './scheduler'
 
 /**
  * The bridge between the `AudioEngine` and the UI.
@@ -61,6 +62,9 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   const volume = ref(1)
   const nowPlaying = ref<Track | null>(null)
   const error = ref<string | null>(null)
+  const prefetchStatus = ref<PrefetchStatus>('idle')
+  const prefetchedTrackId = ref<number | null>(null)
+  const prefetchError = ref<string | null>(null)
 
   /** Position of the playing track within `order`, or `null` when idle. */
   const orderIndex = ref<number | null>(null)
@@ -79,7 +83,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    * `#private` field through a Proxy throws — the engine would fail on its
    * first getter. It is not reactive data anyway; the refs above mirror it.
    */
-  let engine: AudioEngine | null = null
+  let scheduler: PlaybackScheduler | null = null
   let unsubscribes: Array<() => void> = []
   let order: PlayOrder | null = null
 
@@ -105,10 +109,16 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     return Math.min(Math.max(seconds, 0), Math.max(0, duration.value))
   }
 
-  function ensureEngine(): AudioEngine {
-    if (engine) return engine
+  function applyPrefetch(state: PrefetchState): void {
+    prefetchStatus.value = state.status
+    prefetchedTrackId.value = state.trackId
+    prefetchError.value = state.error?.message ?? null
+  }
 
-    const created = deps.createEngine()
+  function ensureScheduler(): PlaybackScheduler {
+    if (scheduler) return scheduler
+
+    const created = new PlaybackScheduler({ createEngine: deps.createEngine })
     unsubscribes = [
       created.on('statuschange', (next) => {
         status.value = next
@@ -119,17 +129,17 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       }),
       created.on('error', (err) => {
         error.value = err.message
-      })
+      }),
+      created.on('trackchange', ({ track, index }) => {
+        nowPlaying.value = track
+        orderIndex.value = index
+      }),
+      created.on('prefetchchange', applyPrefetch)
     ]
-
-    // No `ended` subscription, deliberately. M1 stops at the end of a track:
-    // the card's non-scope is explicit that a queue is W5's, and auto-advancing
-    // here would mean writing the traversal twice. `statuschange` already
-    // reports `ended`, so the UI can show it without anything acting on it.
 
     // A volume set before the first play still has to reach the device.
     created.setVolume(volume.value)
-    engine = created
+    scheduler = created
     return created
   }
 
@@ -139,13 +149,12 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    * Both awaits are followed by a token check because either can lose the race:
    * a slow decode can outlive two more clicks.
    */
-  async function start(trackId: number, token: number): Promise<void> {
-    const active = ensureEngine()
+  async function startAt(index: number, track?: Track): Promise<void> {
+    const active = ensureScheduler()
+    if (!order) return
 
     try {
-      await active.load(trackId)
-      if (token !== requestToken) return
-      await active.play()
+      await active.start(order, index, track)
     } catch (err) {
       // `load` rejects *and* emits `error`, and the subscription above already
       // turned that into a notice — handling both would double-report. The one
@@ -163,36 +172,25 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    * both presses compute the same target.
    */
   async function goTo(index: number): Promise<void> {
-    if (!order) return
+    if (!order || !scheduler) return
 
     const token = ++requestToken
     const previousIndex = orderIndex.value
     orderIndex.value = index
 
-    let track: Track | null
     try {
-      track = await order.at(index)
+      const track = await scheduler.goTo(index)
+      if (token !== requestToken || track === undefined) return
+      if (!track) {
+        // Off the end of the order. The scheduler has paused the current track.
+        orderIndex.value = previousIndex
+      }
     } catch {
       if (token === requestToken) {
         orderIndex.value = previousIndex
-        error.value = 'Could not read the next track.'
+        if (!error.value) error.value = 'Could not read the next track.'
       }
-      return
     }
-
-    if (token !== requestToken) return
-
-    if (!track) {
-      // Off the end of the order. Stop where we are rather than erroring, and
-      // leave the index on the last real row so Previous still works.
-      orderIndex.value = previousIndex
-      engine?.pause()
-      return
-    }
-
-    nowPlaying.value = track
-    error.value = null
-    await start(track.id, token)
   }
 
   /**
@@ -209,15 +207,17 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     // With the row already in hand there is nothing to look up, so skip `goTo`
     // and its round trip.
     if (params.track) {
-      const token = ++requestToken
+      ++requestToken
       orderIndex.value = params.index
       nowPlaying.value = params.track
       error.value = null
-      await start(params.track.id, token)
+      await startAt(params.index, params.track)
       return
     }
 
-    await goTo(params.index)
+    ++requestToken
+    error.value = null
+    await startAt(params.index)
   }
 
   async function next(): Promise<void> {
@@ -235,7 +235,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
 
   async function toggle(): Promise<void> {
     if (!nowPlaying.value) return
-    const active = ensureEngine()
+    const active = ensureScheduler()
     if (status.value === 'playing') active.pause()
     else await active.play()
   }
@@ -258,32 +258,51 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   function endScrub(): void {
     if (!scrubbing.value) return
     scrubbing.value = false
-    engine?.seek(currentTime.value)
+    scheduler?.seek(currentTime.value)
   }
 
   /** A seek with no drag behind it — keyboard, or a click on the track. */
   function seek(seconds: number): void {
     currentTime.value = clampTime(seconds)
-    engine?.seek(currentTime.value)
+    scheduler?.seek(currentTime.value)
   }
 
   function setVolume(gain: number): void {
     const clamped = Number.isFinite(gain) ? Math.min(Math.max(gain, 0), 1) : 0
     volume.value = clamped
     // Before the first play there is no engine; `ensureEngine` replays it.
-    engine?.setVolume(clamped)
+    scheduler?.setVolume(clamped)
+  }
+
+  /** Stop playback and invalidate current and prefetched work. */
+  function stop(): void {
+    requestToken++
+    scheduler?.stop()
+    order = null
+    orderIndex.value = null
+    nowPlaying.value = null
+    error.value = null
+    currentTime.value = 0
+    duration.value = 0
   }
 
   /** Releases the audio device and every subscription. Safe to call twice. */
   function dispose(): void {
     for (const off of unsubscribes) off()
     unsubscribes = []
-    engine?.dispose()
-    engine = null
+    scheduler?.dispose()
+    scheduler = null
     // Strands anything still in flight so it cannot resurrect a disposed engine.
     requestToken++
     order = null
     status.value = 'idle'
+    applyPrefetch({
+      status: 'idle',
+      index: null,
+      trackId: null,
+      transitionPolicy: null,
+      error: null
+    })
   }
 
   return {
@@ -294,6 +313,9 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     nowPlaying,
     orderIndex,
     error,
+    prefetchStatus,
+    prefetchedTrackId,
+    prefetchError,
     scrubbing,
     isPlaying,
     isLoading,
@@ -308,9 +330,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     endScrub,
     seek,
     setVolume,
+    stop,
     dispose,
     /** Test seam: whether the audio device has actually been claimed yet. */
-    hasEngine: (): boolean => engine !== null,
+    hasEngine: (): boolean => scheduler !== null,
     /** Test seam: the ordering currently being played through. */
     orderId: (): string | null => order?.id ?? null
   }
