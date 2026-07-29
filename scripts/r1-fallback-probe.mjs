@@ -142,12 +142,18 @@ try {
     const toPlayingMs = Math.round(performance.now() - started)
     const firstTime = pb.currentTime
     await new Promise((resolve) => setTimeout(resolve, 1250))
+    const beforeSeek = pb.currentTime
+    const seekTarget = 10 * 60
+    pb.seek(seekTarget)
+    await new Promise((resolve) => setTimeout(resolve, 1500))
     return {
       status: pb.status,
       error: pb.error,
       toPlayingMs,
       firstTime,
-      laterTime: pb.currentTime,
+      beforeSeek,
+      seekTarget,
+      afterSeek: pb.currentTime,
       duration: pb.duration
     }
   `)
@@ -165,7 +171,9 @@ try {
       admission?.includes('"path":"streaming"') && admission.includes('"reason":"per-track-cap"'),
     noWholeBufferDecode: decoded === null,
     playing: playback.status === 'playing' && playback.error === null,
-    mediaClockAdvanced: playback.laterTime > playback.firstTime + 0.5,
+    mediaClockAdvanced: playback.beforeSeek > playback.firstTime + 0.5,
+    streamedSeek:
+      playback.afterSeek >= playback.seekTarget && playback.afterSeek < playback.seekTarget + 5,
     rendererGrowthWithinBudget: growthMiB <= TOTAL_BUDGET_MIB
   }
 

@@ -1,6 +1,8 @@
 import { net, protocol } from 'electron'
+import { stat } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { TRACK_SCHEME } from '@shared/ipc'
+import { parseByteRange, UNSATISFIABLE_RANGE } from './byteRange'
 import type { LibraryService } from './service'
 
 /**
@@ -75,9 +77,27 @@ export function registerTrackProtocol(library: LibraryService): void {
       return new Response('Not found', { status: 404 })
     }
 
+    let totalBytes: number
+    try {
+      totalBytes = (await stat(absolutePath)).size
+    } catch {
+      return new Response('Not found', { status: 404 })
+    }
+
     // Preserve a media element's Range request: seeking must not restart a
     // long track from byte zero. Only the one relevant request header crosses
     // to file:, rather than forwarding renderer-controlled headers wholesale.
+    const requestedRange = parseByteRange(request.headers.get('range'), totalBytes)
+    if (requestedRange === UNSATISFIABLE_RANGE) {
+      return new Response(null, {
+        status: 416,
+        headers: {
+          'accept-ranges': 'bytes',
+          'access-control-allow-origin': '*',
+          'content-range': `bytes */${totalBytes}`
+        }
+      })
+    }
     const upstreamHeaders = new Headers()
     const range = request.headers.get('range')
     if (range) upstreamHeaders.set('range', range)
@@ -91,8 +111,30 @@ export function registerTrackProtocol(library: LibraryService): void {
     const headers = new Headers(upstream.headers)
     headers.set('access-control-allow-origin', '*')
     headers.set('access-control-expose-headers', 'accept-ranges, content-length, content-range')
+    if (!upstream.ok) {
+      return new Response(upstream.body, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers
+      })
+    }
+
+    headers.set('accept-ranges', 'bytes')
+    headers.set(
+      'content-length',
+      String(requestedRange === null ? totalBytes : requestedRange.length)
+    )
+    if (requestedRange !== null) {
+      headers.set(
+        'content-range',
+        `bytes ${requestedRange.start}-${requestedRange.end}/${totalBytes}`
+      )
+    }
     return new Response(upstream.body, {
-      status: upstream.status,
+      // Electron's file loader honors Range and returns the sliced bytes, but
+      // reports them as 200 without Content-Range. Relabeling that payload is
+      // what lets HTMLMediaElement preserve its timeline after a seek.
+      status: requestedRange === null ? upstream.status : 206,
       statusText: upstream.statusText,
       headers
     })
