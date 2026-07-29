@@ -1,5 +1,11 @@
 import type Database from 'better-sqlite3'
 import type {
+  AlbumFacet,
+  ArtistFacet,
+  LibraryBrowseFilters,
+  ListAlbumsResult,
+  ListArtistsResult,
+  ListFacetsQuery,
   ListTracksQuery,
   ListTracksResult,
   Track,
@@ -164,11 +170,6 @@ interface TrackRow {
   rgSource: 'tag' | 'computed' | null
 }
 
-/** FTS5 has no NULL: a NULL column and an empty one are indistinguishable to it. */
-function ftsText(value: string | null): string {
-  return value ?? ''
-}
-
 /**
  * Prepared once per connection.
  *
@@ -262,27 +263,6 @@ function prepareStatements(db: Database.Database) {
         END
       RETURNING id
     `),
-
-    // Contentless FTS5 cannot delete by rowid alone: the 'delete' command has to
-    // be handed the exact column values that were indexed, or the index is left
-    // corrupt. They are read back from `tracks` rather than remembered, which is
-    // what makes a re-scan of an already-indexed root idempotent.
-    ftsSource: db.prepare(`
-      SELECT t.id                  AS id,
-             COALESCE(t.title, '') AS title,
-             COALESCE(ar.name, '') AS artist,
-             COALESCE(al.title,'') AS album
-      FROM tracks t
-      LEFT JOIN artists ar ON ar.id = t.artist_id
-      LEFT JOIN albums  al ON al.id = t.album_id
-      WHERE t.root_id = ? AND t.rel_path = ?
-    `),
-    ftsDelete: db.prepare(
-      "INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album) VALUES('delete', ?, ?, ?, ?)"
-    ),
-    ftsInsert: db.prepare(
-      'INSERT INTO tracks_fts (rowid, title, artist, album) VALUES (?, ?, ?, ?)'
-    ),
 
     resolveTrack: db.prepare(`
       SELECT r.path AS rootPath, t.rel_path AS relPath
@@ -398,14 +378,8 @@ export class LibraryStore {
     // The correction path for a wrong title is `track_overrides` (D7), not this.
     const title = tags.title ?? fileStem(file.relPath)
 
-    const previous = this.statements.ftsSource.get(rootId, file.relPath) as
-      { id: number; title: string; artist: string; album: string } | undefined
-    if (previous) {
-      this.statements.ftsDelete.run(previous.id, previous.title, previous.artist, previous.album)
-    }
-
     const gain = tags.replayGain
-    const { id } = this.statements.upsertTrack.get({
+    this.statements.upsertTrack.get({
       rootId,
       relPath: file.relPath,
       mtime: file.mtime,
@@ -425,9 +399,10 @@ export class LibraryStore {
       rgAlbumGain: gain?.albumGainDb ?? null,
       rgAlbumPeak: gain?.albumPeak ?? null,
       rgSource: gain === null ? null : 'tag'
-    }) as { id: number }
+    })
 
-    this.statements.ftsInsert.run(id, ftsText(title), ftsText(tags.artist), ftsText(tags.album))
+    // Migration 4's metadata triggers update FTS in the same transaction as
+    // this row. Keeping it in SQL also covers direct deletes and root cascades.
   }
 
   private upsertArtist(name: string): number {
@@ -470,6 +445,10 @@ export class LibraryStore {
     const keys = SORT_KEYS[query.sort]
     if (!keys) throw new Error(`Unsupported sort column: ${String(query.sort)}`)
     const direction = query.direction === 'desc' ? 'DESC' : 'ASC'
+    const filtered =
+      query.artistId !== undefined || query.albumId !== undefined || query.searchText !== undefined
+    if (filtered) return this.listFilteredTracks(query, keys, direction)
+
     const where = query.rootId === undefined ? '' : 'WHERE t.root_id = @rootId'
     const params = { rootId: query.rootId ?? null, limit: query.limit, offset: query.offset }
 
@@ -515,6 +494,51 @@ export class LibraryStore {
       .all(params) as TrackRow[]
 
     return { tracks: rows.map(toTrack), total }
+  }
+
+  listArtists(query: ListFacetsQuery): ListArtistsResult {
+    const filter = buildFilter(query)
+    const params = { ...filter.params, limit: query.limit, offset: query.offset }
+    const total = facetTotal(this.db, 't.artist_id', filter, params)
+    const artists = this.db
+      .prepare(
+        `SELECT ar.id AS id, ar.name AS name, count(*) AS trackCount
+         FROM tracks t
+         ${filter.ftsJoin}
+         JOIN artists ar ON ar.id = t.artist_id
+         ${filter.where}
+         GROUP BY ar.id
+         ORDER BY ar.name COLLATE NOCASE ASC, ar.id ASC
+         LIMIT @limit OFFSET @offset`
+      )
+      .all(params) as ArtistFacet[]
+
+    return { artists, total }
+  }
+
+  listAlbums(query: ListFacetsQuery): ListAlbumsResult {
+    const filter = buildFilter(query)
+    const params = { ...filter.params, limit: query.limit, offset: query.offset }
+    const total = facetTotal(this.db, 't.album_id', filter, params)
+    const albums = this.db
+      .prepare(
+        `SELECT al.id AS id,
+                al.title AS title,
+                aa.name AS albumArtist,
+                al.year AS year,
+                count(*) AS trackCount
+         FROM tracks t
+         ${filter.ftsJoin}
+         JOIN albums al ON al.id = t.album_id
+         LEFT JOIN artists aa ON aa.id = al.album_artist_id
+         ${filter.where}
+         GROUP BY al.id
+         ORDER BY al.title COLLATE NOCASE ASC, al.id ASC
+         LIMIT @limit OFFSET @offset`
+      )
+      .all(params) as AlbumFacet[]
+
+    return { albums, total }
   }
 
   getTrackAudioMetadata(trackId: number): TrackAudioMetadata | null {
@@ -621,6 +645,58 @@ export class LibraryStore {
   }
 
   /**
+   * Filtered browse/search shape.
+   *
+   * FTS and dimension predicates first reduce the candidate ids. Only that
+   * bounded set is ordered and windowed; the wide display projection happens
+   * after the page has been chosen.
+   */
+  private listFilteredTracks(
+    query: ListTracksQuery,
+    keys: readonly SortKey[],
+    direction: 'ASC' | 'DESC'
+  ): ListTracksResult {
+    const filter = buildFilter(query)
+    const params = { ...filter.params, limit: query.limit, offset: query.offset }
+    const { total } = this.db
+      .prepare(
+        `SELECT count(*) AS total
+         FROM tracks t
+         ${filter.ftsJoin}
+         ${filter.where}`
+      )
+      .get(params) as { total: number }
+
+    const orderBy = keys
+      .map((key) => {
+        const nullsLast = key.notNull ? '' : `${key.expr} IS NULL ASC, `
+        const collate = key.text ? ' COLLATE NOCASE' : ''
+        return `${nullsLast}${key.expr}${collate} ${direction}`
+      })
+      .join(', ')
+
+    const rows = this.db
+      .prepare(
+        `SELECT ${TRACK_PROJECTION}
+         FROM (
+           SELECT t.id
+           FROM tracks t
+           ${filter.ftsJoin}
+           ${TRACK_JOINS}
+           ${filter.where}
+           ORDER BY ${orderBy}, t.id ASC
+           LIMIT @limit OFFSET @offset
+         ) page
+         JOIN tracks t ON t.id = page.id
+         ${TRACK_JOINS}
+         ORDER BY ${orderBy}, t.id ASC`
+      )
+      .all(params) as TrackRow[]
+
+    return { tracks: rows.map(toTrack), total }
+  }
+
+  /**
    * Absolute path for a track, or `null` if the id is unknown or the stored
    * `rel_path` no longer resolves inside its root.
    *
@@ -632,6 +708,77 @@ export class LibraryStore {
       { rootPath: string; relPath: string } | undefined
     return row ? toAbsPath(row.rootPath, row.relPath) : null
   }
+}
+
+interface FilterSql {
+  readonly ftsJoin: string
+  readonly where: string
+  readonly params: Record<string, string | number>
+}
+
+/**
+ * Turns plain user text into ANDed literal FTS5 phrases, never query syntax.
+ *
+ * Terms shorter than a trigram are ignored when a longer term is present, so
+ * natural searches such as "A Night" remain indexed rather than becoming an
+ * impossible one-character MATCH.
+ */
+function ftsLiteral(text: string): string {
+  const terms = text
+    .split(/\s+/u)
+    .filter((term) => [...term].length >= 3)
+    .map((term) => `"${term.replaceAll('"', '""')}"`)
+  return terms.join(' AND ')
+}
+
+function buildFilter(filters: LibraryBrowseFilters): FilterSql {
+  const predicates: string[] = []
+  const params: Record<string, string | number> = {}
+
+  if (filters.rootId !== undefined) {
+    predicates.push('t.root_id = @rootId')
+    params.rootId = filters.rootId
+  }
+  if (filters.artistId !== undefined) {
+    predicates.push('t.artist_id = @artistId')
+    params.artistId = filters.artistId
+  }
+  if (filters.albumId !== undefined) {
+    predicates.push('t.album_id = @albumId')
+    params.albumId = filters.albumId
+  }
+  if (filters.searchText !== undefined) {
+    predicates.push('tracks_fts MATCH @search')
+    params.search = ftsLiteral(filters.searchText)
+  }
+
+  return {
+    ftsJoin: filters.searchText === undefined ? '' : 'JOIN tracks_fts ON tracks_fts.rowid = t.id',
+    where: predicates.length === 0 ? '' : `WHERE ${predicates.join(' AND ')}`,
+    params
+  }
+}
+
+function facetTotal(
+  db: Database.Database,
+  dimension: 't.artist_id' | 't.album_id',
+  filter: FilterSql,
+  params: Record<string, string | number>
+): number {
+  const { total } = db
+    .prepare(
+      `SELECT count(*) AS total
+       FROM (
+         SELECT ${dimension}
+         FROM tracks t
+         ${filter.ftsJoin}
+         ${filter.where}
+           ${filter.where === '' ? 'WHERE' : 'AND'} ${dimension} IS NOT NULL
+         GROUP BY ${dimension}
+       ) facets`
+    )
+    .get(params) as { total: number }
+  return total
 }
 
 function toTrack(row: TrackRow): Track {

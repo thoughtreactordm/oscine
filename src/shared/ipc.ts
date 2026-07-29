@@ -1,4 +1,7 @@
 import type {
+  ListAlbumsResult,
+  ListArtistsResult,
+  ListFacetsQuery,
   LibraryRoot,
   ListTracksQuery,
   ListTracksResult,
@@ -30,6 +33,8 @@ export interface IpcContract {
   'library.addRoot': { request: null; response: LibraryRoot | null }
   'library.listRoots': { request: null; response: LibraryRoot[] }
   'library.scanRoot': { request: { rootId: number }; response: ScanSummary }
+  'library.listArtists': { request: ListFacetsQuery; response: ListArtistsResult }
+  'library.listAlbums': { request: ListFacetsQuery; response: ListAlbumsResult }
   'library.listTracks': { request: ListTracksQuery; response: ListTracksResult }
   /**
    * Supplies only the fields needed to price a decode. This is deliberately a
@@ -90,6 +95,8 @@ export const IPC_CHANNELS = [
   'library.addRoot',
   'library.listRoots',
   'library.scanRoot',
+  'library.listArtists',
+  'library.listAlbums',
   'library.listTracks',
   'library.getTrackAudioMetadata',
   'library.getTrackFileUrl',

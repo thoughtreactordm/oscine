@@ -7,7 +7,12 @@ import type {
   IpcRequest,
   IpcResponse
 } from '@shared/ipc'
-import type { ListTracksQuery, ReplayGainJobProgress, ScanProgress } from '@shared/library'
+import type {
+  ListFacetsQuery,
+  ListTracksQuery,
+  ReplayGainJobProgress,
+  ScanProgress
+} from '@shared/library'
 
 /**
  * The entire main/renderer seam.
@@ -60,6 +65,8 @@ const api = {
     addRoot: () => request('library.addRoot', null),
     listRoots: () => request('library.listRoots', null),
     scanRoot: (rootId: number) => request('library.scanRoot', { rootId }),
+    listArtists: (query: ListFacetsQuery) => request('library.listArtists', query),
+    listAlbums: (query: ListFacetsQuery) => request('library.listAlbums', query),
     listTracks: (query: ListTracksQuery) => request('library.listTracks', query),
     /** Metadata-only lookup for the audio admission guard. */
     getTrackAudioMetadata: (trackId: number) =>

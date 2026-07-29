@@ -2,7 +2,12 @@ import { FermataError } from '@shared/errors'
 import { trackUrl } from '@shared/ipc'
 import type { LibraryService } from '../library/service'
 import { assertEveryChannelHandled, handle } from './registry'
-import { assertListTracksQuery, assertPositiveInt, assertRecord } from './validate'
+import {
+  assertListFacetsQuery,
+  assertListTracksQuery,
+  assertPositiveInt,
+  assertRecord
+} from './validate'
 
 /**
  * Wires every channel in the contract to the library service.
@@ -19,6 +24,10 @@ export function registerIpcHandlers(library: LibraryService): void {
     const { rootId } = assertRecord(request, 'request')
     return library.scanRoot(assertPositiveInt(rootId, 'rootId'))
   })
+
+  handle('library.listArtists', (request) => library.listArtists(assertListFacetsQuery(request)))
+
+  handle('library.listAlbums', (request) => library.listAlbums(assertListFacetsQuery(request)))
 
   handle('library.listTracks', (request) => library.listTracks(assertListTracksQuery(request)))
 

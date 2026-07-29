@@ -97,4 +97,68 @@ describe('listTracks at the scale target', () => {
     // inside this deliberately conservative 30 ms regression budget.
     expect(Math.max(...medians)).toBeLessThan(30)
   })
+
+  it('keeps warm first-page browse, facet and true-infix search under one frame', async () => {
+    async function p95(run: () => Promise<unknown>): Promise<number> {
+      for (let warm = 0; warm < 3; warm++) await run()
+      const samples: number[] = []
+      for (let sample = 0; sample < 20; sample++) {
+        const startedAt = performance.now()
+        await run()
+        samples.push(performance.now() - startedAt)
+      }
+      samples.sort((a, b) => a - b)
+      return samples[Math.ceil(samples.length * 0.95) - 1]
+    }
+
+    const timings = {
+      tracks: await p95(() =>
+        service.listTracks({
+          sort: 'title',
+          direction: 'asc',
+          offset: 0,
+          limit: 100
+        })
+      ),
+      artists: await p95(() => service.listArtists({ offset: 0, limit: 100 })),
+      albums: await p95(() => service.listAlbums({ offset: 0, limit: 100 })),
+      infixSearch: await p95(() =>
+        service.listTracks({
+          searchText: 'tle 0999',
+          sort: 'title',
+          direction: 'asc',
+          offset: 0,
+          limit: 100
+        })
+      )
+    }
+
+    console.info('100k warm first-page p95 ms', timings)
+    for (const elapsed of Object.values(timings)) expect(elapsed).toBeLessThan(16.7)
+  })
+
+  it('records indexed deep-window timings for the M3 exit gate', async () => {
+    const measure = async (run: () => Promise<unknown>): Promise<number> => {
+      await run()
+      const startedAt = performance.now()
+      await run()
+      return performance.now() - startedAt
+    }
+    const timings = {
+      artistFacet: await measure(() => service.listArtists({ offset: 1_900, limit: 100 })),
+      albumFacet: await measure(() => service.listAlbums({ offset: 7_900, limit: 100 })),
+      search: await measure(() =>
+        service.listTracks({
+          searchText: 'tle 09',
+          sort: 'title',
+          direction: 'asc',
+          offset: 9_000,
+          limit: 100
+        })
+      )
+    }
+
+    console.info('100k warm deep-window ms', timings)
+    for (const elapsed of Object.values(timings)) expect(elapsed).toBeLessThan(30)
+  })
 })

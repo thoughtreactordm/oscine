@@ -176,6 +176,37 @@ describe('createTrackWindow', () => {
     expect(issued.filter((call) => call.direction === 'desc')).toHaveLength(1)
   })
 
+  it('discards a page that was in flight when browse filters changed', async () => {
+    const releases = new Map<string, () => void>()
+    const issued: ListTracksQuery[] = []
+    const source = syntheticLibrary()
+    const win = createTrackWindow({
+      fetchPage: async (query) => {
+        issued.push({ ...query })
+        const search = query.searchText ?? ''
+        if (search === 'hemian') {
+          await new Promise<void>((resolve) => releases.set(search, resolve))
+        }
+        const result = await source.fetchPage(query)
+        return {
+          ...result,
+          tracks: result.tracks.map((track) => ({ ...track, title: search || 'All tracks' }))
+        }
+      }
+    })
+
+    win.setFilters({ searchText: 'hemian' })
+    await flush()
+    win.setFilters({ searchText: 'rhapsody' })
+    await flush()
+    releases.get('hemian')?.()
+    await flush()
+
+    expect(win.rowAt(0)?.title).toBe('rhapsody')
+    expect(issued.at(-1)?.searchText).toBe('rhapsody')
+    expect(win.cachedPageCount()).toBe(1)
+  })
+
   it('keeps the chosen track across a re-sort and re-adopts its position', async () => {
     const source = syntheticLibrary()
     const win = createTrackWindow({ fetchPage: source.fetchPage, pageSize: 200 })

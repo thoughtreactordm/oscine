@@ -1,5 +1,10 @@
 import { FermataError, type IpcResult } from '@shared/errors'
-import type { ListTracksQuery, ReplayGainJobProgress, ScanProgress } from '@shared/library'
+import type {
+  ListFacetsQuery,
+  ListTracksQuery,
+  ReplayGainJobProgress,
+  ScanProgress
+} from '@shared/library'
 
 /**
  * The renderer's view of the IPC boundary.
@@ -26,6 +31,8 @@ export const library = {
   addRoot: () => unwrap(window.fermata.library.addRoot()),
   listRoots: () => unwrap(window.fermata.library.listRoots()),
   scanRoot: (rootId: number) => unwrap(window.fermata.library.scanRoot(rootId)),
+  listArtists: (query: ListFacetsQuery) => unwrap(window.fermata.library.listArtists(query)),
+  listAlbums: (query: ListFacetsQuery) => unwrap(window.fermata.library.listAlbums(query)),
   listTracks: (query: ListTracksQuery) => unwrap(window.fermata.library.listTracks(query)),
   getTrackAudioMetadata: (trackId: number) =>
     unwrap(window.fermata.library.getTrackAudioMetadata(trackId)),

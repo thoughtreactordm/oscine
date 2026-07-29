@@ -87,14 +87,30 @@ export type TrackSortColumn = (typeof TRACK_SORT_COLUMNS)[number]
 export type SortDirection = 'asc' | 'desc'
 
 /**
+ * Filters shared by every library browser query.
+ *
+ * IDs are the only dimension identity that crosses IPC. In particular, none of
+ * these shapes carries a root path or a track's relative path.
+ */
+export interface LibraryBrowseFilters {
+  rootId?: number
+  artistId?: number
+  albumId?: number
+  /**
+   * Literal, user-visible infix terms over title, artist and album.
+   * FTS query syntax is never accepted here.
+   */
+  searchText?: string
+}
+
+/**
  * A window into the track table.
  *
  * Sorting and pagination are the caller's declared intent, executed in SQL.
  * W4-1 targets 100k tracks; sorting renderer-side would mean shipping 100k rows
  * across IPC for every column click.
  */
-export interface ListTracksQuery {
-  rootId?: number
+export interface ListTracksQuery extends LibraryBrowseFilters {
   sort: TrackSortColumn
   direction: SortDirection
   offset: number
@@ -111,10 +127,45 @@ export interface ListTracksQuery {
  * `invalid-request` under fast scrolling.
  */
 export const MAX_TRACK_PAGE = 1000
+export const MAX_FACET_PAGE = 500
+/** FTS5 trigram search has no indexed terms below three Unicode characters. */
+export const MIN_SEARCH_LENGTH = 3
+export const MAX_SEARCH_LENGTH = 200
 
 export interface ListTracksResult {
   tracks: Track[]
   /** Total matching rows, ignoring offset/limit, so the UI can size its scrollbar. */
+  total: number
+}
+
+/** One artist row in the paged browser facet. */
+export interface ArtistFacet {
+  id: number
+  name: string
+  trackCount: number
+}
+
+/** One album row in the paged browser facet. */
+export interface AlbumFacet {
+  id: number
+  title: string
+  albumArtist: string | null
+  year: number | null
+  trackCount: number
+}
+
+export interface ListFacetsQuery extends LibraryBrowseFilters {
+  offset: number
+  limit: number
+}
+
+export interface ListArtistsResult {
+  artists: ArtistFacet[]
+  total: number
+}
+
+export interface ListAlbumsResult {
+  albums: AlbumFacet[]
   total: number
 }
 

@@ -40,13 +40,14 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(0)
-      expect(migration.to).toBe(3)
+      expect(migration.to).toBe(4)
       expect(migration.applied.map((m) => m.name)).toEqual([
         'schema-v1',
         'index-track-order',
-        'replaygain-jobs'
+        'replaygain-jobs',
+        'trigram-search'
       ])
-      expect(db.pragma('user_version', { simple: true })).toBe(3)
+      expect(db.pragma('user_version', { simple: true })).toBe(4)
     } finally {
       db.close()
     }
@@ -58,8 +59,8 @@ describe('openDatabase', () => {
 
     const { db, migration } = openDatabase(file)
     try {
-      expect(migration.from).toBe(3)
-      expect(migration.to).toBe(3)
+      expect(migration.from).toBe(4)
+      expect(migration.to).toBe(4)
       expect(migration.applied).toEqual([])
     } finally {
       db.close()
@@ -75,9 +76,40 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(1)
-      expect(migration.to).toBe(3)
-      expect(migration.applied.map((m) => m.name)).toEqual(['index-track-order', 'replaygain-jobs'])
+      expect(migration.to).toBe(4)
+      expect(migration.applied.map((m) => m.name)).toEqual([
+        'index-track-order',
+        'replaygain-jobs',
+        'trigram-search'
+      ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('transactionally rebuilds an existing token index as trigram search', () => {
+    const old = new Database(file)
+    migrate(old, MIGRATIONS.slice(0, 3))
+    const { rootId, trackId } = seedRootAndTrack(old)
+    old.prepare('UPDATE tracks SET title = ? WHERE id = ?').run('Bohemian Rhapsody', trackId)
+    old
+      .prepare(
+        "INSERT INTO tracks_fts(rowid, title, artist, album) VALUES (?, 'Bohemian Rhapsody', '', '')"
+      )
+      .run(trackId)
+    old.close()
+
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.from).toBe(3)
+      expect(migration.applied.map((step) => step.name)).toEqual(['trigram-search'])
+      expect(
+        db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
+      ).toEqual({ rowid: trackId })
+      expect(db.prepare('SELECT root_id AS rootId FROM tracks WHERE id = ?').get(trackId)).toEqual({
+        rootId
+      })
     } finally {
       db.close()
     }
@@ -126,7 +158,10 @@ describe('openDatabase', () => {
         'idx_tracks_order_number_asc',
         'idx_tracks_order_number_desc',
         'idx_artists_order_name',
-        'idx_albums_order_title'
+        'idx_albums_order_title',
+        'idx_tracks_root_artist',
+        'idx_tracks_root_album',
+        'idx_tracks_artist_album'
       ]) {
         expect(names).toContain(index)
       }
@@ -182,6 +217,19 @@ describe('openDatabase', () => {
       // remove_diacritics 2 is what makes this match; searching for an artist
       // exactly as spelled is not something a keyboard makes easy.
       const hit = db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'ros'").get()
+      expect(hit).toEqual({ rowid: 1 })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('finds a true mid-token infix with the trigram tokenizer', () => {
+    const { db } = openDatabase(file)
+    try {
+      db.prepare(
+        "INSERT INTO tracks_fts (rowid, title, artist, album) VALUES (1, 'Bohemian Rhapsody', 'Queen', 'A Night at the Opera')"
+      ).run()
+      const hit = db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
       expect(hit).toEqual({ rowid: 1 })
     } finally {
       db.close()

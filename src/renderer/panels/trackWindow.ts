@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import {
   MAX_TRACK_PAGE,
+  type LibraryBrowseFilters,
   type ListTracksQuery,
   type ListTracksResult,
   type SortDirection,
@@ -96,6 +97,7 @@ export function createTrackWindow(deps: TrackWindowDeps) {
 
   const sort = ref<TrackSortColumn>('artist')
   const direction = ref<SortDirection>('asc')
+  const filters = ref<LibraryBrowseFilters>({})
   const total = ref(0)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -190,6 +192,7 @@ export function createTrackWindow(deps: TrackWindowDeps) {
 
     try {
       const result = await deps.fetchPage({
+        ...filters.value,
         sort: sort.value,
         direction: direction.value,
         offset: page * pageSize,
@@ -253,6 +256,18 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     invalidate()
   }
 
+  /**
+   * Replaces the complete browse/search predicate.
+   *
+   * One generation bump invalidates every response issued for the old
+   * predicate, which is important while an instant-search input is changing on
+   * every keystroke.
+   */
+  function setFilters(next: LibraryBrowseFilters): void {
+    filters.value = { ...next }
+    invalidate()
+  }
+
   /** Re-reads everything under the current ordering — after a scan changes the row count. */
   function reload(): void {
     invalidate()
@@ -281,6 +296,7 @@ export function createTrackWindow(deps: TrackWindowDeps) {
   return {
     sort,
     direction,
+    filters,
     total,
     loading,
     error,
@@ -292,6 +308,7 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     rowAt,
     ensureRange,
     setSort,
+    setFilters,
     select,
     moveSelection,
     reload,

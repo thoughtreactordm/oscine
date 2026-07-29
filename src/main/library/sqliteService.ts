@@ -4,6 +4,9 @@ import { basename, resolve } from 'node:path'
 import { FermataError } from '@shared/errors'
 import type {
   LibraryRoot,
+  ListAlbumsResult,
+  ListArtistsResult,
+  ListFacetsQuery,
   ListTracksQuery,
   ListTracksResult,
   ReplayGainJobProgress,
@@ -133,6 +136,14 @@ export class SqliteLibraryService implements LibraryService {
 
   async listTracks(query: ListTracksQuery): Promise<ListTracksResult> {
     return this.store.listTracks(query)
+  }
+
+  async listArtists(query: ListFacetsQuery): Promise<ListArtistsResult> {
+    return this.store.listArtists(query)
+  }
+
+  async listAlbums(query: ListFacetsQuery): Promise<ListAlbumsResult> {
+    return this.store.listAlbums(query)
   }
 
   async getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null> {

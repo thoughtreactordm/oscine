@@ -397,9 +397,8 @@ describe('scanRoot and the FTS index', () => {
   })
 
   it('does not accumulate duplicate index entries across re-scans', async () => {
-    // Contentless FTS5 cannot delete by rowid, so a re-scan that forgot to
-    // remove the old entry would leave the track matching twice — and the only
-    // symptom is a duplicated search result much later.
+    // The metadata update triggers must replace, rather than append, the
+    // contentless FTS row on every re-scan.
     touch('a.flac')
     const reader = readerFor({ 'a.flac': tags({ title: 'Julie and Candy' }) })
 

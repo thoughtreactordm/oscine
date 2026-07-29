@@ -1,5 +1,8 @@
 import type {
   LibraryRoot,
+  ListAlbumsResult,
+  ListArtistsResult,
+  ListFacetsQuery,
   ListTracksQuery,
   ListTracksResult,
   ReplayGainJobProgress,
@@ -19,6 +22,8 @@ export interface LibraryService {
   addRoot(): Promise<LibraryRoot | null>
   listRoots(): Promise<LibraryRoot[]>
   scanRoot(rootId: number): Promise<ScanSummary>
+  listArtists(query: ListFacetsQuery): Promise<ListArtistsResult>
+  listAlbums(query: ListFacetsQuery): Promise<ListAlbumsResult>
   listTracks(query: ListTracksQuery): Promise<ListTracksResult>
   /** Metadata-only lookup used by the renderer's pre-fetch R1 admission guard. */
   getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null>
