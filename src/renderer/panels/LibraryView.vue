@@ -2,24 +2,26 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { FermataError, library } from '@renderer/ipc'
 import { AudioEngineError, createAudioEngine, type AudioEngine, type PlaybackStatus } from '@renderer/audio'
+import TrackList from '@renderer/panels/TrackList.vue'
 import { useShellStore } from '@renderer/stores/shell'
+import { useTrackListStore } from '@renderer/stores/trackList'
 import type { LibraryRoot, ScanProgress, Track } from '@shared/library'
 
-// Placeholder shell. W4-1 replaces this with the real virtualized TrackList
-// island; for now it exercises the IPC boundary end to end, which is also the
-// only way to drive W2-2's add-root flow by hand.
+// Placeholder shell. The track list below is W4-1's real island; everything
+// around it is scaffolding that W4-2 replaces when it builds the three-pane
+// layout and the NowPlaying panel.
 //
 // The transport controls below are a W3-1 verification harness, not a design.
 // The card's acceptance is behavioural — three codecs playing, seeking and
 // reporting duration — and none of it can be checked without something that
-// drives the engine. W4-1 deletes all of it and builds the real player UI; what
+// drives the engine. W4-2 deletes all of it and builds the real transport; what
 // should survive is the shape of the coupling, which is that this file imports
 // `createAudioEngine` and an `AudioEngine` handle and names no Web Audio type.
 const shell = useShellStore()
 const versions = window.fermata.versions
+const trackList = useTrackListStore()
 
 const roots = ref<LibraryRoot[]>([])
-const tracks = ref<Track[]>([])
 const scan = ref<ScanProgress | null>(null)
 const adding = ref(false)
 const notice = ref<string | null>(null)
@@ -63,20 +65,6 @@ async function refreshRoots(): Promise<void> {
     roots.value = await library.listRoots()
   } catch {
     notice.value = 'Could not read the library.'
-  }
-}
-
-async function refreshTracks(): Promise<void> {
-  try {
-    const result = await library.listTracks({
-      sort: 'title',
-      direction: 'asc',
-      offset: 0,
-      limit: 200
-    })
-    tracks.value = result.tracks
-  } catch {
-    notice.value = 'Could not list tracks.'
   }
 }
 
@@ -129,7 +117,9 @@ onMounted(async () => {
     // Counts only become visible once the scan has committed its last batch.
     if (progress.done) {
       void refreshRoots()
-      void refreshTracks()
+      // The row count and every row position changed; the panel re-reads its
+      // window rather than being handed rows from here.
+      trackList.reload()
     }
   })
 
@@ -158,7 +148,7 @@ onMounted(async () => {
     })
   ]
 
-  await Promise.all([refreshRoots(), refreshTracks()])
+  await refreshRoots()
 })
 
 onUnmounted(() => {
@@ -316,30 +306,12 @@ async function addFolder(): Promise<void> {
         </div>
       </UCard>
 
-      <UCard v-if="tracks.length">
-        <ul class="divide-y divide-default text-sm">
-          <li v-for="track in tracks" :key="track.id">
-            <button
-              type="button"
-              class="flex w-full items-center gap-3 py-2 text-left hover:text-primary"
-              :class="{ 'text-primary': nowPlaying?.id === track.id }"
-              @click="playTrack(track)"
-            >
-              <UIcon
-                :name="
-                  nowPlaying?.id === track.id && isPlaying ? 'i-lucide-volume-2' : 'i-lucide-play'
-                "
-                class="size-4 shrink-0 text-muted"
-              />
-              <span class="truncate">{{ track.title }}</span>
-              <span class="truncate text-muted">{{ track.artist ?? '' }}</span>
-              <span class="ml-auto shrink-0 tabular-nums text-muted">
-                {{ track.codec ?? '' }}
-              </span>
-            </button>
-          </li>
-        </ul>
-      </UCard>
+      <!-- The island. Its height comes from here because a virtualized list
+           needs a bounded viewport to virtualize against; nothing else about
+           it is this view's business. -->
+      <div class="h-96">
+        <TrackList @activate="playTrack" />
+      </div>
 
       <div class="flex gap-3">
         <UButton
