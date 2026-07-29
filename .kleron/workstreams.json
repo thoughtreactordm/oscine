@@ -26,7 +26,7 @@
       "description": "The Web Audio graph and everything scheduled through it: AudioEngine interface, decodeAudioData implementation, prefetch and sample-accurate scheduling, gapless, crossfade, ReplayGain application. Owns R1 (decode memory ceiling) and R2 (gapless/crossfade exclusivity) — the two risks most likely to force architectural change.",
       "color": "amber",
       "order": 2,
-      "cardCounter": 1,
+      "cardCounter": 4,
       "dependsOn": [
         "W1"
       ]
@@ -48,7 +48,7 @@
       "description": "electron-builder targets (NSIS on Windows, AppImage + deb on Linux), GitHub Actions matrix across windows-latest and ubuntu-latest, and the library export/import bundle that carries playlists, ratings and play counts between machines (D11).",
       "color": "rose",
       "order": 4,
-      "cardCounter": 2,
+      "cardCounter": 3,
       "dependsOn": [
         "W1"
       ]
