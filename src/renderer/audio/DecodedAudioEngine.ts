@@ -7,6 +7,7 @@ import {
   type AudioErrorCode,
   type PlaybackStatus
 } from './AudioEngine'
+import { DecodedBufferLedger } from './decodedBufferLedger'
 import { decodedBytes, formatBytes } from './decodedSize'
 import { Emitter } from './emitter'
 import { clamp, pausedAt, positionAt, type PlaybackClock } from './playbackClock'
@@ -21,8 +22,9 @@ import { clamp, pausedAt, positionAt, type PlaybackClock } from './playbackClock
  * statement.
  *
  * **R1 applies here and is unmitigated by design.** A long track allocates
- * hundreds of megabytes and M1 does not stop it. Every load logs what it cost;
- * those numbers are what M2 picks its threshold from.
+ * hundreds of megabytes and M1 does not stop it. Every load logs its settled
+ * cost; M2 combines that evidence with the measured decode transient when it
+ * picks the admission threshold.
  */
 
 /**
@@ -44,6 +46,7 @@ export class DecodedAudioEngine implements AudioEngine {
   readonly #context: AudioContext
   readonly #gain: GainNode
   readonly #events = new Emitter<AudioEngineEventMap>()
+  readonly #decodedBuffers = new DecodedBufferLedger()
 
   #buffer: AudioBuffer | null = null
   #source: AudioBufferSourceNode | null = null
@@ -124,6 +127,7 @@ export class DecodedAudioEngine implements AudioEngine {
       // quietly record every file as empty.
       const encodedByteLength = encoded.byteLength
       const buffer = await this.#context.decodeAudioData(encoded)
+      this.#decodedBuffers.track(buffer, decodedBytes(buffer.length, buffer.numberOfChannels))
 
       // A slower earlier load must not overwrite a faster later one.
       if (generation !== this.#generation) {
@@ -357,9 +361,10 @@ export class DecodedAudioEngine implements AudioEngine {
   }
 
   /**
-   * **R1 evidence.** Logging both sizes gives M2 an expansion ratio per codec,
-   * which is what lets a guard price a track from its file size when the
-   * library has no metadata to estimate from.
+   * **R1 evidence.** The settled size checks the metadata estimator, while
+   * `issuedNotFreed` exposes the conservative floor M2 must add to its next
+   * decode admission cost. Comparing that figure with renderer RSS is how the
+   * exit probe catches accounting that assumes a dropped reference was freed.
    */
   #logDecodeCost(trackId: number, encodedByteLength: number, buffer: AudioBuffer): void {
     const decoded = decodedBytes(buffer.length, buffer.numberOfChannels)
@@ -369,7 +374,8 @@ export class DecodedAudioEngine implements AudioEngine {
       `[audio] R1 track=${trackId} encoded=${formatBytes(encodedByteLength)} ` +
         `decoded=${formatBytes(decoded)} ratio=${ratio}x ` +
         `duration=${buffer.duration.toFixed(1)}s rate=${buffer.sampleRate}Hz ` +
-        `channels=${buffer.numberOfChannels}`
+        `channels=${buffer.numberOfChannels} ` +
+        `issuedNotFreed=${formatBytes(this.#decodedBuffers.issuedNotFreedBytes)}`
     )
   }
 

@@ -9,8 +9,9 @@
  * M1 ships no guard — that is D2's accepted cost and M2's job to fix. What M1
  * owes M2 is *evidence*: `estimateDecodedBytes` prices the settled buffer, and
  * `estimateDecodePeakBytes` turns that into the transient admission cost M2's
- * guard must threshold on. Both stay free of Web Audio types so they remain
- * testable under Node and usable before any decoding has happened.
+ * guard must add to `DecodedBufferLedger.issuedNotFreedBytes`. Both stay free of
+ * Web Audio types so they remain testable under Node and usable before any
+ * decoding has happened.
  */
 
 const BYTES_PER_FLOAT32_SAMPLE = 4
