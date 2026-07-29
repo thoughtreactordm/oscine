@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQAN5NCZX2HXED8JJWNJD5D
 title: Sample-accurate gapless boundaries
-status: todo
+status: in-review
 priority: high
 labels:
   - M2
@@ -16,7 +16,7 @@ dependsOn:
 effort: high
 order: 2
 created: '2026-07-29T16:17:23.115Z'
-updated: '2026-07-29T16:17:23.115Z'
+updated: '2026-07-29T17:14:54.586Z'
 ---
 Implement R2's zero-crossfade policy on top of the decode-ahead scheduler and prove the boundary by samples, not by listening.
 
@@ -41,3 +41,11 @@ Implement R2's zero-crossfade policy on top of the decode-ahead scheduler and pr
 ## Non-goals
 
 No fades in this card. Non-zero duration belongs to the crossfade card and follows a different scheduling policy.
+
+## Verification
+
+- Offline Web Audio rendering compares a split continuous PCM fixture with its unsplit reference at a `1e-7` tolerance.
+- The fixture's one-sample-early and one-sample-late controls both fail that tolerance.
+- Engine and scheduler tests cover exact shared-timeline scheduling through context suspension, adoption without a second `play`, duplicate end suppression, pause/resume, seek, skip, stop, non-zero crossfade exclusion, and hard fallback on either side.
+- Automated gate: lint, format, typecheck, 284 tests, and production build pass.
+- Manual known-gapless-album verification remains pending.

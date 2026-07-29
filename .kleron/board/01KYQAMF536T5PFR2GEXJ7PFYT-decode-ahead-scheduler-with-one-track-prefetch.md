@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQAMF536T5PFR2GEXJ7PFYT
 title: Decode-ahead scheduler with one-track prefetch
-status: in-progress
+status: in-review
 priority: high
 labels:
   - M2
@@ -14,9 +14,9 @@ dependsOn:
   - 01KYQAKVV1TCDYHG4NTJ3S51Z8
   - 01KYQMNRX95CN5DW6N6YYEZKC1
 effort: high
-order: 0
+order: 1
 created: '2026-07-29T16:17:00.066Z'
-updated: '2026-07-29T16:52:14.057Z'
+updated: '2026-07-29T17:05:25.901Z'
 ---
 Replace ended-driven load-then-play with a scheduler that knows the next track while the current track is still playing. This is the load-bearing seam for both gapless and crossfade.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQAPNHCVJFAZKAJMMNNRB4W
 title: ReplayGain contract and per-track normalization
-status: todo
+status: in-review
 priority: high
 labels:
   - M2
@@ -15,7 +15,7 @@ dependsOn:
 effort: high
 order: 4
 created: '2026-07-29T16:18:12.140Z'
-updated: '2026-07-29T16:18:12.140Z'
+updated: '2026-07-29T18:20:43.000Z'
 ---
 Carry the ReplayGain values already captured at scan time across the typed boundary and apply them in the audio graph without coupling normalization to master volume or transition fades.
 
@@ -40,3 +40,19 @@ Carry the ReplayGain values already captured at scan time across the typed bound
 ## Non-goals
 
 No loudness analysis in this card. It consumes values already in SQLite; the background compute card produces missing ones.
+
+## Verification
+
+- The pathless shared `Track` and metadata-only playback lookup carry nullable track/album gain
+  and peak values plus `rg_source`.
+- The pure policy resolver covers off, track and album modes, album-to-track fallback, partial
+  sets, dB conversion, peak limiting, absent values and malformed/non-finite input.
+- Decoded sources each own normalization and transition gain stages upstream of the shared master
+  stage. The streaming graph likewise separates normalization from master volume. Graph tests prove
+  runtime normalization ramps do not touch transition curves or master automation.
+- Structured ReplayGain diagnostics identify the track, selected field, provenance, raw gain/peak,
+  effective gain and whether peak limiting applied. Tag and computed provenance apply identically.
+- Scanner tests prove an untagged rescan preserves computed values and later real tags replace them.
+- Automated gate: format, lint, typecheck, 314 tests and production build pass.
+- A tagged-fixture listening run in the packaged app remains for review alongside the M2 exit
+  fixture pass.
