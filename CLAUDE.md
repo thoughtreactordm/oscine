@@ -27,7 +27,7 @@ W5 Playlists & Queue, W6 Packaging & Ops.
 
 | Task | Command |
 |---|---|
-| Dev | `npm run dev` (electron-vite, HMR) |
+| Dev | `npm run dev` (electron-vite, HMR) · `npm run dev:raw` for unfiltered Chromium stderr |
 | Test | `npm test` (Vitest) · `npm run test:watch` |
 | Typecheck | `npm run typecheck` (`tsc` for node, `vue-tsc` for web) |
 | Build | `npm run build` (typechecks first) |
