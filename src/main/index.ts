@@ -1,6 +1,9 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell } from 'electron'
+import type BetterSqlite3 from 'better-sqlite3'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { openDatabase } from './db'
+import { libraryDatabasePath } from './db/location'
 import { registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { PendingLibraryService } from './library/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
@@ -91,7 +94,37 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
-    // W2-1 swaps this for the real database-backed service. Nothing else here
+    const filePath = libraryDatabasePath()
+    let db: BetterSqlite3.Database
+
+    try {
+      const opened = openDatabase(filePath)
+      db = opened.db
+      const { from, to, applied } = opened.migration
+      console.log(
+        applied.length === 0
+          ? `[db] ${filePath} — schema v${to}, up to date`
+          : `[db] ${filePath} — migrated v${from} to v${to} (${applied
+              .map((migration) => migration.name)
+              .join(', ')})`
+      )
+    } catch (error) {
+      // Without a library there is no application, so fail visibly rather than
+      // opening a window that cannot answer a single query.
+      dialog.showErrorBox(
+        'Fermata could not open its library',
+        `${filePath}\n\n${error instanceof Error ? error.message : String(error)}`
+      )
+      app.quit()
+      return
+    }
+
+    // Closing on will-quit rather than window-all-closed: it fires for every
+    // exit path, and a clean close is what checkpoints the -wal file back into
+    // the database.
+    app.on('will-quit', () => db.close())
+
+    // W2-2 swaps this for the real database-backed service. Nothing else here
     // changes when it does — that is what the seam is for.
     const library = new PendingLibraryService()
 
