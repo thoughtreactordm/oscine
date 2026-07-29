@@ -7,7 +7,7 @@ import type {
   IpcRequest,
   IpcResponse
 } from '@shared/ipc'
-import type { ListTracksQuery, ScanProgress } from '@shared/library'
+import type { ListTracksQuery, ReplayGainJobProgress, ScanProgress } from '@shared/library'
 
 /**
  * The entire main/renderer seam.
@@ -66,8 +66,14 @@ const api = {
       request('library.getTrackAudioMetadata', { trackId }),
     /** Opaque `fermata://` URL for the track's bytes. Never a filesystem path. */
     getTrackFileUrl: (trackId: number) => request('library.getTrackFileUrl', { trackId }),
+    startReplayGain: () => request('library.startReplayGain', null),
+    getReplayGainJob: () => request('library.getReplayGainJob', null),
+    cancelReplayGain: (jobId: number) => request('library.cancelReplayGain', { jobId }),
+    resumeReplayGain: (jobId: number) => request('library.resumeReplayGain', { jobId }),
     onScanProgress: (listener: (progress: ScanProgress) => void) =>
-      subscribe('library.scanProgress', listener)
+      subscribe('library.scanProgress', listener),
+    onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
+      subscribe('library.replayGainProgress', listener)
   }
 } as const
 

@@ -1,6 +1,7 @@
 import type { Migration } from '../migrate'
 import { schemaV1 } from './001-schema-v1'
 import { indexTrackOrder } from './002-index-track-order'
+import { replayGainJobs } from './003-replaygain-jobs'
 
 /**
  * Every migration, in order.
@@ -11,4 +12,4 @@ import { indexTrackOrder } from './002-index-track-order'
  * registry outright if the versions are not contiguous, so forgetting the second
  * half fails loudly at startup instead of silently skipping the step.
  */
-export const MIGRATIONS: readonly Migration[] = [schemaV1, indexTrackOrder]
+export const MIGRATIONS: readonly Migration[] = [schemaV1, indexTrackOrder, replayGainJobs]

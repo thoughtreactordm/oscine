@@ -24,12 +24,14 @@
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
     "probe:m1-exit": "node scripts/m1-exit-probe.mjs",
     "probe:r1-fallback": "node scripts/r1-fallback-probe.mjs",
+    "probe:replaygain": "node scripts/replaygain-worker-probe.mjs",
     "probe:fixture": "node scripts/make-probe-fixture.mjs"
   },
   "dependencies": {
     "@nuxt/ui": "^4.10.0",
     "better-sqlite3": "^13.0.1",
     "music-metadata": "^11.14.0",
+    "node-web-audio-api": "^2.1.0",
     "pinia": "^3.0.3",
     "vue": "^3.5.40",
     "vue-router": "^5.2.0"
@@ -46,7 +48,6 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-vue": "^10.10.0",
     "globals": "^17.8.0",
-    "node-web-audio-api": "^2.1.0",
     "prettier": "^3.9.6",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",

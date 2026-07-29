@@ -44,6 +44,20 @@ export function registerIpcHandlers(library: LibraryService): void {
     return trackUrl(id)
   })
 
+  handle('library.startReplayGain', () => library.startReplayGain())
+
+  handle('library.getReplayGainJob', () => library.getReplayGainJob())
+
+  handle('library.cancelReplayGain', (request) => {
+    const { jobId } = assertRecord(request, 'request')
+    return library.cancelReplayGain(assertPositiveInt(jobId, 'jobId'))
+  })
+
+  handle('library.resumeReplayGain', (request) => {
+    const { jobId } = assertRecord(request, 'request')
+    return library.resumeReplayGain(assertPositiveInt(jobId, 'jobId'))
+  })
+
   assertEveryChannelHandled()
 }
 

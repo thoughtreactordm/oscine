@@ -1,6 +1,7 @@
 /**
- * Verifies that better-sqlite3 actually loads under Electron's ABI, and that the
- * SQLite build behind it has the features schema v1 depends on.
+ * Verifies that the native runtime dependencies load under Electron's ABI, and
+ * that the SQLite build behind better-sqlite3 has the features schema v1
+ * depends on.
  *
  * Why this exists as a script rather than a one-off check: W2-1 could only be
  * verified on Windows. D10 makes Linux first-class, so the check has to be
@@ -87,6 +88,16 @@ try {
   })
 
   db.close()
+
+  try {
+    const { AudioContext } = await import('node-web-audio-api')
+    const context = new AudioContext({ sinkId: { type: 'none' } })
+    await context.close()
+    console.log('  ok    ReplayGain decoder binding — worker-safe sink')
+  } catch (error) {
+    failed = true
+    console.log(`  FAIL  ReplayGain decoder binding — ${error.message}`)
+  }
 } finally {
   rmSync(dir, { recursive: true, force: true })
 }

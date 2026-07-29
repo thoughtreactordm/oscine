@@ -2,6 +2,7 @@ import type {
   LibraryRoot,
   ListTracksQuery,
   ListTracksResult,
+  ReplayGainJobProgress,
   ScanSummary,
   TrackAudioMetadata
 } from '@shared/library'
@@ -28,4 +29,8 @@ export interface LibraryService {
    * return value never crosses IPC.
    */
   resolveTrackPath(trackId: number): Promise<string | null>
+  startReplayGain(): Promise<ReplayGainJobProgress>
+  getReplayGainJob(): Promise<ReplayGainJobProgress | null>
+  cancelReplayGain(jobId: number): Promise<ReplayGainJobProgress>
+  resumeReplayGain(jobId: number): Promise<ReplayGainJobProgress>
 }

@@ -68,7 +68,12 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin({ exclude: BUNDLED_ESM_DEPS })],
     resolve: { alias: { '@shared': shared } },
     build: {
-      rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } }
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          replayGainWorker: resolve(__dirname, 'src/main/replaygain/worker.ts')
+        }
+      }
     }
   },
   preload: {

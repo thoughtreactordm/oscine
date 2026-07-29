@@ -40,9 +40,13 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(0)
-      expect(migration.to).toBe(2)
-      expect(migration.applied.map((m) => m.name)).toEqual(['schema-v1', 'index-track-order'])
-      expect(db.pragma('user_version', { simple: true })).toBe(2)
+      expect(migration.to).toBe(3)
+      expect(migration.applied.map((m) => m.name)).toEqual([
+        'schema-v1',
+        'index-track-order',
+        'replaygain-jobs'
+      ])
+      expect(db.pragma('user_version', { simple: true })).toBe(3)
     } finally {
       db.close()
     }
@@ -54,8 +58,8 @@ describe('openDatabase', () => {
 
     const { db, migration } = openDatabase(file)
     try {
-      expect(migration.from).toBe(2)
-      expect(migration.to).toBe(2)
+      expect(migration.from).toBe(3)
+      expect(migration.to).toBe(3)
       expect(migration.applied).toEqual([])
     } finally {
       db.close()
@@ -71,8 +75,8 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(1)
-      expect(migration.to).toBe(2)
-      expect(migration.applied.map((m) => m.name)).toEqual(['index-track-order'])
+      expect(migration.to).toBe(3)
+      expect(migration.applied.map((m) => m.name)).toEqual(['index-track-order', 'replaygain-jobs'])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
       db.close()
@@ -95,7 +99,9 @@ describe('openDatabase', () => {
         'track_overrides',
         'playlists',
         'playlist_entries',
-        'tracks_fts'
+        'tracks_fts',
+        'replaygain_jobs',
+        'replaygain_job_items'
       ]) {
         expect(names).toContain(table)
       }

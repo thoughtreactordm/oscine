@@ -142,3 +142,25 @@ export interface ScanProgress {
   currentFile: string | null
   done: boolean
 }
+
+export type ReplayGainJobState = 'running' | 'cancelling' | 'paused' | 'cancelled' | 'completed'
+
+/**
+ * Durable ReplayGain job progress.
+ *
+ * `currentTitle` is display metadata already exposed by `Track`; paths remain
+ * main-only. Counts are derived from checkpoint rows, so this shape is equally
+ * valid immediately after an app restart.
+ */
+export interface ReplayGainJobProgress {
+  jobId: number
+  state: ReplayGainJobState
+  total: number
+  completed: number
+  failed: number
+  pending: number
+  currentTitle: string | null
+  /** ISO 8601, UTC. */
+  updatedAt: string
+  done: boolean
+}

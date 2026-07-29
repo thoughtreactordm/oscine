@@ -64,6 +64,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Runs the emitted worker, decoder and native Web Audio binding together.
+      # This is intentionally after Build and matrixed: source tests cannot
+      # prove the Windows/Linux worker artifact is actually loadable.
+      - name: ReplayGain worker packaging probe
+        run: npm run probe:replaygain
+
       # `verify:native` is deliberately not here. It launches Electron to prove
       # better-sqlite3's prebuild loads under Electron's ABI rather than Node's,
       # which needs a display server on the Linux runner and is the one gate in

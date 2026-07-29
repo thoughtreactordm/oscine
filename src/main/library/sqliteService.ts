@@ -6,6 +6,7 @@ import type {
   LibraryRoot,
   ListTracksQuery,
   ListTracksResult,
+  ReplayGainJobProgress,
   ScanProgress,
   ScanSummary,
   TrackAudioMetadata
@@ -14,6 +15,8 @@ import { readTrackTags, type MetadataReader } from './metadata'
 import { scanRoot } from './scanner'
 import { LibraryStore, type RootConflict, type RootRow } from './store'
 import type { LibraryService } from './service'
+import type { ReplayGainAnalyzer } from '../replaygain/analyzer'
+import { ReplayGainJobService } from '../replaygain/jobService'
 
 /**
  * The database-backed library.
@@ -29,8 +32,12 @@ export interface SqliteLibraryDeps {
   pickFolder: () => Promise<string | null>
   /** Pushes a progress event at the renderer. */
   onProgress: (progress: ScanProgress) => void
+  /** Pushes durable ReplayGain job progress at the renderer. */
+  onReplayGainProgress?: (progress: ReplayGainJobProgress) => void
   /** Overridable so tests need no audio files. */
   readMetadata?: MetadataReader
+  /** Test seam; production uses the packaged worker-thread adapter. */
+  createReplayGainAnalyzer?: () => ReplayGainAnalyzer
 }
 
 function conflictMessage(conflict: RootConflict): string {
@@ -58,6 +65,7 @@ function toLibraryRoot(row: RootRow): LibraryRoot {
 export class SqliteLibraryService implements LibraryService {
   private readonly store: LibraryStore
   private readonly readMetadata: MetadataReader
+  private readonly replayGain: ReplayGainJobService
 
   /**
    * Scans currently running, keyed by root.
@@ -73,6 +81,11 @@ export class SqliteLibraryService implements LibraryService {
   constructor(private readonly deps: SqliteLibraryDeps) {
     this.store = new LibraryStore(deps.db)
     this.readMetadata = deps.readMetadata ?? readTrackTags
+    this.replayGain = new ReplayGainJobService({
+      db: deps.db,
+      onProgress: deps.onReplayGainProgress ?? (() => {}),
+      ...(deps.createReplayGainAnalyzer ? { createAnalyzer: deps.createReplayGainAnalyzer } : {})
+    })
   }
 
   async addRoot(): Promise<LibraryRoot | null> {
@@ -128,6 +141,26 @@ export class SqliteLibraryService implements LibraryService {
 
   async resolveTrackPath(trackId: number): Promise<string | null> {
     return this.store.resolveTrackPath(trackId)
+  }
+
+  async startReplayGain(): Promise<ReplayGainJobProgress> {
+    return this.replayGain.start()
+  }
+
+  async getReplayGainJob(): Promise<ReplayGainJobProgress | null> {
+    return this.replayGain.get()
+  }
+
+  async cancelReplayGain(jobId: number): Promise<ReplayGainJobProgress> {
+    return this.replayGain.cancel(jobId)
+  }
+
+  async resumeReplayGain(jobId: number): Promise<ReplayGainJobProgress> {
+    return this.replayGain.resume(jobId)
+  }
+
+  async close(): Promise<void> {
+    await this.replayGain.close()
   }
 
   private startScan(rootId: number): Promise<ScanSummary> {

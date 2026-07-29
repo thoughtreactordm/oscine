@@ -1,5 +1,5 @@
 import { FermataError, type IpcResult } from '@shared/errors'
-import type { ListTracksQuery, ScanProgress } from '@shared/library'
+import type { ListTracksQuery, ReplayGainJobProgress, ScanProgress } from '@shared/library'
 
 /**
  * The renderer's view of the IPC boundary.
@@ -30,9 +30,15 @@ export const library = {
   getTrackAudioMetadata: (trackId: number) =>
     unwrap(window.fermata.library.getTrackAudioMetadata(trackId)),
   getTrackFileUrl: (trackId: number) => unwrap(window.fermata.library.getTrackFileUrl(trackId)),
+  startReplayGain: () => unwrap(window.fermata.library.startReplayGain()),
+  getReplayGainJob: () => unwrap(window.fermata.library.getReplayGainJob()),
+  cancelReplayGain: (jobId: number) => unwrap(window.fermata.library.cancelReplayGain(jobId)),
+  resumeReplayGain: (jobId: number) => unwrap(window.fermata.library.resumeReplayGain(jobId)),
   /** Returns an unsubscribe function. Call it on unmount. */
   onScanProgress: (listener: (progress: ScanProgress) => void) =>
-    window.fermata.library.onScanProgress(listener)
+    window.fermata.library.onScanProgress(listener),
+  onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
+    window.fermata.library.onReplayGainProgress(listener)
 }
 
 export const versions = (): typeof window.fermata.versions => window.fermata.versions

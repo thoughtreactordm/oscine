@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, shell } from 'electron'
 import type BetterSqlite3 from 'better-sqlite3'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { ScanProgress } from '@shared/library'
+import type { ReplayGainJobProgress, ScanProgress } from '@shared/library'
 import { openDatabase } from './db'
 import { libraryDatabasePath } from './db/location'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
@@ -43,6 +43,10 @@ async function pickMusicFolder(): Promise<string | null> {
 
 function broadcastScanProgress(progress: ScanProgress): void {
   if (mainWindow) emit(mainWindow.webContents, 'library.scanProgress', progress)
+}
+
+function broadcastReplayGainProgress(progress: ReplayGainJobProgress): void {
+  if (mainWindow) emit(mainWindow.webContents, 'library.replayGainProgress', progress)
 }
 
 /**
@@ -152,15 +156,33 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
 
-    // Closing on will-quit rather than window-all-closed: it fires for every
-    // exit path, and a clean close is what checkpoints the -wal file back into
-    // the database.
-    app.on('will-quit', () => db.close())
-
     const library = new SqliteLibraryService({
       db,
       pickFolder: pickMusicFolder,
-      onProgress: broadcastScanProgress
+      onProgress: broadcastScanProgress,
+      onReplayGainProgress: broadcastReplayGainProgress
+    })
+
+    let readyToQuit = false
+    let quitInProgress = false
+    app.on('before-quit', (event) => {
+      if (readyToQuit) return
+      event.preventDefault()
+      if (quitInProgress) return
+      quitInProgress = true
+      // Wait for worker termination before closing SQLite. This avoids both a
+      // native worker keeping the app alive and a final checkpoint racing a
+      // closed database connection.
+      void library
+        .close()
+        .catch((error: unknown) => {
+          console.error('[replaygain] worker cleanup failed:', error)
+        })
+        .finally(() => {
+          db.close()
+          readyToQuit = true
+          app.quit()
+        })
     })
 
     setTrustedRendererUrl(rendererUrl)

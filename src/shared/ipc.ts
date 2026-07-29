@@ -2,6 +2,7 @@ import type {
   LibraryRoot,
   ListTracksQuery,
   ListTracksResult,
+  ReplayGainJobProgress,
   ScanProgress,
   ScanSummary,
   TrackAudioMetadata
@@ -45,6 +46,16 @@ export interface IpcContract {
    * reasoning behind the custom protocol.
    */
   'library.getTrackFileUrl': { request: { trackId: number }; response: string }
+  'library.startReplayGain': { request: null; response: ReplayGainJobProgress }
+  'library.getReplayGainJob': { request: null; response: ReplayGainJobProgress | null }
+  'library.cancelReplayGain': {
+    request: { jobId: number }
+    response: ReplayGainJobProgress
+  }
+  'library.resumeReplayGain': {
+    request: { jobId: number }
+    response: ReplayGainJobProgress
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -62,6 +73,7 @@ export type IpcResponse<C extends IpcChannel> = IpcContract[C]['response']
  */
 export interface IpcEventContract {
   'library.scanProgress': ScanProgress
+  'library.replayGainProgress': ReplayGainJobProgress
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -80,11 +92,16 @@ export const IPC_CHANNELS = [
   'library.scanRoot',
   'library.listTracks',
   'library.getTrackAudioMetadata',
-  'library.getTrackFileUrl'
+  'library.getTrackFileUrl',
+  'library.startReplayGain',
+  'library.getReplayGainJob',
+  'library.cancelReplayGain',
+  'library.resumeReplayGain'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [
-  'library.scanProgress'
+  'library.scanProgress',
+  'library.replayGainProgress'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**
