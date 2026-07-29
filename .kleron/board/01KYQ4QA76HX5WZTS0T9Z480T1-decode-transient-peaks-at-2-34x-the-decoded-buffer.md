@@ -3,7 +3,7 @@ taskId: 01KYQ4QA76HX5WZTS0T9Z480T1
 title: >-
   Decode transient peaks at 2.34x the decoded buffer — the R1 guard must budget
   for it
-status: in-review
+status: done
 priority: high
 labels:
   - R1
@@ -12,9 +12,9 @@ labels:
 triageKind: bug
 workstream: W3
 workstreamId: W3-3
-order: 1
+order: 4
 created: '2026-07-29T14:33:41.862Z'
-updated: '2026-07-29T15:46:17.310Z'
+updated: '2026-07-29T19:48:27.989Z'
 ---
 Found by the M1 exit gate (W6-2) on Linux, 2026-07-29. Dev build, so absolute
 figures are inflated; the **ratio** is the finding.

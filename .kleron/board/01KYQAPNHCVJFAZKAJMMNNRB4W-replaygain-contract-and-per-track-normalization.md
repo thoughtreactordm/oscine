@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQAPNHCVJFAZKAJMMNNRB4W
 title: ReplayGain contract and per-track normalization
-status: in-review
+status: done
 priority: high
 labels:
   - M2
@@ -13,9 +13,9 @@ workstreamId: W3-9
 dependsOn:
   - 01KYQAMF536T5PFR2GEXJ7PFYT
 effort: high
-order: 4
+order: 9
 created: '2026-07-29T16:18:12.140Z'
-updated: '2026-07-29T18:20:43.000Z'
+updated: '2026-07-29T19:48:31.266Z'
 ---
 Carry the ReplayGain values already captured at scan time across the typed boundary and apply them in the audio graph without coupling normalization to master volume or transition fades.
 

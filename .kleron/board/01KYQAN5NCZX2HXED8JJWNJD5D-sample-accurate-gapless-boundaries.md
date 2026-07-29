@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQAN5NCZX2HXED8JJWNJD5D
 title: Sample-accurate gapless boundaries
-status: in-review
+status: done
 priority: high
 labels:
   - M2
@@ -14,9 +14,9 @@ workstreamId: W3-7
 dependsOn:
   - 01KYQAMF536T5PFR2GEXJ7PFYT
 effort: high
-order: 2
+order: 8
 created: '2026-07-29T16:17:23.115Z'
-updated: '2026-07-29T17:14:54.586Z'
+updated: '2026-07-29T19:48:31.252Z'
 ---
 Implement R2's zero-crossfade policy on top of the decode-ahead scheduler and prove the boundary by samples, not by listening.
 

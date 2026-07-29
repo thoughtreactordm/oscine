@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQANT57FSNXJ6BN8WNF5NV8
 title: Equal-power crossfade with configurable duration
-status: in-review
+status: done
 priority: high
 labels:
   - M2
@@ -13,9 +13,9 @@ workstreamId: W3-8
 dependsOn:
   - 01KYQAN5NCZX2HXED8JJWNJD5D
 effort: high
-order: 0
+order: 5
 created: '2026-07-29T16:17:44.102Z'
-updated: '2026-07-29T18:05:18.000Z'
+updated: '2026-07-29T19:48:31.207Z'
 ---
 Add the non-zero half of R2: overlap decoded tracks with an equal-power curve for a configurable duration, using the same scheduler as gapless rather than a second transition mechanism.
 

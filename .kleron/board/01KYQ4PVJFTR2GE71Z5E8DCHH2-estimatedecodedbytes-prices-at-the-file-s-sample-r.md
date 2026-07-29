@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQ4PVJFTR2GE71Z5E8DCHH2
 title: 'estimateDecodedBytes prices at the file''s sample rate, not the AudioContext''s'
-status: in-review
+status: done
 priority: high
 labels:
   - R1
@@ -10,9 +10,9 @@ labels:
 triageKind: bug
 workstream: W3
 workstreamId: W3-2
-order: 0
+order: 3
 created: '2026-07-29T14:33:26.863Z'
-updated: '2026-07-29T15:41:08.969Z'
+updated: '2026-07-29T19:48:27.969Z'
 ---
 Found by the M1 exit gate (W6-2) on Linux, 2026-07-29.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQAQKV9YX20XQF9NE4WSKJK
 title: ReplayGain compute-when-missing background job
-status: in-review
+status: done
 priority: high
 labels:
   - M2
@@ -14,9 +14,9 @@ dependsOn:
   - 01KYECGN8JRHFBMDEBTRS9ZT1E
   - 01KYQAPNHCVJFAZKAJMMNNRB4W
 effort: xhigh
-order: 5
+order: 10
 created: '2026-07-29T16:18:43.176Z'
-updated: '2026-07-29T19:02:26.000Z'
+updated: '2026-07-29T19:48:31.279Z'
 ---
 Compute ReplayGain only for tracks that do not already carry tags, using a resumable background job that never blocks the main process or reaches into the renderer filesystem boundary.
 
