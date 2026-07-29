@@ -66,6 +66,17 @@ export interface ListTracksQuery {
   limit: number
 }
 
+/**
+ * Largest page `library.listTracks` will serve.
+ *
+ * Lives in `shared` rather than beside the validator because both sides need
+ * it: main rejects anything larger, and the renderer sizes its windows against
+ * it. A renderer constant that merely happened to agree would drift the first
+ * time either number was tuned, and the failure would look like a random
+ * `invalid-request` under fast scrolling.
+ */
+export const MAX_TRACK_PAGE = 1000
+
 export interface ListTracksResult {
   tracks: Track[]
   /** Total matching rows, ignoring offset/limit, so the UI can size its scrollbar. */

@@ -1,5 +1,5 @@
 import { FermataError } from '@shared/errors'
-import { TRACK_SORT_COLUMNS, type ListTracksQuery } from '@shared/library'
+import { MAX_TRACK_PAGE, TRACK_SORT_COLUMNS, type ListTracksQuery } from '@shared/library'
 
 /**
  * Request validation at the boundary.
@@ -9,9 +9,6 @@ import { TRACK_SORT_COLUMNS, type ListTracksQuery } from '@shared/library'
  * sending the wrong shape, and a compromised renderer probing the seam. Both
  * are cheaper to catch here than in a SQL query three layers down.
  */
-
-/** Largest page `library.listTracks` will serve. W4-1 requests windows, not libraries. */
-export const MAX_TRACK_PAGE = 1000
 
 function invalid(message: string): never {
   throw new FermataError('invalid-request', message)
