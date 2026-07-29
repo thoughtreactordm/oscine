@@ -17,6 +17,17 @@ import type { PlatformPath } from 'node:path'
  * arbitrary-file-read primitive that `src/shared`'s pathless `Track` exists to
  * deny it.
  */
+/**
+ * How a candidate folder sits relative to one already in the library.
+ *
+ * Only `'unrelated'` is safe to add. The other three all end with the same file
+ * indexed under two roots — two `tracks` rows, two ids, and a track that appears
+ * twice in every list. The UNIQUE constraint on `roots.path` catches none of
+ * them: `'same'` escapes it whenever the two strings differ only by case or a
+ * trailing separator, and the nesting cases are distinct paths by any measure.
+ */
+export type RootRelation = 'same' | 'inside' | 'contains' | 'unrelated'
+
 export interface PathHelpers {
   /**
    * Absolute path to the stored form, relative to `rootPath`.
@@ -33,6 +44,8 @@ export interface PathHelpers {
    * including absolute inputs and `..` traversal.
    */
   toAbsPath(rootPath: string, relPath: string): string | null
+  /** How `candidate` relates to the already-registered root `existing`. */
+  relateRoots(existing: string, candidate: string): RootRelation
 }
 
 /**
@@ -91,7 +104,22 @@ export function createPathHelpers(impl: PlatformPath): PathHelpers {
     return isStrictlyInside(impl, root, abs) ? abs : null
   }
 
-  return { toRelPath, toAbsPath }
+  function relateRoots(existing: string, candidate: string): RootRelation {
+    if (!impl.isAbsolute(existing) || !impl.isAbsolute(candidate)) return 'unrelated'
+
+    const a = impl.normalize(existing)
+    const b = impl.normalize(candidate)
+
+    // `relative` returning empty is the same-folder test, and it is the reason
+    // this is not a string comparison: under win32 it also folds case and
+    // trailing separators, so `C:\Music`, `c:\music\` and `C:\Music` all agree.
+    if (impl.relative(a, b) === '') return 'same'
+    if (isStrictlyInside(impl, a, b)) return 'inside'
+    if (isStrictlyInside(impl, b, a)) return 'contains'
+    return 'unrelated'
+  }
+
+  return { toRelPath, toAbsPath, relateRoots }
 }
 
 const host = createPathHelpers(nodePath)
@@ -101,3 +129,6 @@ export const toRelPath = host.toRelPath
 
 /** Host-platform binding of {@link PathHelpers.toAbsPath}. */
 export const toAbsPath = host.toAbsPath
+
+/** Host-platform binding of {@link PathHelpers.relateRoots}. */
+export const relateRoots = host.relateRoots

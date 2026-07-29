@@ -124,6 +124,58 @@ describe('toAbsPath', () => {
 })
 
 /**
+ * What stops one file being indexed under two roots.
+ *
+ * `roots.path` is UNIQUE, but that constraint only catches byte-identical
+ * strings — it misses every case below, and each of them ends with duplicate
+ * `tracks` rows for the same file.
+ */
+describe('relateRoots', () => {
+  it('recognises the identical folder', () => {
+    expect(windows.relateRoots(WIN_ROOT, WIN_ROOT)).toBe('same')
+    expect(linux.relateRoots(LINUX_ROOT, LINUX_ROOT)).toBe('same')
+  })
+
+  it('recognises the same Windows folder spelled differently', () => {
+    // All three reach the same directory, and none is caught by UNIQUE(path).
+    expect(windows.relateRoots(WIN_ROOT, 'c:\\users\\michael\\music')).toBe('same')
+    expect(windows.relateRoots(WIN_ROOT, `${WIN_ROOT}\\`)).toBe('same')
+    expect(windows.relateRoots(WIN_ROOT, 'C:/Users/Michael/Music')).toBe('same')
+    expect(windows.relateRoots(WIN_ROOT, `${WIN_ROOT}\\Rock\\..`)).toBe('same')
+  })
+
+  it('keeps Linux case-sensitive', () => {
+    expect(linux.relateRoots(LINUX_ROOT, '/SRV/MUSIC')).toBe('unrelated')
+  })
+
+  it('detects a candidate nested inside an existing root', () => {
+    expect(windows.relateRoots(WIN_ROOT, `${WIN_ROOT}\\Boards of Canada`)).toBe('inside')
+    expect(linux.relateRoots(LINUX_ROOT, '/srv/music/flac/albums')).toBe('inside')
+  })
+
+  it('detects a candidate that would swallow an existing root', () => {
+    expect(windows.relateRoots(WIN_ROOT, 'C:\\Users\\Michael')).toBe('contains')
+    expect(linux.relateRoots(LINUX_ROOT, '/srv')).toBe('contains')
+  })
+
+  it('leaves genuinely separate folders alone', () => {
+    expect(windows.relateRoots(WIN_ROOT, 'D:\\Music')).toBe('unrelated')
+    expect(linux.relateRoots(LINUX_ROOT, '/home/michael/music')).toBe('unrelated')
+  })
+
+  it('does not mistake a prefix-sharing sibling for containment', () => {
+    // The bug a startsWith comparison would have: these are unrelated folders.
+    expect(linux.relateRoots(LINUX_ROOT, '/srv/music-backup')).toBe('unrelated')
+    expect(windows.relateRoots(WIN_ROOT, 'C:\\Users\\Michael\\Music Archive')).toBe('unrelated')
+  })
+
+  it('refuses to relate non-absolute input', () => {
+    expect(linux.relateRoots(LINUX_ROOT, 'music')).toBe('unrelated')
+    expect(windows.relateRoots('Music', WIN_ROOT)).toBe('unrelated')
+  })
+})
+
+/**
  * The criterion with the longest fuse.
  *
  * D11 moves playlists between machines by `rel_path`, so a value written on one
