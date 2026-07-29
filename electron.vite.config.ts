@@ -54,9 +54,18 @@ function cspPlugin(): Plugin {
   }
 }
 
+/*
+ * `music-metadata` is pure ESM (`"type": "module"`, no CJS entry), and main is
+ * built as CommonJS. Left external, the bundle would `require()` it and fail at
+ * runtime — in the packaged build, on the first scan. Bundling it instead is
+ * safe because it is plain JavaScript with no native addon, unlike
+ * better-sqlite3, which must stay external for exactly that reason.
+ */
+const BUNDLED_ESM_DEPS = ['music-metadata']
+
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: BUNDLED_ESM_DEPS })],
     resolve: { alias: { '@shared': shared } },
     build: {
       rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } }
