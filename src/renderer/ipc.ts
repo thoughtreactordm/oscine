@@ -2,6 +2,7 @@ import { FermataError, type IpcResult } from '@shared/errors'
 import type {
   ListFacetsQuery,
   ListTracksQuery,
+  LibraryNotice,
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
@@ -44,8 +45,19 @@ export const library = {
   /** Returns an unsubscribe function. Call it on unmount. */
   onScanProgress: (listener: (progress: ScanProgress) => void) =>
     window.fermata.library.onScanProgress(listener),
+  onNotice: (listener: (notice: LibraryNotice) => void) =>
+    window.fermata.library.onNotice(listener),
   onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
     window.fermata.library.onReplayGainProgress(listener)
+}
+
+export const windowControls = {
+  minimize: () => unwrap(window.fermata.windowControls.minimize()),
+  toggleMaximize: () => unwrap(window.fermata.windowControls.toggleMaximize()),
+  isMaximized: () => unwrap(window.fermata.windowControls.isMaximized()),
+  close: () => unwrap(window.fermata.windowControls.close()),
+  onMaximizedChange: (listener: (maximized: boolean) => void) =>
+    window.fermata.windowControls.onMaximizedChange(listener)
 }
 
 export const versions = (): typeof window.fermata.versions => window.fermata.versions

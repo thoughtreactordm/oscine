@@ -1,3 +1,4 @@
+import { BrowserWindow } from 'electron'
 import { FermataError } from '@shared/errors'
 import { trackUrl } from '@shared/ipc'
 import type { LibraryService } from '../library/service'
@@ -16,6 +17,28 @@ import {
  * throw is flattened by the registry before it reaches the renderer.
  */
 export function registerIpcHandlers(library: LibraryService): void {
+  handle('window.minimize', (_request, event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize()
+    return null
+  })
+
+  handle('window.toggleMaximize', (_request, event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) return false
+    if (window.isMaximized()) window.unmaximize()
+    else window.maximize()
+    return window.isMaximized()
+  })
+
+  handle('window.isMaximized', (_request, event) => {
+    return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
+  })
+
+  handle('window.close', (_request, event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close()
+    return null
+  })
+
   handle('library.addRoot', () => library.addRoot())
 
   handle('library.listRoots', () => library.listRoots())

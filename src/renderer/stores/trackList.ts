@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { library } from '@renderer/ipc'
+import { measureLibraryQuery } from '@renderer/metrics'
 import { createTrackWindow } from '@renderer/panels/trackWindow'
 
 /**
@@ -13,5 +14,7 @@ import { createTrackWindow } from '@renderer/panels/trackWindow'
  * process anywhere in sight.
  */
 export const useTrackListStore = defineStore('trackList', () =>
-  createTrackWindow({ fetchPage: (query) => library.listTracks(query) })
+  createTrackWindow({
+    fetchPage: (query) => measureLibraryQuery('tracks-query', () => library.listTracks(query))
+  })
 )

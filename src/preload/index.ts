@@ -10,6 +10,7 @@ import type {
 import type {
   ListFacetsQuery,
   ListTracksQuery,
+  LibraryNotice,
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
@@ -60,6 +61,14 @@ const api = {
     chrome: process.versions.chrome,
     node: process.versions.node
   },
+  windowControls: {
+    minimize: () => request('window.minimize', null),
+    toggleMaximize: () => request('window.toggleMaximize', null),
+    isMaximized: () => request('window.isMaximized', null),
+    close: () => request('window.close', null),
+    onMaximizedChange: (listener: (maximized: boolean) => void) =>
+      subscribe('window.maximizedChange', listener)
+  },
   library: {
     /** Opens a native folder picker in main. Resolves `null` if cancelled. */
     addRoot: () => request('library.addRoot', null),
@@ -79,6 +88,7 @@ const api = {
     resumeReplayGain: (jobId: number) => request('library.resumeReplayGain', { jobId }),
     onScanProgress: (listener: (progress: ScanProgress) => void) =>
       subscribe('library.scanProgress', listener),
+    onNotice: (listener: (notice: LibraryNotice) => void) => subscribe('library.notice', listener),
     onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
       subscribe('library.replayGainProgress', listener)
   }

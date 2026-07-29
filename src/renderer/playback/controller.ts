@@ -12,6 +12,7 @@ import {
   type PlaybackStatus
 } from '../audio/AudioEngine'
 import type {
+  LibraryBrowseFilters,
   ListTracksQuery,
   ListTracksResult,
   SortDirection,
@@ -55,6 +56,7 @@ export interface PlaybackControllerDeps {
 export interface PlayFromListParams {
   sort: TrackSortColumn
   direction: SortDirection
+  filters?: LibraryBrowseFilters
   index: number
   /**
    * The row the user clicked. Supplied so the panel can show a title
@@ -218,7 +220,8 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     order = createListPlayOrder({
       fetchPage: deps.fetchPage,
       sort: params.sort,
-      direction: params.direction
+      direction: params.direction,
+      filters: params.filters
     })
 
     // With the row already in hand there is nothing to look up, so skip `goTo`

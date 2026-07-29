@@ -1,4 +1,5 @@
 import type {
+  LibraryBrowseFilters,
   ListTracksQuery,
   ListTracksResult,
   SortDirection,
@@ -49,6 +50,7 @@ export interface ListPlayOrderDeps {
   fetchPage: (query: ListTracksQuery) => Promise<ListTracksResult>
   sort: TrackSortColumn
   direction: SortDirection
+  filters?: LibraryBrowseFilters
 }
 
 /**
@@ -62,9 +64,19 @@ export interface ListPlayOrderDeps {
  */
 export function createListPlayOrder(deps: ListPlayOrderDeps): PlayOrder {
   const { fetchPage, sort, direction } = deps
+  const filters = { ...deps.filters }
+  const filterId =
+    Object.keys(filters).length === 0
+      ? ''
+      : `:${[
+          filters.rootId ?? '',
+          filters.artistId ?? '',
+          filters.albumId ?? '',
+          filters.searchText ?? ''
+        ].join(':')}`
 
   return {
-    id: `list:${sort}:${direction}`,
+    id: `list:${sort}:${direction}${filterId}`,
 
     async at(index: number): Promise<Track | null> {
       // A negative or fractional offset is a caller bug, and main would reject
@@ -72,7 +84,7 @@ export function createListPlayOrder(deps: ListPlayOrderDeps): PlayOrder {
       // ends of the list mean anyway.
       if (!Number.isInteger(index) || index < 0) return null
 
-      const result = await fetchPage({ sort, direction, offset: index, limit: 1 })
+      const result = await fetchPage({ ...filters, sort, direction, offset: index, limit: 1 })
       // Past the last row SQLite returns no rows rather than failing, which is
       // exactly the clean stop the transport wants.
       return result.tracks[0] ?? null

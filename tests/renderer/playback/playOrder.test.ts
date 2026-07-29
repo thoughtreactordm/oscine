@@ -19,6 +19,7 @@ function track(id: number): Track {
     sampleRateHz: 44100,
     channels: 2,
     bitDepth: 16,
+    artwork: { small: 'fermata://artwork/missing/small', large: 'fermata://artwork/missing/large' },
     rgTrackGainDb: null,
     rgTrackPeak: null,
     rgAlbumGainDb: null,
@@ -60,6 +61,29 @@ describe('createListPlayOrder', () => {
       sort: 'album',
       direction: 'desc',
       offset: 9,
+      limit: 1
+    })
+  })
+
+  it('captures browse and search filters with the traversal', async () => {
+    const fetchPage = vi.fn(library(50))
+    const order = createListPlayOrder({
+      fetchPage,
+      sort: 'album',
+      direction: 'asc',
+      filters: { rootId: 2, artistId: 3, albumId: 4, searchText: 'hemian' }
+    })
+
+    await order.at(7)
+
+    expect(fetchPage).toHaveBeenCalledWith({
+      rootId: 2,
+      artistId: 3,
+      albumId: 4,
+      searchText: 'hemian',
+      sort: 'album',
+      direction: 'asc',
+      offset: 7,
       limit: 1
     })
   })

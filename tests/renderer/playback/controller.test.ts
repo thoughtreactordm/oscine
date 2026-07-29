@@ -29,6 +29,7 @@ function track(id: number): Track {
     sampleRateHz: 44100,
     channels: 2,
     bitDepth: 16,
+    artwork: { small: 'fermata://artwork/missing/small', large: 'fermata://artwork/missing/large' },
     rgTrackGainDb: null,
     rgTrackPeak: null,
     rgAlbumGainDb: null,

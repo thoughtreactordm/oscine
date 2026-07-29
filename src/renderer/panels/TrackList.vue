@@ -1,168 +1,93 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import type { TableColumn, TableRow } from '@nuxt/ui'
 import { useTrackListStore } from '@renderer/stores/trackList'
 import type { Track, TrackSortColumn } from '@shared/library'
 
-/**
- * The track list island (D4).
- *
- * It renders itself from its own store and knows nothing about what sits
- * beside it. The only things that cross its edge are two events — a row was
- * selected, a row was activated — so a host can wire playback, and a docking
- * system can move this panel later without touching what is inside it.
- *
- * Virtualized from the first commit: the DOM holds one screen of rows plus a
- * little overscan whether the library has fifty tracks or a hundred thousand,
- * and the spacer below carries the scrollbar. Sorting is a query parameter, not
- * an operation on anything held here — see `trackWindow.ts`.
- */
-
 const emit = defineEmits<{
   select: [track: Track]
-  /**
-   * The row index rides along because it is the coordinate play order is
-   * expressed in. Letting the host read it back off the selection instead would
-   * work only for as long as activation always follows a click, which the Enter
-   * key already makes untrue.
-   */
   activate: [track: Track, index: number]
 }>()
 
 const panel = useTrackListStore()
-
-/**
- * Row height in pixels, fixed.
- *
- * Declared here rather than in CSS because the scroll arithmetic needs the
- * number, and two declarations that must agree are one refactor away from
- * disagreeing. The template binds its rows to this value.
- */
 const ROW_HEIGHT = 32
+const OVERSCAN = 8
 
-/** Rows rendered beyond each edge, so a fast flick does not expose blank space. */
-const OVERSCAN = 6
-
-interface Column {
-  key: TrackSortColumn
-  label: string
-  /** Column-specific cell classes: alignment and emphasis only, never colour values. */
-  cell: string
-  header: string
+interface TrackTableRow {
+  index: number
 }
 
-const COLUMNS: readonly Column[] = [
-  {
-    key: 'trackNo',
-    label: '#',
-    cell: 'justify-end tabular-nums text-dimmed',
-    header: 'justify-end'
-  },
-  { key: 'title', label: 'Title', cell: 'text-highlighted', header: '' },
-  { key: 'artist', label: 'Artist', cell: 'text-muted', header: '' },
-  { key: 'album', label: 'Album', cell: 'text-muted', header: '' },
+interface ColumnSpec {
+  key: TrackSortColumn
+  label: string
+  align: string
+  width?: string
+}
+
+const COLUMNS: readonly ColumnSpec[] = [
+  { key: 'trackNo', label: '#', align: 'text-right tabular-nums text-dimmed', width: '3rem' },
+  { key: 'title', label: 'Title', align: 'text-highlighted' },
+  { key: 'artist', label: 'Artist', align: 'text-muted' },
+  { key: 'album', label: 'Album', align: 'text-muted' },
   {
     key: 'durationSec',
     label: 'Time',
-    cell: 'justify-end tabular-nums text-muted',
-    header: 'justify-end'
+    align: 'text-right tabular-nums text-muted',
+    width: '4rem'
   }
 ]
 
-const GRID_TEMPLATE = '3rem minmax(8rem, 2.2fr) minmax(6rem, 1.3fr) minmax(6rem, 1.3fr) 4rem'
+const columns: TableColumn<TrackTableRow>[] = COLUMNS.map((column) => ({
+  id: column.key,
+  header: column.label,
+  accessorFn: (row) => row.index,
+  meta: {
+    class: {
+      th: column.align,
+      td: column.align
+    },
+    ...(column.width
+      ? {
+          style: {
+            th: { width: column.width },
+            td: { width: column.width }
+          }
+        }
+      : {})
+  }
+}))
 
-const scroller = ref<HTMLElement | null>(null)
+const table = ref<{ $el?: HTMLElement } | null>(null)
 const scrollTop = ref(0)
-const viewportHeight = ref(0)
+const scrollPositions = new Map<string, number>()
 
-const rowsPerViewport = computed(() => Math.max(1, Math.ceil(viewportHeight.value / ROW_HEIGHT)))
-const totalHeight = computed(() => panel.total * ROW_HEIGHT)
-
-const firstIndex = computed(() => Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - OVERSCAN))
-const lastIndex = computed(() =>
-  Math.min(panel.total - 1, firstIndex.value + rowsPerViewport.value + OVERSCAN * 2)
-)
-const offsetY = computed(() => firstIndex.value * ROW_HEIGHT)
-
-/**
- * The rows actually mounted. Length is bounded by the viewport, not by `total` —
- * that bound is the whole point of this panel.
- */
-const renderedRows = computed(() => {
-  const rows: Array<{ index: number; track: Track | undefined }> = []
-  for (let index = firstIndex.value; index <= lastIndex.value; index++) {
-    rows.push({ index, track: panel.rowAt(index) })
-  }
-  return rows
+const tableRows = computed<TrackTableRow[]>(() => {
+  void panel.ordering
+  return Array.from({ length: panel.total }, (_, index) => ({ index }))
 })
-
-const isEmpty = computed(() => panel.total === 0 && !panel.loading)
-
-watch([firstIndex, lastIndex], ([first, last]) => panel.ensureRange(first, Math.max(first, last)), {
-  immediate: true
+const rowSelection = computed<Record<string, boolean>>({
+  get: () => (panel.selectedIndex === null ? {} : { [String(panel.selectedIndex)]: true }),
+  set: (selection) => {
+    const selected = Object.keys(selection).find((key) => selection[key])
+    if (selected !== undefined) panel.select(Number(selected))
+  }
 })
+const filterKey = computed(() => JSON.stringify(panel.filters))
 
-// A re-sort renumbers every row, so the old scroll offset points at unrelated
-// music. Returning to the top is the only position that still means something.
-watch(
-  () => panel.ordering,
-  () => {
-    scrollTop.value = 0
-    if (scroller.value) scroller.value.scrollTop = 0
-  }
-)
-
-function onScroll(): void {
-  scrollTop.value = scroller.value?.scrollTop ?? 0
+function tableElement(): HTMLElement | null {
+  return table.value?.$el ?? null
 }
 
-function scrollIndexIntoView(index: number): void {
-  const el = scroller.value
-  if (!el) return
-
-  const top = index * ROW_HEIGHT
-  if (top < el.scrollTop) el.scrollTop = top
-  else if (top + ROW_HEIGHT > el.scrollTop + el.clientHeight) {
-    el.scrollTop = top + ROW_HEIGHT - el.clientHeight
-  }
-  // `scroll` fires asynchronously; the derived range must not lag a keypress.
-  scrollTop.value = el.scrollTop
+function requestTrack(index: number): void {
+  queueMicrotask(() =>
+    panel.ensureRange(Math.max(0, index - OVERSCAN), Math.min(panel.total - 1, index + OVERSCAN))
+  )
 }
 
-function onRowClick(index: number): void {
-  panel.select(index)
-  const track = panel.rowAt(index)
-  if (track) emit('select', track)
-}
-
-function onRowActivate(index: number): void {
-  const track = panel.rowAt(index)
-  if (track) emit('activate', track, index)
-}
-
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Enter') {
-    const track = panel.selectedTrack
-    const index = panel.selectedIndex
-    if (!track || index === null) return
-    event.preventDefault()
-    emit('activate', track, index)
-    return
-  }
-
-  const next = panel.moveSelection(event.key, rowsPerViewport.value)
-  if (next === null) return
-
-  event.preventDefault()
-  scrollIndexIntoView(next)
-  // Silent when the row has not arrived yet; the host would have nothing to do
-  // with a half-known selection, and the next page load fills it in.
-  const track = panel.selectedTrack
-  if (track) emit('select', track)
-}
-
-function ariaSort(column: TrackSortColumn): 'ascending' | 'descending' | 'none' {
-  if (panel.sort !== column) return 'none'
-  return panel.direction === 'asc' ? 'ascending' : 'descending'
+function trackAt(row: TrackTableRow): Track | undefined {
+  const track = panel.rowAt(row.index)
+  if (!track) requestTrack(row.index)
+  return track
 }
 
 function formatDuration(seconds: number | null): string {
@@ -171,7 +96,9 @@ function formatDuration(seconds: number | null): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
 }
 
-function cellText(track: Track, key: TrackSortColumn): string {
+function cellText(row: TrackTableRow, key: TrackSortColumn): string | undefined {
+  const track = trackAt(row)
+  if (!track) return undefined
   switch (key) {
     case 'trackNo':
       return track.trackNo === null ? '' : String(track.trackNo)
@@ -186,119 +113,151 @@ function cellText(track: Track, key: TrackSortColumn): string {
   }
 }
 
-let observer: ResizeObserver | null = null
+function cellSlot(key: TrackSortColumn): string {
+  return `${key}-cell`
+}
 
-onMounted(() => {
-  const el = scroller.value
-  if (!el) return
+function headerSlot(key: TrackSortColumn): string {
+  return `${key}-header`
+}
 
-  const measure = (): void => {
-    viewportHeight.value = el.clientHeight
+function ariaSort(column: TrackSortColumn): 'ascending' | 'descending' | 'none' {
+  if (panel.sort !== column) return 'none'
+  return panel.direction === 'asc' ? 'ascending' : 'descending'
+}
+
+function onTableSelect(event: Event, row: TableRow<TrackTableRow>): void {
+  const index = row.original.index
+  panel.select(index)
+  const track = panel.rowAt(index)
+  if (!track) return
+  emit('select', track)
+  if (event instanceof MouseEvent && event.detail >= 2) emit('activate', track, index)
+}
+
+function scrollIndexIntoView(index: number): void {
+  const element = tableElement()
+  if (!element) return
+  const top = index * ROW_HEIGHT
+  if (top < element.scrollTop) element.scrollTop = top
+  else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) {
+    element.scrollTop = top + ROW_HEIGHT - element.clientHeight
   }
-  measure()
-  // The panel is sized by its host, which may not have laid out yet and will
-  // resize again the moment a docking system arrives.
-  observer = new ResizeObserver(measure)
-  observer.observe(el)
+  scrollTop.value = element.scrollTop
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Enter') {
+    const track = panel.selectedTrack
+    const index = panel.selectedIndex
+    if (!track || index === null) return
+    event.preventDefault()
+    emit('activate', track, index)
+    return
+  }
+
+  const rowsPerPage = Math.max(
+    1,
+    Math.floor((tableElement()?.clientHeight ?? ROW_HEIGHT) / ROW_HEIGHT)
+  )
+  const next = panel.moveSelection(event.key, rowsPerPage)
+  if (next === null) return
+  event.preventDefault()
+  requestTrack(next)
+  scrollIndexIntoView(next)
+  const track = panel.selectedTrack
+  if (track) emit('select', track)
+}
+
+watch(filterKey, async (next, previous) => {
+  scrollPositions.set(previous, tableElement()?.scrollTop ?? scrollTop.value)
+  await nextTick()
+  const restored = scrollPositions.get(next) ?? 0
+  scrollTop.value = restored
+  if (tableElement()) tableElement()!.scrollTop = restored
+})
+watch([() => panel.sort, () => panel.direction], () => {
+  scrollTop.value = 0
+  if (tableElement()) tableElement()!.scrollTop = 0
 })
 
-onUnmounted(() => {
-  observer?.disconnect()
-  observer = null
-})
+onMounted(() => panel.ensureRange(0, 30))
 </script>
 
 <template>
-  <div
-    class="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-default bg-default"
-    role="grid"
-    :aria-rowcount="panel.total"
+  <UCard
+    variant="soft"
+    class="h-full min-h-0 overflow-hidden rounded-none ring-0"
+    :ui="{ body: 'h-full min-h-0 p-0 sm:p-0' }"
   >
-    <div
-      class="grid shrink-0 items-center border-b border-default bg-elevated"
-      :style="{ gridTemplateColumns: GRID_TEMPLATE, height: `${ROW_HEIGHT}px` }"
-      role="row"
-    >
-      <button
-        v-for="column in COLUMNS"
-        :key="column.key"
-        type="button"
-        role="columnheader"
-        :aria-sort="ariaSort(column.key)"
-        class="flex h-full items-center gap-1 px-2 text-xs font-medium uppercase tracking-wide text-muted transition-colors hover:text-highlighted"
-        :class="column.header"
-        @click="panel.setSort(column.key)"
-      >
-        <span class="truncate">{{ column.label }}</span>
-        <UIcon
-          v-if="panel.sort === column.key"
-          :name="panel.direction === 'asc' ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-          class="size-3 shrink-0 text-primary"
-        />
-      </button>
-    </div>
-
-    <UAlert
-      v-if="panel.error"
-      color="warning"
-      variant="subtle"
-      icon="i-lucide-triangle-alert"
-      :description="panel.error"
-      class="rounded-none"
-    />
-
-    <!-- tabindex makes the list itself the keyboard target: arrows, Home and
-         End belong to the list, not to a focused row that virtualization would
-         unmount out from under the focus ring. -->
-    <div
-      ref="scroller"
-      class="min-h-0 flex-1 overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    <UTable
+      ref="table"
+      v-model:row-selection="rowSelection"
+      :data="tableRows"
+      :columns="columns"
+      :get-row-id="(row: TrackTableRow) => String(row.index)"
+      :on-select="onTableSelect"
+      :loading="panel.loading"
+      loading-color="primary"
+      loading-animation="carousel"
+      sticky="header"
+      :virtualize="{ estimateSize: ROW_HEIGHT, overscan: OVERSCAN }"
+      :watch-options="{ deep: false }"
+      class="h-full min-h-0 overflow-auto overscroll-contain pb-2 outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-primary"
+      :ui="{
+        base: 'table-fixed',
+        thead: 'bg-elevated/95',
+        th: 'h-8 px-2 py-0 text-xs font-medium uppercase tracking-wide text-muted',
+        tbody: 'divide-y divide-default/60',
+        td: 'h-8 overflow-hidden px-2 py-0 text-sm last:pe-4',
+        tr: 'h-8 data-[selected=true]:bg-primary/15 hover:bg-elevated/70',
+        empty: 'h-full p-0'
+      }"
       tabindex="0"
-      @scroll.passive="onScroll"
+      aria-label="Songs"
+      @scroll.passive="scrollTop = tableElement()?.scrollTop ?? 0"
       @keydown="onKeydown"
     >
-      <div v-if="isEmpty" class="flex h-full items-center justify-center p-6 text-sm text-muted">
-        No tracks yet. Add a folder to index one.
-      </div>
+      <template v-for="column in COLUMNS" :key="headerSlot(column.key)" #[headerSlot(column.key)]>
+        <UButton
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          class="-mx-2 w-[calc(100%+1rem)] justify-start rounded-none px-2 uppercase"
+          :class="column.align"
+          :aria-sort="ariaSort(column.key)"
+          @click="panel.setSort(column.key)"
+        >
+          <span class="truncate">{{ column.label }}</span>
+          <UIcon
+            v-if="panel.sort === column.key"
+            :name="panel.direction === 'asc' ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+            class="size-3 shrink-0 text-primary"
+          />
+        </UButton>
+      </template>
 
-      <div v-else class="relative w-full" :style="{ height: `${totalHeight}px` }">
-        <div class="absolute inset-x-0 top-0" :style="{ transform: `translateY(${offsetY}px)` }">
-          <div
-            v-for="row in renderedRows"
-            :key="row.index"
-            role="row"
-            :aria-rowindex="row.index + 1"
-            :aria-selected="panel.selectedIndex === row.index"
-            class="grid cursor-default items-center text-sm"
-            :class="
-              panel.selectedIndex === row.index
-                ? 'bg-primary/10 text-highlighted'
-                : 'hover:bg-elevated'
-            "
-            :style="{ gridTemplateColumns: GRID_TEMPLATE, height: `${ROW_HEIGHT}px` }"
-            @click="onRowClick(row.index)"
-            @dblclick="onRowActivate(row.index)"
-          >
-            <template v-if="row.track">
-              <div
-                v-for="column in COLUMNS"
-                :key="column.key"
-                role="gridcell"
-                class="flex items-center overflow-hidden px-2"
-                :class="column.cell"
-              >
-                <span class="truncate">{{ cellText(row.track, column.key) }}</span>
-              </div>
-            </template>
+      <template
+        v-for="column in COLUMNS"
+        :key="cellSlot(column.key)"
+        #[cellSlot(column.key)]="{ row }"
+      >
+        <USkeleton
+          v-if="cellText(row.original, column.key) === undefined"
+          class="h-2 w-24 max-w-full"
+        />
+        <span v-else class="block truncate">{{ cellText(row.original, column.key) }}</span>
+      </template>
 
-            <!-- The page covering this row is still in flight. A placeholder
-                 keeps the row height stable so the scrollbar does not jump. -->
-            <div v-else class="col-span-5 flex items-center px-2">
-              <span class="h-2 w-40 max-w-[40%] animate-pulse rounded bg-elevated" />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+      <template #empty>
+        <UEmpty
+          variant="naked"
+          icon="i-lucide-list-music"
+          title="No tracks yet"
+          description="Add a folder to index music, or change the active filters."
+          class="h-full"
+        />
+      </template>
+    </UTable>
+  </UCard>
 </template>

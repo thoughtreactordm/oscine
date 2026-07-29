@@ -128,6 +128,7 @@ export function createTrackWindow(deps: TrackWindowDeps) {
 
   const pages = new Map<number, Track[]>()
   const pending = new Set<number>()
+  let presentingOrdering = ordering.value
 
   let range = { first: 0, last: 0 }
 
@@ -184,7 +185,7 @@ export function createTrackWindow(deps: TrackWindowDeps) {
   }
 
   async function loadPage(page: number): Promise<void> {
-    if (pages.has(page) || pending.has(page)) return
+    if (pending.has(page) || (presentingOrdering === ordering.value && pages.has(page))) return
 
     const requested = ordering.value
     pending.add(page)
@@ -203,6 +204,12 @@ export function createTrackWindow(deps: TrackWindowDeps) {
       // list. Storing it would interleave two orderings in one column of rows.
       if (requested !== ordering.value) return
 
+      // Keep the last complete view mounted while a new sort/filter query is
+      // pending. The first successful page atomically replaces that view.
+      if (presentingOrdering !== requested) {
+        pages.clear()
+        presentingOrdering = requested
+      }
       total.value = result.total
       pages.set(page, result.tracks)
       syncSelection(result.tracks, page)
@@ -237,11 +244,9 @@ export function createTrackWindow(deps: TrackWindowDeps) {
 
   function invalidate(): void {
     ordering.value++
-    pages.clear()
     pending.clear()
-    loading.value = false
+    loading.value = true
     selectedIndex.value = null
-    revision.value++
     ensureRange(range.first, range.last)
   }
 
@@ -264,6 +269,16 @@ export function createTrackWindow(deps: TrackWindowDeps) {
    * every keystroke.
    */
   function setFilters(next: LibraryBrowseFilters): void {
+    const selectingAllArtists = filters.value.artistId !== undefined && next.artistId === undefined
+    const selectingAllAlbums = filters.value.albumId !== undefined && next.albumId === undefined
+    const enteringAlbum = next.albumId !== undefined && next.albumId !== filters.value.albumId
+    if (selectingAllArtists || selectingAllAlbums) {
+      sort.value = 'artist'
+      direction.value = 'asc'
+    } else if (enteringAlbum) {
+      sort.value = 'trackNo'
+      direction.value = 'asc'
+    }
     filters.value = { ...next }
     invalidate()
   }

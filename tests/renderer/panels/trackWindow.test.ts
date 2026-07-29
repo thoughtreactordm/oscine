@@ -44,6 +44,10 @@ function syntheticLibrary(total = LIBRARY_SIZE) {
         sampleRateHz: 44100,
         channels: 2,
         bitDepth: 16,
+        artwork: {
+          small: 'fermata://artwork/missing/small',
+          large: 'fermata://artwork/missing/large'
+        },
         rgTrackGainDb: null,
         rgTrackPeak: null,
         rgAlbumGainDb: null,
@@ -119,9 +123,8 @@ describe('createTrackWindow', () => {
     await flush()
 
     win.setSort('title')
-    // The cache is dropped synchronously: rows ordered by artist say nothing
-    // about where they belong ordered by title.
-    expect(win.cachedPageCount()).toBe(0)
+    // The last good page stays mounted while the replacement is pending.
+    expect(win.cachedPageCount()).toBe(1)
     await flush()
     expect(source.calls.at(-1)).toEqual({
       sort: 'title',
@@ -205,6 +208,80 @@ describe('createTrackWindow', () => {
     expect(win.rowAt(0)?.title).toBe('rhapsody')
     expect(issued.at(-1)?.searchText).toBe('rhapsody')
     expect(win.cachedPageCount()).toBe(1)
+  })
+
+  it('defaults to track number ascending when entering an album', async () => {
+    const source = syntheticLibrary()
+    const win = createTrackWindow({ fetchPage: source.fetchPage, pageSize: 200 })
+
+    win.setSort('title')
+    await flush()
+    win.setSort('title')
+    await flush()
+    expect(win.direction.value).toBe('desc')
+
+    win.setFilters({ artistId: 12, albumId: 34 })
+    await flush()
+
+    expect(win.sort.value).toBe('trackNo')
+    expect(win.direction.value).toBe('asc')
+    expect(source.calls.at(-1)).toMatchObject({
+      artistId: 12,
+      albumId: 34,
+      sort: 'trackNo',
+      direction: 'asc'
+    })
+  })
+
+  it('preserves a manual album sort while other filters change', async () => {
+    const source = syntheticLibrary()
+    const win = createTrackWindow({ fetchPage: source.fetchPage, pageSize: 200 })
+
+    win.setFilters({ albumId: 34 })
+    await flush()
+    win.setSort('title')
+    await flush()
+    win.setFilters({ albumId: 34, searchText: 'hemian' })
+    await flush()
+
+    expect(win.sort.value).toBe('title')
+    expect(source.calls.at(-1)).toMatchObject({
+      albumId: 34,
+      searchText: 'hemian',
+      sort: 'title',
+      direction: 'asc'
+    })
+  })
+
+  it.each([
+    {
+      label: 'All Artists',
+      selected: { artistId: 12, albumId: 34 },
+      all: { albumId: 34 }
+    },
+    {
+      label: 'All Albums',
+      selected: { artistId: 12, albumId: 34 },
+      all: { artistId: 12 }
+    }
+  ])('defaults to artist ascending when selecting $label', async ({ selected, all }) => {
+    const source = syntheticLibrary()
+    const win = createTrackWindow({ fetchPage: source.fetchPage, pageSize: 200 })
+
+    win.setFilters(selected)
+    await flush()
+    expect(win.sort.value).toBe('trackNo')
+
+    win.setFilters(all)
+    await flush()
+
+    expect(win.sort.value).toBe('artist')
+    expect(win.direction.value).toBe('asc')
+    expect(source.calls.at(-1)).toMatchObject({
+      ...all,
+      sort: 'artist',
+      direction: 'asc'
+    })
   })
 
   it('keeps the chosen track across a re-sort and re-adopts its position', async () => {
