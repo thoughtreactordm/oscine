@@ -1,7 +1,7 @@
 ---
 taskId: 01KYECHBRGWEZFS13A6DX4HTJJ
 title: AudioEngine interface and decodeAudioData playback
-status: todo
+status: in-progress
 priority: high
 labels:
   - M1
@@ -11,9 +11,9 @@ workstreamId: W3-1
 dependsOn:
   - 01KYECFMPA141ZPJM8F2X54BAS
 effort: high
-order: 7
+order: 0
 created: '2026-07-26T04:57:05.551Z'
-updated: '2026-07-26T04:57:05.551Z'
+updated: '2026-07-29T04:30:35.334Z'
 ---
 Make sound come out, behind an interface that can survive being replaced.
 
