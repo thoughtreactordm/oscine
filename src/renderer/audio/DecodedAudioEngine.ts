@@ -119,6 +119,10 @@ export class DecodedAudioEngine implements AudioEngine {
       }
 
       const encoded = await response.arrayBuffer()
+      // Read this *before* decoding: `decodeAudioData` detaches the buffer it
+      // is given, after which `byteLength` reads 0 and the R1 log line would
+      // quietly record every file as empty.
+      const encodedByteLength = encoded.byteLength
       const buffer = await this.#context.decodeAudioData(encoded)
 
       // A slower earlier load must not overwrite a faster later one.
@@ -127,7 +131,7 @@ export class DecodedAudioEngine implements AudioEngine {
       }
 
       this.#buffer = buffer
-      this.#logDecodeCost(trackId, encoded.byteLength, buffer)
+      this.#logDecodeCost(trackId, encodedByteLength, buffer)
       this.#setStatus('ready')
       this.#emitTime()
     } catch (err) {
