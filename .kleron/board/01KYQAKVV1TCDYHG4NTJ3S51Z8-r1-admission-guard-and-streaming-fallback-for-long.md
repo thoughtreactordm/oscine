@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQAKVV1TCDYHG4NTJ3S51Z8
 title: R1 admission guard and streaming fallback for long tracks
-status: todo
+status: in-review
 priority: urgent
 labels:
   - M2
@@ -15,9 +15,9 @@ dependsOn:
   - 01KYQ4QA76HX5WZTS0T9Z480T1
   - 01KYQ4QTJ2SX17X2J3BM1NAFNH
 effort: high
-order: 0
+order: 2
 created: '2026-07-29T16:16:40.288Z'
-updated: '2026-07-29T16:16:40.288Z'
+updated: '2026-07-29T16:52:04.161Z'
 ---
 Turn the three R1 findings from the M1 exit gate into the policy that prevents whole-buffer decode from exhausting the renderer, while keeping long-form audio playable.
 
