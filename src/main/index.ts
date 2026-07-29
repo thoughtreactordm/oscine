@@ -2,15 +2,48 @@ import { app, BrowserWindow, dialog, shell } from 'electron'
 import type BetterSqlite3 from 'better-sqlite3'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import type { ScanProgress } from '@shared/library'
 import { openDatabase } from './db'
 import { libraryDatabasePath } from './db/location'
-import { registerIpcHandlers, setTrustedRendererUrl } from './ipc'
-import { PendingLibraryService } from './library/service'
+import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
+import { SqliteLibraryService } from './library/sqliteService'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 
 const isDev = !app.isPackaged
 const rendererDir = join(__dirname, '../renderer')
 const indexHtml = join(rendererDir, 'index.html')
+
+/**
+ * The application window, once it exists.
+ *
+ * Held because the library service is constructed before it — the track
+ * protocol and the IPC handlers have to be registered before the renderer can
+ * load — yet both of the service's Electron dependencies need a window. They
+ * reach it through this rather than through a construction-order rearrangement
+ * that would leave the protocol registered late.
+ */
+let mainWindow: BrowserWindow | null = null
+
+/** D1's library is folders on disk, so this is the one way tracks get in. */
+async function pickMusicFolder(): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    title: 'Add music folder',
+    buttonLabel: 'Add folder',
+    properties: ['openDirectory', 'createDirectory', 'dontAddToRecent']
+  }
+
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options)
+
+  // Cancelling is an ordinary outcome, not an error — the contract says so.
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+}
+
+function broadcastScanProgress(progress: ScanProgress): void {
+  if (mainWindow) emit(mainWindow.webContents, 'library.scanProgress', progress)
+}
 
 /**
  * The one URL the renderer is ever served from: the dev server in development,
@@ -124,15 +157,20 @@ if (!app.requestSingleInstanceLock()) {
     // the database.
     app.on('will-quit', () => db.close())
 
-    // W2-2 swaps this for the real database-backed service. Nothing else here
-    // changes when it does — that is what the seam is for.
-    const library = new PendingLibraryService()
+    const library = new SqliteLibraryService({
+      db,
+      pickFolder: pickMusicFolder,
+      onProgress: broadcastScanProgress
+    })
 
     setTrustedRendererUrl(rendererUrl)
     registerTrackProtocol(library)
     registerIpcHandlers(library)
 
-    createWindow()
+    mainWindow = createWindow()
+    mainWindow.on('closed', () => {
+      mainWindow = null
+    })
   })
 
   // D10 scopes Fermata to Windows and Linux, where closing the last window
