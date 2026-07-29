@@ -1,7 +1,7 @@
 ---
 taskId: 01KYECFMPA141ZPJM8F2X54BAS
 title: Typed IPC contract in src/shared + hardened preload bridge
-status: in-review
+status: done
 priority: high
 labels:
   - M1
@@ -10,9 +10,9 @@ workstreamId: W1-3
 dependsOn:
   - 01KYECF654VD7979YA2APD24PW
 effort: high
-order: 0
+order: 3
 created: '2026-07-26T04:56:09.162Z'
-updated: '2026-07-26T05:46:24.956Z'
+updated: '2026-07-29T19:35:07.914Z'
 ---
 The seam between main and renderer, defined once in `src/shared` so the two sides cannot drift (design section 6). Worth more care than its size suggests — every later W2/W3/W4 card crosses this boundary, and widening it under deadline pressure is how context isolation gets quietly disabled.
 

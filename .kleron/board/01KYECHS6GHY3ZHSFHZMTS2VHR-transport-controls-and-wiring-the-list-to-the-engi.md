@@ -1,7 +1,7 @@
 ---
 taskId: 01KYECHS6GHY3ZHSFHZMTS2VHR
 title: Transport controls and wiring the list to the engine
-status: in-review
+status: done
 priority: high
 labels:
   - M1
@@ -12,9 +12,9 @@ dependsOn:
   - 01KYECGYZEYQ1N1DDKBY5RYD1S
   - 01KYECGN8JRHFBMDEBTRS9ZT1E
 effort: medium
-order: 2
+order: 8
 created: '2026-07-26T04:57:19.311Z'
-updated: '2026-07-29T01:43:48.781Z'
+updated: '2026-07-29T19:35:07.974Z'
 ---
 The card that closes the M1 loop: a real folder becomes a browsable list becomes audible sound.
 

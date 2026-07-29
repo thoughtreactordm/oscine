@@ -1,7 +1,7 @@
 ---
 taskId: 01KYECGN8JRHFBMDEBTRS9ZT1E
 title: Add-root flow and recursive scanner with music-metadata
-status: in-review
+status: done
 priority: high
 labels:
   - M1
@@ -11,9 +11,9 @@ dependsOn:
   - 01KYECG6165EXS8YGVG63WFZ6S
   - 01KYECFMPA141ZPJM8F2X54BAS
 effort: high
-order: 0
+order: 5
 created: '2026-07-26T04:56:42.514Z'
-updated: '2026-07-29T04:22:38.470Z'
+updated: '2026-07-29T19:35:07.939Z'
 ---
 Turn a folder on disk into rows in the database. The first genuinely useful thing Fermata does.
 

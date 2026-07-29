@@ -1,7 +1,7 @@
 ---
 taskId: 01KYECF654VD7979YA2APD24PW
 title: Scaffold electron-vite project (main / preload / renderer)
-status: in-review
+status: done
 priority: high
 labels:
   - M1
@@ -10,9 +10,9 @@ workstreamId: W1-2
 dependsOn:
   - 01KYECERTAKPWTX3HFEDNPY8YR
 effort: medium
-order: 0
+order: 2
 created: '2026-07-26T04:55:54.276Z'
-updated: '2026-07-26T05:36:57.803Z'
+updated: '2026-07-29T19:35:07.900Z'
 ---
 Stand up the real project skeleton per design doc section 7. Blocked on the R4 spike — if that came back negative, this card changes to Nuxt SPA mode first.
 

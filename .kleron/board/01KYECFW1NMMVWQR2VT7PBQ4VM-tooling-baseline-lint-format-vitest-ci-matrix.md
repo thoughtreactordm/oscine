@@ -1,7 +1,7 @@
 ---
 taskId: 01KYECFW1NMMVWQR2VT7PBQ4VM
 title: 'Tooling baseline: lint, format, Vitest, CI matrix'
-status: todo
+status: done
 priority: medium
 labels:
   - M1
@@ -10,9 +10,9 @@ workstreamId: W6-1
 dependsOn:
   - 01KYECF654VD7979YA2APD24PW
 effort: medium
-order: 3
+order: 0
 created: '2026-07-26T04:56:16.692Z'
-updated: '2026-07-26T04:56:16.692Z'
+updated: '2026-07-29T19:35:00.689Z'
 ---
 Quality gates in place before there is much code to retrofit them onto.
 

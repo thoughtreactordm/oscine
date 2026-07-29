@@ -1,7 +1,7 @@
 ---
 taskId: 01KYECERTAKPWTX3HFEDNPY8YR
 title: 'Spike: verify Nuxt UI standalone with Vite + Vue 3'
-status: in-review
+status: done
 priority: high
 labels:
   - M1
@@ -10,9 +10,9 @@ labels:
 workstream: W1
 workstreamId: W1-1
 effort: medium
-order: 0
+order: 1
 created: '2026-07-26T04:55:40.618Z'
-updated: '2026-07-26T05:25:38.057Z'
+updated: '2026-07-29T19:35:07.882Z'
 ---
 Resolves **R4** in the design doc. D3 assumes current Nuxt UI supports a plain Vue 3 + Vite app via its Vite plugin, without Nuxt itself. That assumption is **unverified** and everything in W4 sits on top of it, so it gets checked before the real scaffold commits to it.
 

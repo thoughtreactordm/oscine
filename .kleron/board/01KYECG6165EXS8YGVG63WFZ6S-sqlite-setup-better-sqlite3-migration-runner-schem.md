@@ -1,7 +1,7 @@
 ---
 taskId: 01KYECG6165EXS8YGVG63WFZ6S
 title: 'SQLite setup: better-sqlite3, migration runner, schema v1'
-status: in-review
+status: done
 priority: high
 labels:
   - M1
@@ -10,9 +10,9 @@ workstreamId: W2-1
 dependsOn:
   - 01KYECF654VD7979YA2APD24PW
 effort: high
-order: 0
+order: 4
 created: '2026-07-26T04:56:26.918Z'
-updated: '2026-07-29T03:50:29.302Z'
+updated: '2026-07-29T19:35:07.927Z'
 ---
 The persistence layer, per design section 4. Schema v1 lands whole even though M1 only exercises part of it — the unused columns cost nothing and a migration to add them later costs a card.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQ4RF3F54A0HB1P3NJPFVAD
 title: 'M1 exit: Windows column — decoded sizes, peak RSS, and OGG coverage'
-status: in-progress
+status: done
 priority: medium
 labels:
   - M1
@@ -11,9 +11,9 @@ workstream: W6
 workstreamId: W6-3
 dependsOn:
   - 01KYECJ52GBZS8TZ7JCXHEAWXK
-order: 0
+order: 10
 created: '2026-07-29T14:34:19.630Z'
-updated: '2026-07-29T19:13:33.098Z'
+updated: '2026-07-29T19:35:07.997Z'
 ---
 Carved out of W6-2 so the outstanding half of the M1 exit gate stays visible
 rather than living in a "still owed" paragraph. W6-2 recorded a full instrumented

@@ -1,7 +1,7 @@
 ---
 taskId: 01KYECJ52GBZS8TZ7JCXHEAWXK
 title: 'M1 exit: verify end-to-end on Windows and Linux'
-status: in-review
+status: done
 priority: medium
 labels:
   - M1
@@ -12,9 +12,9 @@ dependsOn:
   - 01KYECHS6GHY3ZHSFHZMTS2VHR
   - 01KYECFW1NMMVWQR2VT7PBQ4VM
 effort: medium
-order: 3
+order: 9
 created: '2026-07-26T04:57:31.471Z'
-updated: '2026-07-29T15:05:00.000Z'
+updated: '2026-07-29T19:35:07.985Z'
 ---
 The M1 exit criterion from design section 9. Not a coding card — a gate. M1 is not done until this passes on **both** platforms.
 

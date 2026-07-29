@@ -1,7 +1,7 @@
 ---
 taskId: 01KYECGYZEYQ1N1DDKBY5RYD1S
 title: Virtualized sortable track list panel
-status: in-review
+status: done
 priority: high
 labels:
   - M1
@@ -10,9 +10,9 @@ workstreamId: W4-1
 dependsOn:
   - 01KYECFMPA141ZPJM8F2X54BAS
 effort: high
-order: 0
+order: 6
 created: '2026-07-26T04:56:52.461Z'
-updated: '2026-07-29T01:18:01.677Z'
+updated: '2026-07-29T19:35:07.950Z'
 ---
 The first panel island (design section 7). One flat track list — the three-pane Artist/Album/Song browse arrives at M3.
 
