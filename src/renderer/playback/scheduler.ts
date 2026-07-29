@@ -4,8 +4,10 @@ import {
   type AudioEngine,
   type AudioEngineEventMap,
   type AudioTransitionPolicy,
+  type NormalizationMode,
   type PlaybackPosition,
-  type PlaybackStatus
+  type PlaybackStatus,
+  type SampleAccurateTime
 } from '../audio/AudioEngine'
 import { Emitter } from '../audio/emitter'
 import type { PlayOrder } from './playOrder'
@@ -27,6 +29,19 @@ export interface PlaybackSchedulerEventMap extends AudioEngineEventMap {
 
 export interface PlaybackSchedulerDeps {
   createEngine: () => AudioEngine
+  /**
+   * Stable R2 input. M4 will supply the playlist value; zero means gapless and
+   * a positive value selects an equal-power crossfade.
+   */
+  crossfadeMs?: number
+  normalizationMode?: NormalizationMode
+  onCrossfadeAdjusted?: (adjustment: CrossfadeAdjustment) => void
+}
+
+export interface CrossfadeAdjustment {
+  requestedMs: number
+  effectiveMs: number
+  reasons: Array<'current-track' | 'next-track' | 'late-prefetch'>
 }
 
 interface Slot {
@@ -57,6 +72,10 @@ const idlePrefetch = (): PrefetchState => ({
 export class PlaybackScheduler {
   readonly #events = new Emitter<PlaybackSchedulerEventMap>()
   readonly #createEngine: () => AudioEngine
+  readonly #onCrossfadeAdjusted: (adjustment: CrossfadeAdjustment) => void
+
+  #crossfadeMs: number
+  #normalizationMode: NormalizationMode
 
   #slots: Slot[] = []
   #active: Slot | null = null
@@ -71,6 +90,13 @@ export class PlaybackScheduler {
 
   constructor(deps: PlaybackSchedulerDeps) {
     this.#createEngine = deps.createEngine
+    this.#crossfadeMs = this.#normalizeCrossfadeMs(deps.crossfadeMs ?? 0)
+    this.#normalizationMode = deps.normalizationMode ?? 'track'
+    this.#onCrossfadeAdjusted =
+      deps.onCrossfadeAdjusted ??
+      ((adjustment) => {
+        console.info('[audio] R2 crossfade adjusted', JSON.stringify(adjustment))
+      })
   }
 
   get currentTime(): number {
@@ -83,6 +109,14 @@ export class PlaybackScheduler {
 
   get volume(): number {
     return this.#volume
+  }
+
+  get crossfadeMs(): number {
+    return this.#crossfadeMs
+  }
+
+  get normalizationMode(): NormalizationMode {
+    return this.#normalizationMode
   }
 
   get status(): PlaybackStatus {
@@ -149,9 +183,11 @@ export class PlaybackScheduler {
       throw new AudioEngineError('internal', 'Nothing is loaded.')
     }
     await this.#active.engine.play()
+    this.#planBoundary()
   }
 
   pause(): void {
+    this.#cancelPlannedBoundary()
     this.#active?.engine.pause()
   }
 
@@ -160,13 +196,37 @@ export class PlaybackScheduler {
     // If natural-end handling is waiting for maintenance work, a seek is a
     // newer transport intent and must prevent that old boundary from promoting.
     this.#boundaryGeneration += 1
+    this.#cancelPlannedBoundary()
     this.#active?.engine.seek(seconds)
+    this.#planBoundary()
   }
 
   setVolume(gain: number): void {
     const target = Number.isFinite(gain) ? Math.min(Math.max(gain, 0), 1) : 0
     this.#volume = target
     for (const slot of this.#slots) slot.engine.setVolume(target)
+  }
+
+  setNormalizationMode(mode: NormalizationMode): void {
+    this.#assertUsable()
+    if (mode === this.#normalizationMode) return
+    this.#normalizationMode = mode
+    for (const slot of this.#slots) slot.engine.setNormalizationMode(mode)
+  }
+
+  /**
+   * Replace R2's boundary policy without changing traversal or persistence.
+   *
+   * Any already-scheduled source and outgoing automation are cancelled first,
+   * then rebuilt through the same boundary planner with the new value.
+   */
+  setCrossfadeMs(milliseconds: number): void {
+    this.#assertUsable()
+    const next = this.#normalizeCrossfadeMs(milliseconds)
+    if (next === this.#crossfadeMs) return
+    this.#crossfadeMs = next
+    this.#cancelPlannedBoundary()
+    this.#planBoundary()
   }
 
   /**
@@ -181,6 +241,7 @@ export class PlaybackScheduler {
     this.#generation += 1
     this.#boundaryGeneration += 1
     this.#order = null
+    this.#cancelPlannedBoundary()
     this.#active = null
     this.#prefetched = null
     this.#prefetchTask = null
@@ -203,6 +264,7 @@ export class PlaybackScheduler {
 
     const generation = ++this.#generation
     this.#boundaryGeneration += 1
+    this.#cancelPlannedBoundary()
     this.#setPrefetch(idlePrefetch())
     let track = knownTrack
     if (!track) {
@@ -316,6 +378,7 @@ export class PlaybackScheduler {
           transitionPolicy: slot.engine.transitionPolicy,
           error: null
         })
+        this.#planBoundary(generation, active, slot)
         return
       }
 
@@ -338,6 +401,7 @@ export class PlaybackScheduler {
           transitionPolicy: slot.engine.transitionPolicy,
           error: null
         })
+        this.#planBoundary(generation, active, slot)
       } catch (error) {
         if (!this.#isCurrent(generation, active) || this.#prefetched !== slot) return
         if (error instanceof AudioEngineError && error.code === 'aborted') return
@@ -407,11 +471,14 @@ export class PlaybackScheduler {
     this.#active = next
     this.#prefetched = null
     this.#events.emit('trackchange', { track: next.track, index: next.index })
-    this.#events.emit('statuschange', next.engine.status)
-    this.#emitPosition(next)
+    const adoptedScheduled = next.engine.adoptScheduledStart()
+    if (!adoptedScheduled) {
+      this.#events.emit('statuschange', next.engine.status)
+      this.#emitPosition(next)
+    }
 
     try {
-      await next.engine.play()
+      if (!adoptedScheduled) await next.engine.play()
       if (generation === this.#generation) void this.#beginPrefetch(generation)
     } catch {
       // The adopted engine emits its own actionable playback error.
@@ -428,6 +495,7 @@ export class PlaybackScheduler {
         unsubscribes: []
       }
       slot.engine.setVolume(this.#volume)
+      slot.engine.setNormalizationMode(this.#normalizationMode)
       slot.unsubscribes = [
         slot.engine.on('statuschange', (status) => {
           if (this.#active === slot) this.#events.emit('statuschange', status)
@@ -465,6 +533,92 @@ export class PlaybackScheduler {
     return generation === this.#generation && active === this.#active
   }
 
+  /**
+   * Put the decoded successor on the current source's exact end point.
+   *
+   * This runs only while both buffers are already prepared. The later natural
+   * end callback changes public ownership; it does not fetch, decode, call
+   * `play()`, or create another source node.
+   */
+  #planBoundary(
+    generation = this.#generation,
+    active = this.#active,
+    next = this.#prefetched
+  ): boolean {
+    if (
+      !active ||
+      !next ||
+      !this.#isCurrent(generation, active) ||
+      this.#prefetched !== next ||
+      this.#prefetchState.status !== 'ready' ||
+      active.engine.transitionPolicy !== 'sample-accurate' ||
+      next.engine.transitionPolicy !== 'sample-accurate'
+    ) {
+      return false
+    }
+
+    const boundary = active.engine.sampleAccurateEndTime
+    if (!boundary) return false
+
+    if (this.#crossfadeMs > 0) {
+      return this.#planCrossfade(active, next, boundary)
+    }
+
+    next.engine.cancelScheduledStart()
+    return next.engine.scheduleSampleAccurateStart(boundary)
+  }
+
+  #cancelPlannedBoundary(): void {
+    this.#prefetched?.engine.cancelScheduledStart()
+    this.#active?.engine.cancelScheduledFade()
+  }
+
+  #planCrossfade(active: Slot, next: Slot, boundary: SampleAccurateTime): boolean {
+    const requestedSec = this.#crossfadeMs / 1000
+    // Keep at least half of either very short track outside the overlap. Apart
+    // from sounding less surprising, this guarantees the successor is still
+    // running when public ownership moves at the outgoing source's end.
+    const currentTrackLimit = active.engine.duration / 2
+    const nextTrackLimit = next.engine.duration / 2
+    // Planning exactly "now" races the audio render thread. A small lead makes
+    // late-prefetch degradation deterministic and prevents a past-time start.
+    const remainingSec = Math.max(0, active.engine.duration - active.engine.currentTime)
+    const latePrefetchLimit = Math.max(0, remainingSec - 0.02)
+    const effectiveSec = Math.min(
+      requestedSec,
+      currentTrackLimit,
+      nextTrackLimit,
+      latePrefetchLimit
+    )
+
+    if (effectiveSec < requestedSec) {
+      const reasons: CrossfadeAdjustment['reasons'] = []
+      if (currentTrackLimit < requestedSec) reasons.push('current-track')
+      if (nextTrackLimit < requestedSec) reasons.push('next-track')
+      if (latePrefetchLimit <= effectiveSec && latePrefetchLimit < requestedSec) {
+        reasons.push('late-prefetch')
+      }
+      this.#onCrossfadeAdjusted({
+        requestedMs: this.#crossfadeMs,
+        effectiveMs: Math.round(effectiveSec * 1000),
+        reasons
+      })
+    }
+    if (effectiveSec <= 0) return false
+
+    const start = {
+      timeline: boundary.timeline,
+      timeSec: boundary.timeSec - effectiveSec
+    }
+    next.engine.cancelScheduledStart()
+    active.engine.cancelScheduledFade()
+    if (!next.engine.scheduleSampleAccurateStart(start, effectiveSec)) return false
+    if (active.engine.scheduleSampleAccurateFadeOut(start, effectiveSec)) return true
+
+    next.engine.cancelScheduledStart()
+    return false
+  }
+
   #emitPosition(slot: Slot): void {
     const position: PlaybackPosition = {
       currentTime: slot.engine.currentTime,
@@ -476,6 +630,10 @@ export class PlaybackScheduler {
   #setPrefetch(state: PrefetchState): void {
     this.#prefetchState = state
     this.#events.emit('prefetchchange', state)
+  }
+
+  #normalizeCrossfadeMs(milliseconds: number): number {
+    return Number.isFinite(milliseconds) && milliseconds > 0 ? milliseconds : 0
   }
 
   #assertUsable(): void {

@@ -30,6 +30,10 @@ function readValue(event: Event): number {
   return Number((event.target as HTMLInputElement).value)
 }
 
+function readNormalizationMode(event: Event): 'off' | 'track' | 'album' {
+  return (event.target as HTMLSelectElement).value as 'off' | 'track' | 'album'
+}
+
 function onSeekInput(event: Event): void {
   // A drag has already announced itself with `pointerdown`, so the position is
   // held until release. Keyboard seeking produces no pointer events at all and
@@ -124,6 +128,35 @@ function onSeekInput(event: Event): void {
         />
         <span class="tabular-nums text-xs text-muted">
           {{ Math.round(playback.volume * 100) }}%
+        </span>
+
+        <label class="ml-auto text-xs text-muted" for="normalization-mode">Normalize</label>
+        <select
+          id="normalization-mode"
+          class="rounded border border-default bg-default px-2 py-1 text-xs text-highlighted"
+          :value="playback.normalizationMode"
+          @change="playback.setNormalizationMode(readNormalizationMode($event))"
+        >
+          <option value="off">Off</option>
+          <option value="track">Track</option>
+          <option value="album">Album</option>
+        </select>
+
+        <!-- Temporary M2 harness. M4 replaces this direct control by passing
+             playlists.crossfade_ms into the same playback boundary. -->
+        <span class="text-xs text-muted">Crossfade</span>
+        <input
+          type="range"
+          class="w-32 accent-primary"
+          aria-label="Crossfade duration"
+          min="0"
+          max="12000"
+          step="250"
+          :value="playback.crossfadeMs"
+          @input="playback.setCrossfadeMs(readValue($event))"
+        />
+        <span class="w-12 text-right tabular-nums text-xs text-muted">
+          {{ (playback.crossfadeMs / 1000).toFixed(2) }}s
         </span>
       </div>
     </div>

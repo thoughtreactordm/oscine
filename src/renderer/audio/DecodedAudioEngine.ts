@@ -1,14 +1,28 @@
-import { AudioEngineError, type AudioEngineEventMap, type PlaybackStatus } from './AudioEngine'
+import {
+  AudioEngineError,
+  type AudioEngineEventMap,
+  type NormalizationMode,
+  type PlaybackStatus,
+  type SampleAccurateTime
+} from './AudioEngine'
 import type { DecodedAudioPath, TrackAudioSource } from './AudioPath'
 import { DecodedBufferLedger } from './decodedBufferLedger'
 import { DecodedAudioContextPool, type DecodedAudioContextLease } from './decodedAudioContext'
 import { decodedBytes, formatBytes } from './decodedSize'
 import { Emitter } from './emitter'
+import { equalPowerCurve } from './equalPower'
+import { decodedSourceEndTimeSec } from './gaplessTiming'
+import {
+  DEFAULT_NORMALIZATION_MODE,
+  resolveNormalization,
+  type NormalizationDecision
+} from './normalization'
 import { clamp, pausedAt, positionAt, type PlaybackClock } from './playbackClock'
 
 /**
  * D2's pipeline: fetch the whole track, `decodeAudioData` it, play the
- * resulting buffer through `AudioBufferSourceNode` → `GainNode` → destination.
+ * resulting buffer through per-source normalization and transition gains, then
+ * the shared master-volume gain and destination.
  *
  * The R1 guard lives immediately above this path and is the only production
  * caller. By the time `load` is reached, metadata was priced at this context's
@@ -21,6 +35,9 @@ import { clamp, pausedAt, positionAt, type PlaybackClock } from './playbackClock
  * still feels instant.
  */
 const VOLUME_RAMP_SEC = 0.015
+const NORMALIZATION_RAMP_SEC = 0.05
+const EQUAL_POWER_FADE_IN = equalPowerCurve('in')
+const EQUAL_POWER_FADE_OUT = equalPowerCurve('out')
 
 /**
  * Time-update cadence. Fast enough for a smooth progress bar, slow enough to
@@ -39,10 +56,17 @@ export class DecodedAudioEngine implements DecodedAudioPath {
 
   #buffer: AudioBuffer | null = null
   #source: AudioBufferSourceNode | null = null
+  #transitionGain: GainNode | null = null
+  #normalizationGain: GainNode | null = null
+  #audioSource: TrackAudioSource | null = null
   #trackId: number | null = null
   #status: PlaybackStatus = 'idle'
   #clock: PlaybackClock = pausedAt(0)
+  #scheduledStartTimeSec: number | null = null
+  #fadeOutScheduled = false
+  readonly #retiringSourceReleases = new Set<() => void>()
   #volume = 1
+  #normalizationMode: NormalizationMode = DEFAULT_NORMALIZATION_MODE
   #ticker: ReturnType<typeof setInterval> | null = null
   /** Bumped by every `load`, so a decode that finishes late can tell it lost. */
   #generation = 0
@@ -77,6 +101,10 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     return this.#volume
   }
 
+  get normalizationMode(): NormalizationMode {
+    return this.#normalizationMode
+  }
+
   get status(): PlaybackStatus {
     return this.#status
   }
@@ -91,6 +119,132 @@ export class DecodedAudioEngine implements DecodedAudioPath {
 
   get issuedNotFreedBytes(): number {
     return this.#decodedBuffers.issuedNotFreedBytes
+  }
+
+  get sampleAccurateEndTime(): SampleAccurateTime | null {
+    const startedAtSec = this.#clock.startedAtSec
+    if (this.#status !== 'playing' || startedAtSec === null || !this.#buffer) return null
+    return {
+      timeline: this.#contextLease.timeline,
+      timeSec: decodedSourceEndTimeSec(startedAtSec, this.duration, this.#clock.offsetSec)
+    }
+  }
+
+  scheduleSampleAccurateStart(at: SampleAccurateTime, fadeInDurationSec = 0): boolean {
+    this.#assertUsable()
+    if (
+      !this.#buffer ||
+      at.timeline !== this.#contextLease.timeline ||
+      !Number.isFinite(at.timeSec) ||
+      !Number.isFinite(fadeInDurationSec) ||
+      fadeInDurationSec < 0 ||
+      at.timeSec < this.#context.currentTime ||
+      this.#status === 'loading' ||
+      this.#status === 'idle' ||
+      this.#status === 'playing'
+    ) {
+      return false
+    }
+
+    this.cancelScheduledStart()
+    this.#startSource(0, at.timeSec, true, fadeInDurationSec)
+    return true
+  }
+
+  scheduleSampleAccurateFadeOut(at: SampleAccurateTime, durationSec: number): boolean {
+    this.#assertUsable()
+    const end = this.sampleAccurateEndTime
+    if (
+      !end ||
+      !this.#transitionGain ||
+      at.timeline !== this.#contextLease.timeline ||
+      at.timeline !== end.timeline ||
+      !Number.isFinite(at.timeSec) ||
+      !Number.isFinite(durationSec) ||
+      durationSec <= 0 ||
+      at.timeSec < this.#context.currentTime ||
+      at.timeSec + durationSec > end.timeSec + Number.EPSILON
+    ) {
+      return false
+    }
+
+    this.cancelScheduledFade()
+    const param = this.#transitionGain.gain
+    param.setValueCurveAtTime(EQUAL_POWER_FADE_OUT, at.timeSec, durationSec)
+    this.#fadeOutScheduled = true
+    return true
+  }
+
+  adoptScheduledStart(): boolean {
+    if (this.#scheduledStartTimeSec === null || !this.#source) return false
+    this.#scheduledStartTimeSec = null
+    this.#setStatus('playing')
+    this.#startTicker()
+    this.#emitTime()
+    return true
+  }
+
+  cancelScheduledStart(): void {
+    if (this.#scheduledStartTimeSec === null) return
+    if (
+      this.#scheduledStartTimeSec <= this.#context.currentTime &&
+      this.#source &&
+      this.#transitionGain &&
+      this.#normalizationGain
+    ) {
+      const source = this.#source
+      const transitionGain = this.#transitionGain
+      const normalizationGain = this.#normalizationGain
+      const param = transitionGain.gain
+      const now = this.#context.currentTime
+      if (typeof param.cancelAndHoldAtTime === 'function') {
+        param.cancelAndHoldAtTime(now)
+      } else {
+        param.cancelScheduledValues(now)
+        param.setValueAtTime(param.value, now)
+      }
+      param.linearRampToValueAtTime(0, now + VOLUME_RAMP_SEC)
+
+      let released = false
+      const release = (): void => {
+        if (released) return
+        released = true
+        source.disconnect()
+        normalizationGain.disconnect()
+        transitionGain.disconnect()
+        this.#retiringSourceReleases.delete(release)
+      }
+      this.#retiringSourceReleases.add(release)
+      source.onended = release
+      try {
+        source.stop(now + VOLUME_RAMP_SEC)
+      } catch {
+        release()
+      }
+      this.#source = null
+      this.#transitionGain = null
+      this.#normalizationGain = null
+      this.#scheduledStartTimeSec = null
+      this.#fadeOutScheduled = false
+      this.#clock = pausedAt(0)
+      return
+    }
+    this.#teardownSource()
+    this.#clock = pausedAt(0)
+  }
+
+  cancelScheduledFade(): void {
+    if (!this.#fadeOutScheduled || !this.#transitionGain) return
+    const param = this.#transitionGain.gain
+    const now = this.#context.currentTime
+    if (typeof param.cancelAndHoldAtTime === 'function') {
+      param.cancelAndHoldAtTime(now)
+    } else {
+      param.cancelScheduledValues(now)
+      param.setValueAtTime(param.value, now)
+    }
+    param.linearRampToValueAtTime(1, now + VOLUME_RAMP_SEC)
+    this.#fadeOutScheduled = false
   }
 
   on<K extends keyof AudioEngineEventMap>(
@@ -113,6 +267,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     const fetchAbort = new AbortController()
     this.#fetchAbort = fetchAbort
     this.#buffer = null
+    this.#audioSource = source
     this.#trackId = trackId
     this.#clock = pausedAt(0)
     this.#setStatus('loading')
@@ -162,6 +317,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
       const failure = this.#toFailure(err, trackId)
       if (this.#fetchAbort === fetchAbort) this.#fetchAbort = null
       this.#trackId = null
+      this.#audioSource = null
       this.#setStatus('idle')
       this.#events.emit('error', failure)
       throw failure
@@ -175,7 +331,9 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     this.#fetchAbort = null
     this.#stopTicker()
     this.#teardownSource()
+    for (const release of this.#retiringSourceReleases) release()
     this.#buffer = null
+    this.#audioSource = null
     this.#trackId = null
     this.#clock = pausedAt(0)
     this.#setStatus('idle')
@@ -187,6 +345,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
       throw new AudioEngineError('internal', 'Nothing is loaded.', this.#trackId)
     }
     if (this.#status === 'playing') return
+    this.cancelScheduledStart()
 
     // Chromium's autoplay policy suspends the context until a user gesture.
     // `play` is normally called from a click, which makes this the one moment
@@ -204,6 +363,10 @@ export class DecodedAudioEngine implements DecodedAudioPath {
   }
 
   pause(): void {
+    if (this.#scheduledStartTimeSec !== null) {
+      this.cancelScheduledStart()
+      return
+    }
     if (this.#status !== 'playing') return
 
     // Read the position before tearing the source down — teardown stops the run
@@ -221,6 +384,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     if (!this.#buffer) return
 
     const target = clamp(seconds, 0, this.duration)
+    this.cancelScheduledStart()
 
     if (this.#status === 'playing') {
       // An AudioBufferSourceNode cannot be restarted or repositioned — it is
@@ -236,9 +400,6 @@ export class DecodedAudioEngine implements DecodedAudioPath {
   }
 
   setVolume(gain: number): void {
-    // Clamped to unity. ReplayGain in M2 attaches to this same node, but as its
-    // own factor — folding it into the user's volume here would make a slider
-    // whose meaning changes per track.
     const target = clamp(gain, 0, 1)
     this.#volume = target
 
@@ -253,6 +414,19 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     param.linearRampToValueAtTime(target, now + VOLUME_RAMP_SEC)
   }
 
+  setNormalizationMode(mode: NormalizationMode): void {
+    if (mode === this.#normalizationMode) return
+    this.#normalizationMode = mode
+    if (this.#disposed || !this.#normalizationGain || !this.#audioSource) return
+
+    const target = this.#normalizationDecision().effectiveGain
+    const param = this.#normalizationGain.gain
+    const now = this.#context.currentTime
+    param.cancelScheduledValues(now)
+    param.setValueAtTime(param.value, now)
+    param.linearRampToValueAtTime(target, now + NORMALIZATION_RAMP_SEC)
+  }
+
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true
@@ -262,7 +436,9 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     this.#fetchAbort = null
     this.#stopTicker()
     this.#teardownSource()
+    for (const release of this.#retiringSourceReleases) release()
     this.#buffer = null
+    this.#audioSource = null
     this.#releaseGestureHooks?.()
     this.#releaseGestureHooks = null
     this.#gain.disconnect()
@@ -278,15 +454,29 @@ export class DecodedAudioEngine implements DecodedAudioPath {
    * Every play and every seek comes through here, because a source node cannot
    * be reused: once stopped it is spent, and `start` throws if called twice.
    */
-  #startSource(offsetSec: number): void {
+  #startSource(
+    offsetSec: number,
+    startAtSec = this.#context.currentTime,
+    scheduled = false,
+    fadeInDurationSec = 0
+  ): void {
     const buffer = this.#buffer
     if (!buffer) return
 
     this.#teardownSource()
 
     const source = this.#context.createBufferSource()
+    const transitionGain = this.#context.createGain()
+    const normalizationGain = this.#context.createGain()
     source.buffer = buffer
-    source.connect(this.#gain)
+    transitionGain.gain.value = fadeInDurationSec > 0 ? 0 : 1
+    normalizationGain.gain.value = this.#normalizationDecision().effectiveGain
+    source.connect(normalizationGain)
+    normalizationGain.connect(transitionGain)
+    transitionGain.connect(this.#gain)
+    if (fadeInDurationSec > 0) {
+      transitionGain.gain.setValueCurveAtTime(EQUAL_POWER_FADE_IN, startAtSec, fadeInDurationSec)
+    }
     source.onended = () => {
       // Reaching here means the buffer ran out on its own: teardown clears this
       // handler before stopping, so a pause, seek or new load never arrives as
@@ -296,9 +486,13 @@ export class DecodedAudioEngine implements DecodedAudioPath {
       this.#handleNaturalEnd()
     }
 
-    source.start(0, offsetSec)
-    this.#clock = { offsetSec, startedAtSec: this.#context.currentTime }
+    source.start(startAtSec, offsetSec)
+    this.#clock = { offsetSec, startedAtSec: startAtSec }
+    this.#scheduledStartTimeSec = scheduled ? startAtSec : null
     this.#source = source
+    this.#transitionGain = transitionGain
+    this.#normalizationGain = normalizationGain
+    this.#fadeOutScheduled = false
   }
 
   /**
@@ -321,7 +515,13 @@ export class DecodedAudioEngine implements DecodedAudioPath {
       // query for it, so the throw is the only way to find out.
     }
     source.disconnect()
+    this.#normalizationGain?.disconnect()
+    this.#transitionGain?.disconnect()
     this.#source = null
+    this.#transitionGain = null
+    this.#normalizationGain = null
+    this.#scheduledStartTimeSec = null
+    this.#fadeOutScheduled = false
   }
 
   #handleNaturalEnd(): void {
@@ -329,7 +529,13 @@ export class DecodedAudioEngine implements DecodedAudioPath {
 
     this.#stopTicker()
     this.#source?.disconnect()
+    this.#normalizationGain?.disconnect()
+    this.#transitionGain?.disconnect()
     this.#source = null
+    this.#transitionGain = null
+    this.#normalizationGain = null
+    this.#scheduledStartTimeSec = null
+    this.#fadeOutScheduled = false
     this.#clock = pausedAt(this.duration)
     this.#setStatus('ended')
     this.#emitTime()
@@ -356,6 +562,19 @@ export class DecodedAudioEngine implements DecodedAudioPath {
 
   #emitTime(): void {
     this.#events.emit('timeupdate', { currentTime: this.currentTime, duration: this.duration })
+  }
+
+  #normalizationDecision(): NormalizationDecision {
+    return resolveNormalization(
+      this.#audioSource ?? {
+        rgTrackGainDb: null,
+        rgTrackPeak: null,
+        rgAlbumGainDb: null,
+        rgAlbumPeak: null,
+        rgSource: null
+      },
+      this.#normalizationMode
+    )
   }
 
   /**

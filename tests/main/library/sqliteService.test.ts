@@ -318,7 +318,12 @@ describe('listTracks', () => {
     expect(metadata).toEqual({
       durationSec: 300,
       encodedBytes: 1,
-      channels: 2
+      channels: 2,
+      rgTrackGainDb: null,
+      rgTrackPeak: null,
+      rgAlbumGainDb: null,
+      rgAlbumPeak: null,
+      rgSource: null
     })
     expect(Object.keys(metadata!)).not.toContain('path')
     expect(await service.getTrackAudioMetadata(999_999)).toBeNull()
@@ -424,6 +429,42 @@ describe('listTracks', () => {
       expect(Object.keys(track)).not.toContain('relPath')
       expect(JSON.stringify(track)).not.toContain(workDir)
     }
+  })
+
+  it('carries nullable ReplayGain and provenance across the pathless track contract', async () => {
+    const path = musicFolder('Music', ['tagged.flac'])
+    service = new SqliteLibraryService({
+      db,
+      pickFolder: async () => path,
+      onProgress: () => {},
+      readMetadata: async () =>
+        tags({
+          replayGain: {
+            trackGainDb: -7.5,
+            trackPeak: 0.94,
+            albumGainDb: -6.25,
+            albumPeak: 0.98
+          }
+        })
+    })
+    const root = await service.addRoot()
+    await service.scanRoot(root!.id)
+
+    const { tracks } = await service.listTracks({
+      sort: 'title',
+      direction: 'asc',
+      offset: 0,
+      limit: 1
+    })
+
+    expect(tracks[0]).toMatchObject({
+      rgTrackGainDb: -7.5,
+      rgTrackPeak: 0.94,
+      rgAlbumGainDb: -6.25,
+      rgAlbumPeak: 0.98,
+      rgSource: 'tag'
+    })
+    expect(Object.keys(tracks[0])).not.toContain('path')
   })
 
   it('sorts untagged rows last in both directions', async () => {

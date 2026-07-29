@@ -20,6 +20,25 @@ export interface LibraryRoot {
   trackCount: number
 }
 
+/** Where persisted ReplayGain values came from. */
+export type ReplayGainSource = 'tag' | 'computed'
+
+/**
+ * ReplayGain values stored with a track.
+ *
+ * Every value is nullable independently because real tag sets are often
+ * partial. Gains are decibels; peaks are linear sample ratios. Provenance is
+ * retained for diagnostics and the compute-when-missing job, but does not
+ * change playback semantics.
+ */
+export interface TrackReplayGain {
+  rgTrackGainDb: number | null
+  rgTrackPeak: number | null
+  rgAlbumGainDb: number | null
+  rgAlbumPeak: number | null
+  rgSource: ReplayGainSource | null
+}
+
 /**
  * A single indexed track.
  *
@@ -29,7 +48,7 @@ export interface LibraryRoot {
  * path field here would hand the renderer an arbitrary-file-read primitive and
  * quietly undo the reason this boundary exists.
  */
-export interface Track {
+export interface Track extends TrackReplayGain {
   id: number
   rootId: number
   title: string
@@ -56,7 +75,7 @@ export interface Track {
  * dedicated lookup lets `AudioEngine.load(trackId)` retain its id-only
  * boundary when a track did not originate in the currently rendered page.
  */
-export interface TrackAudioMetadata {
+export interface TrackAudioMetadata extends TrackReplayGain {
   durationSec: number | null
   encodedBytes: number
   channels: number | null

@@ -133,7 +133,12 @@ const TRACK_PROJECTION = `
   t.size         AS encodedBytes,
   t.sample_rate  AS sampleRate,
   t.channels     AS channels,
-  t.bit_depth    AS bitDepth
+  t.bit_depth    AS bitDepth,
+  t.rg_track_gain AS rgTrackGain,
+  t.rg_track_peak AS rgTrackPeak,
+  t.rg_album_gain AS rgAlbumGain,
+  t.rg_album_peak AS rgAlbumPeak,
+  t.rg_source     AS rgSource
 `
 
 interface TrackRow {
@@ -152,6 +157,11 @@ interface TrackRow {
   sampleRate: number | null
   channels: number | null
   bitDepth: number | null
+  rgTrackGain: number | null
+  rgTrackPeak: number | null
+  rgAlbumGain: number | null
+  rgAlbumPeak: number | null
+  rgSource: 'tag' | 'computed' | null
 }
 
 /** FTS5 has no NULL: a NULL column and an empty one are indistinguishable to it. */
@@ -225,9 +235,31 @@ function prepareStatements(db: Database.Database) {
         title = excluded.title, artist_id = excluded.artist_id,
         album_id = excluded.album_id, track_no = excluded.track_no,
         disc_no = excluded.disc_no,
-        rg_track_gain = excluded.rg_track_gain, rg_track_peak = excluded.rg_track_peak,
-        rg_album_gain = excluded.rg_album_gain, rg_album_peak = excluded.rg_album_peak,
-        rg_source = excluded.rg_source
+        rg_track_gain = CASE
+          WHEN excluded.rg_source IS NULL AND tracks.rg_source = 'computed'
+            THEN tracks.rg_track_gain
+          ELSE excluded.rg_track_gain
+        END,
+        rg_track_peak = CASE
+          WHEN excluded.rg_source IS NULL AND tracks.rg_source = 'computed'
+            THEN tracks.rg_track_peak
+          ELSE excluded.rg_track_peak
+        END,
+        rg_album_gain = CASE
+          WHEN excluded.rg_source IS NULL AND tracks.rg_source = 'computed'
+            THEN tracks.rg_album_gain
+          ELSE excluded.rg_album_gain
+        END,
+        rg_album_peak = CASE
+          WHEN excluded.rg_source IS NULL AND tracks.rg_source = 'computed'
+            THEN tracks.rg_album_peak
+          ELSE excluded.rg_album_peak
+        END,
+        rg_source = CASE
+          WHEN excluded.rg_source IS NULL AND tracks.rg_source = 'computed'
+            THEN tracks.rg_source
+          ELSE excluded.rg_source
+        END
       RETURNING id
     `),
 
@@ -261,7 +293,12 @@ function prepareStatements(db: Database.Database) {
     trackAudioMetadata: db.prepare(`
       SELECT t.duration_ms AS durationMs,
              t.size        AS encodedBytes,
-             t.channels    AS channels
+             t.channels    AS channels,
+             t.rg_track_gain AS rgTrackGain,
+             t.rg_track_peak AS rgTrackPeak,
+             t.rg_album_gain AS rgAlbumGain,
+             t.rg_album_peak AS rgAlbumPeak,
+             t.rg_source     AS rgSource
       FROM tracks t
       WHERE t.id = ?
     `)
@@ -387,9 +424,6 @@ export class LibraryStore {
       rgTrackPeak: gain?.trackPeak ?? null,
       rgAlbumGain: gain?.albumGainDb ?? null,
       rgAlbumPeak: gain?.albumPeak ?? null,
-      // The card asks for these now because W3 reads them at M2 and computing
-      // them is expensive. M2 also owns the question this leaves open: a rescan
-      // currently overwrites a 'computed' row with the file's absent tags.
       rgSource: gain === null ? null : 'tag'
     }) as { id: number }
 
@@ -485,12 +519,27 @@ export class LibraryStore {
 
   getTrackAudioMetadata(trackId: number): TrackAudioMetadata | null {
     const row = this.statements.trackAudioMetadata.get(trackId) as
-      { durationMs: number | null; encodedBytes: number; channels: number | null } | undefined
+      | {
+          durationMs: number | null
+          encodedBytes: number
+          channels: number | null
+          rgTrackGain: number | null
+          rgTrackPeak: number | null
+          rgAlbumGain: number | null
+          rgAlbumPeak: number | null
+          rgSource: 'tag' | 'computed' | null
+        }
+      | undefined
     if (!row) return null
     return {
       durationSec: row.durationMs === null ? null : row.durationMs / 1000,
       encodedBytes: row.encodedBytes,
-      channels: row.channels
+      channels: row.channels,
+      rgTrackGainDb: row.rgTrackGain,
+      rgTrackPeak: row.rgTrackPeak,
+      rgAlbumGainDb: row.rgAlbumGain,
+      rgAlbumPeak: row.rgAlbumPeak,
+      rgSource: row.rgSource
     }
   }
 
@@ -603,6 +652,11 @@ function toTrack(row: TrackRow): Track {
     encodedBytes: row.encodedBytes,
     sampleRateHz: row.sampleRate,
     channels: row.channels,
-    bitDepth: row.bitDepth
+    bitDepth: row.bitDepth,
+    rgTrackGainDb: row.rgTrackGain,
+    rgTrackPeak: row.rgTrackPeak,
+    rgAlbumGainDb: row.rgAlbumGain,
+    rgAlbumPeak: row.rgAlbumPeak,
+    rgSource: row.rgSource
   }
 }

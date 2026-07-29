@@ -6,7 +6,9 @@ import {
   AudioEngineError,
   type AudioEngine,
   type AudioEngineEventMap,
-  type PlaybackStatus
+  type NormalizationMode,
+  type PlaybackStatus,
+  type SampleAccurateTime
 } from '../../../src/renderer/audio/AudioEngine'
 import type { ListTracksQuery, ListTracksResult, Track } from '../../../src/shared/library'
 
@@ -26,7 +28,12 @@ function track(id: number): Track {
     encodedBytes: 12_000_000,
     sampleRateHz: 44100,
     channels: 2,
-    bitDepth: 16
+    bitDepth: 16,
+    rgTrackGainDb: null,
+    rgTrackPeak: null,
+    rgAlbumGainDb: null,
+    rgAlbumPeak: null,
+    rgSource: null
   }
 }
 
@@ -41,9 +48,11 @@ class FakeEngine implements AudioEngine {
   currentTime = 0
   duration = 0
   volume = 1
+  normalizationMode: NormalizationMode = 'track'
   status: PlaybackStatus = 'idle'
   trackId: number | null = null
   transitionPolicy = 'sample-accurate' as const
+  sampleAccurateEndTime: SampleAccurateTime | null = null
 
   readonly loaded: number[] = []
   readonly seeks: number[] = []
@@ -90,6 +99,26 @@ class FakeEngine implements AudioEngine {
     this.volumes.push(gain)
     this.volume = gain
   }
+
+  setNormalizationMode(mode: NormalizationMode): void {
+    this.normalizationMode = mode
+  }
+
+  scheduleSampleAccurateStart(_at: SampleAccurateTime, _fadeInDurationSec = 0): boolean {
+    return false
+  }
+
+  scheduleSampleAccurateFadeOut(_at: SampleAccurateTime, _durationSec: number): boolean {
+    return false
+  }
+
+  adoptScheduledStart(): boolean {
+    return false
+  }
+
+  cancelScheduledStart(): void {}
+
+  cancelScheduledFade(): void {}
 
   on<K extends keyof AudioEngineEventMap>(
     type: K,
@@ -181,6 +210,30 @@ describe('createPlaybackController', () => {
       expect(h.controller.volume.value).toBe(0)
       h.controller.setVolume(Number.NaN)
       expect(h.controller.volume.value).toBe(0)
+    })
+
+    it('accepts the temporary crossfade input without claiming the audio device', () => {
+      h.controller.setCrossfadeMs(2750)
+      expect(h.controller.crossfadeMs.value).toBe(2750)
+      expect(h.controller.hasEngine()).toBe(false)
+
+      h.controller.setCrossfadeMs(Number.NaN)
+      expect(h.controller.crossfadeMs.value).toBe(0)
+    })
+
+    it('defaults to track normalization and replays a pre-play mode choice', async () => {
+      expect(h.controller.normalizationMode.value).toBe('track')
+      h.controller.setNormalizationMode('album')
+      expect(h.controller.hasEngine()).toBe(false)
+
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 0,
+        track: track(0)
+      })
+
+      expect(h.engines.every((engine) => engine.normalizationMode === 'album')).toBe(true)
     })
   })
 

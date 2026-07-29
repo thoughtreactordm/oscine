@@ -37,6 +37,21 @@ export type PlaybackStatus = 'idle' | 'loading' | 'ready' | 'playing' | 'paused'
  */
 export type AudioTransitionPolicy = 'sample-accurate' | 'hard'
 
+/** Loudness-normalization policy applied independently of volume and fades. */
+export type { NormalizationMode } from './normalization'
+
+/**
+ * A point on the private clock shared by decoded engine slots.
+ *
+ * The token is intentionally opaque. It lets an engine reject a point from a
+ * different AudioContext without exposing that browser object above the audio
+ * implementation seam.
+ */
+export interface SampleAccurateTime {
+  readonly timeline: symbol
+  readonly timeSec: number
+}
+
 export const AUDIO_ERROR_CODES = [
   /** No such track, or main declined to serve its bytes. */
   'not-found',
@@ -123,16 +138,47 @@ export interface AudioEngine {
 
   /** Output level, 0 to 1. Applied smoothly enough to be click-free. */
   setVolume(gain: number): void
+  /** Switch loudness policy. An audible source ramps to the new gain. */
+  setNormalizationMode(mode: NormalizationMode): void
 
   readonly currentTime: number
   /** Length in seconds, or 0 when nothing is loaded. */
   readonly duration: number
   readonly volume: number
+  readonly normalizationMode: NormalizationMode
   readonly status: PlaybackStatus
   /** The loaded track, or `null`. */
   readonly trackId: number | null
   /** R2 boundary policy for the loaded track. */
   readonly transitionPolicy: AudioTransitionPolicy
+  /**
+   * Exact end of the currently running decoded source. `null` means this
+   * engine is stopped, streaming, or otherwise ineligible for a gapless join.
+   */
+  readonly sampleAccurateEndTime: SampleAccurateTime | null
+
+  /**
+   * Start a prepared decoded source at an exact shared-timeline point.
+   *
+   * A successful call starts Web Audio scheduling but deliberately leaves
+   * public ownership unchanged. The scheduler calls `adoptScheduledStart` when
+   * the preceding source ends; it must not call `play()` and rebuild the node.
+   */
+  scheduleSampleAccurateStart(at: SampleAccurateTime, fadeInDurationSec?: number): boolean
+  /**
+   * Apply an equal-power fade to the source which is already playing.
+   *
+   * This is a numeric shared-timeline contract on purpose: the scheduler can
+   * coordinate two decoded slots without learning about AudioParam or any
+   * other Web Audio primitive.
+   */
+  scheduleSampleAccurateFadeOut(at: SampleAccurateTime, durationSec: number): boolean
+  /** Publish a previously scheduled source as playing without rebuilding it. */
+  adoptScheduledStart(): boolean
+  /** Stop a scheduled-but-not-yet-adopted source. Safe when none exists. */
+  cancelScheduledStart(): void
+  /** Remove outgoing transition automation and restore unity without a step. */
+  cancelScheduledFade(): void
 
   on<K extends keyof AudioEngineEventMap>(
     type: K,
@@ -142,3 +188,4 @@ export interface AudioEngine {
   /** Release the audio device and every listener. The engine is unusable after. */
   dispose(): void
 }
+import type { NormalizationMode } from './normalization'

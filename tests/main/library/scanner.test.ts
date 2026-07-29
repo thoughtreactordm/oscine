@@ -337,6 +337,41 @@ describe('scanRoot and ReplayGain', () => {
 
     expect(trackRows()[0]).toMatchObject({ rgTrackGain: null, rgSource: null })
   })
+
+  it('preserves computed gain across an untagged rescan, then replaces it with real tags', async () => {
+    touch('a.flac')
+    await scan(readerFor({}))
+
+    db.prepare(
+      `UPDATE tracks
+       SET rg_track_gain = ?, rg_track_peak = ?, rg_source = 'computed'`
+    ).run(-8.25, 0.91)
+
+    await scan(readerFor({}))
+    expect(trackRows()[0]).toMatchObject({
+      rgTrackGain: -8.25,
+      rgTrackPeak: 0.91,
+      rgSource: 'computed'
+    })
+
+    await scan(
+      readerFor({
+        'a.flac': tags({
+          replayGain: {
+            trackGainDb: -6.5,
+            trackPeak: 0.96,
+            albumGainDb: null,
+            albumPeak: null
+          }
+        })
+      })
+    )
+    expect(trackRows()[0]).toMatchObject({
+      rgTrackGain: -6.5,
+      rgTrackPeak: 0.96,
+      rgSource: 'tag'
+    })
+  })
 })
 
 describe('scanRoot and the FTS index', () => {

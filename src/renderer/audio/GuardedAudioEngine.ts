@@ -5,10 +5,17 @@ import {
   type AudioEngineEventMap,
   type AudioErrorCode,
   type AudioTransitionPolicy,
-  type PlaybackStatus
+  type NormalizationMode,
+  type PlaybackStatus,
+  type SampleAccurateTime
 } from './AudioEngine'
 import type { AudioPath, DecodedAudioPath, TrackAudioSource } from './AudioPath'
 import { Emitter } from './emitter'
+import {
+  DEFAULT_NORMALIZATION_MODE,
+  resolveNormalization,
+  type NormalizationDecision
+} from './normalization'
 import {
   decideR1Admission,
   R1ReservationLedger,
@@ -23,7 +30,13 @@ export interface GuardedAudioEngineDeps {
   resolveTrack: (trackId: number) => Promise<TrackAudioSource>
   policy?: Partial<R1Policy>
   diagnostic?: (decision: R1AdmissionDecision) => void
+  normalizationDiagnostic?: (decision: TrackNormalizationDiagnostic) => void
+  normalizationMode?: NormalizationMode
   reservations?: R1ReservationLedger
+}
+
+export interface TrackNormalizationDiagnostic extends NormalizationDecision {
+  trackId: number
 }
 
 /**
@@ -40,6 +53,7 @@ export class GuardedAudioEngine implements AudioEngine {
   readonly #resolveTrack: (trackId: number) => Promise<TrackAudioSource>
   readonly #policy: R1Policy
   readonly #diagnostic: (decision: R1AdmissionDecision) => void
+  readonly #normalizationDiagnostic: (decision: TrackNormalizationDiagnostic) => void
   readonly #reservations: R1ReservationLedger
   readonly #unsubscribes: Array<() => void> = []
 
@@ -49,6 +63,8 @@ export class GuardedAudioEngine implements AudioEngine {
   #status: PlaybackStatus = 'idle'
   #transitionPolicy: AudioTransitionPolicy = 'hard'
   #volume = 1
+  #normalizationMode: NormalizationMode
+  #audioSource: TrackAudioSource | null = null
   #generation = 0
   #disposed = false
 
@@ -58,11 +74,18 @@ export class GuardedAudioEngine implements AudioEngine {
     this.#resolveTrack = deps.resolveTrack
     this.#policy = resolveR1Policy(deps.policy)
     this.#reservations = deps.reservations ?? new R1ReservationLedger()
+    this.#normalizationMode = deps.normalizationMode ?? DEFAULT_NORMALIZATION_MODE
     this.#diagnostic =
       deps.diagnostic ??
       ((decision) => {
         console.info('[audio] R1 admission', JSON.stringify(decision))
       })
+    this.#normalizationDiagnostic =
+      deps.normalizationDiagnostic ??
+      ((decision) => {
+        console.info('[audio] ReplayGain', JSON.stringify(decision))
+      })
+    this.#decoded.setNormalizationMode(this.#normalizationMode)
     this.#watch(this.#decoded)
   }
 
@@ -78,6 +101,10 @@ export class GuardedAudioEngine implements AudioEngine {
     return this.#volume
   }
 
+  get normalizationMode(): NormalizationMode {
+    return this.#normalizationMode
+  }
+
   get status(): PlaybackStatus {
     return this.#status
   }
@@ -88,6 +115,34 @@ export class GuardedAudioEngine implements AudioEngine {
 
   get transitionPolicy(): AudioTransitionPolicy {
     return this.#transitionPolicy
+  }
+
+  get sampleAccurateEndTime(): SampleAccurateTime | null {
+    if (this.#transitionPolicy !== 'sample-accurate') return null
+    return this.#active?.sampleAccurateEndTime ?? null
+  }
+
+  scheduleSampleAccurateStart(at: SampleAccurateTime, fadeInDurationSec = 0): boolean {
+    if (this.#transitionPolicy !== 'sample-accurate') return false
+    return this.#active?.scheduleSampleAccurateStart(at, fadeInDurationSec) ?? false
+  }
+
+  scheduleSampleAccurateFadeOut(at: SampleAccurateTime, durationSec: number): boolean {
+    if (this.#transitionPolicy !== 'sample-accurate') return false
+    return this.#active?.scheduleSampleAccurateFadeOut(at, durationSec) ?? false
+  }
+
+  adoptScheduledStart(): boolean {
+    if (this.#transitionPolicy !== 'sample-accurate') return false
+    return this.#active?.adoptScheduledStart() ?? false
+  }
+
+  cancelScheduledStart(): void {
+    this.#active?.cancelScheduledStart()
+  }
+
+  cancelScheduledFade(): void {
+    this.#active?.cancelScheduledFade()
   }
 
   on<K extends keyof AudioEngineEventMap>(
@@ -104,6 +159,7 @@ export class GuardedAudioEngine implements AudioEngine {
     // Stop both paths before metadata IPC. The previous track goes silent when
     // replacement is requested, not after a database or protocol round trip.
     this.#active = null
+    this.#audioSource = null
     this.#decoded.unload()
     this.#streaming?.unload()
     this.#trackId = trackId
@@ -112,6 +168,8 @@ export class GuardedAudioEngine implements AudioEngine {
     try {
       const source = await this.#resolveTrack(trackId)
       this.#assertCurrent(generation, trackId)
+      this.#audioSource = source
+      this.#emitNormalizationDiagnostic(source)
 
       const decision = decideR1Admission(
         {
@@ -148,6 +206,7 @@ export class GuardedAudioEngine implements AudioEngine {
       const pathOwnedFailure = this.#active !== null
       const failure = this.#toFailure(err, trackId)
       this.#active = null
+      this.#audioSource = null
       this.#trackId = null
       this.#transitionPolicy = 'hard'
       this.#setStatus('idle')
@@ -182,6 +241,13 @@ export class GuardedAudioEngine implements AudioEngine {
     this.#streaming?.setVolume(target)
   }
 
+  setNormalizationMode(mode: NormalizationMode): void {
+    this.#normalizationMode = mode
+    this.#decoded.setNormalizationMode(mode)
+    this.#streaming?.setNormalizationMode(mode)
+    if (this.#audioSource) this.#emitNormalizationDiagnostic(this.#audioSource)
+  }
+
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true
@@ -193,6 +259,7 @@ export class GuardedAudioEngine implements AudioEngine {
     this.#streaming?.dispose()
     this.#events.clear()
     this.#trackId = null
+    this.#audioSource = null
     this.#status = 'idle'
     this.#transitionPolicy = 'hard'
   }
@@ -201,6 +268,7 @@ export class GuardedAudioEngine implements AudioEngine {
     if (this.#streaming) return this.#streaming
     const streaming = this.#createStreaming()
     streaming.setVolume(this.#volume)
+    streaming.setNormalizationMode(this.#normalizationMode)
     this.#streaming = streaming
     this.#watch(streaming)
     return streaming
@@ -227,6 +295,13 @@ export class GuardedAudioEngine implements AudioEngine {
     if (this.#status === status) return
     this.#status = status
     this.#events.emit('statuschange', status)
+  }
+
+  #emitNormalizationDiagnostic(source: TrackAudioSource): void {
+    this.#normalizationDiagnostic({
+      trackId: source.trackId,
+      ...resolveNormalization(source, this.#normalizationMode)
+    })
   }
 
   #assertCurrent(generation: number, trackId: number): void {

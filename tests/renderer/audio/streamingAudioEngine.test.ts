@@ -64,6 +64,11 @@ function source(overrides: Partial<TrackAudioSource> = {}): TrackAudioSource {
     durationSec: 120,
     encodedBytes: 10_000_000,
     channels: 2,
+    rgTrackGainDb: null,
+    rgTrackPeak: null,
+    rgAlbumGainDb: null,
+    rgAlbumPeak: null,
+    rgSource: null,
     ...overrides
   }
 }
@@ -71,6 +76,7 @@ function source(overrides: Partial<TrackAudioSource> = {}): TrackAudioSource {
 function harness() {
   const media = new FakeMedia()
   const volumes: number[] = []
+  const normalizations: Array<{ gain: number; ramp: boolean }> = []
   let contextState = 'suspended'
   const platform: StreamingPlatform = {
     media,
@@ -81,30 +87,37 @@ function harness() {
       contextState = 'running'
     },
     setOutputVolume: (gain) => volumes.push(gain),
+    setNormalizationGain: (gain, ramp) => normalizations.push({ gain, ramp }),
     dispose: vi.fn()
   }
   const engine = new StreamingAudioEngine(platform)
-  return { engine, media, platform, volumes }
+  return { engine, media, platform, volumes, normalizations }
 }
 
 describe('StreamingAudioEngine', () => {
   it('loads metadata without fetching the whole file and preserves transport semantics', async () => {
-    const { engine, media, volumes } = harness()
+    const { engine, media, volumes, normalizations } = harness()
     const statuses: string[] = []
     const times: Array<{ currentTime: number; duration: number }> = []
     engine.on('statuschange', (status) => statuses.push(status))
     engine.on('timeupdate', (position) => times.push(position))
 
-    await engine.load(source())
+    await engine.load(source({ rgTrackGainDb: -6, rgTrackPeak: 0.9, rgSource: 'tag' }))
     expect(media.source).toBe('fermata://track/4')
     expect(engine.status).toBe('ready')
     expect(engine.duration).toBe(120)
+    expect(normalizations[0]).toEqual({
+      gain: expect.closeTo(0.501187, 5),
+      ramp: false
+    })
 
     engine.setVolume(0.35)
+    engine.setNormalizationMode('off')
     await engine.play()
     expect(media.playCount).toBe(1)
     expect(engine.status).toBe('playing')
     expect(volumes.at(-1)).toBe(0.35)
+    expect(normalizations.at(-1)).toEqual({ gain: 1, ramp: true })
 
     engine.seek(42)
     expect(media.currentTime).toBe(42)

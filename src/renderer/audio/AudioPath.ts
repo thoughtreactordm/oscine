@@ -1,5 +1,11 @@
 import type { TrackAudioMetadata } from '@shared/library'
-import type { AudioEngine, AudioEngineEventMap, PlaybackStatus } from './AudioEngine'
+import type {
+  AudioEngine,
+  AudioEngineEventMap,
+  NormalizationMode,
+  PlaybackStatus,
+  SampleAccurateTime
+} from './AudioEngine'
 
 /** Metadata and opaque media URL resolved before either playback path loads. */
 export interface TrackAudioSource extends TrackAudioMetadata {
@@ -20,11 +26,19 @@ export interface AudioPath {
   pause(): void
   seek(seconds: number): void
   setVolume(gain: number): void
+  setNormalizationMode(mode: NormalizationMode): void
   readonly currentTime: number
   readonly duration: number
   readonly volume: number
+  readonly normalizationMode: NormalizationMode
   readonly status: PlaybackStatus
   readonly trackId: number | null
+  readonly sampleAccurateEndTime: SampleAccurateTime | null
+  scheduleSampleAccurateStart(at: SampleAccurateTime, fadeInDurationSec?: number): boolean
+  scheduleSampleAccurateFadeOut(at: SampleAccurateTime, durationSec: number): boolean
+  adoptScheduledStart(): boolean
+  cancelScheduledStart(): void
+  cancelScheduledFade(): void
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void

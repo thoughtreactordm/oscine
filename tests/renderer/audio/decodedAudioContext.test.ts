@@ -10,6 +10,7 @@ describe('DecodedAudioContextPool', () => {
     const next = pool.acquire()
 
     expect(current.context).toBe(next.context)
+    expect(current.timeline).toBe(next.timeline)
     current.release()
     expect(close).not.toHaveBeenCalled()
 
@@ -28,6 +29,7 @@ describe('DecodedAudioContextPool', () => {
 
     expect(first.context).toBe(contexts[0])
     expect(second.context).toBe(contexts[1])
+    expect(second.timeline).not.toBe(first.timeline)
     second.release()
   })
 })

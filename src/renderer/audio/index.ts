@@ -18,10 +18,18 @@ export type {
   AudioEngineEventMap,
   AudioErrorCode,
   AudioTransitionPolicy,
+  NormalizationMode,
   PlaybackPosition,
   PlaybackStatus
 } from './AudioEngine'
 export { AudioEngineError, AUDIO_ERROR_CODES } from './AudioEngine'
+export {
+  DEFAULT_NORMALIZATION_MODE,
+  NORMALIZATION_MODES,
+  dbToLinear,
+  resolveNormalization,
+  type NormalizationDecision
+} from './normalization'
 export { estimateDecodedBytes, estimateDecodePeakBytes } from './decodedSize'
 export {
   DEFAULT_R1_POLICY,

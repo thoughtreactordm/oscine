@@ -18,7 +18,12 @@ function track(id: number): Track {
     encodedBytes: 12_000_000,
     sampleRateHz: 44100,
     channels: 2,
-    bitDepth: 16
+    bitDepth: 16,
+    rgTrackGainDb: null,
+    rgTrackPeak: null,
+    rgAlbumGainDb: null,
+    rgAlbumPeak: null,
+    rgSource: null
   }
 }
 

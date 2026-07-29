@@ -3,7 +3,10 @@ import {
   AudioEngineError,
   type AudioEngine,
   type AudioEngineEventMap,
-  type PlaybackStatus
+  type AudioTransitionPolicy,
+  type NormalizationMode,
+  type PlaybackStatus,
+  type SampleAccurateTime
 } from '../../../src/renderer/audio/AudioEngine'
 import type { PlayOrder } from '../../../src/renderer/playback/playOrder'
 import { PlaybackScheduler } from '../../../src/renderer/playback/scheduler'
@@ -25,7 +28,12 @@ function track(id: number): Track {
     encodedBytes: 12_000_000,
     sampleRateHz: 44100,
     channels: 2,
-    bitDepth: 16
+    bitDepth: 16,
+    rgTrackGainDb: null,
+    rgTrackPeak: null,
+    rgAlbumGainDb: null,
+    rgAlbumPeak: null,
+    rgSource: null
   }
 }
 
@@ -33,9 +41,15 @@ class FakeEngine implements AudioEngine {
   currentTime = 0
   duration = 120
   volume = 1
+  normalizationMode: NormalizationMode = 'track'
   status: PlaybackStatus = 'idle'
   trackId: number | null = null
-  transitionPolicy = 'sample-accurate' as const
+  transitionPolicy: AudioTransitionPolicy = 'sample-accurate'
+  timeline = Symbol('fake-audio-context')
+  startTime = 0
+  scheduledStart: SampleAccurateTime | null = null
+  scheduledFadeInSec = 0
+  scheduledFadeOut: { at: SampleAccurateTime; durationSec: number } | null = null
 
   readonly loads: number[] = []
   readonly pending: Array<{
@@ -45,6 +59,10 @@ class FakeEngine implements AudioEngine {
   }> = []
   playCount = 0
   pauseCount = 0
+  scheduledCount = 0
+  adoptedCount = 0
+  cancelledCount = 0
+  cancelledFadeCount = 0
   disposed = false
   manual = false
 
@@ -114,6 +132,64 @@ class FakeEngine implements AudioEngine {
     this.volume = gain
   }
 
+  setNormalizationMode(mode: NormalizationMode): void {
+    this.normalizationMode = mode
+  }
+
+  get sampleAccurateEndTime(): SampleAccurateTime | null {
+    if (this.transitionPolicy !== 'sample-accurate' || this.status !== 'playing') return null
+    return { timeline: this.timeline, timeSec: this.startTime + this.duration - this.currentTime }
+  }
+
+  scheduleSampleAccurateStart(at: SampleAccurateTime, fadeInDurationSec = 0): boolean {
+    if (
+      this.transitionPolicy !== 'sample-accurate' ||
+      this.status === 'playing' ||
+      at.timeline !== this.timeline
+    ) {
+      return false
+    }
+    this.scheduledStart = at
+    this.scheduledFadeInSec = fadeInDurationSec
+    this.scheduledCount += 1
+    return true
+  }
+
+  scheduleSampleAccurateFadeOut(at: SampleAccurateTime, durationSec: number): boolean {
+    if (
+      this.transitionPolicy !== 'sample-accurate' ||
+      this.status !== 'playing' ||
+      at.timeline !== this.timeline
+    ) {
+      return false
+    }
+    this.scheduledFadeOut = { at, durationSec }
+    return true
+  }
+
+  adoptScheduledStart(): boolean {
+    if (!this.scheduledStart) return false
+    this.scheduledStart = null
+    this.adoptedCount += 1
+    this.status = 'playing'
+    this.emit('statuschange', 'playing')
+    this.emit('timeupdate', { currentTime: 0, duration: this.duration })
+    return true
+  }
+
+  cancelScheduledStart(): void {
+    if (!this.scheduledStart) return
+    this.scheduledStart = null
+    this.scheduledFadeInSec = 0
+    this.cancelledCount += 1
+  }
+
+  cancelScheduledFade(): void {
+    if (!this.scheduledFadeOut) return
+    this.scheduledFadeOut = null
+    this.cancelledFadeCount += 1
+  }
+
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void
@@ -143,19 +219,24 @@ class FakeEngine implements AudioEngine {
   }
 }
 
-function harness(total = 6) {
+function harness(total = 6, crossfadeMs = 0) {
   const engines = [new FakeEngine(), new FakeEngine()]
+  const timeline = Symbol('shared-audio-context')
+  for (const engine of engines) engine.timeline = timeline
   let engineIndex = 0
   const at = vi.fn(async (index: number) => (index >= 0 && index < total ? track(index) : null))
   const order: PlayOrder = { id: 'snapshot', at }
+  const onCrossfadeAdjusted = vi.fn()
   const scheduler = new PlaybackScheduler({
+    crossfadeMs,
+    onCrossfadeAdjusted,
     createEngine: () => {
       const engine = engines[engineIndex++]
       if (!engine) throw new Error('Scheduler created more than two engines')
       return engine
     }
   })
-  return { scheduler, engines, order, at }
+  return { scheduler, engines, order, at, onCrossfadeAdjusted }
 }
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
@@ -176,9 +257,13 @@ describe('PlaybackScheduler', () => {
       trackId: 2,
       transitionPolicy: 'sample-accurate'
     })
+    expect(h.engines[1].scheduledStart).toEqual({
+      timeline: h.engines[0].timeline,
+      timeSec: 120
+    })
   })
 
-  it('promotes the decoded successor without loading it again at natural end', async () => {
+  it('promotes the scheduled decoded successor without loading or playing it again', async () => {
     const h = harness()
     const changes: number[] = []
     h.scheduler.on('trackchange', ({ track: next }) => changes.push(next.id))
@@ -189,10 +274,234 @@ describe('PlaybackScheduler', () => {
     await settle()
 
     expect(h.engines[1].loads).toEqual([1])
-    expect(h.engines[1].playCount).toBe(1)
+    expect(h.engines[1].playCount).toBe(0)
+    expect(h.engines[1].adoptedCount).toBe(1)
     expect(changes).toEqual([0, 1])
     // Once 1 is audible the freed slot begins preparing 2.
     expect(h.engines[0].loads).toEqual([0, 2])
+
+    // A stale callback from the freed slot cannot advance or adopt again.
+    h.engines[0].emit('ended', { trackId: 0 })
+    await settle()
+    expect(changes).toEqual([0, 1])
+    expect(h.engines[1].adoptedCount).toBe(1)
+  })
+
+  it('uses the exact current source endpoint on the shared timeline', async () => {
+    const h = harness()
+    h.engines[0].startTime = 17.25
+    h.engines[0].duration = 2.5
+
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    expect(h.engines[1].scheduledStart?.timeline).toBe(h.engines[0].timeline)
+    expect(h.engines[1].scheduledStart?.timeSec).toBe(19.75)
+  })
+
+  it('cancels and establishes a fresh decoded timeline across pause, resume and seek', async () => {
+    const h = harness()
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+    expect(h.engines[1].scheduledCount).toBe(1)
+
+    h.scheduler.pause()
+    expect(h.engines[1].scheduledStart).toBeNull()
+    expect(h.engines[1].cancelledCount).toBe(1)
+
+    await h.scheduler.play()
+    expect(h.engines[1].scheduledCount).toBe(2)
+
+    h.scheduler.seek(30)
+    expect(h.engines[1].cancelledCount).toBe(2)
+    expect(h.engines[1].scheduledCount).toBe(3)
+    expect(h.engines[1].scheduledStart?.timeSec).toBe(90)
+  })
+
+  it('cancels a planned boundary before a skip starts the prepared track now', async () => {
+    const h = harness(6, 2500)
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    await h.scheduler.goTo(1)
+    await settle()
+
+    expect(h.engines[1].cancelledCount).toBe(1)
+    expect(h.engines[0].cancelledFadeCount).toBe(1)
+    expect(h.engines[1].playCount).toBe(1)
+    expect(h.engines[1].adoptedCount).toBe(0)
+    expect(h.scheduler.trackId).toBe(1)
+  })
+
+  it('classifies streaming-involved crossfade boundaries as hard and starts them on ended', async () => {
+    const h = harness(6, 2500)
+    h.engines[1].transitionPolicy = 'hard'
+
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    expect(h.scheduler.prefetchState.transitionPolicy).toBe('hard')
+    expect(h.engines[1].scheduledCount).toBe(0)
+
+    h.engines[0].end()
+    await settle()
+
+    expect(h.engines[1].adoptedCount).toBe(0)
+    expect(h.engines[1].playCount).toBe(1)
+    expect(h.scheduler.transitionPolicy).toBe('hard')
+  })
+
+  it('does not schedule a decoded successor after a streaming current track', async () => {
+    const h = harness(6, 2500)
+    h.engines[0].transitionPolicy = 'hard'
+
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    expect(h.engines[1].scheduledCount).toBe(0)
+
+    h.engines[0].end()
+    await settle()
+
+    expect(h.engines[1].adoptedCount).toBe(0)
+    expect(h.engines[1].playCount).toBe(1)
+  })
+
+  it('selects only the equal-power overlap path for a non-zero duration', async () => {
+    const h = harness(6, 2500)
+
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    expect(h.engines[1].scheduledCount).toBe(1)
+    expect(h.engines[1].scheduledStart?.timeSec).toBe(117.5)
+    expect(h.engines[1].scheduledFadeInSec).toBe(2.5)
+    expect(h.engines[0].scheduledFadeOut).toEqual({
+      at: h.engines[1].scheduledStart,
+      durationSec: 2.5
+    })
+  })
+
+  it('keeps zero duration exclusively on the exact gapless path', async () => {
+    const h = harness()
+
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    expect(h.engines[1].scheduledStart?.timeSec).toBe(120)
+    expect(h.engines[1].scheduledFadeInSec).toBe(0)
+    expect(h.engines[0].scheduledFadeOut).toBeNull()
+  })
+
+  it.each([750, 5000])('plans a %ims overlap against the same endpoint', async (durationMs) => {
+    const h = harness(6, durationMs)
+
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    expect(h.engines[1].scheduledStart?.timeSec).toBe(120 - durationMs / 1000)
+    expect(h.engines[1].scheduledFadeInSec).toBe(durationMs / 1000)
+    expect(h.engines[0].scheduledFadeOut?.durationSec).toBe(durationMs / 1000)
+  })
+
+  it('clamps short tracks to half the shorter side and records the reason', async () => {
+    const h = harness(6, 10_000)
+    h.engines[0].duration = 6
+    h.engines[1].duration = 4
+
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    expect(h.engines[1].scheduledStart?.timeSec).toBe(4)
+    expect(h.engines[1].scheduledFadeInSec).toBe(2)
+    expect(h.onCrossfadeAdjusted).toHaveBeenCalledWith({
+      requestedMs: 10_000,
+      effectiveMs: 2000,
+      reasons: ['current-track', 'next-track']
+    })
+  })
+
+  it('degrades a late prefetch to the remaining schedulable time', async () => {
+    const h = harness(6, 5000)
+    h.engines[0].currentTime = 119
+
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    expect(h.engines[1].scheduledFadeInSec).toBeCloseTo(0.98)
+    expect(h.onCrossfadeAdjusted).toHaveBeenCalledWith({
+      requestedMs: 5000,
+      effectiveMs: 980,
+      reasons: ['late-prefetch']
+    })
+  })
+
+  it('records a zero-duration hard degradation when prefetch misses the overlap', async () => {
+    const h = harness(6, 5000)
+    h.engines[0].currentTime = 120
+
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    expect(h.engines[1].scheduledStart).toBeNull()
+    expect(h.onCrossfadeAdjusted).toHaveBeenCalledWith({
+      requestedMs: 5000,
+      effectiveMs: 0,
+      reasons: ['late-prefetch']
+    })
+  })
+
+  it('cancels and rebuilds both sides when the duration changes', async () => {
+    const h = harness()
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    h.scheduler.setCrossfadeMs(3000)
+    expect(h.engines[1].cancelledCount).toBe(1)
+    expect(h.engines[1].scheduledFadeInSec).toBe(3)
+    expect(h.engines[0].scheduledFadeOut?.durationSec).toBe(3)
+
+    h.scheduler.setCrossfadeMs(0)
+    expect(h.engines[1].cancelledCount).toBe(2)
+    expect(h.engines[0].cancelledFadeCount).toBe(1)
+    expect(h.engines[1].scheduledFadeInSec).toBe(0)
+    expect(h.engines[1].scheduledStart?.timeSec).toBe(120)
+  })
+
+  it('updates normalization on current and prefetched slots without rebuilding either', async () => {
+    const h = harness()
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    h.scheduler.setNormalizationMode('album')
+
+    expect(h.engines.map((engine) => engine.normalizationMode)).toEqual(['album', 'album'])
+    expect(h.engines.map((engine) => engine.loads)).toEqual([[0], [1]])
+  })
+
+  it('cancels both overlap envelopes before pausing', async () => {
+    const h = harness(6, 3000)
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    h.scheduler.pause()
+
+    expect(h.engines[1].cancelledCount).toBe(1)
+    expect(h.engines[0].cancelledFadeCount).toBe(1)
+    expect(h.engines[0].pauseCount).toBe(1)
+  })
+
+  it('cancels and replans both overlap envelopes after a seek', async () => {
+    const h = harness(6, 3000)
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+
+    h.scheduler.seek(30)
+
+    expect(h.engines[1].cancelledCount).toBe(1)
+    expect(h.engines[0].cancelledFadeCount).toBe(1)
+    expect(h.engines[1].scheduledStart?.timeSec).toBe(87)
+    expect(h.engines[0].scheduledFadeOut?.durationSec).toBe(3)
   })
 
   it('keeps a failed prefetch isolated until the deterministic boundary error', async () => {
@@ -315,5 +624,17 @@ describe('PlaybackScheduler', () => {
     expect(h.scheduler.prefetchState.status).toBe('idle')
     expect(h.engines.every((engine) => engine.disposed)).toBe(true)
     expect(h.engines[1].playCount).toBe(0)
+  })
+
+  it('stop cancels an already planned decoded boundary', async () => {
+    const h = harness(6, 2500)
+    await h.scheduler.start(h.order, 0, track(0))
+    await settle()
+    expect(h.engines[1].scheduledStart).not.toBeNull()
+
+    h.scheduler.stop()
+
+    expect(h.engines[1].cancelledCount).toBe(1)
+    expect(h.engines[0].cancelledFadeCount).toBe(1)
   })
 })

@@ -2,14 +2,19 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   AudioEngineError,
   type AudioEngineEventMap,
-  type PlaybackStatus
+  type NormalizationMode,
+  type PlaybackStatus,
+  type SampleAccurateTime
 } from '../../../src/renderer/audio/AudioEngine'
 import type {
   AudioPath,
   DecodedAudioPath,
   TrackAudioSource
 } from '../../../src/renderer/audio/AudioPath'
-import { GuardedAudioEngine } from '../../../src/renderer/audio/GuardedAudioEngine'
+import {
+  GuardedAudioEngine,
+  type TrackNormalizationDiagnostic
+} from '../../../src/renderer/audio/GuardedAudioEngine'
 import {
   R1ReservationLedger,
   type R1AdmissionDecision
@@ -21,6 +26,7 @@ class FakePath implements AudioPath {
   currentTime = 0
   duration = 0
   volume = 1
+  normalizationMode: NormalizationMode = 'track'
   status: PlaybackStatus = 'idle'
   trackId: number | null = null
   readonly loads: TrackAudioSource[] = []
@@ -28,6 +34,11 @@ class FakePath implements AudioPath {
   playCount = 0
   manual = false
   issuedOnSettle = 0
+  sampleAccurateEndTime: SampleAccurateTime | null = null
+  scheduledStarts: SampleAccurateTime[] = []
+  scheduleAccepted = false
+  adoptAccepted = false
+  cancelScheduledCount = 0
 
   readonly listeners = new Map<string, Set<(payload: never) => void>>()
   readonly pending: Array<{ source: TrackAudioSource; resolve: () => void }> = []
@@ -86,6 +97,30 @@ class FakePath implements AudioPath {
     this.volume = gain
   }
 
+  setNormalizationMode(mode: NormalizationMode): void {
+    this.normalizationMode = mode
+  }
+
+  scheduleSampleAccurateStart(at: SampleAccurateTime, _fadeInDurationSec = 0): boolean {
+    this.scheduledStarts.push(at)
+    return this.scheduleAccepted
+  }
+
+  scheduleSampleAccurateFadeOut(at: SampleAccurateTime, _durationSec: number): boolean {
+    this.scheduledStarts.push(at)
+    return this.scheduleAccepted
+  }
+
+  adoptScheduledStart(): boolean {
+    return this.adoptAccepted
+  }
+
+  cancelScheduledStart(): void {
+    this.cancelScheduledCount += 1
+  }
+
+  cancelScheduledFade(): void {}
+
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void
@@ -122,6 +157,11 @@ function track(trackId: number, overrides: Partial<TrackAudioSource> = {}): Trac
     durationSec: 60,
     encodedBytes: 5 * MIB,
     channels: 2,
+    rgTrackGainDb: null,
+    rgTrackPeak: null,
+    rgAlbumGainDb: null,
+    rgAlbumPeak: null,
+    rgSource: null,
     ...overrides
   }
 }
@@ -130,6 +170,7 @@ function harness(sources: Map<number, TrackAudioSource>) {
   const decoded = new FakeDecodedPath()
   const streaming = new FakePath()
   const decisions: R1AdmissionDecision[] = []
+  const normalizationDecisions: TrackNormalizationDiagnostic[] = []
   const resolver = vi.fn(async (trackId: number) => {
     const found = sources.get(trackId)
     if (!found) throw new Error('not found')
@@ -139,9 +180,10 @@ function harness(sources: Map<number, TrackAudioSource>) {
     decoded,
     createStreaming: () => streaming,
     resolveTrack: resolver,
-    diagnostic: (decision) => decisions.push(decision)
+    diagnostic: (decision) => decisions.push(decision),
+    normalizationDiagnostic: (decision) => normalizationDecisions.push(decision)
   })
-  return { engine, decoded, streaming, decisions, resolver }
+  return { engine, decoded, streaming, decisions, normalizationDecisions, resolver }
 }
 
 describe('GuardedAudioEngine', () => {
@@ -200,6 +242,83 @@ describe('GuardedAudioEngine', () => {
     expect(h.engine.status).toBe('playing')
   })
 
+  it('applies tag and computed values identically while retaining source in diagnostics', async () => {
+    const h = harness(
+      new Map([
+        [
+          1,
+          track(1, {
+            rgTrackGainDb: 6,
+            rgTrackPeak: 0.8,
+            rgSource: 'tag'
+          })
+        ],
+        [
+          2,
+          track(2, {
+            rgTrackGainDb: 6,
+            rgTrackPeak: 0.8,
+            rgSource: 'computed'
+          })
+        ]
+      ])
+    )
+
+    await h.engine.load(1)
+    await h.engine.load(2)
+
+    expect(h.normalizationDecisions).toEqual([
+      expect.objectContaining({
+        trackId: 1,
+        mode: 'track',
+        field: 'track',
+        source: 'tag',
+        gainDb: 6,
+        peak: 0.8,
+        effectiveGain: 1.25
+      }),
+      expect.objectContaining({
+        trackId: 2,
+        mode: 'track',
+        field: 'track',
+        source: 'computed',
+        gainDb: 6,
+        peak: 0.8,
+        effectiveGain: 1.25
+      })
+    ])
+    expect(h.decoded.normalizationMode).toBe('track')
+
+    h.engine.setNormalizationMode('off')
+    expect(h.decoded.normalizationMode).toBe('off')
+    expect(h.normalizationDecisions.at(-1)).toMatchObject({
+      trackId: 2,
+      mode: 'off',
+      field: null,
+      effectiveGain: 1
+    })
+  })
+
+  it('forwards sample-accurate planning only to the admitted decoded path', async () => {
+    const h = harness(new Map([[1, track(1)]]))
+    const timeline = Symbol('shared')
+    const boundary = { timeline, timeSec: 61 }
+    h.decoded.sampleAccurateEndTime = boundary
+    h.decoded.scheduleAccepted = true
+    h.decoded.adoptAccepted = true
+
+    await h.engine.load(1)
+
+    expect(h.engine.sampleAccurateEndTime).toBe(boundary)
+    expect(h.engine.scheduleSampleAccurateStart(boundary, 2.5)).toBe(true)
+    expect(h.engine.scheduleSampleAccurateFadeOut(boundary, 2.5)).toBe(true)
+    expect(h.engine.adoptScheduledStart()).toBe(true)
+    h.engine.cancelScheduledStart()
+    expect(h.decoded.scheduledStarts).toEqual([boundary, boundary])
+    expect(h.decoded.cancelScheduledCount).toBe(1)
+    expect(h.streaming.scheduledStarts).toHaveLength(0)
+  })
+
   it('selects streaming before path load for cap, budget and unknown-metadata cases', async () => {
     const h = harness(
       new Map([
@@ -223,6 +342,11 @@ describe('GuardedAudioEngine', () => {
     ])
     expect(h.decisions.every((decision) => decision.transitionPolicy === 'hard')).toBe(true)
     expect(h.engine.transitionPolicy).toBe('hard')
+    expect(h.engine.sampleAccurateEndTime).toBeNull()
+    expect(h.engine.scheduleSampleAccurateStart({ timeline: Symbol('other'), timeSec: 1 })).toBe(
+      false
+    )
+    expect(h.streaming.scheduledStarts).toHaveLength(0)
   })
 
   it('does not ask either path to load until metadata resolution completes', async () => {

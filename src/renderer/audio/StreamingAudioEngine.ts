@@ -1,6 +1,13 @@
-import { AudioEngineError, type AudioEngineEventMap, type PlaybackStatus } from './AudioEngine'
+import {
+  AudioEngineError,
+  type AudioEngineEventMap,
+  type NormalizationMode,
+  type PlaybackStatus,
+  type SampleAccurateTime
+} from './AudioEngine'
 import type { AudioPath, TrackAudioSource } from './AudioPath'
 import { Emitter } from './emitter'
+import { DEFAULT_NORMALIZATION_MODE, resolveNormalization } from './normalization'
 import { clamp } from './playbackClock'
 
 export interface StreamingMedia {
@@ -26,6 +33,7 @@ export interface StreamingPlatform {
   readonly contextState: string
   resumeContext(): Promise<void>
   setOutputVolume(gain: number): void
+  setNormalizationGain(gain: number, ramp: boolean): void
   dispose(): void
 }
 
@@ -40,6 +48,8 @@ export class StreamingAudioEngine implements AudioPath {
   #trackId: number | null = null
   #status: PlaybackStatus = 'idle'
   #volume = 1
+  #normalizationMode: NormalizationMode = DEFAULT_NORMALIZATION_MODE
+  #audioSource: TrackAudioSource | null = null
   #metadataDuration = 0
   #generation = 0
   #cancelPending: (() => void) | null = null
@@ -70,6 +80,10 @@ export class StreamingAudioEngine implements AudioPath {
     return this.#volume
   }
 
+  get normalizationMode(): NormalizationMode {
+    return this.#normalizationMode
+  }
+
   get status(): PlaybackStatus {
     return this.#status
   }
@@ -77,6 +91,26 @@ export class StreamingAudioEngine implements AudioPath {
   get trackId(): number | null {
     return this.#trackId
   }
+
+  get sampleAccurateEndTime(): SampleAccurateTime | null {
+    return null
+  }
+
+  scheduleSampleAccurateStart(_at: SampleAccurateTime, _fadeInDurationSec = 0): boolean {
+    return false
+  }
+
+  scheduleSampleAccurateFadeOut(_at: SampleAccurateTime, _durationSec: number): boolean {
+    return false
+  }
+
+  adoptScheduledStart(): boolean {
+    return false
+  }
+
+  cancelScheduledStart(): void {}
+
+  cancelScheduledFade(): void {}
 
   on<K extends keyof AudioEngineEventMap>(
     type: K,
@@ -94,10 +128,16 @@ export class StreamingAudioEngine implements AudioPath {
     // terminal events for the old resource synchronously in some Chromium
     // versions, and those must not speak for either track.
     this.#trackId = null
+    this.#audioSource = null
     this.#media.pause()
     this.#media.clearSource()
     this.#trackId = source.trackId
+    this.#audioSource = source
     this.#metadataDuration = source.durationSec ?? 0
+    this.#platform.setNormalizationGain(
+      resolveNormalization(source, this.#normalizationMode).effectiveGain,
+      false
+    )
     this.#setStatus('loading')
 
     try {
@@ -141,6 +181,7 @@ export class StreamingAudioEngine implements AudioPath {
           ? err
           : new AudioEngineError('internal', 'Playback failed unexpectedly.', source.trackId)
       this.#trackId = null
+      this.#audioSource = null
       this.#metadataDuration = 0
       this.#setStatus('idle')
       if (failure.code !== 'aborted') this.#events.emit('error', failure)
@@ -154,6 +195,7 @@ export class StreamingAudioEngine implements AudioPath {
     this.#cancelPending?.()
     this.#cancelPending = null
     this.#trackId = null
+    this.#audioSource = null
     this.#media.pause()
     this.#media.clearSource()
     this.#metadataDuration = 0
@@ -205,6 +247,17 @@ export class StreamingAudioEngine implements AudioPath {
     const target = clamp(gain, 0, 1)
     this.#volume = target
     if (!this.#disposed) this.#platform.setOutputVolume(target)
+  }
+
+  setNormalizationMode(mode: NormalizationMode): void {
+    if (mode === this.#normalizationMode) return
+    this.#normalizationMode = mode
+    if (!this.#disposed && this.#audioSource) {
+      this.#platform.setNormalizationGain(
+        resolveNormalization(this.#audioSource, mode).effectiveGain,
+        true
+      )
+    }
   }
 
   dispose(): void {

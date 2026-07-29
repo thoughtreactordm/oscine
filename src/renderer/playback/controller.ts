@@ -5,7 +5,12 @@ import { computed, ref } from 'vue'
 // Reaching for the barrel here would drag `AudioContext` and `window` into
 // every project that compiles this module, and `tests/` compiles under the node
 // config, which has no DOM. Same reason `trackWindow.ts` names no alias.
-import { AudioEngineError, type AudioEngine, type PlaybackStatus } from '../audio/AudioEngine'
+import {
+  AudioEngineError,
+  type AudioEngine,
+  type NormalizationMode,
+  type PlaybackStatus
+} from '../audio/AudioEngine'
 import type {
   ListTracksQuery,
   ListTracksResult,
@@ -41,6 +46,10 @@ export interface PlaybackControllerDeps {
    */
   createEngine: () => AudioEngine
   fetchPage: (query: ListTracksQuery) => Promise<ListTracksResult>
+  /** R2 input until M4 supplies the value captured with a playlist traversal. */
+  crossfadeMs?: number
+  /** ReplayGain policy; track normalization is the M2 default. */
+  normalizationMode?: NormalizationMode
 }
 
 export interface PlayFromListParams {
@@ -60,6 +69,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   const currentTime = ref(0)
   const duration = ref(0)
   const volume = ref(1)
+  const crossfadeMs = ref(
+    Number.isFinite(deps.crossfadeMs) && (deps.crossfadeMs ?? 0) > 0 ? (deps.crossfadeMs ?? 0) : 0
+  )
+  const normalizationMode = ref<NormalizationMode>(deps.normalizationMode ?? 'track')
   const nowPlaying = ref<Track | null>(null)
   const error = ref<string | null>(null)
   const prefetchStatus = ref<PrefetchStatus>('idle')
@@ -118,7 +131,11 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   function ensureScheduler(): PlaybackScheduler {
     if (scheduler) return scheduler
 
-    const created = new PlaybackScheduler({ createEngine: deps.createEngine })
+    const created = new PlaybackScheduler({
+      createEngine: deps.createEngine,
+      crossfadeMs: crossfadeMs.value,
+      normalizationMode: normalizationMode.value
+    })
     unsubscribes = [
       created.on('statuschange', (next) => {
         status.value = next
@@ -274,6 +291,17 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     scheduler?.setVolume(clamped)
   }
 
+  function setCrossfadeMs(milliseconds: number): void {
+    const normalized = Number.isFinite(milliseconds) && milliseconds > 0 ? milliseconds : 0
+    crossfadeMs.value = normalized
+    scheduler?.setCrossfadeMs(normalized)
+  }
+
+  function setNormalizationMode(mode: NormalizationMode): void {
+    normalizationMode.value = mode
+    scheduler?.setNormalizationMode(mode)
+  }
+
   /** Stop playback and invalidate current and prefetched work. */
   function stop(): void {
     requestToken++
@@ -310,6 +338,8 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     currentTime,
     duration,
     volume,
+    crossfadeMs,
+    normalizationMode,
     nowPlaying,
     orderIndex,
     error,
@@ -330,6 +360,8 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     endScrub,
     seek,
     setVolume,
+    setCrossfadeMs,
+    setNormalizationMode,
     stop,
     dispose,
     /** Test seam: whether the audio device has actually been claimed yet. */
