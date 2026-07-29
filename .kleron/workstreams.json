@@ -15,7 +15,7 @@
       "description": "Everything main-process and on-disk: schema v1 and migrations, root folders, recursive scanner, music-metadata parsing, incremental mtime rescan, filesystem watcher, artwork thumbnail cache, FTS5 index, background job queue. Owns R3 (inotify limits) and the relative-path portability rule.",
       "color": "emerald",
       "order": 1,
-      "cardCounter": 2,
+      "cardCounter": 3,
       "dependsOn": [
         "W1"
       ]

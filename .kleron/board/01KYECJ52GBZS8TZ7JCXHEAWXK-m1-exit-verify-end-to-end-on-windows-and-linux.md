@@ -722,3 +722,128 @@ is the cross-check that the harness measures what the hand run measured.
   "warningsAndErrors": []
 }
 ```
+
+---
+
+# Cross-platform diff — Linux vs Windows, 2026-07-29
+
+Both columns produced by `npm run probe:m1-exit` at `0e11dff`. The Windows run is
+recorded in full on **W6-3**; this is the comparison the gate asked for.
+
+**Verdict: no platform difference that matters, and no Windows-only defect.** The
+probe needed no platform branch to run — which was itself one of the things under
+test. All four quantities W6-3 nominated for comparison transfer within noise.
+
+## Read this first — the two runs used different libraries
+
+Linux 2,976 tracks; Windows 102,997 (the same 2,970-track root 1, plus a 21-track
+root, a 100,000-track synthetic root, and the 6-track fixture). So:
+
+- **Comparable across platforms:** everything derived from the fixture — the codec
+  table, both R1 measurements, reclamation, cleanliness. The fixture is
+  synthesised identically on both machines, and the decode figures below are
+  byte-identical, which is the proof that it worked.
+- **Not comparable:** sort timings, virtualization figures, and step 4's
+  `toPlayingMs`. Those compare *scale*. Treated as a bonus data point, they are
+  the first measurement of the gate at the stated 100k target.
+
+## The four nominated comparisons
+
+| # | measure | Linux | Windows | delta |
+|---|---|---|---|---|
+| 1 | `audioContextSampleRateHz` | 48000 | **48000** | none |
+| 2 | `peakGrowthOverDecoded`, synthetic | 1.90 | **1.95** | +2.6% |
+| 3 | `reclamation.recoveredMiB` | 1396 | **1398** | +0.1% |
+| 4 | step 4 codec table | 5/5 play | **5/5 play** | none |
+
+**1 — sample rate.** Windows is also 48 kHz, so the `estimateDecodedBytes` error
+has the *same* sign on both platforms, not the opposite one W6-3 flagged as
+possible. This does **not** license hardcoding 48000: both machines happened to
+land on the same shared-mode rate, and it is a per-device setting on both
+platforms rather than a platform constant. It licenses the fix W3-2 already
+proposes — read it from the context at runtime.
+
+**2 — transient peak.** Transfers. Note the two figures on this card use different
+denominators and should not be mixed: the hand-driven run's headline "2.34x" is
+`peak / decoded`, while the probe's `peakGrowthOverDecoded` is
+`(peak - baseline) / decoded`. See the note under W3-3.
+
+**3 — reclamation.** Essentially identical: 1594→198 MiB on Linux, 1557→159 MiB on
+Windows. V8 declines to collect external AudioBuffer backing stores without
+pressure on both platforms, to the same degree. No heuristic difference.
+
+**4 — codec coverage.** `aac, flac, flac, mp3, opus, vorbis` indexed on both; all
+five formats played, seeked and reported correct duration on both. **The OGG gap
+that W6-2 found is now closed on both platforms**, which was the point of
+generating the fixture rather than scavenging one.
+
+## Everything else, side by side
+
+| measure | Linux | Windows |
+|---|---|---|
+| electron / chrome / node / v8 / arch | identical | 43.2.0 · 150.0.7871.129 · 24.18.0 · 15.0.1240245-electron.0 · x64 |
+| idle RSS — Browser / GPU / Tab | 226 / 320 / 204 | 115 / 99 / 146 |
+| fixture scan `elapsedMs` | 506 | 517 |
+| progress events / terminal / monotonic | 2 · yes · yes | 2 · yes · yes |
+| step 4 decoded per 20 s track | 7.3 MiB (all five) | 7.3 MiB (all five) |
+| step 4 encoded + ratio | 470.3K/15.9x, 473.4K/15.8x, 247.1K/30.3x, 60.3K/124.3x, 407.3K/18.4x | identical, all five |
+| step 4 `seekDrift` | 0.69–0.70 | 0.69–0.70 |
+| step 5 walk | 2,3,4,5,6,5,4,3 | 2,3,4,5,6,5,4,3 |
+| step 5 `afterScrub` / decodes per transition | 3.61 · 1 | 3.59 · 1 |
+| **synthetic** `decodedMiBAtContextRate` | 1318.4 | 1318.4 |
+| synthetic encoded / ratio | 41.4 MiB · 31.9x | 41.4 MiB · 31.9x |
+| synthetic baseline → peak → settled | 196 → 2707 → 1508 | 148 → 2717 → 1468 |
+| synthetic `timeToFirstAudioMs` | 6226 | 6011 |
+| **real track** (Dopesmoker, same file) decoded | 1394.9 MiB | 1394.9 MiB |
+| real baseline → peak → settled | 1508 → 3169 → 1585 | 1466 → 3181 → 1547 |
+| real `peakGrowthOverDecoded` | 1.19 | 1.23 |
+| real `timeToFirstAudioMs` | 7824 | 8894 |
+| virtualization: rows in DOM | 24 @ 2,976 rows | 24 @ 102,997 rows |
+| virtualization: DOM nodes, flat? | 364 · yes | 374 · yes |
+| `warningsAndErrors` | [] | [] |
+
+Windows is consistently *lighter at idle* (115/99/146 MiB against 226/320/204) and
+decodes the hour-long synthetic marginally faster. Neither is a finding; both are
+machine differences as much as OS differences.
+
+The real-track growth figures (1.19 / 1.23) are **understated on both platforms**
+because the baseline was already inflated by uncollected garbage from the
+preceding synthetic decode — 1508 and 1466 MiB respectively, against true idle
+baselines of 196 and 148. That is W3-4 contaminating W3-3's measurement, and it is
+why the *synthetic* figure measured from a clean baseline is the one to carry
+forward.
+
+## Virtualization at the real target
+
+Linux proved the DOM stays flat across 2,976 rows. Windows proves it across
+**102,997 rows and a 3,295,904 px scroll height** — 24 rows and 374 nodes at 0%,
+25%, 50%, 75%, and 17 rows / 297 nodes in the final partial window. `windowed:
+true`, `grewWhileScrolling: false`. The invariant holds at the stated M1 scale
+target, not merely at development scale.
+
+## The one defect this run found
+
+Not a platform defect — a **scale** defect, invisible at 2,976 rows and therefore
+structurally impossible for the Linux column to have caught:
+
+**Every track transition pays a 50–125 ms full-library sort query at 100k tracks.**
+`createListPlayOrder.at()` resolves each position with a `LIMIT 1 OFFSET n`, which
+`goTo` awaits, which `next()`/`previous()` call. Measured 49–50 ms at offset 0 on
+*every* sort column (so: a full sort per query, nothing indexed) rising to 125 ms
+at offset 102,000. The equivalent figures on Linux's library were 0.8–2.3 ms.
+
+Filed as `01KYQMNRX95CN5DW6N6YYEZKC1` under W2, priority high, because M2 is
+gapless and a 50–125 ms synchronous query in front of the decode *is* the gap.
+
+Step 4's `toPlayingMs` (167–266 ms on Windows against 32–52 ms on Linux) is the
+same effect and **not** a platform regression. Decomposed live: ~50 ms library
+lookup + 0.3 ms URL + 2.6 ms fetch + 47–61 ms decode. The probe pays the lookup
+only because it calls `playFromList` without a `track`; the real UI passes the row
+it holds and takes the fast path, skipping it entirely. Residual platform
+difference in decode alone is ~1.3x.
+
+## Status
+
+Both columns of the M1 exit gate are now recorded, at the same commit, from the
+same script. D10's both-platforms-first-class requirement is satisfied for M1, and
+the "still owed" paragraph this card once carried is discharged — see W6-3.
