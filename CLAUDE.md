@@ -35,6 +35,8 @@ W5 Playlists & Queue, W6 Packaging & Ops.
 | Build | `npm run build` (typechecks first) |
 | Native ABI check | `npm run verify:native` |
 | Seed test library | `npm run seed:synthetic` |
+| Mixed-format fixture | `npm run probe:fixture` (needs ffmpeg) |
+| M1 exit gate | `npm run probe:m1-exit` |
 
 `lint`, `format:check`, `typecheck`, `test` and `build` are the pre-push gate, and
 `.github/workflows/ci.yml` runs all five on `ubuntu-latest` and `windows-latest`. Prettier owns
@@ -46,6 +48,20 @@ hand-wrapped.
 `src/`: no backslash separators, no hand-rolled path concatenation. It is off under `tests/`, where
 literal Windows paths are the fixtures. `tests/tooling/pathPortability.test.ts` lints broken paths
 through the real config on every run, so the rule cannot quietly stop being wired up.
+
+The M1 exit gate is a script, not a checklist. It needs the app running with both debuggers open:
+
+```
+npm run probe:fixture                                          # once per machine
+npm run dev -- -- --remote-debugging-port=9222 --inspect=9229
+npm run probe:m1-exit                                          # writes a markdown report
+```
+
+Nothing in it is platform-conditional — memory comes from `app.getAppMetrics()` over the main
+process inspector rather than from `/proc`, and the mixed-format fixture is synthesised rather than
+scavenged from whatever library is to hand. That is the point: a gate whose two platforms are
+measured differently is not a gate. Anything it flags belongs in a triage card, not in a fix folded
+into the gate run.
 
 ## Context discipline
 
