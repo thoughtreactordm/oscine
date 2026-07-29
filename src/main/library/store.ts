@@ -87,6 +87,7 @@ interface TrackRow {
   year: number | null
   durationMs: number | null
   codec: string | null
+  encodedBytes: number
   sampleRate: number | null
   channels: number | null
   bitDepth: number | null
@@ -397,6 +398,7 @@ export class LibraryStore {
                 al.year        AS year,
                 t.duration_ms  AS durationMs,
                 t.codec        AS codec,
+                t.size         AS encodedBytes,
                 t.sample_rate  AS sampleRate,
                 t.channels     AS channels,
                 t.bit_depth    AS bitDepth
@@ -443,6 +445,7 @@ function toTrack(row: TrackRow): Track {
     year: row.year,
     durationSec: row.durationMs === null ? null : row.durationMs / 1000,
     codec: row.codec,
+    encodedBytes: row.encodedBytes,
     sampleRateHz: row.sampleRate,
     channels: row.channels,
     bitDepth: row.bitDepth

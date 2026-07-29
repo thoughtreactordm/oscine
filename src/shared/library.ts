@@ -41,6 +41,8 @@ export interface Track {
   year: number | null
   durationSec: number | null
   codec: string | null
+  /** Encoded file size, used to budget whole-buffer decode admission. */
+  encodedBytes: number
   sampleRateHz: number | null
   channels: number | null
   bitDepth: number | null

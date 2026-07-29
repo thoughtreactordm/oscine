@@ -286,6 +286,9 @@ describe('listTracks', () => {
 
     expect(result.total).toBe(3)
     expect(result.tracks.map((track) => track.title)).toEqual(['Anthem', 'Beacon', 'Cirrus'])
+    // The renderer needs this before fetching so the R1 guard can include the
+    // encoded ArrayBuffer in its decode-transient admission cost.
+    expect(result.tracks.map((track) => track.encodedBytes)).toEqual([1, 1, 1])
   })
 
   it('sorts descending, and by other columns', async () => {

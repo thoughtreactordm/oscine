@@ -40,6 +40,7 @@ function syntheticLibrary(total = LIBRARY_SIZE) {
         year: 2000,
         durationSec: 180 + (id % 120),
         codec: 'flac',
+        encodedBytes: 12_000_000,
         sampleRateHz: 44100,
         channels: 2,
         bitDepth: 16

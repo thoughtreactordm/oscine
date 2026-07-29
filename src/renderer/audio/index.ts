@@ -8,9 +8,10 @@
  *
  * 1. A new `WebCodecsAudioEngine implements AudioEngine`, beside
  *    `DecodedAudioEngine`.
- * 2. One changed line in `createAudioEngine` below — or a condition on decoded
- *    size, keeping `DecodedAudioEngine` for short tracks where whole-buffer
- *    decode gives sample-accurate gapless for free and streaming would not.
+ * 2. One changed line in `createAudioEngine` below — or a condition on estimated
+ *    peak decode cost, keeping `DecodedAudioEngine` for short tracks where
+ *    whole-buffer decode gives sample-accurate gapless for free and streaming
+ *    would not.
  *
  * Nothing else moves. No UI file names a Web Audio type, an `AudioBuffer`, or
  * either class: they hold an `AudioEngine` handed to them by this factory, and
@@ -26,7 +27,7 @@ export type {
   PlaybackStatus
 } from './AudioEngine'
 export { AudioEngineError, AUDIO_ERROR_CODES } from './AudioEngine'
-export { estimateDecodedBytes } from './decodedSize'
+export { estimateDecodedBytes, estimateDecodePeakBytes } from './decodedSize'
 
 import type { AudioEngine } from './AudioEngine'
 import { DecodedAudioEngine } from './DecodedAudioEngine'

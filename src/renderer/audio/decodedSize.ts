@@ -1,37 +1,67 @@
 /**
  * Decoded-size arithmetic for **R1**.
  *
- * `decodeAudioData` yields float32 PCM, so a decoded track costs
- * `duration × sampleRate × channels × 4` bytes regardless of how small the
- * encoded file was. A five-minute stereo 44.1kHz track is ~105MB; a twenty
- * minute mix is ~400MB.
+ * `decodeAudioData` yields float32 PCM resampled to the `AudioContext`'s rate,
+ * so a decoded track costs `duration × targetSampleRate × channels × 4` bytes
+ * regardless of how small the encoded file was. The source file's sample rate
+ * is not part of that calculation.
  *
  * M1 ships no guard — that is D2's accepted cost and M2's job to fix. What M1
- * owes M2 is *evidence*: `estimateDecodedBytes` is the function M2's guard will
- * threshold on, and it lives here already so the guard is a caller change
- * rather than a rewrite. Kept free of Web Audio types so it stays testable
- * under Node and usable before any decoding has happened.
+ * owes M2 is *evidence*: `estimateDecodedBytes` prices the settled buffer, and
+ * `estimateDecodePeakBytes` turns that into the transient admission cost M2's
+ * guard must threshold on. Both stay free of Web Audio types so they remain
+ * testable under Node and usable before any decoding has happened.
  */
 
 const BYTES_PER_FLOAT32_SAMPLE = 4
 
 /**
- * Predicted decoded size from metadata alone, for use *before* decoding.
+ * Cross-platform M1 exit probes measured decode-time renderer growth at
+ * 1.90–1.95 decoded buffers above baseline. Round that up rather than treating
+ * either sampled peak as an exact ceiling.
+ */
+const DECODE_PEAK_DECODED_MULTIPLIER = 2
+
+/**
+ * Predicted decoded size for use *before* decoding.
  *
- * This is the M2 guard's input: the library database already stores duration,
- * sample rate and channel count, so a caller can price a track without paying
- * for it. Returns 0 when any input is missing, which is honest — an unknown
- * cost is not a zero cost, and M2 must decide explicitly what to do with a
- * track it cannot price rather than inherit a silent default from here.
+ * This is one input to the M2 guard's peak estimate. `targetSampleRateHz` must
+ * be the runtime `AudioContext.sampleRate`, not the source file's sample rate
+ * from library metadata: `decodeAudioData` resamples to the context before
+ * allocating the returned buffer. The caller supplies the number so this
+ * module remains free of Web Audio types.
+ *
+ * Returns 0 when any input is missing, which is honest — an unknown cost is not
+ * a zero cost, and M2 must decide explicitly what to do with a track it cannot
+ * price rather than inherit a silent default from here.
  */
 export function estimateDecodedBytes(
   durationSec: number | null,
-  sampleRateHz: number | null,
+  targetSampleRateHz: number | null,
   channels: number | null
 ): number {
-  if (!durationSec || !sampleRateHz || !channels) return 0
-  if (durationSec < 0 || sampleRateHz < 0 || channels < 0) return 0
-  return Math.round(durationSec * sampleRateHz * channels * BYTES_PER_FLOAT32_SAMPLE)
+  if (!durationSec || !targetSampleRateHz || !channels) return 0
+  if (durationSec < 0 || targetSampleRateHz < 0 || channels < 0) return 0
+  return Math.round(durationSec * targetSampleRateHz * channels * BYTES_PER_FLOAT32_SAMPLE)
+}
+
+/**
+ * Peak process growth to reserve before admitting a whole-buffer decode.
+ *
+ * The 2× term covers the decoded output plus the measured resampler/intermediate
+ * transient. The encoded `ArrayBuffer` is held alongside them, so its size is a
+ * separate additive term rather than hidden inside the multiplier.
+ *
+ * A zero decoded estimate means the track could not be priced. Preserve that
+ * sentinel instead of returning only the encoded size and making an unknown
+ * decode look cheap.
+ */
+export function estimateDecodePeakBytes(
+  estimatedDecodedBytes: number,
+  encodedBytes: number
+): number {
+  if (estimatedDecodedBytes <= 0 || encodedBytes < 0) return 0
+  return Math.round(estimatedDecodedBytes * DECODE_PEAK_DECODED_MULTIPLIER + encodedBytes)
 }
 
 /**

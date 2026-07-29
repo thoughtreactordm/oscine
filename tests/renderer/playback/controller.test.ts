@@ -23,6 +23,7 @@ function track(id: number): Track {
     year: null,
     durationSec: 120,
     codec: 'flac',
+    encodedBytes: 12_000_000,
     sampleRateHz: 44100,
     channels: 2,
     bitDepth: 16
