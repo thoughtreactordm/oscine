@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQV4CS1DA0HKWBXSBMX9DWR
 title: Incremental startup rescan and live directory watcher with R3 degradation
-status: todo
+status: in-review
 priority: high
 labels:
   - M3
@@ -14,9 +14,9 @@ workstreamId: W2-6
 dependsOn:
   - 01KYECGN8JRHFBMDEBTRS9ZT1E
 effort: high
-order: 1
+order: 2
 created: '2026-07-29T21:05:19.136Z'
-updated: '2026-07-29T21:05:19.136Z'
+updated: '2026-07-29T21:33:22.867Z'
 ---
 Finish D6's library lifecycle: cheap incremental reconciliation at startup, then live updates while the app is open. This work can proceed while the M2 Windows exit column is outstanding; it has no audio dependency.
 

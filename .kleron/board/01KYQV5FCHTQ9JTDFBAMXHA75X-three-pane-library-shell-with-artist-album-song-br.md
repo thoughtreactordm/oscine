@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQV5FCHTQ9JTDFBAMXHA75X
 title: Three-pane library shell with Artist/Album/Song browsing and search
-status: todo
+status: done
 priority: high
 labels:
   - M3
@@ -16,7 +16,7 @@ dependsOn:
 effort: high
 order: 3
 created: '2026-07-29T21:05:54.577Z'
-updated: '2026-07-29T21:05:54.577Z'
+updated: '2026-07-29T21:54:33.000Z'
 ---
 Replace the M1 placeholder shell with M3's real library browser. Reconcile the design's two descriptions directly: the fixed islands remain Sources / TrackList / NowPlaying (D4), while Sources contains the Artist and Album facets and TrackList is the Song result. That delivers Artist/Album/Song browsing without coupling the islands.
 

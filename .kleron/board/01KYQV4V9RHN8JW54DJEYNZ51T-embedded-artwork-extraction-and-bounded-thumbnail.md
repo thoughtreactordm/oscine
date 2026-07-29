@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQV4V9RHN8JW54DJEYNZ51T
 title: Embedded artwork extraction and bounded thumbnail cache
-status: todo
+status: done
 priority: medium
 labels:
   - M3
@@ -15,7 +15,7 @@ dependsOn:
 effort: high
 order: 2
 created: '2026-07-29T21:05:34.007Z'
-updated: '2026-07-29T21:05:34.007Z'
+updated: '2026-07-29T21:44:51.000Z'
 ---
 Add M3's artwork cache as a main-process library service. Artwork is derived local data: the renderer receives only an opaque URL and never a filesystem path.
 
@@ -42,3 +42,11 @@ Online cover lookup, sidecar-folder image discovery, manual artwork editing, ani
 - Changing embedded art updates the album hash; unreferenced derived files are eventually removed.
 - Cache writes survive forced interruption without serving partial images.
 - Extraction/dedup on the M3 fixture has bounded concurrency and recorded time/disk totals for the exit report.
+
+## Implementation
+
+- SHA-256 keys the exact embedded source bytes. Candidate tracks and pictures have a deterministic order, and invalid candidates fall through without failing the scan.
+- A worker-thread sharp pipeline atomically derives only 160 px and 640 px WebP variants with album concurrency capped at two.
+- Album and track queries expose only closed `fermata://artwork/<hash>/<variant>` URLs. The protocol validates hashes/variants and supplies a built-in missing-art placeholder.
+- Reconciliation runs for changed albums, validates the cache at startup, prunes temporary and unreferenced files, and logs structured time/disk/count metrics.
+- Focused artwork tests cover deduplication, malformed fallback, changed-art invalidation, pruning, corruption self-healing, missing-art URLs, and bounded concurrency.
