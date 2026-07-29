@@ -21,7 +21,7 @@
  * The expression is wrapped in an async function, so `await` and `return` both
  * work and the result is serialised by value.
  */
-const ENDPOINT = process.env.FERMATA_CDP ?? 'http://127.0.0.1:9222'
+import { connectToRenderer } from './lib/cdp.mjs'
 
 const expression = process.argv[2]
 if (!expression) {
@@ -29,52 +29,19 @@ if (!expression) {
   process.exit(1)
 }
 
-let targets
+let renderer
 try {
-  targets = await (await fetch(`${ENDPOINT}/json`)).json()
-} catch {
-  console.error(`No debugger at ${ENDPOINT}.`)
-  console.error('Start the app with: npm run dev -- -- --remote-debugging-port=9222')
+  renderer = await connectToRenderer()
+} catch (error) {
+  console.error(error.message)
   process.exit(1)
 }
 
-const page = targets.find((target) => target.type === 'page')
-if (!page) {
-  console.error('No renderer page attached to the debugger.')
+try {
+  console.log(JSON.stringify(await renderer.evaluate(expression), null, 2))
+} catch (error) {
+  console.error(error.message)
   process.exit(1)
+} finally {
+  renderer.close()
 }
-
-const socket = new WebSocket(page.webSocketDebuggerUrl)
-await new Promise((resolve) => (socket.onopen = resolve))
-
-let nextId = 0
-const pending = new Map()
-socket.onmessage = (event) => {
-  const message = JSON.parse(event.data)
-  const resolve = pending.get(message.id)
-  if (resolve) {
-    pending.delete(message.id)
-    resolve(message)
-  }
-}
-
-function send(method, params = {}) {
-  const id = ++nextId
-  socket.send(JSON.stringify({ id, method, params }))
-  return new Promise((resolve) => pending.set(id, resolve))
-}
-
-const response = await send('Runtime.evaluate', {
-  expression: `(async () => { ${expression} })()`,
-  awaitPromise: true,
-  returnByValue: true
-})
-
-socket.close()
-
-if (response.result?.exceptionDetails) {
-  console.error(response.result.exceptionDetails.exception?.description ?? 'Evaluation failed.')
-  process.exit(1)
-}
-
-console.log(JSON.stringify(response.result?.result?.value ?? response.result, null, 2))

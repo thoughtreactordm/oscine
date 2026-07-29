@@ -21,7 +21,9 @@
     "seed:synthetic": "node scripts/seed-synthetic-library.mjs",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
-    "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json"
+    "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
+    "probe:m1-exit": "node scripts/m1-exit-probe.mjs",
+    "probe:fixture": "node scripts/make-probe-fixture.mjs"
   },
   "dependencies": {
     "@nuxt/ui": "^4.10.0",
