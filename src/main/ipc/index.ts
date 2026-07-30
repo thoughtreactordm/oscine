@@ -5,6 +5,7 @@ import type { LibraryService } from '../library/service'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertListFacetsQuery,
+  assertListTrackGroupsQuery,
   assertListTrackIdsQuery,
   assertListTracksQuery,
   assertOrderTrackIdsQuery,
@@ -55,6 +56,10 @@ export function registerIpcHandlers(library: LibraryService): void {
   handle('library.listAlbums', (request) => library.listAlbums(assertListFacetsQuery(request)))
 
   handle('library.listTracks', (request) => library.listTracks(assertListTracksQuery(request)))
+
+  handle('library.listTrackGroups', (request) =>
+    library.listTrackGroups(assertListTrackGroupsQuery(request))
+  )
 
   handle('library.listTrackIds', (request) =>
     library.listTrackIds(assertListTrackIdsQuery(request))

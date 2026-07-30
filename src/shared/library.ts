@@ -168,6 +168,47 @@ export interface OrderTrackIdsQuery {
 }
 
 /**
+ * One album's run of consecutive rows in the track list.
+ *
+ * Only meaningful under an album-major ordering, which is why the query accepts
+ * no other sort: under `title` the albums interleave and there are no runs to
+ * describe.
+ *
+ * `trackCount` is the field that earns this channel. A grouped list inserts a
+ * header row per run, so a display row no longer equals a track offset; prefix
+ * sums over the counts convert between the two without the renderer loading a
+ * single row, which is what keeps the list virtualized.
+ */
+export interface TrackGroup {
+  /** `null` for the untagged run, which sorts last exactly as its rows do. */
+  albumId: number | null
+  title: string | null
+  albumArtist: string | null
+  year: number | null
+  trackCount: number
+  artwork: ArtworkUrls
+}
+
+/**
+ * The album runs for a predicate, under the same ordering as the rows.
+ *
+ * Deliberately unpaged. An artist has tens of albums and the whole library a
+ * few thousand, which is small enough to ship whole — and shipping it whole is
+ * the only way the renderer can size a grouped list before it has loaded any
+ * rows at all.
+ */
+export interface ListTrackGroupsQuery extends LibraryBrowseFilters {
+  sort: TrackSortColumn
+  direction: SortDirection
+}
+
+export interface ListTrackGroupsResult {
+  groups: TrackGroup[]
+  /** Total tracks across every run — the same number `listTracks` reports. */
+  total: number
+}
+
+/**
  * Largest page `library.listTracks` will serve.
  *
  * Lives in `shared` rather than beside the validator because both sides need

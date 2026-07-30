@@ -35,6 +35,7 @@ let dir: string
 let opened: OpenDatabaseResult
 let service: SqliteLibraryService
 let albumIds: number[]
+let artistIds: number[]
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'fermata-track-ids-'))
@@ -53,7 +54,7 @@ beforeAll(async () => {
   // Few enough names to be shared by dozens of tracks each. That is the tie the
   // `t.id` tiebreaker exists for: without it, rows with an equal sort key can
   // come back in a different order from the two queries.
-  const artistIds = Array.from({ length: 200 }, (_, index) =>
+  artistIds = Array.from({ length: 200 }, (_, index) =>
     Number(insertArtist.run(`Artist ${String(index).padStart(3, '0')}`).lastInsertRowid)
   )
   albumIds = Array.from({ length: 250 }, (_, index) =>
@@ -252,6 +253,186 @@ describe('album ordering', () => {
       else expect(disc).toBeGreaterThan(prevDisc)
     }
   }, 30_000)
+})
+
+/**
+ * The runs a grouped list draws headers against.
+ *
+ * A grouped list inserts one header per run and then converts a display row to
+ * a track offset by prefix-summing the counts, so a run that the rows do not
+ * actually form is not a cosmetic problem: every row after the first bad
+ * boundary sits under the wrong album. These walk the runs against the real
+ * rows rather than trusting the GROUP BY to have ordered itself the same way.
+ */
+describe('listTrackGroups', () => {
+  /** Every row's album title, in list order, for an album-major read. */
+  async function albumTitlesInOrder(
+    direction: SortDirection,
+    filters: LibraryBrowseFilters = {}
+  ): Promise<Array<string | null>> {
+    const titles: Array<string | null> = []
+    for (;;) {
+      const page = await service.listTracks({
+        ...filters,
+        sort: 'album',
+        direction,
+        offset: titles.length,
+        limit: ROW_PAGE
+      })
+      titles.push(...page.tracks.map((track) => track.album))
+      if (page.tracks.length < ROW_PAGE || titles.length >= page.total) return titles
+    }
+  }
+
+  it.each(['asc', 'desc'] as const)(
+    'describes runs the rows actually form, %s',
+    async (direction) => {
+      const titles = await albumTitlesInOrder(direction)
+      const { groups, total } = await service.listTrackGroups({ sort: 'album', direction })
+
+      expect(total).toBe(TRACK_COUNT)
+      expect(titles).toHaveLength(TRACK_COUNT)
+      expect(groups.reduce((sum, group) => sum + group.trackCount, 0)).toBe(TRACK_COUNT)
+
+      // Prefix sums are exactly how the renderer maps a display row to an
+      // offset, so walk them the same way.
+      let offset = 0
+      for (const group of groups) {
+        for (let index = offset; index < offset + group.trackCount; index++) {
+          expect(titles[index]).toBe(group.title)
+        }
+        offset += group.trackCount
+      }
+      expect(offset).toBe(TRACK_COUNT)
+    },
+    30_000
+  )
+
+  it('describes the runs within one artist', async () => {
+    // Not artistIds[0]: it lands only on indices divisible by 200, every one of
+    // which is also divisible by 5 and therefore untagged.
+    const artistFilter = { artistId: artistIds[1]! }
+    const titles = await albumTitlesInOrder('asc', artistFilter)
+    const { groups, total } = await service.listTrackGroups({
+      ...artistFilter,
+      sort: 'album',
+      direction: 'asc'
+    })
+
+    expect(total).toBe(titles.length)
+    expect(total).toBeGreaterThan(0)
+
+    let offset = 0
+    for (const group of groups) {
+      for (let index = offset; index < offset + group.trackCount; index++) {
+        expect(titles[index]).toBe(group.title)
+      }
+      offset += group.trackCount
+    }
+    expect(offset).toBe(titles.length)
+  })
+
+  it('puts the untagged run last, as the rows do', async () => {
+    const { groups } = await service.listTrackGroups({ sort: 'album', direction: 'asc' })
+    expect(groups.at(-1)?.albumId).toBeNull()
+    expect(groups.at(-1)?.title).toBeNull()
+    expect(groups.at(-1)?.trackCount).toBe(TRACK_COUNT / UNTAGGED_EVERY)
+    expect(groups.slice(0, -1).every((group) => group.albumId !== null)).toBe(true)
+  })
+
+  it('refuses an ordering that does not produce runs', async () => {
+    await expect(service.listTrackGroups({ sort: 'title', direction: 'asc' })).rejects.toThrow(
+      /album-major/
+    )
+  })
+})
+
+/**
+ * Two albums, one title.
+ *
+ * `albums` is unique on (title, album_artist_id), so a library with two
+ * "Greatest Hits" holds two rows sharing a title. Ordering on the title alone
+ * interleaves their tracks by disc and track number — track 1 of one, track 1
+ * of the other, track 2 of one — which reads as a single shuffled album and
+ * leaves `listTrackGroups` describing runs that do not exist. The main fixture
+ * cannot show this, because its titles are unique.
+ */
+describe('albums sharing a title', () => {
+  let sharedDir: string
+  let sharedOpened: OpenDatabaseResult
+  let sharedService: SqliteLibraryService
+
+  beforeAll(() => {
+    sharedDir = mkdtempSync(join(tmpdir(), 'fermata-same-title-'))
+    sharedOpened = openDatabase(join(sharedDir, 'library.db'))
+    const { db } = sharedOpened
+    const rootId = Number(
+      db
+        .prepare('INSERT INTO roots (label, path, added_at) VALUES (?, ?, ?)')
+        .run('Synthetic', '/synthetic', 1).lastInsertRowid
+    )
+    const artistA = Number(
+      db.prepare('INSERT INTO artists (name) VALUES (?)').run('A').lastInsertRowid
+    )
+    const artistB = Number(
+      db.prepare('INSERT INTO artists (name) VALUES (?)').run('B').lastInsertRowid
+    )
+    const insertAlbum = db.prepare(
+      'INSERT INTO albums (title, album_artist_id, year) VALUES (?, ?, ?)'
+    )
+    const albumA = Number(insertAlbum.run('Greatest Hits', artistA, 1990).lastInsertRowid)
+    const albumB = Number(insertAlbum.run('Greatest Hits', artistB, 1995).lastInsertRowid)
+    const insertTrack = db.prepare(
+      `INSERT INTO tracks (root_id, rel_path, mtime, size, title, artist_id, album_id, track_no)
+       VALUES (?, ?, 1, 1, ?, ?, ?, ?)`
+    )
+    db.transaction(() => {
+      for (let n = 1; n <= 4; n++) {
+        insertTrack.run(rootId, `a${n}.flac`, `A song ${n}`, artistA, albumA, n)
+        insertTrack.run(rootId, `b${n}.flac`, `B song ${n}`, artistB, albumB, n)
+      }
+    })()
+
+    sharedService = new SqliteLibraryService({
+      db,
+      pickFolder: async () => null,
+      onProgress: () => {}
+    })
+  })
+
+  afterAll(async () => {
+    await sharedService?.close()
+    sharedOpened?.db.close()
+    if (sharedDir) rmSync(sharedDir, { recursive: true, force: true })
+  })
+
+  it('keeps each album contiguous rather than interleaving them', async () => {
+    const page = await sharedService.listTracks({
+      sort: 'album',
+      direction: 'asc',
+      offset: 0,
+      limit: 100
+    })
+    const performers = page.tracks.map((track) => track.artist)
+
+    // One block of four, then the other — not A,B,A,B.
+    expect(performers).toEqual(['A', 'A', 'A', 'A', 'B', 'B', 'B', 'B'])
+    expect(page.tracks.map((track) => track.trackNo)).toEqual([1, 2, 3, 4, 1, 2, 3, 4])
+  })
+
+  it('reports the two runs separately', async () => {
+    const { groups, total } = await sharedService.listTrackGroups({
+      sort: 'album',
+      direction: 'asc'
+    })
+
+    expect(total).toBe(8)
+    expect(groups).toHaveLength(2)
+    expect(groups.map((group) => group.title)).toEqual(['Greatest Hits', 'Greatest Hits'])
+    expect(groups.map((group) => group.albumArtist)).toEqual(['A', 'B'])
+    expect(groups.map((group) => group.trackCount)).toEqual([4, 4])
+    expect(groups[0]!.albumId).not.toBe(groups[1]!.albumId)
+  })
 })
 
 describe('orderTrackIds', () => {

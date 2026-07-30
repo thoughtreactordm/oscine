@@ -9,6 +9,7 @@ import {
   TRACK_SORT_COLUMNS,
   type LibraryBrowseFilters,
   type ListFacetsQuery,
+  type ListTrackGroupsQuery,
   type ListTrackIdsQuery,
   type ListTracksQuery,
   type OrderTrackIdsQuery,
@@ -154,6 +155,24 @@ export function assertListTrackIdsQuery(value: unknown): ListTrackIdsQuery {
     ...assertBrowseFilters(raw),
     ...assertOrdering(raw),
     ...assertWindow(raw, MAX_TRACK_ID_PAGE)
+  }
+}
+
+/**
+ * Validates a request for the album runs behind a grouped list.
+ *
+ * Unpaged, so it carries the ordering and the filters but no window — the
+ * renderer needs every run to size the list before it loads a row. The sort
+ * column is validated the same way as any other list request; the store is what
+ * rejects a non-album-major one, since that is a contract about the shape of
+ * the list rather than about the shape of the message.
+ */
+export function assertListTrackGroupsQuery(value: unknown): ListTrackGroupsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['rootId', 'artistId', 'albumId', 'searchText', 'sort', 'direction'])
+  return {
+    ...assertBrowseFilters(raw),
+    ...assertOrdering(raw)
   }
 }
 

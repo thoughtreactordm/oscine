@@ -3,6 +3,8 @@ import type {
   ListAlbumsResult,
   ListArtistsResult,
   ListFacetsQuery,
+  ListTrackGroupsQuery,
+  ListTrackGroupsResult,
   ListTrackIdsQuery,
   ListTrackIdsResult,
   ListTracksQuery,
@@ -35,6 +37,7 @@ export interface LibraryService {
    * never loaded without paying for — or retaining — the display rows.
    */
   listTrackIds(query: ListTrackIdsQuery): Promise<ListTrackIdsResult>
+  listTrackGroups(query: ListTrackGroupsQuery): Promise<ListTrackGroupsResult>
   /** Orders an arbitrary id set the way the track list would. Ignores filters. */
   orderTrackIds(query: OrderTrackIdsQuery): Promise<number[]>
   /** Metadata-only lookup used by the renderer's pre-fetch R1 admission guard. */

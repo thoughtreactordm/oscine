@@ -9,6 +9,8 @@ import type {
   ListAlbumsResult,
   ListArtistsResult,
   ListFacetsQuery,
+  ListTrackGroupsQuery,
+  ListTrackGroupsResult,
   ListTrackIdsQuery,
   ListTrackIdsResult,
   ListTracksQuery,
@@ -204,6 +206,10 @@ export class SqliteLibraryService implements LibraryService {
 
   async listTrackIds(query: ListTrackIdsQuery): Promise<ListTrackIdsResult> {
     return this.store.listTrackIds(query)
+  }
+
+  async listTrackGroups(query: ListTrackGroupsQuery): Promise<ListTrackGroupsResult> {
+    return this.store.listTrackGroups(query)
   }
 
   async orderTrackIds(query: OrderTrackIdsQuery): Promise<number[]> {

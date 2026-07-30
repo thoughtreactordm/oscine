@@ -9,6 +9,7 @@ import type {
 } from '@shared/ipc'
 import type {
   ListFacetsQuery,
+  ListTrackGroupsQuery,
   ListTrackIdsQuery,
   ListTracksQuery,
   LibraryNotice,
@@ -81,6 +82,7 @@ const api = {
     listTracks: (query: ListTracksQuery) => request('library.listTracks', query),
     /** The same window as `listTracks`, ids only — for range selection. */
     listTrackIds: (query: ListTrackIdsQuery) => request('library.listTrackIds', query),
+    listTrackGroups: (query: ListTrackGroupsQuery) => request('library.listTrackGroups', query),
     /** Orders an arbitrary id set the way the track list would. */
     orderTrackIds: (query: OrderTrackIdsQuery) => request('library.orderTrackIds', query),
     /** Metadata-only lookup for the audio admission guard. */

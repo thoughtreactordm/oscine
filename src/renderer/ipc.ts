@@ -1,6 +1,7 @@
 import { FermataError, type IpcResult } from '@shared/errors'
 import type {
   ListFacetsQuery,
+  ListTrackGroupsQuery,
   ListTrackIdsQuery,
   ListTracksQuery,
   LibraryNotice,
@@ -38,6 +39,8 @@ export const library = {
   listAlbums: (query: ListFacetsQuery) => unwrap(window.fermata.library.listAlbums(query)),
   listTracks: (query: ListTracksQuery) => unwrap(window.fermata.library.listTracks(query)),
   listTrackIds: (query: ListTrackIdsQuery) => unwrap(window.fermata.library.listTrackIds(query)),
+  listTrackGroups: (query: ListTrackGroupsQuery) =>
+    unwrap(window.fermata.library.listTrackGroups(query)),
   orderTrackIds: (query: OrderTrackIdsQuery) => unwrap(window.fermata.library.orderTrackIds(query)),
   getTrackAudioMetadata: (trackId: number) =>
     unwrap(window.fermata.library.getTrackAudioMetadata(trackId)),

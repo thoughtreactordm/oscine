@@ -6,6 +6,8 @@ import type {
   ListAlbumsResult,
   ListArtistsResult,
   ListFacetsQuery,
+  ListTrackGroupsQuery,
+  ListTrackGroupsResult,
   ListTrackIdsQuery,
   ListTrackIdsResult,
   ListTracksQuery,
@@ -13,6 +15,7 @@ import type {
   OrderTrackIdsQuery,
   Track,
   TrackAudioMetadata,
+  TrackGroup,
   TrackSortColumn
 } from '@shared/library'
 import { artworkUrl } from '@shared/ipc'
@@ -106,8 +109,15 @@ const SORT_KEYS: Record<TrackSortColumn, readonly SortKey[]> = {
   // An album is only meaningful read in playing order: grouping by title alone
   // leaves `t.id` — scan order, which is the directory listing — deciding what
   // follows what, and a discography comes out alphabetised by song title.
+  //
+  // `t.album_id` rather than `al.id` because the joined-sort query shape has no
+  // `al` alias, and rather than nothing at all because `albums` is unique on
+  // (title, album_artist): two artists with a "Greatest Hits" share a title, and
+  // without this their tracks interleave by disc and track number. Runs have to
+  // be contiguous for `listTrackGroups` to describe them.
   album: [
     { expr: 'al.title', text: true },
+    { expr: 't.album_id', fixed: true },
     ...PLAYING_ORDER.map((key) => ({ ...key, fixed: true }))
   ],
   durationSec: [{ expr: 't.duration_ms' }]
@@ -769,6 +779,57 @@ export class LibraryStore {
       })),
       total
     }
+  }
+
+  /**
+   * The album runs the track list falls into, under the same predicate.
+   *
+   * Album-major orderings only. Under `title` the albums interleave, so there
+   * are no runs to describe and a caller asking for them has misunderstood the
+   * list it is about to draw; that is a programming error rather than an empty
+   * result, hence the throw.
+   *
+   * The ORDER BY is the album-level prefix of `SORT_KEYS.album` rather than a
+   * restatement of it. The runs and the rows have to agree on which album comes
+   * first and, thanks to the `t.album_id` tiebreaker, on the fact that each one
+   * is contiguous — a header placed against a run that the rows do not actually
+   * form would put every subsequent row under the wrong album.
+   */
+  listTrackGroups(query: ListTrackGroupsQuery): ListTrackGroupsResult {
+    if (query.sort !== 'album') {
+      throw new Error(`Track groups are album-major only; got sort: ${String(query.sort)}`)
+    }
+    const direction = query.direction === 'desc' ? 'DESC' : 'ASC'
+    const filter = buildFilter(query)
+    const albumOrder = SORT_KEYS.album
+      .slice(0, 2)
+      .map((key) => orderByFragment(key, direction))
+      .join(', ')
+
+    const rows = this.db
+      .prepare(
+        `SELECT t.album_id AS albumId,
+                al.title AS title,
+                aa.name AS albumArtist,
+                al.year AS year,
+                al.artwork_hash AS artworkHash,
+                count(*) AS trackCount
+         FROM tracks t
+         ${filter.ftsJoin}
+         ${TRACK_JOINS}
+         ${filter.where}
+         GROUP BY t.album_id
+         ORDER BY ${albumOrder}`
+      )
+      .all(filter.params) as Array<Omit<TrackGroup, 'artwork'> & { artworkHash: string | null }>
+
+    let total = 0
+    const groups = rows.map(({ artworkHash, ...group }) => {
+      total += group.trackCount
+      return { ...group, artwork: artworkUrls(artworkHash) }
+    })
+
+    return { groups, total }
   }
 
   getTrackAudioMetadata(trackId: number): TrackAudioMetadata | null {

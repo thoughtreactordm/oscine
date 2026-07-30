@@ -5,6 +5,8 @@ import type {
   ListFacetsQuery,
   LibraryRoot,
   LibraryNotice,
+  ListTrackGroupsQuery,
+  ListTrackGroupsResult,
   ListTrackIdsQuery,
   ListTrackIdsResult,
   ListTracksQuery,
@@ -56,6 +58,7 @@ export interface IpcContract {
    * retain thousands of `Track` objects.
    */
   'library.listTrackIds': { request: ListTrackIdsQuery; response: ListTrackIdsResult }
+  'library.listTrackGroups': { request: ListTrackGroupsQuery; response: ListTrackGroupsResult }
   /**
    * Orders an arbitrary set of track ids the way the track list would, so a
    * consumer can read a selection back in list order rather than scraping
@@ -131,6 +134,7 @@ export const IPC_CHANNELS = [
   'library.listAlbums',
   'library.listTracks',
   'library.listTrackIds',
+  'library.listTrackGroups',
   'library.orderTrackIds',
   'library.getTrackAudioMetadata',
   'library.getTrackFileUrl',
