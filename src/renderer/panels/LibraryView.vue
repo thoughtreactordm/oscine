@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref } from 'vue'
 import AppTitleBar from '@renderer/panels/AppTitleBar.vue'
 import ColumnChooser from '@renderer/panels/ColumnChooser.vue'
+import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import NowPlaying from '@renderer/panels/NowPlaying.vue'
 import Sources from '@renderer/panels/Sources.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
@@ -110,6 +111,7 @@ onUnmounted(() => playback.dispose())
                 {{ trackList.total.toLocaleString() }}
               </span>
 
+              <GroupChooser />
               <ColumnChooser />
             </div>
             <div class="min-h-0 flex-1">

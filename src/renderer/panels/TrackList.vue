@@ -14,6 +14,7 @@ import {
   type GroupLayout
 } from '@renderer/panels/trackGrouping'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
+import { useTrackGroupingStore } from '@renderer/stores/grouping'
 import { useTrackListStore } from '@renderer/stores/trackList'
 import type { Track } from '@shared/library'
 
@@ -44,6 +45,7 @@ const emit = defineEmits<{
 
 const panel = useTrackListStore()
 const columns = useTrackColumnsStore()
+const grouping = useTrackGroupingStore()
 const ROW_HEIGHT = 32
 const OVERSCAN = 8
 /** Pixels an arrow key moves a column edge. Shift narrows it to one. */
@@ -64,9 +66,6 @@ interface TrackTableRow {
   index: number | null
   run: GroupedRun | null
 }
-
-/** Album headers are taller than tracks — they carry the sleeve. */
-const HEADER_HEIGHT = 56
 
 const visibleColumns = computed(() => columns.visibleColumns)
 /** The column an album header spans from. Follows the user's column order. */
@@ -110,7 +109,7 @@ const tableColumns = computed<TableColumn<TrackTableRow>[]>(() =>
           th: alignClass(column),
           td: (cell: { row: TableRow<TrackTableRow> }) => {
             if (!isHeaderRow(cell.row.original)) return alignClass(column)
-            return leading ? 'h-14 px-2 py-0 align-middle' : 'hidden'
+            return leading ? 'px-2 py-0 align-middle' : 'hidden'
           }
         },
         colspan: {
@@ -121,8 +120,10 @@ const tableColumns = computed<TableColumn<TrackTableRow>[]>(() =>
         },
         style: {
           th: { width },
-          td: (cell: { row: TableRow<TrackTableRow> }) =>
-            isHeaderRow(cell.row.original) ? { width: 'auto' } : { width }
+          td: (cell: { row: TableRow<TrackTableRow> }): Record<string, string> =>
+            isHeaderRow(cell.row.original)
+              ? { width: 'auto', height: `${grouping.rowPx}px` }
+              : { width }
         }
       }
     }
@@ -143,7 +144,7 @@ const tableMeta = computed(() => ({
       const index = row.original.index
       // Headers are scenery: not selectable, not hoverable, and visibly not a
       // row you can act on.
-      if (index === null) return 'h-14 bg-elevated/40 hover:bg-elevated/40'
+      if (index === null) return 'bg-elevated/40 hover:bg-elevated/40'
 
       const classes: string[] = []
       if (panel.isSelectedAt(index)) classes.push('bg-primary/15')
@@ -151,6 +152,12 @@ const tableMeta = computed(() => ({
       if (panel.focusIndex === index) classes.push('ring-1 ring-inset ring-primary/70')
       return classes.join(' ')
     }
+  },
+  style: {
+    // The shared row class fixes every row at the track height, so a header has
+    // to state its own — and it is the sleeve size that decides it.
+    tr: (row: TableRow<TrackTableRow>): Record<string, string> =>
+      row.original.run ? { height: `${grouping.rowPx}px` } : {}
   }
 }))
 
@@ -168,6 +175,7 @@ const scrollPositions = new Map<string, number>()
  */
 const layout = computed<GroupLayout>(() => {
   void panel.ordering
+  if (!grouping.enabled) return identityLayout(panel.total)
   const grouped = groupedLayout(panel.groups)
   return grouped.runs.length > 0 && grouped.trackCount === panel.total
     ? grouped
@@ -203,7 +211,7 @@ const tableRows = computed<TrackTableRow[]>(() => {
 })
 
 function estimateRowSize(display: number): number {
-  return layout.value.rowAt(display)?.kind === 'header' ? HEADER_HEIGHT : ROW_HEIGHT
+  return layout.value.rowAt(display)?.kind === 'header' ? grouping.rowPx : ROW_HEIGHT
 }
 
 /** The album header's own cell spans the table; the rest of the row is not drawn. */
@@ -338,7 +346,7 @@ function scrollIndexIntoView(index: number): void {
   if (!element) return
   const display = layout.value.displayOf(index)
   const headers = layout.value.headersBefore(display)
-  const top = headers * HEADER_HEIGHT + (display - headers) * ROW_HEIGHT
+  const top = headers * grouping.rowPx + (display - headers) * ROW_HEIGHT
   if (top < element.scrollTop) element.scrollTop = top
   else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) {
     element.scrollTop = top + ROW_HEIGHT - element.clientHeight
@@ -611,7 +619,8 @@ onMounted(() => panel.ensureRange(0, 30))
               :src="row.original.run.group.artwork.small"
               alt=""
               aria-hidden="true"
-              class="size-10 shrink-0 rounded bg-elevated object-cover"
+              class="shrink-0 rounded bg-elevated object-cover"
+              :style="{ width: `${grouping.artPx}px`, height: `${grouping.artPx}px` }"
               loading="lazy"
               draggable="false"
             />

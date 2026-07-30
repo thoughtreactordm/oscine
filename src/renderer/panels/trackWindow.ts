@@ -438,6 +438,14 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     filters,
     total,
     groups,
+    /**
+     * Re-asks for the album runs without disturbing the rows.
+     *
+     * Turning grouping on is not a change of ordering, so it must not go through
+     * `invalidate`: that would discard every cached page and drop the selection's
+     * positions to redraw a list whose rows have not moved.
+     */
+    refreshGroups: (): void => void loadGroups(),
     loading,
     error,
     ordering,
