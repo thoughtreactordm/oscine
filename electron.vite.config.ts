@@ -105,6 +105,12 @@ export default defineConfig({
       cspPlugin(),
       vue(),
       ui({
+        ui: {
+          colors: {
+            primary: 'orange',
+            neutral: 'taupe'
+          }
+        },
         // Without clientBundle the Iconify runtime fetches icon data from
         // api.iconify.design on demand: icons vanish offline and the app makes
         // an unsolicited third-party request on cold start. Also verified in R4.

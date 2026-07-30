@@ -20,6 +20,7 @@ declare module 'vue' {
     UButton: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Button.vue')['default']
     UCard: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Card.vue')['default']
     UCheckbox: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Checkbox.vue')['default']
+    UColorModeSwitch: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/vue/components/color-mode/ColorModeSwitch.vue')['default']
     UDashboardGroup: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/DashboardGroup.vue')['default']
     UDashboardPanel: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/DashboardPanel.vue')['default']
     UDropdownMenu: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/DropdownMenu.vue')['default']
@@ -33,6 +34,7 @@ declare module 'vue' {
     USelect: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Select.vue')['default']
     USkeleton: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Skeleton.vue')['default']
     USlider: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Slider.vue')['default']
+    USwitch: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Switch.vue')['default']
     UTable: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Table.vue')['default']
   }
 }

@@ -91,7 +91,8 @@ async function toggleMaximize(): Promise<void> {
 
     <div class="flex-1" />
 
-    <div class="app-no-drag flex h-full shrink-0" aria-label="Window controls">
+    <div class="app-no-drag flex h-full shrink-0 items-center" aria-label="Window controls">
+      <UColorModeSwitch />
       <UButton
         icon="i-lucide-minus"
         color="neutral"
