@@ -2,8 +2,10 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { FermataError, library } from '@renderer/ipc'
 import { measureLibraryQuery } from '@renderer/metrics'
+import CoverArt from '@renderer/panels/CoverArt.vue'
 import FacetList from '@renderer/panels/FacetList.vue'
 import { createFacetWindow } from '@renderer/panels/facetWindow'
+import { useShellStore } from '@renderer/stores/shell'
 import {
   MAX_SEARCH_LENGTH,
   MIN_SEARCH_LENGTH,
@@ -22,6 +24,12 @@ const emit = defineEmits<{
 const ARTIST_ROW_HEIGHT = 32
 const ALBUM_ROW_HEIGHT = 44
 const SEARCH_DELAY_MS = 250
+
+/**
+ * Read-only here. The cover pane is toggled from the transport's thumbnail, and
+ * this panel does nothing with the flag but give the pane somewhere to land.
+ */
+const shell = useShellStore()
 
 const roots = ref<LibraryRoot[]>([])
 const rootId = ref<number | null>(null)
@@ -386,5 +394,53 @@ onUnmounted(() => {
         class="min-h-0 flex-1"
       />
     </section>
+
+    <!--
+      Pinned to the foot of the sidebar, below both facet panes, which keeps the
+      two lists in the same place whether or not the cover is showing. The slot
+      is only a mount point and a collapse animation — everything about what is
+      drawn belongs to `CoverArt`.
+    -->
+    <Transition name="coverSlot">
+      <div v-if="shell.coverExpanded" class="cover-slot shrink-0">
+        <div class="cover-slot-inner">
+          <CoverArt />
+        </div>
+      </div>
+    </Transition>
   </UCard>
 </template>
+
+<style scoped>
+/*
+ * `0fr` → `1fr` rather than a height transition: the pane's height depends on
+ * the sidebar's width, so there is no pixel value to animate to that would
+ * still be right after a resize. The grid row is the measurement.
+ */
+.cover-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.cover-slot-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.coverSlot-enter-active,
+.coverSlot-leave-active {
+  transition: grid-template-rows 260ms ease;
+}
+
+.coverSlot-enter-from,
+.coverSlot-leave-to {
+  grid-template-rows: 0fr;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coverSlot-enter-active,
+  .coverSlot-leave-active {
+    transition-duration: 0ms;
+  }
+}
+</style>
