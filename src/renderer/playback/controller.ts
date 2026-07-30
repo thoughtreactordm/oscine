@@ -19,6 +19,7 @@ import type {
   Track,
   TrackSortColumn
 } from '@shared/library'
+import type { MediaSessionBinding, MediaSessionState, MediaSessionTransport } from './mediaSession'
 import { createListPlayOrder, type PlayOrder } from './playOrder'
 import { PlaybackScheduler, type PrefetchState, type PrefetchStatus } from './scheduler'
 
@@ -51,6 +52,22 @@ export interface PlaybackControllerDeps {
   crossfadeMs?: number
   /** ReplayGain policy; track normalization is the M2 default. */
   normalizationMode?: NormalizationMode
+  /**
+   * Binds the OS now-playing surface — SMTC on Windows, MPRIS on Linux.
+   *
+   * Injected rather than constructed here for the same reason the engine is:
+   * it needs `navigator.mediaSession` and an `<audio>` element, neither of
+   * which exists under the node test config. Omitting it is a supported
+   * configuration, not a degraded one — the transport is unaffected.
+   *
+   * It hangs off the controller rather than off a panel because the OS card is
+   * a second view onto exactly the state the transport reads, and panels are
+   * islands. Living here also means `dispose()` already covers it.
+   */
+  createMediaSession?: (deps: {
+    state: MediaSessionState
+    transport: MediaSessionTransport
+  }) => MediaSessionBinding
 }
 
 export interface PlayFromListParams {
@@ -253,11 +270,30 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     await goTo(orderIndex.value - 1)
   }
 
+  /**
+   * Resume, and only resume.
+   *
+   * Separate from `toggle` because the OS media session needs an idempotent
+   * intent rather than a flip: when a track is on the R1 streaming fallback its
+   * real media element is a session participant alongside our silent anchor, so
+   * a single OS play can reach playback twice. Two resumes settle on playing; a
+   * second toggle would pause.
+   */
+  async function resume(): Promise<void> {
+    if (!nowPlaying.value || status.value === 'playing') return
+    await ensureScheduler().play()
+  }
+
+  /** Pause, and only pause. Idempotent for the same reason as `resume`. */
+  function pause(): void {
+    if (status.value !== 'playing') return
+    scheduler?.pause()
+  }
+
   async function toggle(): Promise<void> {
     if (!nowPlaying.value) return
-    const active = ensureScheduler()
-    if (status.value === 'playing') active.pause()
-    else await active.play()
+    if (status.value === 'playing') pause()
+    else await resume()
   }
 
   /** Called when the seek handle is grabbed; suspends follow until released. */
@@ -317,8 +353,18 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     duration.value = 0
   }
 
+  // Built now rather than on first play: it publishes nothing while `status` is
+  // `idle`, and building it here means the OS card is already correct for a
+  // track started from a media key rather than from the window.
+  const mediaSession =
+    deps.createMediaSession?.({
+      state: { status, nowPlaying, currentTime, duration, scrubbing },
+      transport: { resume, pause, stop, next, previous, seek }
+    }) ?? null
+
   /** Releases the audio device and every subscription. Safe to call twice. */
   function dispose(): void {
+    mediaSession?.dispose()
     for (const off of unsubscribes) off()
     unsubscribes = []
     scheduler?.dispose()
@@ -357,6 +403,8 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     playFromList,
     next,
     previous,
+    resume,
+    pause,
     toggle,
     beginScrub,
     scrubTo,
@@ -369,6 +417,8 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     dispose,
     /** Test seam: whether the audio device has actually been claimed yet. */
     hasEngine: (): boolean => scheduler !== null,
+    /** Test seam: the OS media-session binding, or `null` when unbound. */
+    mediaSession: (): MediaSessionBinding | null => mediaSession,
     /** Test seam: the ordering currently being played through. */
     orderId: (): string | null => order?.id ?? null
   }

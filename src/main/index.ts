@@ -134,6 +134,26 @@ if (!app.requestSingleInstanceLock()) {
   // fetch() against it fails in ways that look like a CSP problem.
   registerTrackScheme()
 
+  // The identity Windows attaches the SMTC now-playing card to. Without it the
+  // card is labelled "Electron" and carries the wrong icon, which is the same
+  // failure whether or not the app is packaged. Matches `appId` in
+  // electron-builder.yml; the two disagreeing would split the identity in two.
+  //
+  // Deliberately *not* accompanied by `app.setName`, which is the obvious next
+  // reach because Chromium is said to derive the MPRIS bus name from the
+  // product name. Measured, it does not:
+  // `scripts/media-session-probe.mjs` publishes
+  // `org.mpris.MediaPlayer2.chromium.instance<pid>` either way. So setting it
+  // would buy nothing and cost something real — `app.getPath('userData')` is
+  // derived from the same value, and changing it silently relocates the library
+  // database and the artwork cache (`db/location.ts`).
+  //
+  // Linux identity therefore comes from the desktop entry and StartupWMClass in
+  // electron-builder.yml, not from the bus name. No Chromium feature switch is
+  // needed for the MPRIS path on Electron 43; the probe confirms it publishes
+  // unaided.
+  app.setAppUserModelId('dev.fermata.app')
+
   app.on('second-instance', () => {
     const [win] = BrowserWindow.getAllWindows()
     if (win) {

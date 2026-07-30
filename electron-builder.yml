@@ -21,6 +21,19 @@ linux:
   target:
     - AppImage
     - deb
+  # W3-10. The desktop entry is how the shell resolves the MPRIS client we
+  # publish into an application identity — without it GNOME/KDE show the media
+  # widget with a generic name and no icon.
+  #
+  # StartupWMClass is the easily-missed one: it is what matches the D-Bus client
+  # to the window, and it must equal the window class Chromium reports, which is
+  # productName. This half only exists in a packaged build, which is why the
+  # Linux acceptance has to be re-run against the AppImage rather than dev.
+  desktop:
+    entry:
+      Categories: AudioVideo;Audio;Player;
+      StartupWMClass: Fermata
+      MimeType: audio/flac;audio/mpeg;audio/x-vorbis+ogg;audio/mp4;audio/x-wav;
 
 # better-sqlite3 arrives in W2-1 and is native: it must be unpacked from the
 # asar to be loadable at runtime.

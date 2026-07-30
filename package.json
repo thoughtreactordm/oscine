@@ -26,6 +26,7 @@
     "probe:m2-exit": "node scripts/m2-exit-probe.mjs",
     "probe:r1-fallback": "node scripts/r1-fallback-probe.mjs",
     "probe:replaygain": "node scripts/replaygain-worker-probe.mjs",
+    "probe:media-session": "node scripts/media-session-probe.mjs",
     "probe:fixture": "node scripts/make-probe-fixture.mjs",
     "probe:m2-fixture": "node scripts/make-m2-probe-fixture.mjs"
   },

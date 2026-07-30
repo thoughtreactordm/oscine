@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPlaybackController } from '../../../src/renderer/playback/controller'
+import {
+  createPlaybackController,
+  type PlaybackControllerDeps
+} from '../../../src/renderer/playback/controller'
 // The contract, not the barrel: these tests compile under the node config,
 // which has no DOM, and the barrel reaches the Web Audio implementation.
 import {
@@ -147,7 +150,13 @@ class FakeEngine implements AudioEngine {
   }
 }
 
-function harness(options: { total?: number; manualLoad?: boolean } = {}) {
+function harness(
+  options: {
+    total?: number
+    manualLoad?: boolean
+    createMediaSession?: PlaybackControllerDeps['createMediaSession']
+  } = {}
+) {
   const total = options.total ?? 10
   const engines = [
     new FakeEngine(options.manualLoad ?? false),
@@ -168,7 +177,8 @@ function harness(options: { total?: number; manualLoad?: boolean } = {}) {
       if (!engine) throw new Error('Scheduler created more than two engines')
       return engine
     },
-    fetchPage
+    fetchPage,
+    ...(options.createMediaSession ? { createMediaSession: options.createMediaSession } : {})
   })
   return { controller, engine: engines[0], engines, fetchPage }
 }
@@ -615,6 +625,73 @@ describe('createPlaybackController', () => {
 
       // A disposed engine is unusable; the late decode must not try to play it.
       expect(slow.engine.playCount).toBe(0)
+    })
+  })
+
+  describe('resume and pause as intents', () => {
+    // The OS media session needs idempotent intents rather than a flip: with a
+    // track on the R1 streaming fallback its real media element is a session
+    // participant alongside the silent anchor, so one OS press can reach the
+    // controller twice. See `mediaSession.ts`.
+    beforeEach(async () => {
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 0,
+        track: track(0)
+      })
+      h.engine.emit('statuschange', 'playing')
+    })
+
+    it('pauses once when asked twice', () => {
+      h.controller.pause()
+      h.engine.emit('statuschange', 'paused')
+      h.controller.pause()
+      expect(h.engine.pauseCount).toBe(1)
+    })
+
+    it('does not resume a track that is already playing', async () => {
+      const before = h.engine.playCount
+      await h.controller.resume()
+      expect(h.engine.playCount).toBe(before)
+    })
+
+    it('still flips when the transport button is used', async () => {
+      h.controller.pause()
+      h.engine.emit('statuschange', 'paused')
+      await h.controller.toggle()
+      expect(h.engine.playCount).toBe(2)
+    })
+  })
+
+  describe('OS media session', () => {
+    it('runs unbound where the runtime has no media session', () => {
+      expect(h.controller.mediaSession()).toBeNull()
+    })
+
+    it('binds the transport intents and releases the binding with the controller', () => {
+      const seen: Array<{ state: unknown; transport: unknown }> = []
+      const dispose = vi.fn()
+      const bound = harness({
+        createMediaSession: (deps) => {
+          seen.push(deps)
+          return { dispose, hasAnchor: () => false }
+        }
+      })
+
+      expect(seen).toHaveLength(1)
+      expect(seen[0]!.transport).toMatchObject({
+        resume: expect.any(Function),
+        pause: expect.any(Function),
+        stop: expect.any(Function),
+        next: expect.any(Function),
+        previous: expect.any(Function),
+        seek: expect.any(Function)
+      })
+      expect(bound.controller.mediaSession()).not.toBeNull()
+
+      bound.controller.dispose()
+      expect(dispose).toHaveBeenCalledTimes(1)
     })
   })
 })

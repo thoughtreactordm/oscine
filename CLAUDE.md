@@ -36,6 +36,7 @@ W5 Playlists & Queue, W6 Packaging & Ops.
 | Native ABI check | `npm run verify:native` |
 | Seed test library | `npm run seed:synthetic` |
 | Mixed-format fixture | `npm run probe:fixture` (needs ffmpeg) |
+| OS media session | `npm run probe:media-session` (Linux; needs `busctl` and `playerctl`) |
 | M1 exit gate | `npm run probe:m1-exit` |
 | M2 exit gate | `npm run probe:m2-exit` (needs ffmpeg) |
 
@@ -76,6 +77,18 @@ temporary directory. The isolated database is a safety property: the ReplayGain 
 experiment must never enqueue the operator's library. Attach the Windows and Linux reports from
 the same commit to W6-4. `--skip-repo-gate --allow-dirty` is available only for developing the
 probe; a report carrying either condition is not milestone evidence.
+
+`probe:media-session` is a different kind of thing: an experiment, not a gate. It runs a throwaway
+Electron app in a temporary user-data directory — so it never opens the real library and does not
+contend for the single-instance lock — reproducing exactly what `browserMediaSession.ts` does, and
+reports what Chromium's MPRIS backend actually publishes. Re-run it when Electron is upgraded. The
+three things it established on Electron 43 are load-bearing and are commented at their use sites:
+
+- `MediaImage` refuses the `fermata://` scheme however it is privileged, so artwork has to be
+  re-addressed as a blob before Chromium will publish `mpris:artUrl`.
+- The bus name is `org.mpris.MediaPlayer2.chromium.instance<pid>` regardless of `setAppUserModelId`
+  or `app.setName`. Linux identity comes from the desktop entry, not the bus name.
+- No Chromium feature switch is needed for the MPRIS path.
 
 ## Context discipline
 
