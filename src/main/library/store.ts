@@ -5,6 +5,8 @@ import type {
   LibraryBrowseFilters,
   ListAlbumsResult,
   ListArtistsResult,
+  ListFacetIdsQuery,
+  ListFacetIdsResult,
   ListFacetsQuery,
   ListTrackGroupsQuery,
   ListTrackGroupsResult,
@@ -639,7 +641,9 @@ export class LibraryStore {
     if (!keys) throw new Error(`Unsupported sort column: ${String(query.sort)}`)
     const direction = query.direction === 'desc' ? 'DESC' : 'ASC'
     const filtered =
-      query.artistId !== undefined || query.albumId !== undefined || query.searchText !== undefined
+      query.artistIds !== undefined ||
+      query.albumIds !== undefined ||
+      query.searchText !== undefined
     if (filtered) return this.listFilteredTrackIds(query, keys, direction)
 
     const where = query.rootId === undefined ? '' : 'WHERE t.root_id = @rootId'
@@ -778,6 +782,64 @@ export class LibraryStore {
         artwork: artworkUrls(artworkHash)
       })),
       total
+    }
+  }
+
+  /**
+   * The artist facet window, resolved to ids.
+   *
+   * The projection is narrower than `listArtists` but the FROM, the GROUP BY and
+   * above all the ORDER BY are the same clause, because a Shift-range in the
+   * pane is expressed in index positions: the ids at positions 40 to 900 have to
+   * be the ids the user would have seen there. Two ORDER BY clauses that merely
+   * looked alike would drift, and the symptom would be a range selection
+   * silently off by a row somewhere past what is on screen.
+   */
+  listArtistIds(query: ListFacetIdsQuery): ListFacetIdsResult {
+    const filter = buildFilter(query)
+    const params = { ...filter.params, limit: query.limit, offset: query.offset }
+    const rows = this.db
+      .prepare(
+        `SELECT browse_artist.id AS id,
+                count(*) OVER () AS facetTotal
+         FROM tracks t
+         ${filter.ftsJoin}
+         LEFT JOIN albums al ON al.id = t.album_id
+         JOIN artists browse_artist ON browse_artist.id = ${BROWSE_ARTIST_ID}
+         ${filter.where}
+         GROUP BY browse_artist.id
+         ORDER BY browse_artist.name COLLATE NOCASE ASC, browse_artist.id ASC
+         LIMIT @limit OFFSET @offset`
+      )
+      .all(params) as Array<{ id: number; facetTotal: number }>
+
+    return {
+      ids: rows.map((row) => row.id),
+      total: rows[0]?.facetTotal ?? facetTotal(this.db, BROWSE_ARTIST_ID, filter, params)
+    }
+  }
+
+  /** The album facet window, resolved to ids. Mirrors `listAlbums` clause for clause. */
+  listAlbumIds(query: ListFacetIdsQuery): ListFacetIdsResult {
+    const filter = buildFilter(query)
+    const params = { ...filter.params, limit: query.limit, offset: query.offset }
+    const rows = this.db
+      .prepare(
+        `SELECT al.id AS id,
+                count(*) OVER () AS facetTotal
+         FROM tracks t
+         ${filter.ftsJoin}
+         JOIN albums al ON al.id = t.album_id
+         ${filter.where}
+         GROUP BY al.id
+         ORDER BY al.title COLLATE NOCASE ASC, al.id ASC
+         LIMIT @limit OFFSET @offset`
+      )
+      .all(params) as Array<{ id: number; facetTotal: number }>
+
+    return {
+      ids: rows.map((row) => row.id),
+      total: rows[0]?.facetTotal ?? facetTotal(this.db, 't.album_id', filter, params)
     }
   }
 
@@ -1083,6 +1145,32 @@ function ftsLiteral(text: string): string {
   return terms.join(' AND ')
 }
 
+/**
+ * Constrains a dimension to a set of ids.
+ *
+ * The set arrives as a JSON array bound to one parameter and joined through
+ * `json_each`, not as generated `@id0, @id1, …` placeholders. Two reasons: the
+ * statement text no longer varies with the size of the selection, so SQLite's
+ * statement cache holds one plan for every selection rather than one per arity;
+ * and the 999-parameter limit stops being a ceiling the selection can reach.
+ */
+function addIdPredicate(
+  predicates: string[],
+  params: Record<string, string | number>,
+  dimension: string,
+  name: 'artistIds' | 'albumIds',
+  ids: readonly number[] | undefined
+): void {
+  if (ids === undefined || ids.length === 0) return
+  if (ids.length === 1) {
+    predicates.push(`${dimension} = @${name}`)
+    params[name] = ids[0] as number
+    return
+  }
+  predicates.push(`${dimension} IN (SELECT value FROM json_each(@${name}))`)
+  params[name] = JSON.stringify([...ids])
+}
+
 function buildFilter(filters: LibraryBrowseFilters): FilterSql {
   const predicates: string[] = []
   const params: Record<string, string | number> = {}
@@ -1091,14 +1179,12 @@ function buildFilter(filters: LibraryBrowseFilters): FilterSql {
     predicates.push('t.root_id = @rootId')
     params.rootId = filters.rootId
   }
-  if (filters.artistId !== undefined) {
-    predicates.push(`${BROWSE_ARTIST_ID} = @artistId`)
-    params.artistId = filters.artistId
-  }
-  if (filters.albumId !== undefined) {
-    predicates.push('t.album_id = @albumId')
-    params.albumId = filters.albumId
-  }
+  // A single id still becomes `= @id` rather than a one-element `IN`. SQLite
+  // plans the equality against the index directly, and the facet dimensions are
+  // the two predicates every browse query in the app carries — the common case
+  // of one selected artist should not pay for a table-valued function.
+  addIdPredicate(predicates, params, BROWSE_ARTIST_ID, 'artistIds', filters.artistIds)
+  addIdPredicate(predicates, params, 't.album_id', 'albumIds', filters.albumIds)
   if (filters.searchText !== undefined) {
     predicates.push('tracks_fts MATCH @search')
     params.search = ftsLiteral(filters.searchText)

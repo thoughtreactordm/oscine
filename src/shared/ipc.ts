@@ -2,6 +2,8 @@ import type {
   ArtworkVariant,
   ListAlbumsResult,
   ListArtistsResult,
+  ListFacetIdsQuery,
+  ListFacetIdsResult,
   ListFacetsQuery,
   LibraryRoot,
   LibraryNotice,
@@ -47,6 +49,16 @@ export interface IpcContract {
   'library.scanRoot': { request: { rootId: number }; response: ScanSummary }
   'library.listArtists': { request: ListFacetsQuery; response: ListArtistsResult }
   'library.listAlbums': { request: ListFacetsQuery; response: ListAlbumsResult }
+  /**
+   * The same two facet windows, resolved to ids only.
+   *
+   * These exist for the same reason `library.listTrackIds` does — a Shift-range
+   * in a facet pane spans rows the pane never loaded — and for one more: a
+   * selection passed back as its own filter is how the renderer prunes an album
+   * selection when the artist set narrows under it.
+   */
+  'library.listArtistIds': { request: ListFacetIdsQuery; response: ListFacetIdsResult }
+  'library.listAlbumIds': { request: ListFacetIdsQuery; response: ListFacetIdsResult }
   'library.listTracks': { request: ListTracksQuery; response: ListTracksResult }
   /**
    * The same window as `library.listTracks`, resolved to ids only.
@@ -132,6 +144,8 @@ export const IPC_CHANNELS = [
   'library.scanRoot',
   'library.listArtists',
   'library.listAlbums',
+  'library.listArtistIds',
+  'library.listAlbumIds',
   'library.listTracks',
   'library.listTrackIds',
   'library.listTrackGroups',

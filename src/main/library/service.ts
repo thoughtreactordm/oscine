@@ -2,6 +2,8 @@ import type {
   LibraryRoot,
   ListAlbumsResult,
   ListArtistsResult,
+  ListFacetIdsQuery,
+  ListFacetIdsResult,
   ListFacetsQuery,
   ListTrackGroupsQuery,
   ListTrackGroupsResult,
@@ -29,6 +31,14 @@ export interface LibraryService {
   scanRoot(rootId: number): Promise<ScanSummary>
   listArtists(query: ListFacetsQuery): Promise<ListArtistsResult>
   listAlbums(query: ListFacetsQuery): Promise<ListAlbumsResult>
+  /**
+   * The same two windows, ids only.
+   *
+   * Serves a facet Shift-range over pages the pane never loaded, and — by taking
+   * a selection as its own filter — prunes one dimension when another narrows.
+   */
+  listArtistIds(query: ListFacetIdsQuery): Promise<ListFacetIdsResult>
+  listAlbumIds(query: ListFacetIdsQuery): Promise<ListFacetIdsResult>
   listTracks(query: ListTracksQuery): Promise<ListTracksResult>
   /**
    * The same window as `listTracks`, ids only.

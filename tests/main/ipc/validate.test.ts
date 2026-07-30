@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { FermataError } from '@shared/errors'
 import {
+  MAX_FACET_ID_PAGE,
   MAX_FACET_PAGE,
+  MAX_FILTER_IDS,
   MAX_ORDERED_TRACK_IDS,
   MAX_SEARCH_LENGTH,
   MAX_TRACK_ID_PAGE,
   MAX_TRACK_PAGE
 } from '@shared/library'
 import {
+  assertListFacetIdsQuery,
   assertListFacetsQuery,
   assertListTrackIdsQuery,
   assertListTracksQuery,
@@ -19,8 +22,8 @@ describe('library browse IPC validation', () => {
     expect(
       assertListTracksQuery({
         rootId: 1,
-        artistId: 2,
-        albumId: 3,
+        artistIds: [2, 5, 2],
+        albumIds: [3],
         searchText: '  hemian  ',
         sort: 'album',
         direction: 'desc',
@@ -29,8 +32,10 @@ describe('library browse IPC validation', () => {
       })
     ).toEqual({
       rootId: 1,
-      artistId: 2,
-      albumId: 3,
+      // Deduplicated, because a selection assembled from overlapping ranges can
+      // honestly repeat an id and the repeat changes no result.
+      artistIds: [2, 5],
+      albumIds: [3],
       searchText: 'hemian',
       sort: 'album',
       direction: 'desc',
@@ -42,8 +47,16 @@ describe('library browse IPC validation', () => {
   it('rejects malformed ids, short searches and unbounded windows', () => {
     const base = { offset: 0, limit: 20 }
     for (const query of [
-      { ...base, artistId: 0 },
-      { ...base, albumId: 1.5 },
+      { ...base, artistIds: [0] },
+      { ...base, albumIds: [1.5] },
+      { ...base, artistIds: 2 },
+      // Empty is refused rather than read as "match everything" or "match
+      // nothing" — the two readings differ by the whole library.
+      { ...base, albumIds: [] },
+      {
+        ...base,
+        artistIds: Array.from({ length: MAX_FILTER_IDS + 1 }, (_, index) => index + 1)
+      },
       { ...base, searchText: 'ab' },
       { ...base, searchText: 'a b c' },
       { ...base, searchText: 'x'.repeat(MAX_SEARCH_LENGTH + 1) },
@@ -74,6 +87,19 @@ describe('library browse IPC validation', () => {
       MAX_TRACK_ID_PAGE
     )
     expect(() => assertListTrackIdsQuery({ ...query, limit: MAX_TRACK_ID_PAGE + 1 })).toThrow(
+      FermataError
+    )
+  })
+
+  it('lets a facet id page be larger than a facet row page', () => {
+    // Wide enough that any selection a user can make resolves in one request.
+    expect(assertListFacetIdsQuery({ offset: 0, limit: MAX_FACET_ID_PAGE }).limit).toBe(
+      MAX_FACET_ID_PAGE
+    )
+    expect(() => assertListFacetsQuery({ offset: 0, limit: MAX_FACET_PAGE + 1 })).toThrow(
+      FermataError
+    )
+    expect(() => assertListFacetIdsQuery({ offset: 0, limit: MAX_FACET_ID_PAGE + 1 })).toThrow(
       FermataError
     )
   })

@@ -148,9 +148,9 @@ describe('listTrackIds', () => {
   )
 
   it.each([
-    { label: 'an album filter', filters: () => ({ albumId: albumIds[3]! }) },
+    { label: 'an album filter', filters: () => ({ albumIds: [albumIds[3]!] }) },
     { label: 'a search', filters: () => ({ searchText: 'Title 00' }) },
-    { label: 'both', filters: () => ({ albumId: albumIds[3]!, searchText: 'Title' }) }
+    { label: 'both', filters: () => ({ albumIds: [albumIds[3]!], searchText: 'Title' }) }
   ])('agrees with listTracks under $label', async ({ filters }) => {
     const applied = filters()
     const fromRows = await idsFromRows('title', 'desc', applied)
@@ -311,7 +311,7 @@ describe('listTrackGroups', () => {
   it('describes the runs within one artist', async () => {
     // Not artistIds[0]: it lands only on indices divisible by 200, every one of
     // which is also divisible by 5 and therefore untagged.
-    const artistFilter = { artistId: artistIds[1]! }
+    const artistFilter = { artistIds: [artistIds[1]!] }
     const titles = await albumTitlesInOrder('asc', artistFilter)
     const { groups, total } = await service.listTrackGroups({
       ...artistFilter,
@@ -468,7 +468,7 @@ describe('orderTrackIds', () => {
   }, 30_000)
 
   it('ignores browse filters, so a selection outlives the search that made it', async () => {
-    const inAlbum = await idsFromRows('title', 'asc', { albumId: albumIds[3]! })
+    const inAlbum = await idsFromRows('title', 'asc', { albumIds: [albumIds[3]!] })
     const others = (await idsFromRows('title', 'asc')).filter((id) => !inAlbum.includes(id))
     const mixed = [inAlbum[0]!, others[0]!, inAlbum[1]!]
 

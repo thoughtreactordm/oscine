@@ -120,8 +120,8 @@ describe('library browse and infix search', () => {
     const result = await service.listTracks({
       ...window,
       rootId: ids.rootOne,
-      artistId: ids.queen,
-      albumId: ids.opera,
+      artistIds: [ids.queen],
+      albumIds: [ids.opera],
       searchText: 'hemian',
       offset: 0,
       limit: 1
@@ -142,8 +142,8 @@ describe('library browse and infix search', () => {
       for (const direction of ['asc', 'desc'] as const) {
         const result = await service.listTracks({
           rootId: ids.rootOne,
-          artistId: ids.queen,
-          albumId: ids.opera,
+          artistIds: [ids.queen],
+          albumIds: [ids.opera],
           searchText: 'Opera',
           sort,
           direction,
@@ -176,7 +176,7 @@ describe('library browse and infix search', () => {
 
     const albums = await service.listAlbums({
       rootId: ids.rootOne,
-      artistId: ids.queen,
+      artistIds: [ids.queen],
       offset: 0,
       limit: 100
     })
@@ -226,7 +226,7 @@ describe('library browse and infix search', () => {
 
     const queenTracks = await service.listTracks({
       ...window,
-      artistId: ids.queen
+      artistIds: [ids.queen]
     })
     expect(queenTracks.tracks.map((track) => track.title)).toEqual([
       'Bohemian Rhapsody',
@@ -261,5 +261,75 @@ describe('library browse and infix search', () => {
       searchText: 'hemian" OR artist:Queen'
     })
     expect(result).toEqual({ tracks: [], total: 0 })
+  })
+})
+
+describe('facet id sets as a browse filter', () => {
+  it('unions within a dimension and intersects across them', async () => {
+    const union = await service.listTracks({
+      ...window,
+      artistIds: [ids.queen, ids.sigur]
+    })
+    expect(union.tracks.map((track) => track.title)).toEqual([
+      'Bohemian Rhapsody',
+      'Love of My Life',
+      'Samskeyti 東京音楽'
+    ])
+    // The fourth track in the fixture belongs to neither artist and stays out.
+    expect(union.total).toBe(3)
+
+    // The dimensions AND: two artists and one of their albums is that album, not
+    // everything either of them recorded.
+    const narrowed = await service.listTracks({
+      ...window,
+      artistIds: [ids.queen, ids.sigur],
+      albumIds: [ids.emptyAlbum]
+    })
+    expect(narrowed.tracks.map((track) => track.title)).toEqual(['Samskeyti 東京音楽'])
+  })
+
+  it('reads a repeated id the same way as a single one', async () => {
+    // The store spells one id as an equality and several as a `json_each` join.
+    // Two SQL paths for one predicate is exactly the sort of thing that agrees
+    // until it does not.
+    const single = await service.listTracks({ ...window, artistIds: [ids.queen] })
+    const repeated = await service.listTracks({ ...window, artistIds: [ids.queen, ids.queen] })
+    expect(repeated).toEqual(single)
+  })
+
+  it('resolves facet ids in the same order as the facet rows', async () => {
+    const rows = await service.listAlbums({ rootId: ids.rootOne, offset: 0, limit: 100 })
+    const resolved = await service.listAlbumIds({ rootId: ids.rootOne, offset: 0, limit: 100 })
+
+    // The contract a Shift-range depends on: the id at a position is the id of
+    // the row the user would have seen there.
+    expect(resolved.ids).toEqual(rows.albums.map((album) => album.id))
+    expect(resolved.total).toBe(rows.total)
+
+    const artistRows = await service.listArtists({ offset: 0, limit: 100 })
+    const artistIds = await service.listArtistIds({ offset: 0, limit: 100 })
+    expect(artistIds.ids).toEqual(artistRows.artists.map((artist) => artist.id))
+    expect(artistIds.total).toBe(artistRows.total)
+  })
+
+  it('answers a window into the middle of a facet', async () => {
+    const all = await service.listArtistIds({ offset: 0, limit: 100 })
+    const slice = await service.listArtistIds({ offset: 1, limit: 2 })
+
+    expect(slice.ids).toEqual(all.ids.slice(1, 3))
+    // The total ignores the window, so a pane can size its scrollbar from any page.
+    expect(slice.total).toBe(all.total)
+  })
+
+  it('prunes a selection by filtering it with itself', async () => {
+    // What the renderer asks when the artist selection narrows under an album
+    // selection: of these three albums, which survive the new predicate?
+    const surviving = await service.listAlbumIds({
+      artistIds: [ids.queen],
+      albumIds: [ids.opera, ids.emptyAlbum, ids.covers],
+      offset: 0,
+      limit: 100
+    })
+    expect(surviving.ids).toEqual([ids.opera])
   })
 })

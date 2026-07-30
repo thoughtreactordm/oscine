@@ -8,6 +8,8 @@ import type {
   LibraryWatchMode,
   ListAlbumsResult,
   ListArtistsResult,
+  ListFacetIdsQuery,
+  ListFacetIdsResult,
   ListFacetsQuery,
   ListTrackGroupsQuery,
   ListTrackGroupsResult,
@@ -222,6 +224,14 @@ export class SqliteLibraryService implements LibraryService {
 
   async listAlbums(query: ListFacetsQuery): Promise<ListAlbumsResult> {
     return this.store.listAlbums(query)
+  }
+
+  async listArtistIds(query: ListFacetIdsQuery): Promise<ListFacetIdsResult> {
+    return this.store.listArtistIds(query)
+  }
+
+  async listAlbumIds(query: ListFacetIdsQuery): Promise<ListFacetIdsResult> {
+    return this.store.listAlbumIds(query)
   }
 
   async getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null> {

@@ -4,6 +4,7 @@ import { trackUrl } from '@shared/ipc'
 import type { LibraryService } from '../library/service'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
+  assertListFacetIdsQuery,
   assertListFacetsQuery,
   assertListTrackGroupsQuery,
   assertListTrackIdsQuery,
@@ -54,6 +55,14 @@ export function registerIpcHandlers(library: LibraryService): void {
   handle('library.listArtists', (request) => library.listArtists(assertListFacetsQuery(request)))
 
   handle('library.listAlbums', (request) => library.listAlbums(assertListFacetsQuery(request)))
+
+  handle('library.listArtistIds', (request) =>
+    library.listArtistIds(assertListFacetIdsQuery(request))
+  )
+
+  handle('library.listAlbumIds', (request) =>
+    library.listAlbumIds(assertListFacetIdsQuery(request))
+  )
 
   handle('library.listTracks', (request) => library.listTracks(assertListTracksQuery(request)))
 

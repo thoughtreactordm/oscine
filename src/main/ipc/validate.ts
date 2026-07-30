@@ -1,6 +1,8 @@
 import { FermataError } from '@shared/errors'
 import {
+  MAX_FACET_ID_PAGE,
   MAX_FACET_PAGE,
+  MAX_FILTER_IDS,
   MAX_ORDERED_TRACK_IDS,
   MAX_SEARCH_LENGTH,
   MAX_TRACK_ID_PAGE,
@@ -8,6 +10,7 @@ import {
   MIN_SEARCH_LENGTH,
   TRACK_SORT_COLUMNS,
   type LibraryBrowseFilters,
+  type ListFacetIdsQuery,
   type ListFacetsQuery,
   type ListTrackGroupsQuery,
   type ListTrackIdsQuery,
@@ -49,10 +52,29 @@ export function assertRecord(value: unknown, field: string): Record<string, unkn
   return value as Record<string, unknown>
 }
 
+/**
+ * A facet dimension: a non-empty, deduplicated set of positive ids.
+ *
+ * Empty is rejected rather than normalised to "no constraint". An empty array
+ * reaching here means a caller cleared a selection and kept the field, and the
+ * two readings of that — match nothing, match everything — differ by the whole
+ * library. Better a loud `invalid-request` at the seam than the wrong one.
+ *
+ * Duplicates are dropped rather than refused: they change no result, and a
+ * selection assembled from overlapping ranges can honestly contain them.
+ */
+function assertIdSet(value: unknown, field: string): number[] {
+  if (!Array.isArray(value)) invalid(`${field} must be an array of positive integers.`)
+  if (value.length === 0) invalid(`${field} must not be empty.`)
+  if (value.length > MAX_FILTER_IDS) invalid(`${field} must not exceed ${MAX_FILTER_IDS} ids.`)
+  return [...new Set(value.map((id) => assertPositiveInt(id, `${field} entries`)))]
+}
+
 function assertBrowseFilters(raw: Record<string, unknown>): LibraryBrowseFilters {
   const filters: LibraryBrowseFilters = {}
-  for (const field of ['rootId', 'artistId', 'albumId'] as const) {
-    if (raw[field] !== undefined) filters[field] = assertPositiveInt(raw[field], field)
+  if (raw.rootId !== undefined) filters.rootId = assertPositiveInt(raw.rootId, 'rootId')
+  for (const field of ['artistIds', 'albumIds'] as const) {
+    if (raw[field] !== undefined) filters[field] = assertIdSet(raw[field], field)
   }
 
   if (raw.searchText !== undefined) {
@@ -89,10 +111,30 @@ function assertWindow(
   return { offset, limit }
 }
 
+const FACET_QUERY_KEYS = [
+  'rootId',
+  'artistIds',
+  'albumIds',
+  'searchText',
+  'offset',
+  'limit'
+] as const
+
 export function assertListFacetsQuery(value: unknown): ListFacetsQuery {
   const raw = assertRecord(value, 'query')
-  assertOnlyKeys(raw, ['rootId', 'artistId', 'albumId', 'searchText', 'offset', 'limit'])
+  assertOnlyKeys(raw, FACET_QUERY_KEYS)
   return { ...assertBrowseFilters(raw), ...assertWindow(raw, MAX_FACET_PAGE) }
+}
+
+/**
+ * Same shape as a facet query, larger page ceiling — the id-page argument again,
+ * one dimension over. The ceiling equals `MAX_FILTER_IDS` so that a range wide
+ * enough to become a filter is always resolvable in a single call.
+ */
+export function assertListFacetIdsQuery(value: unknown): ListFacetIdsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, FACET_QUERY_KEYS)
+  return { ...assertBrowseFilters(raw), ...assertWindow(raw, MAX_FACET_ID_PAGE) }
 }
 
 /**
@@ -121,8 +163,8 @@ function assertOrdering(raw: Record<string, unknown>): {
 
 const TRACK_QUERY_KEYS = [
   'rootId',
-  'artistId',
-  'albumId',
+  'artistIds',
+  'albumIds',
   'searchText',
   'sort',
   'direction',
@@ -169,7 +211,7 @@ export function assertListTrackIdsQuery(value: unknown): ListTrackIdsQuery {
  */
 export function assertListTrackGroupsQuery(value: unknown): ListTrackGroupsQuery {
   const raw = assertRecord(value, 'query')
-  assertOnlyKeys(raw, ['rootId', 'artistId', 'albumId', 'searchText', 'sort', 'direction'])
+  assertOnlyKeys(raw, ['rootId', 'artistIds', 'albumIds', 'searchText', 'sort', 'direction'])
   return {
     ...assertBrowseFilters(raw),
     ...assertOrdering(raw)

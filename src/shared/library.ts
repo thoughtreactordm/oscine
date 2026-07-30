@@ -111,17 +111,97 @@ export interface ArtworkUrls {
  *
  * IDs are the only dimension identity that crosses IPC. In particular, none of
  * these shapes carries a root path or a track's relative path.
+ *
+ * The two facet dimensions are sets, and they mean different things in the two
+ * directions: within a dimension the ids are a union — any of these artists —
+ * while the dimensions AND with each other and with the root and the search
+ * text. Selecting two artists and one of their albums therefore narrows to that
+ * album, not to everything either artist recorded. An absent field is "no
+ * constraint"; an empty array is not permitted, because a caller that meant
+ * "match nothing" is far more likely to have meant "match everything" and got
+ * there by clearing a selection.
  */
 export interface LibraryBrowseFilters {
   rootId?: number
-  /** Album artist identity, falling back to track artist for loose tracks. */
-  artistId?: number
-  albumId?: number
+  /** Album artist identities, falling back to track artist for loose tracks. */
+  artistIds?: number[]
+  albumIds?: number[]
   /**
    * Literal, user-visible infix terms over title, artist and album.
    * FTS query syntax is never accepted here.
    */
   searchText?: string
+}
+
+/**
+ * The ceiling on one facet dimension of a browse filter.
+ *
+ * The ids reach SQL through `json_each` rather than as bound parameters, so this
+ * is not the 999-parameter limit. What it is set against is facet cardinality: it
+ * sits above the number of artists or albums a library of the size D1 targets can
+ * contain, so a user cannot reach it by selecting rows that exist. That property
+ * is the point — a bound a selection *could* reach would have to be enforced by
+ * clamping, and a clamped range selection is silently the wrong selection.
+ *
+ * The ceiling has to accommodate "select everything", because a full selection is
+ * sent in full: a facet omits untagged tracks, so "all of these artists" and "no
+ * artist constraint" are genuinely different predicates and the short spelling is
+ * not available.
+ */
+export const MAX_FILTER_IDS = 50_000
+
+/**
+ * A filter as plain, structured-cloneable data.
+ *
+ * Every filter crosses IPC, and IPC clones. The renderer holds its filters in
+ * Vue refs and Pinia stores, both of which hand back reactive `Proxy` objects on
+ * read — and a `Proxy` cannot be cloned, so an unwrapped array field surfaces as
+ * "An object could not be cloned" the moment a selection stops being empty.
+ * Primitive fields never had this problem, which is why it arrived with the id
+ * sets rather than with the filters themselves.
+ *
+ * Copying the arrays element by element is what unwraps them: the elements are
+ * numbers, so the copy is plain however deeply the container was proxied.
+ */
+export function plainBrowseFilters(filters: LibraryBrowseFilters): LibraryBrowseFilters {
+  return {
+    ...filters,
+    ...(filters.artistIds === undefined ? {} : { artistIds: [...filters.artistIds] }),
+    ...(filters.albumIds === undefined ? {} : { albumIds: [...filters.albumIds] })
+  }
+}
+
+/**
+ * A stable string identity for a filter, independent of how it was assembled.
+ *
+ * The ids are sorted, so the same three artists reached by clicking down the
+ * pane and by clicking up it produce one key rather than two. That matters
+ * beyond tidiness: the renderer's play order is identified by this string, and
+ * two identities for one list would make Fermata believe the queue had changed
+ * underneath a playing track.
+ *
+ * Lives here rather than in either caller because the track window compares
+ * scopes with it and the play order names itself with it, and a filter that
+ * hashed differently in those two places would be a bug with no obvious home.
+ */
+export function browseFilterKey(filters: LibraryBrowseFilters): string {
+  return [
+    `root:${filters.rootId ?? ''}`,
+    browseScopeKey(filters),
+    `search:${filters.searchText ?? ''}`
+  ].join('|')
+}
+
+/**
+ * The facet half of the key: what the user has *browsed to*, as opposed to what
+ * they have typed. The track list re-defaults its ordering when this changes and
+ * deliberately does not when the search text does — typing must not throw away a
+ * column the user chose.
+ */
+export function browseScopeKey(filters: LibraryBrowseFilters): string {
+  const ids = (values: readonly number[] | undefined): string =>
+    values === undefined ? '' : [...values].sort((a, b) => a - b).join(',')
+  return `artists:${ids(filters.artistIds)}|albums:${ids(filters.albumIds)}`
 }
 
 /**
@@ -281,6 +361,39 @@ export interface ListAlbumsResult {
   albums: AlbumFacet[]
   total: number
 }
+
+/**
+ * A facet window resolved to ids and nothing else.
+ *
+ * Same shape and same ordering as `ListFacetsQuery`, which is the contract
+ * rather than a coincidence: a Shift-range in a facet pane spans index
+ * positions, so the ids for a span have to be the ids the user would have seen
+ * at those positions. Assembling them from display pages instead would mean
+ * retaining those pages, and a range selection is precisely the operation that
+ * must not grow the page cache.
+ *
+ * It carries the second job of pruning. Passing a selection back as its own
+ * filter — `listAlbumIds({ ...filters, albumIds: selected })` — answers "which
+ * of these still exist under the narrowed predicate" with a query bounded by the
+ * selection rather than by the library.
+ */
+export type ListFacetIdsQuery = ListFacetsQuery
+
+export interface ListFacetIdsResult {
+  ids: number[]
+  /** Total matching facet rows, ignoring offset/limit. */
+  total: number
+}
+
+/**
+ * An id costs about two orders of magnitude less to ship than a display row —
+ * an album row carries a title, an artist name and two artwork URLs — so the
+ * page ceiling here is correspondingly higher than `MAX_FACET_PAGE`. It equals
+ * `MAX_FILTER_IDS` so that any range a user can select resolves in one request:
+ * a range that needed two would have to be stitched, and a stitch that failed
+ * halfway would leave a selection nobody asked for.
+ */
+export const MAX_FACET_ID_PAGE = MAX_FILTER_IDS
 
 export interface ScanSummary {
   rootId: number

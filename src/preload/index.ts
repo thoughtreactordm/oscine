@@ -8,6 +8,7 @@ import type {
   IpcResponse
 } from '@shared/ipc'
 import type {
+  ListFacetIdsQuery,
   ListFacetsQuery,
   ListTrackGroupsQuery,
   ListTrackIdsQuery,
@@ -79,6 +80,9 @@ const api = {
     scanRoot: (rootId: number) => request('library.scanRoot', { rootId }),
     listArtists: (query: ListFacetsQuery) => request('library.listArtists', query),
     listAlbums: (query: ListFacetsQuery) => request('library.listAlbums', query),
+    /** The same two windows, ids only — for range selection and pruning. */
+    listArtistIds: (query: ListFacetIdsQuery) => request('library.listArtistIds', query),
+    listAlbumIds: (query: ListFacetIdsQuery) => request('library.listAlbumIds', query),
     listTracks: (query: ListTracksQuery) => request('library.listTracks', query),
     /** The same window as `listTracks`, ids only — for range selection. */
     listTrackIds: (query: ListTrackIdsQuery) => request('library.listTrackIds', query),
