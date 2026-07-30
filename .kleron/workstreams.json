@@ -15,7 +15,7 @@
       "description": "Everything main-process and on-disk: schema v1 and migrations, root folders, recursive scanner, music-metadata parsing, incremental mtime rescan, filesystem watcher, artwork thumbnail cache, FTS5 index, background job queue. Owns R3 (inotify limits) and the relative-path portability rule.",
       "color": "emerald",
       "order": 1,
-      "cardCounter": 7,
+      "cardCounter": 8,
       "dependsOn": [
         "W1"
       ]
@@ -37,7 +37,7 @@
       "description": "The three-pane shell and its panel islands: Sources, TrackList, NowPlaying. Virtualized lists from the first commit, sortable configurable columns, shift/ctrl multi-select, transport controls, and the CSS custom-property token layer that makes theming structural rather than bolted on.",
       "color": "violet",
       "order": 3,
-      "cardCounter": 4,
+      "cardCounter": 5,
       "dependsOn": [
         "W1"
       ]
