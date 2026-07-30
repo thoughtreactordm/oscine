@@ -135,8 +135,9 @@ const tableColumns = computed<TableColumn<TrackTableRow>[]>(() =>
  *
  * Passed as table `meta` because that is the only hook Nuxt UI resolves against
  * an individual row. Selection, keyboard focus and the range anchor are three
- * separate states and all three are shown: a user building a disjoint selection
- * has to be able to see where the next Shift+click will measure from.
+ * separate states and each is shown where it carries information: a user
+ * building a disjoint selection has to be able to see where the next Shift+click
+ * will measure from.
  */
 const tableMeta = computed(() => ({
   class: {
@@ -148,7 +149,14 @@ const tableMeta = computed(() => ({
 
       const classes: string[] = []
       if (panel.isSelectedAt(index)) classes.push('bg-primary/15')
-      if (panel.anchorIndex === index) classes.push('border-s-2 border-s-primary')
+      // Worth drawing only once there is a span to measure. On a single-row
+      // selection the anchor *is* that row, so the marker says nothing and reads
+      // as a stray sliver on the row's leading edge. Painted as an inset shadow
+      // rather than a border because a border on a `tr` takes part in the
+      // table's border collapsing and lands ragged against the first cell.
+      if (panel.anchorIndex === index && panel.selectionCount > 1) {
+        classes.push('shadow-[inset_2px_0_0_0_var(--ui-primary)]')
+      }
       if (panel.focusIndex === index) classes.push('ring-1 ring-inset ring-primary/70')
       return classes.join(' ')
     }
