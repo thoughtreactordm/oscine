@@ -82,7 +82,7 @@ onUnmounted(() => playback.dispose())
             <div
               class="flex h-9 shrink-0 items-center gap-2 border-b border-default bg-elevated/40 px-2"
             >
-              <UIcon name="i-lucide-list-music" class="size-4 text-primary" />
+              <UIcon name="i-tabler-playlist" class="size-4 text-primary" />
               <h2 class="font-semibold text-highlighted">Songs</h2>
 
               <UBadge
@@ -91,7 +91,7 @@ onUnmounted(() => playback.dispose())
                 variant="subtle"
                 size="sm"
                 :icon="
-                  trackList.direction === 'asc' ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'
+                  trackList.direction === 'asc' ? 'i-tabler-chevron-up' : 'i-tabler-chevron-down'
                 "
               >
                 {{ hiddenSort.title ?? hiddenSort.label }}

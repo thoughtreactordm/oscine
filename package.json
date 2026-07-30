@@ -41,7 +41,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@iconify-json/lucide": "^1.2.75",
+    "@iconify-json/tabler": "^1.2.38",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.13.2",
     "@vitejs/plugin-vue": "^6.0.7",

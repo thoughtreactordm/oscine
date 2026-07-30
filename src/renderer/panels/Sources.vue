@@ -214,11 +214,11 @@ onUnmounted(() => {
   >
     <div class="space-y-2 border-b border-default bg-elevated/40 p-2">
       <div class="flex items-center gap-2">
-        <UIcon name="i-lucide-library" class="size-5 text-primary" />
+        <UIcon name="i-tabler-library" class="size-5 text-primary" />
         <h1 class="font-semibold text-highlighted">Library</h1>
         <UButton
           class="ml-auto"
-          icon="i-lucide-folder-plus"
+          icon="i-tabler-folder-plus"
           size="xs"
           color="neutral"
           variant="ghost"
@@ -242,7 +242,7 @@ onUnmounted(() => {
         <UInput
           v-model="searchInput"
           type="search"
-          icon="i-lucide-search"
+          icon="i-tabler-search"
           class="w-full"
           placeholder="Search title, artist, album"
           :maxlength="MAX_SEARCH_LENGTH"
@@ -256,7 +256,7 @@ onUnmounted(() => {
       v-if="notice"
       color="warning"
       variant="subtle"
-      icon="i-lucide-triangle-alert"
+      icon="i-tabler-alert-triangle"
       :description="notice"
       class="rounded-none"
     />
@@ -277,7 +277,7 @@ onUnmounted(() => {
             {{ artists.selectionCount.value.toLocaleString() }} selected
           </span>
           <UButton
-            icon="i-lucide-x"
+            icon="i-tabler-x"
             size="xs"
             color="neutral"
             variant="ghost"
@@ -297,7 +297,7 @@ onUnmounted(() => {
         v-if="artists.error.value"
         color="warning"
         variant="subtle"
-        icon="i-lucide-triangle-alert"
+        icon="i-tabler-alert-triangle"
         :description="artists.error.value"
         class="rounded-none"
       />
@@ -315,7 +315,7 @@ onUnmounted(() => {
         v-if="artists.total.value === 0 && !artists.loading.value"
         variant="naked"
         size="sm"
-        icon="i-lucide-users"
+        icon="i-tabler-users"
         title="No artists match"
         class="min-h-0 flex-1"
       />
@@ -329,7 +329,7 @@ onUnmounted(() => {
             {{ albums.selectionCount.value.toLocaleString() }} selected
           </span>
           <UButton
-            icon="i-lucide-x"
+            icon="i-tabler-x"
             size="xs"
             color="neutral"
             variant="ghost"
@@ -349,7 +349,7 @@ onUnmounted(() => {
         v-if="albums.error.value"
         color="warning"
         variant="subtle"
-        icon="i-lucide-triangle-alert"
+        icon="i-tabler-alert-triangle"
         :description="albums.error.value"
         class="rounded-none"
       />
@@ -358,7 +358,7 @@ onUnmounted(() => {
         <template #row="{ item }">
           <UAvatar
             :src="item?.artwork.small"
-            :icon="item ? undefined : 'i-lucide-disc-3'"
+            :icon="item ? undefined : 'i-tabler-vinyl'"
             alt=""
             size="md"
             class="shrink-0 rounded"
@@ -381,7 +381,7 @@ onUnmounted(() => {
         v-if="albums.total.value === 0 && !albums.loading.value"
         variant="naked"
         size="sm"
-        icon="i-lucide-disc-3"
+        icon="i-tabler-vinyl"
         title="No albums match"
         class="min-h-0 flex-1"
       />

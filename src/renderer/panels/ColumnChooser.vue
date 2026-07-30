@@ -35,7 +35,7 @@ function visiblePosition(column: TrackColumnSpec): number {
       color="neutral"
       variant="ghost"
       size="xs"
-      icon="i-lucide-columns-3"
+      icon="i-tabler-columns-3"
       aria-label="Choose columns"
       title="Choose columns"
     />
@@ -77,8 +77,8 @@ function visiblePosition(column: TrackColumnSpec): number {
               size="xs"
               :icon="
                 panel.sort === column.key && panel.direction === 'desc'
-                  ? 'i-lucide-arrow-down-narrow-wide'
-                  : 'i-lucide-arrow-up-narrow-wide'
+                  ? 'i-tabler-sort-descending'
+                  : 'i-tabler-sort-ascending'
               "
               :aria-label="`Sort by ${columnName(column)}`"
               :title="`Sort by ${columnName(column)}`"
@@ -91,7 +91,7 @@ function visiblePosition(column: TrackColumnSpec): number {
               color="neutral"
               variant="ghost"
               size="xs"
-              icon="i-lucide-chevron-up"
+              icon="i-tabler-chevron-up"
               :disabled="!columns.isVisible(column.key) || visiblePosition(column) <= 0"
               :aria-label="`Move ${columnName(column)} left`"
               :title="`Move ${columnName(column)} left`"
@@ -101,7 +101,7 @@ function visiblePosition(column: TrackColumnSpec): number {
               color="neutral"
               variant="ghost"
               size="xs"
-              icon="i-lucide-chevron-down"
+              icon="i-tabler-chevron-down"
               :disabled="
                 !columns.isVisible(column.key) || visiblePosition(column) >= visibleCount - 1
               "

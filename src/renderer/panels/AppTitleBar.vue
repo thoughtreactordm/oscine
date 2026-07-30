@@ -1,57 +1,57 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { DropdownMenuItem } from '@nuxt/ui'
-import { windowControls } from '@renderer/ipc'
-import { usePlaybackStore } from '@renderer/stores/playback'
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import type { DropdownMenuItem } from "@nuxt/ui";
+import { windowControls } from "@renderer/ipc";
+import { usePlaybackStore } from "@renderer/stores/playback";
 
 const emit = defineEmits<{
-  addFolder: []
-}>()
+  addFolder: [];
+}>();
 
-const playback = usePlaybackStore()
-const maximized = ref(false)
-let stopMaximizedListener: (() => void) | null = null
+const playback = usePlaybackStore();
+const maximized = ref(false);
+let stopMaximizedListener: (() => void) | null = null;
 
 const libraryItems: DropdownMenuItem[] = [
   {
-    label: 'Add music folder…',
-    icon: 'i-lucide-folder-plus',
-    onSelect: () => emit('addFolder')
-  }
-]
+    label: "Add music folder…",
+    icon: "i-tabler-folder-plus",
+    onSelect: () => emit("addFolder"),
+  },
+];
 
 const playbackItems = computed<DropdownMenuItem[]>(() => [
   {
-    label: 'Previous',
-    icon: 'i-lucide-skip-back',
+    label: "Previous",
+    icon: "i-tabler-player-skip-back",
     disabled: !playback.hasTrack,
-    onSelect: () => playback.previous()
+    onSelect: () => playback.previous(),
   },
   {
-    label: playback.isPlaying ? 'Pause' : 'Play',
-    icon: playback.isPlaying ? 'i-lucide-pause' : 'i-lucide-play',
+    label: playback.isPlaying ? "Pause" : "Play",
+    icon: playback.isPlaying ? "i-tabler-player-pause" : "i-tabler-player-play",
     disabled: !playback.hasTrack,
-    onSelect: () => playback.toggle()
+    onSelect: () => playback.toggle(),
   },
   {
-    label: 'Next',
-    icon: 'i-lucide-skip-forward',
+    label: "Next",
+    icon: "i-tabler-player-skip-forward",
     disabled: !playback.hasTrack,
-    onSelect: () => playback.next()
-  }
-])
+    onSelect: () => playback.next(),
+  },
+]);
 
 onMounted(async () => {
   stopMaximizedListener = windowControls.onMaximizedChange((value) => {
-    maximized.value = value
-  })
-  maximized.value = await windowControls.isMaximized()
-})
+    maximized.value = value;
+  });
+  maximized.value = await windowControls.isMaximized();
+});
 
-onUnmounted(() => stopMaximizedListener?.())
+onUnmounted(() => stopMaximizedListener?.());
 
 async function toggleMaximize(): Promise<void> {
-  maximized.value = await windowControls.toggleMaximize()
+  maximized.value = await windowControls.toggleMaximize();
 }
 </script>
 
@@ -62,7 +62,7 @@ async function toggleMaximize(): Promise<void> {
   >
     <div class="flex h-full shrink-0 items-center gap-2 px-3" aria-label="Fermata">
       <span class="flex size-5 items-center justify-center rounded bg-primary text-inverted">
-        <UIcon name="i-lucide-audio-lines" class="size-3.5" />
+        <UIcon name="i-tabler-wave-sine" class="size-3.5" />
       </span>
       <span class="text-xs font-semibold tracking-wide text-highlighted">Fermata</span>
     </div>
@@ -94,7 +94,7 @@ async function toggleMaximize(): Promise<void> {
     <div class="app-no-drag flex h-full shrink-0 items-center" aria-label="Window controls">
       <UColorModeSwitch />
       <UButton
-        icon="i-lucide-minus"
+        icon="i-tabler-minus"
         color="neutral"
         variant="ghost"
         class="h-full w-11 justify-center rounded-none"
@@ -102,7 +102,7 @@ async function toggleMaximize(): Promise<void> {
         @click="windowControls.minimize()"
       />
       <UButton
-        :icon="maximized ? 'i-lucide-copy' : 'i-lucide-square'"
+        :icon="maximized ? 'i-tabler-copy' : 'i-tabler-square'"
         color="neutral"
         variant="ghost"
         class="h-full w-11 justify-center rounded-none"
@@ -110,7 +110,7 @@ async function toggleMaximize(): Promise<void> {
         @click="toggleMaximize"
       />
       <UButton
-        icon="i-lucide-x"
+        icon="i-tabler-x"
         color="neutral"
         variant="ghost"
         class="h-full w-11 justify-center rounded-none hover:bg-error hover:text-inverted"

@@ -26,7 +26,7 @@ const groupable = computed(() => panel.sort === 'album')
       color="neutral"
       :variant="grouping.enabled && groupable ? 'soft' : 'ghost'"
       size="xs"
-      icon="i-lucide-library"
+      icon="i-tabler-library"
       aria-label="Album grouping"
       title="Album grouping"
     />

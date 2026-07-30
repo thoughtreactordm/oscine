@@ -574,7 +574,7 @@ onMounted(() => panel.ensureRange(0, 30))
             <span class="truncate">{{ column.label }}</span>
             <UIcon
               v-if="panel.sort === column.key"
-              :name="panel.direction === 'asc' ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+              :name="panel.direction === 'asc' ? 'i-tabler-chevron-up' : 'i-tabler-chevron-down'"
               class="size-3 shrink-0 text-primary"
             />
           </UButton>
@@ -652,7 +652,7 @@ onMounted(() => panel.ensureRange(0, 30))
       <template #empty>
         <UEmpty
           variant="naked"
-          icon="i-lucide-list-music"
+          icon="i-tabler-playlist"
           title="No tracks yet"
           description="Add a folder to index music, or change the active filters."
           class="h-full"
