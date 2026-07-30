@@ -78,6 +78,26 @@ export interface TrackWindowDeps {
  * arithmetic that is wrong at the ends of a 100k-row list is invisible until
  * someone presses End.
  */
+/**
+ * The ordering a browse scope reads best in.
+ *
+ * One album is a running order. One artist is a discography, which means album
+ * by album with each in playing order — `album` carries the disc/track
+ * tiebreakers that make that true. Everything else is a flat list where the
+ * artist is the only grouping worth defaulting to.
+ *
+ * Keyed on the scope rather than on the transition into it. The previous form
+ * tested three transitions and had no case for *entering* an artist, so the
+ * column simply stayed where it was; within one artist, ordering by artist name
+ * is degenerate and the `t.id` tiebreaker — scan order, i.e. the directory
+ * listing — silently decided what followed what.
+ */
+export function defaultSortFor(scope: LibraryBrowseFilters): TrackSortColumn {
+  if (scope.albumId !== undefined) return 'trackNo'
+  if (scope.artistId !== undefined) return 'album'
+  return 'artist'
+}
+
 export function nextFocusIndex(
   key: string,
   current: number | null,
@@ -306,14 +326,12 @@ export function createTrackWindow(deps: TrackWindowDeps) {
    * every keystroke.
    */
   function setFilters(next: LibraryBrowseFilters): void {
-    const selectingAllArtists = filters.value.artistId !== undefined && next.artistId === undefined
-    const selectingAllAlbums = filters.value.albumId !== undefined && next.albumId === undefined
-    const enteringAlbum = next.albumId !== undefined && next.albumId !== filters.value.albumId
-    if (selectingAllArtists || selectingAllAlbums) {
-      sort.value = 'artist'
-      direction.value = 'asc'
-    } else if (enteringAlbum) {
-      sort.value = 'trackNo'
+    // Search text is not scope. Typing must not throw away a column the user
+    // chose, so only an artist/album change re-defaults the ordering.
+    const scopeChanged =
+      next.artistId !== filters.value.artistId || next.albumId !== filters.value.albumId
+    if (scopeChanged) {
+      sort.value = defaultSortFor(next)
       direction.value = 'asc'
     }
     filters.value = { ...next }

@@ -296,33 +296,88 @@ describe('createTrackWindow', () => {
 
   it.each([
     {
-      label: 'All Artists',
+      label: 'All Artists, with an album still selected',
       selected: { artistId: 12, albumId: 34 },
-      all: { albumId: 34 }
+      all: { albumId: 34 },
+      // Still one album, so still a running order.
+      expected: 'trackNo'
     },
     {
-      label: 'All Albums',
+      label: 'All Albums, within one artist',
       selected: { artistId: 12, albumId: 34 },
-      all: { artistId: 12 }
+      all: { artistId: 12 },
+      // A discography: album by album, each in playing order.
+      expected: 'album'
+    },
+    {
+      label: 'All Artists and All Albums',
+      selected: { artistId: 12, albumId: 34 },
+      all: {},
+      expected: 'artist'
     }
-  ])('defaults to artist ascending when selecting $label', async ({ selected, all }) => {
+  ])(
+    'defaults to $expected ascending when selecting $label',
+    async ({ selected, all, expected }) => {
+      const source = syntheticLibrary()
+      const win = createTrackWindow(deps(source, { pageSize: 200 }))
+
+      win.setFilters(selected)
+      await flush()
+      expect(win.sort.value).toBe('trackNo')
+
+      win.setFilters(all)
+      await flush()
+
+      expect(win.sort.value).toBe(expected)
+      expect(win.direction.value).toBe('asc')
+      expect(source.calls.at(-1)).toMatchObject({
+        ...all,
+        sort: expected,
+        direction: 'asc'
+      })
+    }
+  )
+
+  /**
+   * The regression this rule was written for. Entering an artist matched none
+   * of the previous transition tests, so the column stayed on whatever it was —
+   * and `artist` within a single artist is degenerate, leaving the `t.id`
+   * tiebreaker (scan order) to decide, which reads as alphabetical-by-filename
+   * rather than as the albums.
+   */
+  it('defaults to album ordering when entering an artist from All Artists', async () => {
     const source = syntheticLibrary()
     const win = createTrackWindow(deps(source, { pageSize: 200 }))
 
-    win.setFilters(selected)
+    win.setFilters({})
     await flush()
-    expect(win.sort.value).toBe('trackNo')
-
-    win.setFilters(all)
-    await flush()
-
     expect(win.sort.value).toBe('artist')
+
+    win.setFilters({ artistId: 12 })
+    await flush()
+
+    expect(win.sort.value).toBe('album')
     expect(win.direction.value).toBe('asc')
     expect(source.calls.at(-1)).toMatchObject({
-      ...all,
-      sort: 'artist',
+      artistId: 12,
+      sort: 'album',
       direction: 'asc'
     })
+  })
+
+  it('keeps a chosen column while only the search text changes', async () => {
+    const source = syntheticLibrary()
+    const win = createTrackWindow(deps(source, { pageSize: 200 }))
+
+    win.setFilters({ artistId: 12 })
+    await flush()
+    win.setSort('durationSec')
+    await flush()
+
+    win.setFilters({ artistId: 12, searchText: 'hemian' })
+    await flush()
+
+    expect(win.sort.value).toBe('durationSec')
   })
 
   it('keeps the focused track across a re-sort and re-adopts its position', async () => {

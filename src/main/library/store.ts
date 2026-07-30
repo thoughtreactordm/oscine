@@ -79,16 +79,37 @@ interface SortKey {
   readonly text?: boolean
   /** Suppresses the nulls-last prefix for expressions that cannot be NULL. */
   readonly notNull?: boolean
+  /**
+   * Ascending whichever way the column is sorted.
+   *
+   * Only a tiebreaker uses this. Reversing the Album column should reverse the
+   * albums, not play each one backwards, so the disc/track keys that order
+   * within an album hold their direction while `al.title` flips.
+   */
+  readonly fixed?: boolean
 }
 
+/**
+ * Disc before track, so a multi-disc album reads in playing order rather than
+ * interleaving disc 2's track 1 with disc 1's. Single-disc albums tag no disc
+ * at all, hence the COALESCE rather than a nulls-last prefix.
+ */
+const PLAYING_ORDER: readonly SortKey[] = [
+  { expr: 'COALESCE(t.disc_no, 1)', notNull: true },
+  { expr: 't.track_no' }
+]
+
 const SORT_KEYS: Record<TrackSortColumn, readonly SortKey[]> = {
-  // Disc before track, so a multi-disc album reads in playing order rather than
-  // interleaving disc 2's track 1 with disc 1's. Single-disc albums tag no disc
-  // at all, hence the COALESCE rather than a nulls-last prefix.
-  trackNo: [{ expr: 'COALESCE(t.disc_no, 1)', notNull: true }, { expr: 't.track_no' }],
+  trackNo: PLAYING_ORDER,
   title: [{ expr: 't.title', text: true }],
   artist: [{ expr: 'ar.name', text: true }],
-  album: [{ expr: 'al.title', text: true }],
+  // An album is only meaningful read in playing order: grouping by title alone
+  // leaves `t.id` — scan order, which is the directory listing — deciding what
+  // follows what, and a discography comes out alphabetised by song title.
+  album: [
+    { expr: 'al.title', text: true },
+    ...PLAYING_ORDER.map((key) => ({ ...key, fixed: true }))
+  ],
   durationSec: [{ expr: 't.duration_ms' }]
 }
 
@@ -357,15 +378,31 @@ function prepareStatements(db: Database.Database) {
  * them growing its own copy is how a Shift-range selection ends up one row out
  * from the rows on screen.
  */
+function orderByFragment(key: SortKey, direction: 'ASC' | 'DESC'): string {
+  const nullsLast = key.notNull ? '' : `${key.expr} IS NULL ASC, `
+  const collate = key.text ? ' COLLATE NOCASE' : ''
+  return `${nullsLast}${key.expr}${collate} ${key.fixed ? 'ASC' : direction}`
+}
+
 function orderByClause(keys: readonly SortKey[], direction: 'ASC' | 'DESC'): string {
-  const ordered = keys
-    .map((key) => {
-      const nullsLast = key.notNull ? '' : `${key.expr} IS NULL ASC, `
-      const collate = key.text ? ' COLLATE NOCASE' : ''
-      return `${nullsLast}${key.expr}${collate} ${direction}`
-    })
-    .join(', ')
+  const ordered = keys.map((key) => orderByFragment(key, direction)).join(', ')
   return `${ordered}, t.id ASC`
+}
+
+/**
+ * The tiebreakers after a joined sort's own column, as SQL.
+ *
+ * `listTrackIdsByJoinedSort` cannot call `orderByClause`: its leading term is
+ * the aliased dimension column rather than the key's own expression, and its
+ * nulls-last half is a separate query instead of a prefix. It still has to
+ * agree with `orderByClause` to the row, so it takes the remaining keys from
+ * the same table rather than restating them.
+ */
+function joinedTiebreakers(keys: readonly SortKey[], direction: 'ASC' | 'DESC'): string {
+  return keys
+    .slice(1)
+    .map((key) => `${orderByFragment(key, direction)}, `)
+    .join('')
 }
 
 function idsOf(rows: unknown[]): number[] {
@@ -774,6 +811,7 @@ export class LibraryStore {
     direction: 'ASC' | 'DESC'
   ): number[] {
     const rootPredicate = query.rootId === undefined ? '' : 'AND t.root_id = @rootId'
+    const tiebreakers = joinedTiebreakers(SORT_KEYS[query.sort], direction)
     const params = { rootId: query.rootId ?? null, limit: query.limit, offset: query.offset }
     const { total: taggedTotal } = this.db
       .prepare(
@@ -799,7 +837,7 @@ export class LibraryStore {
                  ON t.${sort.foreignKey} = ${sort.alias}.id
                WHERE 1 = 1
                ${rootPredicate}
-               ORDER BY ${sort.value} COLLATE NOCASE ${direction}, t.id ASC
+               ORDER BY ${sort.value} COLLATE NOCASE ${direction}, ${tiebreakers}t.id ASC
                LIMIT @limit OFFSET @offset`
             )
             .all({ ...params, limit: taggedLimit })
@@ -818,7 +856,7 @@ export class LibraryStore {
                FROM tracks t
                WHERE t.${sort.foreignKey} IS NULL
                ${rootPredicate}
-               ORDER BY t.id ASC
+               ORDER BY ${tiebreakers}t.id ASC
                LIMIT @limit OFFSET @offset`
             )
             .all({ ...params, limit: nullLimit, offset: nullOffset })

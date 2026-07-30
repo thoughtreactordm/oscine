@@ -190,6 +190,70 @@ describe('listTrackIds', () => {
   })
 })
 
+/**
+ * What the album column is actually for.
+ *
+ * The agreement tests above would pass just as happily if both query shapes
+ * were wrong in the same way, and for a while they were: `album` ordered on
+ * `al.title` alone and left `t.id` — scan order, i.e. the directory listing —
+ * to decide what followed what inside an album. A discography came out
+ * alphabetised by song title. These pin the ordering itself rather than the
+ * agreement, and both fail against that earlier clause.
+ */
+describe('album ordering', () => {
+  /** `[album, disc, track]` for the tagged head of the list, in returned order. */
+  async function taggedTuples(direction: SortDirection): Promise<Array<[string, number, number]>> {
+    const ids: Array<[string, number, number]> = []
+    for (let offset = 0; offset < TRACK_COUNT; offset += ROW_PAGE) {
+      const page = await service.listTracks({
+        sort: 'album',
+        direction,
+        offset,
+        limit: ROW_PAGE
+      })
+      for (const track of page.tracks) {
+        if (track.album === null) continue
+        ids.push([track.album, track.discNo ?? 1, track.trackNo ?? 0])
+      }
+    }
+    return ids
+  }
+
+  it('reads each album in disc and track order, ascending', async () => {
+    const tuples = await taggedTuples('asc')
+    expect(tuples.length).toBeGreaterThan(1_000)
+
+    for (let index = 1; index < tuples.length; index++) {
+      const [prevAlbum, prevDisc, prevTrack] = tuples[index - 1]!
+      const [album, disc, track] = tuples[index]!
+      if (album !== prevAlbum) {
+        expect(album.localeCompare(prevAlbum)).toBeGreaterThan(0)
+        continue
+      }
+      if (disc === prevDisc) expect(track).toBeGreaterThanOrEqual(prevTrack)
+      else expect(disc).toBeGreaterThan(prevDisc)
+    }
+  }, 30_000)
+
+  it('reverses the albums without playing each one backwards', async () => {
+    const tuples = await taggedTuples('desc')
+    expect(tuples.length).toBeGreaterThan(1_000)
+
+    for (let index = 1; index < tuples.length; index++) {
+      const [prevAlbum, prevDisc, prevTrack] = tuples[index - 1]!
+      const [album, disc, track] = tuples[index]!
+      if (album !== prevAlbum) {
+        // Albums descend...
+        expect(album.localeCompare(prevAlbum)).toBeLessThan(0)
+        continue
+      }
+      // ...while the tracks inside one still ascend.
+      if (disc === prevDisc) expect(track).toBeGreaterThanOrEqual(prevTrack)
+      else expect(disc).toBeGreaterThan(prevDisc)
+    }
+  }, 30_000)
+})
+
 describe('orderTrackIds', () => {
   it('puts an arbitrary id set into list order, in both directions', async () => {
     const ascending = await idsFromRows('artist', 'asc')
