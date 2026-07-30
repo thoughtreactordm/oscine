@@ -1,22 +1,22 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import type { TableColumn, TableRow } from '@nuxt/ui'
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import type { TableColumn, TableRow } from "@nuxt/ui";
 import {
   isSortableColumn,
   type TrackColumnKey,
-  type TrackColumnSpec
-} from '@renderer/panels/columnLayout'
-import { selectionIntent } from '@renderer/panels/indexedSelection'
+  type TrackColumnSpec,
+} from "@renderer/panels/columnLayout";
+import { selectionIntent } from "@renderer/panels/indexedSelection";
 import {
   groupedLayout,
   identityLayout,
   type GroupedRun,
-  type GroupLayout
-} from '@renderer/panels/trackGrouping'
-import { useTrackColumnsStore } from '@renderer/stores/columns'
-import { useTrackGroupingStore } from '@renderer/stores/grouping'
-import { useTrackListStore } from '@renderer/stores/trackList'
-import type { Track } from '@shared/library'
+  type GroupLayout,
+} from "@renderer/panels/trackGrouping";
+import { useTrackColumnsStore } from "@renderer/stores/columns";
+import { useTrackGroupingStore } from "@renderer/stores/grouping";
+import { useTrackListStore } from "@renderer/stores/trackList";
+import type { Track } from "@shared/library";
 
 /**
  * The virtualized song list.
@@ -39,17 +39,17 @@ import type { Track } from '@shared/library'
  */
 
 const emit = defineEmits<{
-  select: [track: Track]
-  activate: [track: Track, index: number]
-}>()
+  select: [track: Track];
+  activate: [track: Track, index: number];
+}>();
 
-const panel = useTrackListStore()
-const columns = useTrackColumnsStore()
-const grouping = useTrackGroupingStore()
-const ROW_HEIGHT = 32
-const OVERSCAN = 8
+const panel = useTrackListStore();
+const columns = useTrackColumnsStore();
+const grouping = useTrackGroupingStore();
+const ROW_HEIGHT = 32;
+const OVERSCAN = 8;
 /** Pixels an arrow key moves a column edge. Shift narrows it to one. */
-const WIDTH_STEP = 16
+const WIDTH_STEP = 16;
 
 /**
  * One row the virtualizer draws.
@@ -61,24 +61,24 @@ const WIDTH_STEP = 16
  * headers above.
  */
 interface TrackTableRow {
-  display: number
+  display: number;
   /** `null` on an album header, which is not a track and cannot be selected. */
-  index: number | null
-  run: GroupedRun | null
+  index: number | null;
+  run: GroupedRun | null;
 }
 
-const visibleColumns = computed(() => columns.visibleColumns)
+const visibleColumns = computed(() => columns.visibleColumns);
 /** The column an album header spans from. Follows the user's column order. */
-const leadingColumnKey = computed(() => visibleColumns.value[0]?.key)
+const leadingColumnKey = computed(() => visibleColumns.value[0]?.key);
 
 function alignClass(column: TrackColumnSpec): string {
   const tone =
-    column.key === 'title'
-      ? 'text-highlighted'
-      : column.key === 'trackNo'
-        ? 'text-dimmed'
-        : 'text-muted'
-  return column.numeric ? `text-right tabular-nums ${tone}` : tone
+    column.key === "title"
+      ? "text-highlighted"
+      : column.key === "trackNo"
+        ? "text-dimmed"
+        : "text-muted";
+  return column.numeric ? `text-right tabular-nums ${tone}` : tone;
 }
 
 /**
@@ -96,9 +96,9 @@ function alignClass(column: TrackColumnSpec): string {
  */
 const tableColumns = computed<TableColumn<TrackTableRow>[]>(() =>
   visibleColumns.value.map((column, position) => {
-    const width = `${columns.widthOf(column.key)}px`
-    const leading = position === 0
-    const spanned = visibleColumns.value.length
+    const width = `${columns.widthOf(column.key)}px`;
+    const leading = position === 0;
+    const spanned = visibleColumns.value.length;
 
     return {
       id: column.key,
@@ -108,27 +108,27 @@ const tableColumns = computed<TableColumn<TrackTableRow>[]>(() =>
         class: {
           th: alignClass(column),
           td: (cell: { row: TableRow<TrackTableRow> }) => {
-            if (!isHeaderRow(cell.row.original)) return alignClass(column)
-            return leading ? 'px-2 py-0 align-middle' : 'hidden'
-          }
+            if (!isHeaderRow(cell.row.original)) return alignClass(column);
+            return leading ? "px-2 py-0 align-middle" : "hidden";
+          },
         },
         colspan: {
           // A string because that is what Nuxt UI resolves this to; '1' is the
           // default span and so is what an ordinary row wants.
           td: (cell: { row: TableRow<TrackTableRow> }) =>
-            leading && isHeaderRow(cell.row.original) ? String(spanned) : '1'
+            leading && isHeaderRow(cell.row.original) ? String(spanned) : "1",
         },
         style: {
           th: { width },
           td: (cell: { row: TableRow<TrackTableRow> }): Record<string, string> =>
             isHeaderRow(cell.row.original)
-              ? { width: 'auto', height: `${grouping.rowPx}px` }
-              : { width }
-        }
-      }
-    }
-  })
-)
+              ? { width: "auto", height: `${grouping.rowPx}px` }
+              : { width },
+        },
+      },
+    };
+  }),
+);
 
 /**
  * Per-row classes.
@@ -142,36 +142,36 @@ const tableColumns = computed<TableColumn<TrackTableRow>[]>(() =>
 const tableMeta = computed(() => ({
   class: {
     tr: (row: TableRow<TrackTableRow>) => {
-      const index = row.original.index
+      const index = row.original.index;
       // Headers are scenery: not selectable, not hoverable, and visibly not a
       // row you can act on.
-      if (index === null) return 'bg-elevated/40 hover:bg-elevated/40'
+      if (index === null) return "bg-elevated/40 hover:bg-elevated/40";
 
-      const classes: string[] = []
-      if (panel.isSelectedAt(index)) classes.push('bg-primary/15')
+      const classes: string[] = [];
+      if (panel.isSelectedAt(index)) classes.push("bg-primary/15");
       // Worth drawing only once there is a span to measure. On a single-row
       // selection the anchor *is* that row, so the marker says nothing and reads
       // as a stray sliver on the row's leading edge. Painted as an inset shadow
       // rather than a border because a border on a `tr` takes part in the
       // table's border collapsing and lands ragged against the first cell.
       if (panel.anchorIndex === index && panel.selectionCount > 1) {
-        classes.push('shadow-[inset_2px_0_0_0_var(--ui-primary)]')
+        classes.push("shadow-[inset_2px_0_0_0_var(--ui-primary)]");
       }
-      if (panel.focusIndex === index) classes.push('ring-1 ring-inset ring-primary/70')
-      return classes.join(' ')
-    }
+      if (panel.focusIndex === index) classes.push("ring-1 ring-inset ring-primary/70");
+      return classes.join(" ");
+    },
   },
   style: {
     // The shared row class fixes every row at the track height, so a header has
     // to state its own — and it is the sleeve size that decides it.
     tr: (row: TableRow<TrackTableRow>): Record<string, string> =>
-      row.original.run ? { height: `${grouping.rowPx}px` } : {}
-  }
-}))
+      row.original.run ? { height: `${grouping.rowPx}px` } : {},
+  },
+}));
 
-const table = ref<{ $el?: HTMLElement } | null>(null)
-const scrollTop = ref(0)
-const scrollPositions = new Map<string, number>()
+const table = ref<{ $el?: HTMLElement } | null>(null);
+const scrollTop = ref(0);
+const scrollPositions = new Map<string, number>();
 
 /**
  * Grouped when the ordering is album-major and the runs describe this list.
@@ -182,162 +182,162 @@ const scrollPositions = new Map<string, number>()
  * underneath them beneath the wrong album.
  */
 const layout = computed<GroupLayout>(() => {
-  void panel.ordering
-  if (!grouping.enabled) return identityLayout(panel.total)
-  const grouped = groupedLayout(panel.groups)
+  void panel.ordering;
+  if (!grouping.enabled) return identityLayout(panel.total);
+  const grouped = groupedLayout(panel.groups);
   return grouped.runs.length > 0 && grouped.trackCount === panel.total
     ? grouped
-    : identityLayout(panel.total)
-})
+    : identityLayout(panel.total);
+});
 
 const tableRows = computed<TrackTableRow[]>(() => {
-  void panel.ordering
-  const current = layout.value
+  void panel.ordering;
+  const current = layout.value;
   if (current.runs.length === 0) {
     return Array.from({ length: current.displayCount }, (_, index) => ({
       display: index,
       index,
-      run: null
-    }))
+      run: null,
+    }));
   }
 
   // Built by walking the runs rather than by asking the layout row by row: at
   // 100k rows the per-row binary search is real work for an answer the walk
   // already has.
-  const rows: TrackTableRow[] = []
+  const rows: TrackTableRow[] = [];
   for (const run of current.runs) {
-    rows.push({ display: run.headerIndex, index: null, run })
+    rows.push({ display: run.headerIndex, index: null, run });
     for (let offset = 0; offset < run.group.trackCount; offset++) {
       rows.push({
         display: run.headerIndex + 1 + offset,
         index: run.firstOffset + offset,
-        run: null
-      })
+        run: null,
+      });
     }
   }
-  return rows
-})
+  return rows;
+});
 
 function estimateRowSize(display: number): number {
-  return layout.value.rowAt(display)?.kind === 'header' ? grouping.rowPx : ROW_HEIGHT
+  return layout.value.rowAt(display)?.kind === "header" ? grouping.rowPx : ROW_HEIGHT;
 }
 
 /** The album header's own cell spans the table; the rest of the row is not drawn. */
 function isHeaderRow(row: TrackTableRow | undefined): boolean {
-  return !!row?.run
+  return !!row?.run;
 }
 
 function groupSubtitle(run: GroupedRun): string {
-  const parts: string[] = []
-  if (run.group.albumArtist) parts.push(run.group.albumArtist)
-  if (run.group.year !== null) parts.push(String(run.group.year))
-  parts.push(run.group.trackCount === 1 ? '1 track' : `${run.group.trackCount} tracks`)
-  return parts.join(' · ')
+  const parts: string[] = [];
+  if (run.group.albumArtist) parts.push(run.group.albumArtist);
+  if (run.group.year !== null) parts.push(String(run.group.year));
+  parts.push(run.group.trackCount === 1 ? "1 track" : `${run.group.trackCount} tracks`);
+  return parts.join(" · ");
 }
-const filterKey = computed(() => JSON.stringify(panel.filters))
-const layoutKey = computed(() => visibleColumns.value.map((column) => column.key).join())
+const filterKey = computed(() => JSON.stringify(panel.filters));
+const layoutKey = computed(() => visibleColumns.value.map((column) => column.key).join());
 
 function tableElement(): HTMLElement | null {
-  return table.value?.$el ?? null
+  return table.value?.$el ?? null;
 }
 
 function requestTrack(index: number): void {
   queueMicrotask(() =>
-    panel.ensureRange(Math.max(0, index - OVERSCAN), Math.min(panel.total - 1, index + OVERSCAN))
-  )
+    panel.ensureRange(Math.max(0, index - OVERSCAN), Math.min(panel.total - 1, index + OVERSCAN)),
+  );
 }
 
 function trackAt(row: TrackTableRow): Track | undefined {
-  if (row.index === null) return undefined
-  const track = panel.rowAt(row.index)
-  if (!track) requestTrack(row.index)
-  return track
+  if (row.index === null) return undefined;
+  const track = panel.rowAt(row.index);
+  if (!track) requestTrack(row.index);
+  return track;
 }
 
 function formatDuration(seconds: number | null): string {
-  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return '—'
-  const whole = Math.round(seconds)
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return "—";
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
 function formatChannels(channels: number | null): string {
-  if (channels === null) return '—'
-  if (channels === 1) return 'Mono'
-  if (channels === 2) return 'Stereo'
-  return `${channels} ch`
+  if (channels === null) return "—";
+  if (channels === 1) return "Mono";
+  if (channels === 2) return "Stereo";
+  return `${channels} ch`;
 }
 
 function formatBytes(bytes: number): string {
-  const mib = bytes / 1024 / 1024
-  return mib < 10 ? `${mib.toFixed(1)} MB` : `${Math.round(mib)} MB`
+  const mib = bytes / 1024 / 1024;
+  return mib < 10 ? `${mib.toFixed(1)} MB` : `${Math.round(mib)} MB`;
 }
 
 function cellText(row: TrackTableRow, key: TrackColumnKey): string | undefined {
-  const track = trackAt(row)
-  if (!track) return undefined
+  const track = trackAt(row);
+  if (!track) return undefined;
   switch (key) {
-    case 'trackNo':
-      return track.trackNo === null ? '' : String(track.trackNo)
-    case 'title':
-      return track.title
-    case 'artist':
-      return track.artist ?? '—'
-    case 'album':
-      return track.album ?? '—'
-    case 'albumArtist':
-      return track.albumArtist ?? '—'
-    case 'discNo':
-      return track.discNo === null ? '' : String(track.discNo)
-    case 'year':
-      return track.year === null ? '—' : String(track.year)
-    case 'codec':
-      return track.codec === null ? '—' : track.codec.toUpperCase()
-    case 'durationSec':
-      return formatDuration(track.durationSec)
-    case 'sampleRateHz':
-      return track.sampleRateHz === null ? '—' : `${(track.sampleRateHz / 1000).toFixed(1)} kHz`
-    case 'bitDepth':
-      return track.bitDepth === null ? '—' : `${track.bitDepth}-bit`
-    case 'channels':
-      return formatChannels(track.channels)
-    case 'encodedBytes':
-      return formatBytes(track.encodedBytes)
+    case "trackNo":
+      return track.trackNo === null ? "" : String(track.trackNo);
+    case "title":
+      return track.title;
+    case "artist":
+      return track.artist ?? "—";
+    case "album":
+      return track.album ?? "—";
+    case "albumArtist":
+      return track.albumArtist ?? "—";
+    case "discNo":
+      return track.discNo === null ? "" : String(track.discNo);
+    case "year":
+      return track.year === null ? "—" : String(track.year);
+    case "codec":
+      return track.codec === null ? "—" : track.codec.toUpperCase();
+    case "durationSec":
+      return formatDuration(track.durationSec);
+    case "sampleRateHz":
+      return track.sampleRateHz === null ? "—" : `${(track.sampleRateHz / 1000).toFixed(1)} kHz`;
+    case "bitDepth":
+      return track.bitDepth === null ? "—" : `${track.bitDepth}-bit`;
+    case "channels":
+      return formatChannels(track.channels);
+    case "encodedBytes":
+      return formatBytes(track.encodedBytes);
   }
 }
 
 function cellSlot(key: TrackColumnKey): string {
-  return `${key}-cell`
+  return `${key}-cell`;
 }
 
 function headerSlot(key: TrackColumnKey): string {
-  return `${key}-header`
+  return `${key}-header`;
 }
 
 function columnName(column: TrackColumnSpec): string {
-  return column.title ?? column.label
+  return column.title ?? column.label;
 }
 
-function ariaSort(key: TrackColumnKey): 'ascending' | 'descending' | 'none' {
-  if (panel.sort !== key) return 'none'
-  return panel.direction === 'asc' ? 'ascending' : 'descending'
+function ariaSort(key: TrackColumnKey): "ascending" | "descending" | "none" {
+  if (panel.sort !== key) return "none";
+  return panel.direction === "asc" ? "ascending" : "descending";
 }
 
 function onTableSelect(event: Event, row: TableRow<TrackTableRow>): void {
-  const index = row.original.index
+  const index = row.original.index;
   // Clicking an album header leaves the selection exactly as it was, rather
   // than clearing it the way a click on empty space would.
-  if (index === null) return
+  if (index === null) return;
 
-  const intent = selectionIntent(event instanceof MouseEvent ? event : {})
-  void panel.selectAt(index, intent)
+  const intent = selectionIntent(event instanceof MouseEvent ? event : {});
+  void panel.selectAt(index, intent);
 
-  const track = panel.rowAt(index)
-  if (!track) return
-  emit('select', track)
+  const track = panel.rowAt(index);
+  if (!track) return;
+  emit("select", track);
   // A modified double-click is a selection gesture, not a request to play:
   // Ctrl+clicking the same row twice is how an overshot toggle is undone.
-  if (intent === 'replace' && event instanceof MouseEvent && event.detail >= 2) {
-    emit('activate', track, index)
+  if (intent === "replace" && event instanceof MouseEvent && event.detail >= 2) {
+    emit("activate", track, index);
   }
 }
 
@@ -350,162 +350,162 @@ function onTableSelect(event: Event, row: TableRow<TrackTableRow>): void {
  * `index * ROW_HEIGHT`, which stops being true at the first album boundary.
  */
 function scrollIndexIntoView(index: number): void {
-  const element = tableElement()
-  if (!element) return
-  const display = layout.value.displayOf(index)
-  const headers = layout.value.headersBefore(display)
-  const top = headers * grouping.rowPx + (display - headers) * ROW_HEIGHT
-  if (top < element.scrollTop) element.scrollTop = top
+  const element = tableElement();
+  if (!element) return;
+  const display = layout.value.displayOf(index);
+  const headers = layout.value.headersBefore(display);
+  const top = headers * grouping.rowPx + (display - headers) * ROW_HEIGHT;
+  if (top < element.scrollTop) element.scrollTop = top;
   else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) {
-    element.scrollTop = top + ROW_HEIGHT - element.clientHeight
+    element.scrollTop = top + ROW_HEIGHT - element.clientHeight;
   }
-  scrollTop.value = element.scrollTop
+  scrollTop.value = element.scrollTop;
 }
 
 function onKeydown(event: KeyboardEvent): void {
   // The header owns its own arrows — resize grips are focusable and live inside
   // the same scroll container, so without this a keyboard resize would also walk
   // the selection down the list.
-  if (event.target instanceof Element && event.target.closest('thead')) return
+  if (event.target instanceof Element && event.target.closest("thead")) return;
 
-  if (event.key === 'Enter') {
-    const track = panel.focusedTrack
-    const index = panel.focusIndex
-    if (!track || index === null) return
-    event.preventDefault()
-    emit('activate', track, index)
-    return
+  if (event.key === "Enter") {
+    const track = panel.focusedTrack;
+    const index = panel.focusIndex;
+    if (!track || index === null) return;
+    event.preventDefault();
+    emit("activate", track, index);
+    return;
   }
 
-  if (event.key === 'Escape') {
-    if (panel.selectionCount === 0) return
-    event.preventDefault()
-    panel.clearSelection()
-    return
+  if (event.key === "Escape") {
+    if (panel.selectionCount === 0) return;
+    event.preventDefault();
+    panel.clearSelection();
+    return;
   }
 
-  if (event.key === ' ') {
-    if (panel.focusIndex === null) return
-    event.preventDefault()
-    panel.commitFocus(event)
-    const track = panel.focusedTrack
-    if (track) emit('select', track)
-    return
+  if (event.key === " ") {
+    if (panel.focusIndex === null) return;
+    event.preventDefault();
+    panel.commitFocus(event);
+    const track = panel.focusedTrack;
+    if (track) emit("select", track);
+    return;
   }
 
   const rowsPerPage = Math.max(
     1,
-    Math.floor((tableElement()?.clientHeight ?? ROW_HEIGHT) / ROW_HEIGHT)
-  )
-  const next = panel.moveFocus(event.key, rowsPerPage, event)
-  if (next === null) return
-  event.preventDefault()
-  requestTrack(next)
-  scrollIndexIntoView(next)
-  const track = panel.focusedTrack
-  if (track) emit('select', track)
+    Math.floor((tableElement()?.clientHeight ?? ROW_HEIGHT) / ROW_HEIGHT),
+  );
+  const next = panel.moveFocus(event.key, rowsPerPage, event);
+  if (next === null) return;
+  event.preventDefault();
+  requestTrack(next);
+  scrollIndexIntoView(next);
+  const track = panel.focusedTrack;
+  if (track) emit("select", track);
 }
 
 /** Column reordering by pointer. Keyboard reordering lives in the chooser. */
-const draggingKey = ref<TrackColumnKey | null>(null)
-const dropTargetKey = ref<TrackColumnKey | null>(null)
+const draggingKey = ref<TrackColumnKey | null>(null);
+const dropTargetKey = ref<TrackColumnKey | null>(null);
 
 function onDragStart(key: TrackColumnKey, event: DragEvent): void {
-  draggingKey.value = key
-  event.dataTransfer?.setData('text/plain', key)
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+  draggingKey.value = key;
+  event.dataTransfer?.setData("text/plain", key);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
 }
 
 function onDragOver(key: TrackColumnKey, event: DragEvent): void {
-  if (draggingKey.value === null || draggingKey.value === key) return
-  event.preventDefault()
-  dropTargetKey.value = key
+  if (draggingKey.value === null || draggingKey.value === key) return;
+  event.preventDefault();
+  dropTargetKey.value = key;
 }
 
 function onDrop(key: TrackColumnKey): void {
-  const source = draggingKey.value
-  draggingKey.value = null
-  dropTargetKey.value = null
-  if (source === null || source === key) return
+  const source = draggingKey.value;
+  draggingKey.value = null;
+  dropTargetKey.value = null;
+  if (source === null || source === key) return;
   // Which side of the target depends on the direction of travel, so a column
   // dragged rightwards lands after the column it was dropped on rather than
   // stopping one short of it.
-  const order = visibleColumns.value.map((column) => column.key)
-  columns.moveBefore(source, key, order.indexOf(source) < order.indexOf(key))
+  const order = visibleColumns.value.map((column) => column.key);
+  columns.moveBefore(source, key, order.indexOf(source) < order.indexOf(key));
 }
 
 function onDragEnd(): void {
-  draggingKey.value = null
-  dropTargetKey.value = null
+  draggingKey.value = null;
+  dropTargetKey.value = null;
 }
 
 /** Width adjustment. The grip is a focusable separator, so it works either way. */
-const resizing = ref<{ key: TrackColumnKey; startX: number; startWidth: number } | null>(null)
+const resizing = ref<{ key: TrackColumnKey; startX: number; startWidth: number } | null>(null);
 
 function onGripDown(key: TrackColumnKey, event: PointerEvent): void {
-  event.preventDefault()
-  event.stopPropagation()
-  resizing.value = { key, startX: event.clientX, startWidth: columns.widthOf(key) }
+  event.preventDefault();
+  event.stopPropagation();
+  resizing.value = { key, startX: event.clientX, startWidth: columns.widthOf(key) };
   try {
     // Capture keeps the moves coming to the grip once the pointer leaves it,
     // which is most of a drag. It throws for a pointer the browser no longer
     // considers active, and a drag that cannot be captured is still worth
     // starting — it just ends when the pointer leaves the element.
-    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   } catch {
     // Nothing to recover: `resizing` is set and the move handler is bound.
   }
 }
 
 function onGripMove(event: PointerEvent): void {
-  const state = resizing.value
-  if (!state) return
+  const state = resizing.value;
+  if (!state) return;
   // Not persisted per move — the layout is written once, on release.
   columns.setWidth(state.key, state.startWidth + (event.clientX - state.startX), {
-    persist: false
-  })
+    persist: false,
+  });
 }
 
 function onGripUp(): void {
-  if (!resizing.value) return
-  resizing.value = null
-  columns.persist()
+  if (!resizing.value) return;
+  resizing.value = null;
+  columns.persist();
 }
 
 function onGripKeydown(column: TrackColumnSpec, event: KeyboardEvent): void {
-  const step = event.shiftKey ? 1 : WIDTH_STEP
-  if (event.key === 'ArrowLeft') columns.nudgeWidth(column.key, -step)
-  else if (event.key === 'ArrowRight') columns.nudgeWidth(column.key, step)
-  else if (event.key === 'Home') columns.setWidth(column.key, column.minWidth)
-  else if (event.key === 'End') columns.setWidth(column.key, column.defaultWidth)
-  else return
-  event.preventDefault()
-  event.stopPropagation()
+  const step = event.shiftKey ? 1 : WIDTH_STEP;
+  if (event.key === "ArrowLeft") columns.nudgeWidth(column.key, -step);
+  else if (event.key === "ArrowRight") columns.nudgeWidth(column.key, step);
+  else if (event.key === "Home") columns.setWidth(column.key, column.minWidth);
+  else if (event.key === "End") columns.setWidth(column.key, column.defaultWidth);
+  else return;
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 function restoreScroll(top: number): void {
-  scrollTop.value = top
-  const element = tableElement()
-  if (element) element.scrollTop = top
+  scrollTop.value = top;
+  const element = tableElement();
+  if (element) element.scrollTop = top;
 }
 
 watch(filterKey, async (next, previous) => {
-  scrollPositions.set(previous, tableElement()?.scrollTop ?? scrollTop.value)
-  await nextTick()
-  restoreScroll(scrollPositions.get(next) ?? 0)
-})
+  scrollPositions.set(previous, tableElement()?.scrollTop ?? scrollTop.value);
+  await nextTick();
+  restoreScroll(scrollPositions.get(next) ?? 0);
+});
 
 // Changing the visible columns rebuilds the table, which resets the scroll
 // container. Showing a column should not also send the user back to row zero.
 watch(layoutKey, async () => {
-  const previous = tableElement()?.scrollTop ?? scrollTop.value
-  await nextTick()
-  restoreScroll(previous)
-})
+  const previous = tableElement()?.scrollTop ?? scrollTop.value;
+  await nextTick();
+  restoreScroll(previous);
+});
 
-watch([() => panel.sort, () => panel.direction], () => restoreScroll(0))
+watch([() => panel.sort, () => panel.direction], () => restoreScroll(0));
 
-onMounted(() => panel.ensureRange(0, 30))
+onMounted(() => panel.ensureRange(0, 30));
 </script>
 
 <template>
@@ -531,7 +531,7 @@ onMounted(() => panel.ensureRange(0, 30))
       class="h-full min-h-0 select-none overflow-auto overscroll-contain pb-2 outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-primary"
       :ui="{
         base: 'table-fixed w-[var(--fermata-table-width)] min-w-full',
-        thead: 'bg-elevated/95',
+        thead: 'bg-elevated/75',
         th: 'h-8 px-0 py-0 text-xs font-medium uppercase tracking-wide text-muted',
         tbody: 'divide-y divide-default/60',
         td: 'h-8 overflow-hidden px-2 py-0 text-sm last:pe-4',
@@ -622,25 +622,28 @@ onMounted(() => panel.ensureRange(0, 30))
           hidden on this row so the column span has the width to itself.
         -->
         <template v-if="row.original.run">
-          <div v-if="column.key === leadingColumnKey" class="flex items-center gap-3 py-1">
-            <img
-              :src="row.original.run.group.artwork.small"
-              alt=""
-              aria-hidden="true"
-              class="shrink-0 rounded bg-elevated object-cover"
-              :style="{ width: `${grouping.artPx}px`, height: `${grouping.artPx}px` }"
-              loading="lazy"
-              draggable="false"
-            />
-            <span class="min-w-0">
-              <span class="block truncate text-sm font-medium text-highlighted">
-                {{ row.original.run.group.title ?? 'Unknown album' }}
+          <section class="flex justify-between items-center">
+            <div v-if="column.key === leadingColumnKey" class="flex items-center gap-3 py-1">
+              <img
+                :src="row.original.run.group.artwork.small"
+                alt=""
+                aria-hidden="true"
+                class="shrink-0 rounded bg-elevated object-cover"
+                :style="{ width: `${grouping.artPx}px`, height: `${grouping.artPx}px` }"
+                loading="lazy"
+                draggable="false"
+              >
+              <span class="min-w-0">
+                <span class="block truncate text-sm font-medium text-highlighted">
+                  {{ row.original.run.group.title ?? 'Unknown album' }}
+                </span>
+                <span class="block truncate text-xs text-muted">
+                  {{ groupSubtitle(row.original.run) }}
+                </span>
               </span>
-              <span class="block truncate text-xs text-muted">
-                {{ groupSubtitle(row.original.run) }}
-              </span>
-            </span>
-          </div>
+            </div>
+            <UButton variant="ghost" color="neutral" icon="i-tabler-dots-vertical-filled" />
+          </section>
         </template>
         <USkeleton
           v-else-if="cellText(row.original, column.key) === undefined"

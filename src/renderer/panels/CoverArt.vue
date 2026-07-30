@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { usePlaybackStore } from '@renderer/stores/playback'
-import { useShellStore } from '@renderer/stores/shell'
+import { computed } from "vue";
+import { usePlaybackStore } from "@renderer/stores/playback";
+import { useShellStore } from "@renderer/stores/shell";
 
 /**
  * The cover blow-up.
@@ -11,10 +11,10 @@ import { useShellStore } from '@renderer/stores/shell'
  * it happens to sit under. `large` rather than `small` because this is the one
  * view where the art is the subject rather than a label for a row.
  */
-const playback = usePlaybackStore()
-const shell = useShellStore()
+const playback = usePlaybackStore();
+const shell = useShellStore();
 
-const cover = computed(() => playback.nowPlaying?.artwork.large ?? null)
+const cover = computed(() => playback.nowPlaying?.artwork.large ?? null);
 
 /**
  * Alt text describing the record, not the image. A cover with no album to name
@@ -22,10 +22,10 @@ const cover = computed(() => playback.nowPlaying?.artwork.large ?? null)
  * rather than read a URL.
  */
 const label = computed(() => {
-  const track = playback.nowPlaying
-  if (!track) return ''
-  return track.album ? `Cover art for ${track.album}` : `Cover art for ${track.title}`
-})
+  const track = playback.nowPlaying;
+  if (!track) return "";
+  return track.album ? `Cover art for ${track.album}` : `Cover art for ${track.title}`;
+});
 </script>
 
 <template>
@@ -62,14 +62,17 @@ const label = computed(() => {
             :alt="label"
             class="size-full object-cover"
             draggable="false"
-          />
+          >
           <div v-else class="flex size-full items-center justify-center">
             <UIcon name="i-tabler-vinyl" class="size-10 text-dimmed" />
           </div>
         </Transition>
       </div>
 
-      <p v-if="playback.hasTrack" class="mt-2 truncate text-center text-sm text-highlighted">
+      <p
+        v-if="playback.hasTrack"
+        class="mt-2 truncate text-center text-sm font-bold text-highlighted"
+      >
         {{ playback.nowPlaying?.title }}
       </p>
       <p v-if="playback.hasTrack" class="truncate text-center text-xs text-muted">
