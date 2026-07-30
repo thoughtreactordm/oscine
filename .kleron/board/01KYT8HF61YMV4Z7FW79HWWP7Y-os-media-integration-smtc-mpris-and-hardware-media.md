@@ -1,7 +1,7 @@
 ---
 taskId: 01KYT8HF61YMV4Z7FW79HWWP7Y
 title: 'OS media integration: SMTC, MPRIS and hardware media keys'
-status: todo
+status: in-review
 priority: medium
 labels:
   - M5
@@ -14,9 +14,11 @@ workstreamId: W3-10
 effort: high
 order: 6
 created: '2026-07-30T19:38:07.936Z'
-updated: '2026-07-30T19:38:07.936Z'
+updated: '2026-07-30T21:51:45.279Z'
 ---
 Make the OS recognise Fermata as the machine's music player: the Windows SMTC now-playing card, the Linux MPRIS client that GNOME/KDE surface in their media widgets, and hardware media keys reaching the transport in both places.
+
+**Implemented in `f583d6a`.** Linux verified end to end against the decoded path; Windows remains hand-verification. The three unknowns are settled below, and two came back against this card's assumptions — read those before touching the code.
 
 ## Standing on nothing
 
@@ -45,62 +47,67 @@ The fix is the standard one for Web Audio applications: a **silent anchor `<audi
 - It must not be `muted` and must have `volume > 0`. Chromium's effective-volume test is how it decides a player wants audio focus; a muted element is ignored outright.
 - Duration must clear Chromium's significant-playback threshold (about five seconds) and it must loop. Shorter media is treated as a sound effect and opens no session.
 
-A ten-second silent WAV as a data URL is a few hundred bytes. This is OS presentation, not audio output, so it lives in its own module rather than behind `AudioEngine` — the interface stays free of Web Audio types and gains nothing here.
+All three held up. Built as a ten-second 8 kHz mono WAV blob rather than a data URL — same bytes without base64's third, and no 80 kB literal in the bundle. 8-bit PCM is unsigned, so the silence fill is `0x80`; a zero fill is the negative rail held flat, not silence.
 
-## Scope
+## What was built
 
-**Renderer — a media session service, bound to the playback store, not to a panel.** Panels are islands and this is a second view onto the same state the transport already reads. Suggested home is `src/renderer/playback/mediaSession.ts`, alongside the scheduler and controller.
+- `src/renderer/playback/mediaSession.ts` — the rules: status mapping, metadata construction, position-state policy, the anchor lifecycle, the surface adapter. DOM-free and testable under plain Node.
+- `src/renderer/playback/browserMediaSession.ts` — the DOM: the silent WAV, the anchor element, `navigator.mediaSession`, blob artwork.
+- The binding hangs off `createPlaybackController` behind an injected `createMediaSession`, not off a panel — the OS card is a second view onto exactly the state the transport reads, and living there means `dispose()` already covers it. `stores/playback.ts` bolts on the real platform.
+- `resume()` / `pause()` added alongside `toggle()` on the controller. Idempotent intents, never a flip: with a track on the R1 streaming fallback its real media element is a session participant alongside the anchor, so one OS press can reach playback twice. Two resumes settle on playing; two toggles cancel out.
+- `app.setAppUserModelId('dev.fermata.app')` before window creation, matching `appId`.
+- `electron-builder.yml` gains the Linux desktop entry with `StartupWMClass: Fermata`.
+- `scripts/media-session-probe.mjs` / `npm run probe:media-session` — a throwaway Electron app in its own user-data directory that reproduces the mechanism and reports what Chromium actually publishes. Re-run it when Electron is upgraded.
 
-- Own the anchor element's lifecycle. It plays when `status === 'playing'` and pauses otherwise, and it is created lazily so an idle Fermata claims no audio focus and publishes no bus name.
-- Set `MediaMetadata` on `nowPlaying` change. Artwork is already solved: `Track.artwork.large` is a `fermata://artwork/<hash>` URL and `registerTrackScheme` already declares the scheme `standard`, `secure`, `supportFetchAPI` and `corsEnabled`, which is what Chromium needs to fetch it. Advertise several sizes; SMTC wants something reasonably large.
-- Mirror `status` onto `playbackState`, mapping `idle`/`loading` to `none` and `ready`/`ended` deliberately rather than by accident.
-- Call `setPositionState` on load, seek, and play/pause **only**. Chromium extrapolates position between updates, so driving it from `timeupdate` burns cycles and makes the OS scrubber jitter against its own interpolation.
-- Register handlers for `play`, `pause`, `previoustrack`, `nexttrack`, `stop` and `seekto`, routed to the existing controller methods. `seekto` is what makes the OS scrubber draggable. `seekbackward`/`seekforward` give the ±10 s buttons.
-- Register every handler we intend to honour. An unregistered action falls through to Chromium's default handling of the anchor element, which would pause silence and diverge the OS state from the real one.
+## Unknowns — settled by measurement, Electron 43, Wayland
 
-**Main.**
+**1. Artwork over `fermata://` — NO.** The assumption in this card was wrong. Chromium rejects the privileged scheme outright:
 
-- `app.setAppUserModelId('dev.fermata.app')` before window creation. Without it Windows labels the SMTC card "Electron" and shows the wrong icon.
-- Determine whether Electron 43 needs `enable-features=MediaSessionService` and/or `HardwareMediaKeyHandling` appended for the Linux `SystemMediaControls` path. Settle this by observation, not by copying a switch from a forum post — an unnecessary switch is a liability.
-- Optional and cheap: `win.setThumbarButtons()` for prev/play/next on the Windows taskbar thumbnail. Separate mechanism from SMTC.
-
-**Packaging — `electron-builder.yml`, W6's file.** Currently only `category: AudioVideo`. The DE needs a real desktop entry to associate the MPRIS client with an app identity:
-
-```yaml
-linux:
-  desktop:
-    entry:
-      Categories: AudioVideo;Audio;Player;
-      StartupWMClass: Fermata
-      MimeType: audio/flac;audio/mpeg;audio/x-vorbis+ogg;audio/mp4;audio/x-wav;
+```
+MediaImage src can only be of http/https/data/blob scheme: fermata://artwork/probe/large
 ```
 
-`StartupWMClass` is the easily-missed one — it is how the shell matches the D-Bus client to the window and therefore to a name and icon. Kept on this card rather than carved into W6 because the identity half of the acceptance cannot be verified without it.
+and publishes no `mpris:artUrl` at all. Re-fetched into a blob the same bytes are accepted, and Chromium materialises them as the temp file MPRIS needs (`mpris:artUrl file:///tmp/.org.chromium.Chromium.XXXXXX`, a real PNG). Only `MediaImage` is fussy — `fetch` reaches the scheme fine — so the fix costs one local request per cover. The resolution is cached against the routes that produced it, because every track on an album carries the same two routes and re-reading them would blink the cover out of the card at every boundary.
 
-## Interactions worth designing for, not discovering
+Also worth knowing: Chromium normalises the image to its own desired size (150×150 observed on Linux), so advertising both variants costs nothing and buys the larger source SMTC wants.
 
-- **Two media elements at once.** When a track is on the R1 streaming fallback, the real element and the anchor are both session participants in the same frame. An OS pause may then both invoke our handler and act on the streaming element directly, double-toggling. Decide the policy — most likely suppress the anchor while streaming owns the session — and test the transition in both directions.
-- **Play arriving without a user gesture.** `AudioEngine.play()` is already async because the device may need resuming, and Chromium's autoplay policy applies inside Electron. A media key pressed before any click in the window is the cold-start case; it should degrade deterministically rather than throw an unhandled rejection.
-- **R1 accounting.** The anchor's few hundred bytes are noise, but it must not enter the `DecodedBufferLedger` and must not appear in the `[audio] R1` diagnostic lines, which are milestone evidence on three closed cards.
-- **Session teardown.** If the anchor stalls or ends, the session disappears mid-track. Looping must be robust, and `dispose()` must release it.
+**2. Bus name — `org.mpris.MediaPlayer2.chromium.instance<pid>`.** Not derived from the product name. Unchanged by `setAppUserModelId` *and* unchanged by `app.setName`, both measured. So `app.setName` is deliberately not called: it would buy nothing and would move `app.getPath('userData')`, relocating the library database and artwork cache (`db/location.ts`). **Linux identity comes from the desktop entry and `StartupWMClass`, not from the bus name** — this card's acceptance wording ("publishes an MPRIS bus name identifying Fermata") is not achievable and should be read as the desktop-entry half.
 
-## Unknowns to settle during the work
+**3. Feature switch — not needed.** MPRIS publishes unaided on Electron 43. No `enable-features` added.
 
-Named here so they are answered rather than assumed:
+## A fourth thing, found by running it
 
-1. Whether Chromium can resolve a `fermata://` artwork URL for SMTC and for MPRIS `mpris:artUrl` — the latter requires Chromium to materialise the image as a file. If not, fall back to a `blob:` or `data:` URL built in the renderer.
-2. What bus name Electron actually publishes. Chromium derives it from its product name; whether `app.setName` influences it is worth checking rather than assuming it reads "fermata".
-3. Whether the Linux path needs a feature switch on Electron 43, per above.
+**Chromium never withdraws an MPRIS bus name once it has one, and reports the last player state it *observed*.** Releasing the anchor when playback stops therefore does not remove the OS card — it freezes it, and the renderer has no way to know when the observation landed. Measured: released while playing, MPRIS was stuck advertising `PlaybackStatus = Playing` under the document title *for the rest of the process's life*, a phantom card no later transport action could clear. Releasing from the element's `pause` handler only sometimes won the race.
 
-## Acceptance
+So stopping now **pauses** the anchor and leaves it, and leaves the last track's metadata standing. Blanking the metadata does not blank the card either — it replaces a real track with the document title and the anchor's own ten-second duration. Freezing on the last track, paused, is what every other player shows and the closest the platform gets to "nothing is playing". The element is released for real only in `dispose()`.
 
-- Both platforms, on the **decoded** path — not only on streaming fallback — show a now-playing surface carrying the correct title, artist, album and cover art, and it updates at every track transition including gapless and crossfade boundaries.
-- Hardware play/pause, next and previous reach the transport and the app state and the OS state agree afterwards, including after a skip initiated from the OS side.
-- The OS scrubber shows correct position and duration, and dragging it seeks.
-- Linux publishes an MPRIS bus name identifying Fermata, and the DE shows the correct application name and icon from the packaged build.
-- No session is published while nothing is playing.
-- Pausing from the OS while a track is on the streaming fallback pauses once, not twice.
-- Console stays clean, per the standard the M1 and M2 gates hold.
+The acceptance item "no session is published while nothing is playing" holds in the sense that matters and can be met: **no bus name exists until the first playback** (verified). After that, withdrawal is not ours to do.
+
+## Verification — Linux, done
+
+Wayland, dev build, decoded path (`prefetchStatus: ready`, no streaming fallback), real 2960-track library:
+
+| | app | OS |
+|---|---|---|
+| before any playback | idle | **no MPRIS name** |
+| play | playing | `Playing`, correct title/artist/album, `mpris:artUrl` real file, `mpris:length` 272373333 |
+| OS pause | paused | `Paused` |
+| OS play | playing | `Playing` |
+| OS next | `(intro)` | `(intro)` |
+| OS previous | `$avior Self` | `$avior Self` |
+| OS seek → 90 s | 91.8 | 92.02 |
+| natural track boundary | `(intro)` | `(intro)`, `Playing` |
+| stop | idle | `Paused`, card frozen on the last track with its real metadata |
+
+Console clean: no `[media-session]` lines, no `MediaImage` rejection, no unhandled rejections. The anchor is off-DOM (`document.querySelectorAll("audio,video").length === 0`) and outside the audio graph, so it never reaches `DecodedBufferLedger` and never appears in `[audio] R1` diagnostics.
+
+Automated: 38 tests in `tests/renderer/playback/mediaSession.test.ts` over the status mapping, metadata construction, position-state triggers and seek detection, the anchor lifecycle, the artwork cache's reuse/staleness/revocation, and the pause-arrives-twice case; plus controller tests for `resume`/`pause` idempotence and binding disposal. Full repository gate green.
+
+## Still outstanding
+
+- **Windows.** Everything Windows-side is unverified: the volume-flyout card, hardware keys, the AppUserModelID, `setThumbarButtons` (not implemented — optional, left out). Needs the packaged NSIS build.
+- **Packaged Linux.** The desktop-entry half only exists in the AppImage, so the DE application name and icon are unverified. Re-run the table above against the AppImage.
+- Hardware media *keys* specifically were exercised through `playerctl`, which is the same D-Bus path the DE uses for keys, but not by physically pressing a key.
 
 ## Non-goals
 
@@ -108,10 +115,3 @@ Named here so they are answered rather than assumed:
 - No system tray, no minimise-to-tray, no taskbar progress. Separate concerns.
 - No macOS. D10 stands.
 - No last.fm or scrobbling. Unrelated surface that this card's metadata plumbing will look like an invitation to add.
-
-## Verification
-
-- Linux: `busctl --user list` shows a Fermata MPRIS name; `playerctl metadata` returns real tags; `playerctl play-pause` toggles playback. Then repeat against the packaged AppImage, since the desktop-entry half only exists there.
-- Windows: the volume-flyout card shows metadata and art and responds to the keys; verified in the packaged NSIS build so the AppUserModelID is the real one.
-- Automated coverage over the pure parts — status-to-`playbackState` mapping, metadata construction from a `Track`, position-state update triggers, and the anchor lifecycle driven by a fake engine. The OS binding itself is verified by hand and recorded here, as W3-1's Web Audio wiring was.
-- Ordinary repository gate on both platforms.
