@@ -121,6 +121,13 @@ function createWindow(): BrowserWindow {
 // A second instance would open a second connection to the same SQLite file
 // (W2-1). Cheaper to forbid now than to debug as corruption later.
 if (!app.requestSingleInstanceLock()) {
+  // Say so. A bare quit here exits 0 with no output, which during development
+  // is indistinguishable from a crash: `npm run dev` builds, prints "DevTools
+  // listening", then vanishes. The running instance is usually a forgotten one.
+  process.stderr.write(
+    '[fermata] another instance already holds the single-instance lock; exiting.\n' +
+      '[fermata] close the running Fermata (or its dev instance) and start again.\n'
+  )
   app.quit()
 } else {
   // Must happen before the app is ready, or the scheme is not privileged and
