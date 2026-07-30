@@ -26,7 +26,7 @@
       "description": "The Web Audio graph and everything scheduled through it: AudioEngine interface, decodeAudioData implementation, prefetch and sample-accurate scheduling, gapless, crossfade, ReplayGain application. Owns R1 (decode memory ceiling) and R2 (gapless/crossfade exclusivity) — the two risks most likely to force architectural change.",
       "color": "amber",
       "order": 2,
-      "cardCounter": 9,
+      "cardCounter": 10,
       "dependsOn": [
         "W1"
       ]
