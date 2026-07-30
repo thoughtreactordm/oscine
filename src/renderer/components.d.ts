@@ -25,6 +25,7 @@ declare module 'vue' {
     UDashboardPanel: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/DashboardPanel.vue')['default']
     UDropdownMenu: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/DropdownMenu.vue')['default']
     UEmpty: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Empty.vue')['default']
+    UFieldGroup: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/FieldGroup.vue')['default']
     UFormField: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/FormField.vue')['default']
     UIcon: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/vue/components/Icon.vue')['default']
     UInput: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Input.vue')['default']
@@ -34,5 +35,6 @@ declare module 'vue' {
     USkeleton: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Skeleton.vue')['default']
     USlider: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Slider.vue')['default']
     UTable: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Table.vue')['default']
+    UTooltip: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Tooltip.vue')['default']
   }
 }

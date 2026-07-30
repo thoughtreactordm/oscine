@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQV63WZB2PJ7PNTVY8XJJS4
 title: Virtualized arbitrary multi-select and persistent configurable columns
-status: todo
+status: done
 priority: high
 labels:
   - M3
@@ -14,9 +14,9 @@ workstreamId: W4-4
 dependsOn:
   - 01KYQV5FCHTQ9JTDFBAMXHA75X
 effort: high
-order: 4
+order: 5
 created: '2026-07-29T21:06:15.582Z'
-updated: '2026-07-29T21:06:15.582Z'
+updated: '2026-07-30T13:48:41.168Z'
 ---
 Finish the power-user interaction surface deferred by W4-1: arbitrary selection across a virtualized result and a column layout the user controls. The selection contract must be ready for M4's add-to-playlist action, but this card does not build playlists.
 

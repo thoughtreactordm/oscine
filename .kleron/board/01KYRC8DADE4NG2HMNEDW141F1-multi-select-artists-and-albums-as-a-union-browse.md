@@ -1,7 +1,7 @@
 ---
 taskId: 01KYRC8DADE4NG2HMNEDW141F1
 title: Multi-select artists and albums as a union browse filter
-status: todo
+status: done
 priority: medium
 labels:
   - renderer
@@ -12,7 +12,7 @@ workstream: W4
 workstreamId: W4-5
 order: 6
 created: '2026-07-30T02:04:36.556Z'
-updated: '2026-07-30T02:04:36.556Z'
+updated: '2026-07-30T13:48:41.189Z'
 ---
 The Artists and Albums panes select one row. Selecting several — three artists, or four
 albums across two of them — is table stakes for a poweruser library, and it is also the

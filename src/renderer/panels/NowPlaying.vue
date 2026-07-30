@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { hasArtwork } from '@shared/ipc'
-import { usePlaybackStore } from '@renderer/stores/playback'
+import { computed } from "vue";
+import { hasArtwork } from "@shared/ipc";
+import { usePlaybackStore } from "@renderer/stores/playback";
 
 /**
  * The transport island.
@@ -11,15 +11,15 @@ import { usePlaybackStore } from '@renderer/stores/playback'
  * `playback.next()` rather than anything about rows: the order was captured
  * when playback started and this panel does not need to know what it was.
  */
-const playback = usePlaybackStore()
+const playback = usePlaybackStore();
 
 /** Artist and album on one line, skipping whichever the file did not carry. */
 const subtitle = computed(() => {
-  const track = playback.nowPlaying
-  if (!track) return 'Add a folder, then double-click a track'
-  const parts = [track.artist, track.album].filter((part): part is string => Boolean(part))
-  return parts.length > 0 ? parts.join(' — ') : '—'
-})
+  const track = playback.nowPlaying;
+  if (!track) return "Add a folder, then double-click a track";
+  const parts = [track.artist, track.album].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(" — ") : "—";
+});
 
 /**
  * The cover to bleed behind the bar, or null when there is nothing worth
@@ -27,33 +27,52 @@ const subtitle = computed(() => {
  * either way, and the blur is what hides the upscale.
  */
 const backdrop = computed(() => {
-  const url = playback.nowPlaying?.artwork.large
-  return url && hasArtwork(url) ? url : null
-})
+  const url = playback.nowPlaying?.artwork.large;
+  return url && hasArtwork(url) ? url : null;
+});
 
 function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
-  const total = Math.floor(seconds)
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const total = Math.floor(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
 function onSeekInput(value: number | undefined): void {
-  if (value === undefined) return
+  if (value === undefined) return;
   // A drag has already announced itself with `pointerdown`, so the position is
   // held until release. Keyboard seeking produces no pointer events at all and
   // commits immediately — otherwise an arrow key would move the handle and
   // never reach the audio.
-  if (playback.scrubbing) playback.scrubTo(value)
-  else playback.seek(value)
+  if (playback.scrubbing) playback.scrubTo(value);
+  else playback.seek(value);
 }
 </script>
 
 <template>
+  <USlider
+    :model-value="playback.currentTime"
+    aria-label="Seek"
+    size="xs"
+    :min="0"
+    :max="playback.duration || 1"
+    :step="0.01"
+    :disabled="!playback.canSeek"
+    :ui="{
+          root: 'group relative',
+          track: 'rounded-none h-1',
+          range: 'rounded-none h-1',
+          thumb: 'opacity-0 cursor-pointer group-hover:opacity-100 w-2 h-2 z-10',
+        }"
+    @pointerdown="playback.beginScrub()"
+    @update:model-value="onSeekInput"
+    @change="playback.endScrub()"
+    @pointerup="playback.endScrub()"
+  />
   <UCard
     as="footer"
     variant="soft"
     class="relative isolate h-full min-h-0 overflow-hidden rounded-none ring-0"
-    :ui="{ body: 'flex h-full min-h-0 items-center gap-3 overflow-hidden p-2 sm:p-2' }"
+    :ui="{ body: 'flex w-full h-full items-center justify-betweeen gap-6 overflow-hidden p-3 sm:p-3' }"
     aria-label="Now playing"
   >
     <!--
@@ -80,35 +99,17 @@ function onSeekInput(value: number | undefined): void {
       </div>
     </Transition>
 
-    <UAvatar
-      :src="playback.nowPlaying?.artwork.small"
-      :icon="playback.nowPlaying ? undefined : 'i-lucide-disc-3'"
-      alt=""
-      size="3xl"
-      class="shrink-0 rounded-sm"
-      :ui="{ image: 'size-full object-cover', icon: 'size-6 text-dimmed' }"
-      aria-hidden="true"
-    />
-
-    <div class="w-52 min-w-0 shrink-0">
-      <p class="truncate text-sm font-medium text-highlighted">
-        {{ playback.nowPlaying?.title ?? 'Nothing playing' }}
-      </p>
-      <p class="truncate text-xs text-muted">{{ subtitle }}</p>
-      <p v-if="playback.error" class="truncate text-xs text-error">{{ playback.error }}</p>
-    </div>
-
-    <div class="flex shrink-0 items-center gap-1">
+    <UFieldGroup>
       <UButton
         icon="i-lucide-skip-back"
-        size="sm"
         color="neutral"
-        variant="ghost"
+        variant="subtle"
         :disabled="!playback.hasTrack"
         aria-label="Previous track"
         @click="playback.previous()"
       />
       <UButton
+        variant="subtle"
         :icon="playback.isPlaying ? 'i-lucide-pause' : 'i-lucide-play'"
         :color="playback.hasTrack ? 'primary' : 'neutral'"
         :loading="playback.isLoading"
@@ -118,31 +119,48 @@ function onSeekInput(value: number | undefined): void {
       />
       <UButton
         icon="i-lucide-skip-forward"
-        size="sm"
         color="neutral"
-        variant="ghost"
+        variant="subtle"
         :disabled="!playback.hasTrack"
         aria-label="Next track"
         @click="playback.next()"
       />
+    </UFieldGroup>
+
+    <div class="flex gap-3">
+      <div class="flex justify-between tabular-nums text-xs font-medium text-muted">
+        <span>{{ formatTime(playback.currentTime) }}</span>&nbsp;/&nbsp;
+        <span>{{ formatTime(playback.duration) }}</span>
+      </div>
     </div>
 
-    <div class="min-w-24 flex-1 space-y-1">
-      <USlider
-        :model-value="playback.currentTime"
-        aria-label="Seek"
-        :min="0"
-        :max="playback.duration || 1"
-        :step="0.01"
-        :disabled="!playback.canSeek"
-        @pointerdown="playback.beginScrub()"
-        @update:model-value="onSeekInput"
-        @change="playback.endScrub()"
-        @pointerup="playback.endScrub()"
+    <div class="flex gap-3 grow items-center justify-center">
+      <UAvatar
+        :src="playback.nowPlaying?.artwork.small"
+        :icon="playback.nowPlaying ? undefined : 'i-lucide-disc-3'"
+        alt=""
+        size="3xl"
+        class="shrink-0 rounded-sm"
+        :ui="{ image: 'size-full object-cover', icon: 'size-6 text-dimmed' }"
+        aria-hidden="true"
       />
-      <div class="flex justify-between tabular-nums text-xs text-muted">
-        <span>{{ formatTime(playback.currentTime) }}</span>
-        <span>{{ formatTime(playback.duration) }}</span>
+      <div class="flex flex-col justify-center">
+        <p class="truncate text-sm font-medium text-highlighted max-w-60">
+          {{ playback.nowPlaying?.title ?? 'Nothing playing' }}
+        </p>
+        <p class="truncate text-xs text-muted">
+          {{ playback.nowPlaying?.album }}&nbsp;&nbsp;•&nbsp;&nbsp;{{ playback.nowPlaying?.year }}
+        </p>
+        <p class="truncate text-xs text-primary">{{ playback.nowPlaying?.albumArtist }}</p>
+        <p v-if="playback.error" class="truncate text-xs text-error">{{ playback.error }}</p>
+      </div>
+      <div>
+        <UTooltip text="Favorite?">
+          <UButton variant="ghost" icon="i-lucide-heart-s" square />
+        </UTooltip>
+        <UTooltip text="Favorite?">
+          <UButton variant="ghost" icon="i-lucide-heart" square />
+        </UTooltip>
       </div>
     </div>
 
@@ -155,9 +173,12 @@ function onSeekInput(value: number | undefined): void {
         :min="0"
         :max="1"
         :step="0.01"
+        :ui="{
+          thumb: 'opacity-0 cursor-pointer hover:opacity-100 w-3 h-3 -ml-0.5',
+        }"
         @update:model-value="(value) => value !== undefined && playback.setVolume(value)"
       />
-      <span class="w-8 text-right tabular-nums text-xs text-muted">
+      <span class="wtext-right tabular-nums text-xs text-muted">
         {{ Math.round(playback.volume * 100) }}
       </span>
     </div>
@@ -184,11 +205,11 @@ function onSeekInput(value: number | undefined): void {
   inset: 0;
   background-position: center;
   background-repeat: no-repeat;
-  background-size: cover;
-  filter: blur(var(--fermata-cover-blur)) saturate(1.3);
+  background-size: 100% 100%;
+  filter: blur(var(--fermata-cover-blur)) saturate(3.6);
   /* The resting value for when the drift is off, set to the keyframes' midpoint
      so reduced motion gets the same framing as the average animated frame. */
-  transform: scale(1.7);
+  transform: scale(1.33);
   animation: cover-drift var(--fermata-cover-drift) ease-in-out infinite alternate;
   /* The blur is expensive to recompute; promoting the layer means the drift is
      a composited transform of a cached result, not a re-blur per frame. */
@@ -201,10 +222,10 @@ function onSeekInput(value: number | undefined): void {
  */
 @keyframes cover-drift {
   from {
-    transform: scale(1.62) translate3d(-1.5%, -1%, 0);
+    transform: scale(1.33) translate3d(-1.5%, -1%, 0);
   }
   to {
-    transform: scale(1.78) translate3d(1.5%, 1%, 0);
+    transform: scale(1.66) translate3d(1.5%, 1%, 0);
   }
 }
 
