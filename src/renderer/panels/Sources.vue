@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { ListboxItem } from '@nuxt/ui'
 import { FermataError, library } from '@renderer/ipc'
 import { measureLibraryQuery } from '@renderer/metrics'
-import { createFacetWindow, type FacetWindow } from '@renderer/panels/facetWindow'
+import FacetList from '@renderer/panels/FacetList.vue'
+import { createFacetWindow } from '@renderer/panels/facetWindow'
 import {
   MAX_SEARCH_LENGTH,
   MIN_SEARCH_LENGTH,
@@ -23,17 +23,8 @@ const ARTIST_ROW_HEIGHT = 32
 const ALBUM_ROW_HEIGHT = 44
 const SEARCH_DELAY_MS = 250
 
-interface BrowserListItem<T extends ArtistFacet | AlbumFacet> extends ListboxItem {
-  value: string
-  facetIndex: number | null
-  facet?: T
-  count?: number
-}
-
 const roots = ref<LibraryRoot[]>([])
 const rootId = ref<number | null>(null)
-const artistId = ref<number | null>(null)
-const albumId = ref<number | null>(null)
 const searchInput = ref('')
 const activeSearch = ref<string | null>(null)
 const searchPending = ref(false)
@@ -42,31 +33,40 @@ const scan = ref<ScanProgress | null>(null)
 const notice = ref<string | null>(null)
 
 const artists = createFacetWindow<ArtistFacet>({
+  dimension: 'artistIds',
   fetchPage: async (query) => {
     const result = await measureLibraryQuery('artists-query', () => library.listArtists(query))
     return { items: result.artists, total: result.total }
-  }
+  },
+  fetchIdPage: (query) => library.listArtistIds(query)
 })
 const albums = createFacetWindow<AlbumFacet>({
+  dimension: 'albumIds',
   fetchPage: async (query) => {
     const result = await measureLibraryQuery('albums-query', () => library.listAlbums(query))
     return { items: result.albums, total: result.total }
-  }
+  },
+  fetchIdPage: (query) => library.listAlbumIds(query)
 })
 
-const currentFilters = computed<LibraryBrowseFilters>(() => ({
-  ...(rootId.value === null ? {} : { rootId: rootId.value }),
-  ...(artistId.value === null ? {} : { artistId: artistId.value }),
-  ...(albumId.value === null ? {} : { albumId: albumId.value }),
-  ...(activeSearch.value === null ? {} : { searchText: activeSearch.value })
-}))
+/**
+ * The three predicates, narrowing left to right.
+ *
+ * Each pane is filtered by everything above it and never by itself: the artist
+ * pane has to keep listing every artist under the root while some of them are
+ * selected, or selecting a second one would be impossible.
+ */
 const artistFilters = computed<LibraryBrowseFilters>(() => ({
   ...(rootId.value === null ? {} : { rootId: rootId.value }),
   ...(activeSearch.value === null ? {} : { searchText: activeSearch.value })
 }))
 const albumFilters = computed<LibraryBrowseFilters>(() => ({
   ...artistFilters.value,
-  ...(artistId.value === null ? {} : { artistId: artistId.value })
+  ...(artists.filterIds.value === undefined ? {} : { artistIds: artists.filterIds.value })
+}))
+const currentFilters = computed<LibraryBrowseFilters>(() => ({
+  ...albumFilters.value,
+  ...(albums.filterIds.value === undefined ? {} : { albumIds: albums.filterIds.value })
 }))
 
 const rootItems = computed(() => [
@@ -76,51 +76,48 @@ const rootItems = computed(() => [
     value: root.id
   }))
 ])
+/**
+ * `0` is the sentinel for "All folders" in the select, and `null` is the absence
+ * of a `rootId` in the filter. Changing it needs no validation of its own: the
+ * two panes below are watching, and both prune whatever the narrower root no
+ * longer contains.
+ */
 const rootValue = computed({
   get: () => rootId.value ?? 0,
   set: (value: number | undefined) => {
-    void selectRoot(value ?? 0)
+    rootId.value = value === undefined || value === 0 ? null : value
   }
 })
-const artistValue = computed(() =>
-  artistId.value === null ? 'all-artists' : `artist:${artistId.value}`
-)
-const albumValue = computed(() =>
-  albumId.value === null ? 'all-albums' : `album:${albumId.value}`
-)
 
-const artistItems = computed<Array<BrowserListItem<ArtistFacet>>>(() => [
-  { label: 'All Artists', value: 'all-artists', facetIndex: null },
-  ...Array.from({ length: artists.total.value }, (_, index) => {
-    const facet = artists.rowAt(index)
-    return {
-      label: facet?.name ?? 'Loading…',
-      value: facet ? `artist:${facet.id}` : `artist-loading:${index}`,
-      facetIndex: index,
-      facet,
-      count: facet?.trackCount,
-      disabled: facet === undefined
-    }
-  })
-])
-const albumItems = computed<Array<BrowserListItem<AlbumFacet>>>(() => [
-  { label: 'All Albums', value: 'all-albums', facetIndex: null },
-  ...Array.from({ length: albums.total.value }, (_, index) => {
-    const facet = albums.rowAt(index)
-    return {
-      label: facet?.title ?? 'Loading…',
-      description: facet?.albumArtist ?? (facet ? 'Unknown artist' : undefined),
-      value: facet ? `album:${facet.id}` : `album-loading:${index}`,
-      facetIndex: index,
-      facet,
-      count: facet?.trackCount,
-      disabled: facet === undefined
-    }
-  })
-])
-
-watch(artistFilters, (filters) => artists.setFilters(filters), { immediate: true })
-watch(albumFilters, (filters) => albums.setFilters(filters), { immediate: true })
+/**
+ * Narrowing a pane prunes the selections beneath it.
+ *
+ * The pruning is what makes a selection safe to keep across a narrowing rather
+ * than something to clear defensively. Picking a second artist leaves the albums
+ * of the first that they did not both record out of the pane entirely, and an
+ * album still filtering the song list from outside the list it was chosen in is
+ * a selection the user can neither see nor untick.
+ *
+ * Only downward. An artist selection is never pruned by an album selection,
+ * because the album pane is downstream of it — that direction would let a click
+ * in the lower pane silently rewrite the upper one.
+ */
+watch(
+  artistFilters,
+  (filters) => {
+    artists.setFilters(filters)
+    void artists.pruneSelection()
+  },
+  { immediate: true }
+)
+watch(
+  albumFilters,
+  (filters) => {
+    albums.setFilters(filters)
+    void albums.pruneSelection()
+  },
+  { immediate: true }
+)
 watch(
   currentFilters,
   (filters) => {
@@ -131,7 +128,6 @@ watch(
 )
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null
-let validationGeneration = 0
 let stopScan: (() => void) | null = null
 let stopNotice: (() => void) | null = null
 
@@ -157,107 +153,12 @@ const searchHelp = computed(() =>
     : undefined
 )
 
-function requestItem<T extends ArtistFacet | AlbumFacet>(
-  item: BrowserListItem<T>,
-  model: FacetWindow<T>
-): void {
-  if (item.facetIndex === null || item.facet) return
-  const index = item.facetIndex
-  queueMicrotask(() => model.ensureRange(Math.max(0, index - 8), index + 8))
-}
-
-function artistLabel(item: BrowserListItem<ArtistFacet>): string {
-  requestItem(item, artists)
-  return item.label ?? 'Loading…'
-}
-
-function albumLabel(item: BrowserListItem<AlbumFacet>): string {
-  requestItem(item, albums)
-  return item.label ?? 'Loading…'
-}
-
 async function refreshRoots(): Promise<void> {
   try {
     roots.value = await library.listRoots()
   } catch {
     notice.value = 'Could not read library folders.'
   }
-}
-
-async function selectionExists(filters: LibraryBrowseFilters): Promise<boolean> {
-  const result = await library.listAlbums({ ...filters, offset: 0, limit: 1 })
-  return result.total > 0
-}
-
-async function artistExists(filters: LibraryBrowseFilters): Promise<boolean> {
-  const result = await library.listArtists({ ...filters, offset: 0, limit: 1 })
-  return result.total > 0
-}
-
-async function selectArtist(item: ArtistFacet | null): Promise<void> {
-  const requested = ++validationGeneration
-  const nextArtistId = item?.id ?? null
-  if (albumId.value !== null && nextArtistId !== null) {
-    const valid = await selectionExists({
-      ...artistFilters.value,
-      artistId: nextArtistId,
-      albumId: albumId.value
-    })
-    if (requested !== validationGeneration) return
-    if (!valid) albumId.value = null
-  }
-  artistId.value = nextArtistId
-}
-
-function selectAlbum(item: AlbumFacet | null): void {
-  validationGeneration++
-  albumId.value = item?.id ?? null
-}
-
-function updateArtist(value: string | undefined): void {
-  if (!value || value === 'all-artists') {
-    void selectArtist(null)
-    return
-  }
-  const item = artistItems.value.find((candidate) => candidate.value === value)
-  if (item?.facet) void selectArtist(item.facet)
-}
-
-function updateAlbum(value: string | undefined): void {
-  if (!value || value === 'all-albums') {
-    selectAlbum(null)
-    return
-  }
-  const item = albumItems.value.find((candidate) => candidate.value === value)
-  if (item?.facet) selectAlbum(item.facet)
-}
-
-async function selectRoot(value: number): Promise<void> {
-  const nextRoot = value > 0 ? value : null
-  const requested = ++validationGeneration
-
-  if (artistId.value !== null) {
-    const valid = await artistExists({
-      ...(nextRoot === null ? {} : { rootId: nextRoot }),
-      artistId: artistId.value,
-      ...(activeSearch.value === null ? {} : { searchText: activeSearch.value })
-    })
-    if (requested !== validationGeneration) return
-    if (!valid) {
-      artistId.value = null
-      albumId.value = null
-    }
-  }
-  if (albumId.value !== null) {
-    const valid = await selectionExists({
-      ...(nextRoot === null ? {} : { rootId: nextRoot }),
-      ...(artistId.value === null ? {} : { artistId: artistId.value }),
-      albumId: albumId.value
-    })
-    if (requested !== validationGeneration) return
-    if (!valid) albumId.value = null
-  }
-  rootId.value = nextRoot
 }
 
 async function addFolder(): Promise<void> {
@@ -369,9 +270,27 @@ onUnmounted(() => {
     </div>
 
     <section class="flex min-h-0 flex-1 basis-0 flex-col border-b border-default">
-      <div class="flex h-8 shrink-0 items-center border-b border-default bg-elevated/30 px-2">
+      <div class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2">
         <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Artists</h2>
-        <span class="ml-auto text-xs tabular-nums text-dimmed">{{ artists.total.value }}</span>
+        <template v-if="artists.selectionCount.value > 0">
+          <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
+            {{ artists.selectionCount.value.toLocaleString() }} selected
+          </span>
+          <UButton
+            icon="i-lucide-x"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            aria-label="Clear artist selection"
+            @click="artists.clearSelection()"
+          />
+        </template>
+        <span
+          class="text-xs tabular-nums text-dimmed"
+          :class="{ 'ml-auto': artists.selectionCount.value === 0 }"
+        >
+          {{ artists.total.value.toLocaleString() }}
+        </span>
       </div>
 
       <UAlert
@@ -383,32 +302,14 @@ onUnmounted(() => {
         class="rounded-none"
       />
 
-      <UListbox
-        :model-value="artistValue"
-        value-key="value"
-        :items="artistItems"
-        :loading="artists.loading.value && artists.total.value === 0"
-        :virtualize="{ estimateSize: ARTIST_ROW_HEIGHT, overscan: 8 }"
-        size="sm"
-        class="min-h-0 flex-1 rounded-none ring-0"
-        :ui="{
-          root: 'h-full min-h-0 rounded-none ring-0',
-          content:
-            'h-full min-h-0 max-h-none overflow-y-auto overscroll-contain [scrollbar-gutter:stable]',
-          item: 'h-8 items-center px-2 py-0',
-          itemWrapper: 'justify-center',
-          itemTrailingIcon: 'hidden'
-        }"
-        aria-label="Artists"
-        @update:model-value="updateArtist"
-      >
-        <template #item-label="{ item }">
-          {{ artistLabel(item) }}
+      <FacetList :model="artists" :row-height="ARTIST_ROW_HEIGHT" label="Artists">
+        <template #row="{ item }">
+          <span class="truncate">{{ item?.name ?? 'Loading…' }}</span>
+          <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
+            {{ item?.trackCount ?? '' }}
+          </span>
         </template>
-        <template #item-trailing="{ item }">
-          <span class="tabular-nums text-xs text-dimmed">{{ item.count ?? '' }}</span>
-        </template>
-      </UListbox>
+      </FacetList>
 
       <UEmpty
         v-if="artists.total.value === 0 && !artists.loading.value"
@@ -421,9 +322,27 @@ onUnmounted(() => {
     </section>
 
     <section class="flex min-h-0 flex-1 basis-0 flex-col">
-      <div class="flex h-8 shrink-0 items-center border-b border-default bg-elevated/30 px-2">
+      <div class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2">
         <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Albums</h2>
-        <span class="ml-auto text-xs tabular-nums text-dimmed">{{ albums.total.value }}</span>
+        <template v-if="albums.selectionCount.value > 0">
+          <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
+            {{ albums.selectionCount.value.toLocaleString() }} selected
+          </span>
+          <UButton
+            icon="i-lucide-x"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            aria-label="Clear album selection"
+            @click="albums.clearSelection()"
+          />
+        </template>
+        <span
+          class="text-xs tabular-nums text-dimmed"
+          :class="{ 'ml-auto': albums.selectionCount.value === 0 }"
+        >
+          {{ albums.total.value.toLocaleString() }}
+        </span>
       </div>
 
       <UAlert
@@ -435,43 +354,28 @@ onUnmounted(() => {
         class="rounded-none"
       />
 
-      <UListbox
-        :model-value="albumValue"
-        value-key="value"
-        :items="albumItems"
-        :loading="albums.loading.value && albums.total.value === 0"
-        :virtualize="{ estimateSize: ALBUM_ROW_HEIGHT, overscan: 8 }"
-        size="sm"
-        class="min-h-0 flex-1 rounded-none ring-0"
-        :ui="{
-          root: 'h-full min-h-0 rounded-none ring-0',
-          content:
-            'h-full min-h-0 max-h-none overflow-y-auto overscroll-contain [scrollbar-gutter:stable]',
-          item: 'h-11 items-center px-2 py-0',
-          itemWrapper: 'justify-center',
-          itemTrailingIcon: 'hidden'
-        }"
-        aria-label="Albums"
-        @update:model-value="updateAlbum"
-      >
-        <template #item-leading="{ item }">
+      <FacetList :model="albums" :row-height="ALBUM_ROW_HEIGHT" label="Albums">
+        <template #row="{ item }">
           <UAvatar
-            :src="item.facet?.artwork.small"
-            :icon="item.facet ? undefined : 'i-lucide-disc-3'"
+            :src="item?.artwork.small"
+            :icon="item ? undefined : 'i-lucide-disc-3'"
             alt=""
             size="md"
-            class="rounded"
+            class="shrink-0 rounded"
             :ui="{ image: 'rounded object-cover', icon: 'size-4 text-dimmed' }"
             loading="lazy"
           />
+          <span class="flex min-w-0 flex-col">
+            <span class="truncate">{{ item?.title ?? 'Loading…' }}</span>
+            <span class="truncate text-xs text-muted">
+              {{ item ? (item.albumArtist ?? 'Unknown artist') : '' }}
+            </span>
+          </span>
+          <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
+            {{ item?.trackCount ?? '' }}
+          </span>
         </template>
-        <template #item-label="{ item }">
-          {{ albumLabel(item) }}
-        </template>
-        <template #item-trailing="{ item }">
-          <span class="tabular-nums text-xs text-dimmed">{{ item.count ?? '' }}</span>
-        </template>
-      </UListbox>
+      </FacetList>
 
       <UEmpty
         v-if="albums.total.value === 0 && !albums.loading.value"

@@ -6,7 +6,7 @@ import {
   type TrackColumnKey,
   type TrackColumnSpec
 } from '@renderer/panels/columnLayout'
-import { selectionIntent } from '@renderer/panels/trackSelection'
+import { selectionIntent } from '@renderer/panels/indexedSelection'
 import {
   groupedLayout,
   identityLayout,

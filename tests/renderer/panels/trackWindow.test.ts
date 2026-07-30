@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { reactive } from 'vue'
 import {
   MAX_TRACK_ID_PAGE,
   MAX_TRACK_PAGE,
@@ -112,6 +113,33 @@ function flush(): Promise<void> {
 }
 
 describe('createTrackWindow', () => {
+  /**
+   * A filter that has been through a reactive store still has to cross IPC.
+   *
+   * Electron clones every request, and a `Proxy` cannot be cloned — so the
+   * symptom of getting this wrong is not a subtly wrong query but "An object
+   * could not be cloned" the first time a selection is non-empty. The control
+   * assertion is deliberate: without it this test would keep passing if the
+   * proxying ever stopped happening for an unrelated reason.
+   */
+  it('sends filters that survive structured cloning', async () => {
+    const source = syntheticLibrary()
+    const win = createTrackWindow(deps(source, { pageSize: 200 }))
+    const store = reactive({ filters: { artistIds: [12, 13], albumIds: [34] } })
+    expect(() => structuredClone(store.filters)).toThrow()
+
+    win.setFilters(store.filters)
+    await flush()
+    await win.selectAt(0, 'replace')
+    await win.selectAt(400, 'range')
+
+    const rowQuery = source.calls.at(-1)
+    const idQuery = source.idCalls.at(-1)
+    expect(() => structuredClone(rowQuery)).not.toThrow()
+    expect(() => structuredClone(idQuery)).not.toThrow()
+    expect(rowQuery?.artistIds).toEqual([12, 13])
+  })
+
   it('learns the row count from the first page and holds only that page', async () => {
     const source = syntheticLibrary()
     const win = createTrackWindow(deps(source))
@@ -261,14 +289,14 @@ describe('createTrackWindow', () => {
     await flush()
     expect(win.direction.value).toBe('desc')
 
-    win.setFilters({ artistId: 12, albumId: 34 })
+    win.setFilters({ artistIds: [12], albumIds: [34] })
     await flush()
 
     expect(win.sort.value).toBe('trackNo')
     expect(win.direction.value).toBe('asc')
     expect(source.calls.at(-1)).toMatchObject({
-      artistId: 12,
-      albumId: 34,
+      artistIds: [12],
+      albumIds: [34],
       sort: 'trackNo',
       direction: 'asc'
     })
@@ -278,16 +306,16 @@ describe('createTrackWindow', () => {
     const source = syntheticLibrary()
     const win = createTrackWindow(deps(source, { pageSize: 200 }))
 
-    win.setFilters({ albumId: 34 })
+    win.setFilters({ albumIds: [34] })
     await flush()
     win.setSort('title')
     await flush()
-    win.setFilters({ albumId: 34, searchText: 'hemian' })
+    win.setFilters({ albumIds: [34], searchText: 'hemian' })
     await flush()
 
     expect(win.sort.value).toBe('title')
     expect(source.calls.at(-1)).toMatchObject({
-      albumId: 34,
+      albumIds: [34],
       searchText: 'hemian',
       sort: 'title',
       direction: 'asc'
@@ -297,21 +325,21 @@ describe('createTrackWindow', () => {
   it.each([
     {
       label: 'All Artists, with an album still selected',
-      selected: { artistId: 12, albumId: 34 },
-      all: { albumId: 34 },
+      selected: { artistIds: [12], albumIds: [34] },
+      all: { albumIds: [34] },
       // Still one album, so still a running order.
       expected: 'trackNo'
     },
     {
       label: 'All Albums, within one artist',
-      selected: { artistId: 12, albumId: 34 },
-      all: { artistId: 12 },
+      selected: { artistIds: [12], albumIds: [34] },
+      all: { artistIds: [12] },
       // A discography: album by album, each in playing order.
       expected: 'album'
     },
     {
       label: 'All Artists and All Albums',
-      selected: { artistId: 12, albumId: 34 },
+      selected: { artistIds: [12], albumIds: [34] },
       all: {},
       expected: 'artist'
     }
@@ -353,13 +381,13 @@ describe('createTrackWindow', () => {
     await flush()
     expect(win.sort.value).toBe('artist')
 
-    win.setFilters({ artistId: 12 })
+    win.setFilters({ artistIds: [12] })
     await flush()
 
     expect(win.sort.value).toBe('album')
     expect(win.direction.value).toBe('asc')
     expect(source.calls.at(-1)).toMatchObject({
-      artistId: 12,
+      artistIds: [12],
       sort: 'album',
       direction: 'asc'
     })
@@ -369,12 +397,12 @@ describe('createTrackWindow', () => {
     const source = syntheticLibrary()
     const win = createTrackWindow(deps(source, { pageSize: 200 }))
 
-    win.setFilters({ artistId: 12 })
+    win.setFilters({ artistIds: [12] })
     await flush()
     win.setSort('durationSec')
     await flush()
 
-    win.setFilters({ artistId: 12, searchText: 'hemian' })
+    win.setFilters({ artistIds: [12], searchText: 'hemian' })
     await flush()
 
     expect(win.sort.value).toBe('durationSec')

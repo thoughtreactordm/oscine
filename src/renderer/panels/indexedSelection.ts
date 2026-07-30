@@ -1,18 +1,24 @@
 import { computed, ref, type Ref } from 'vue'
 
 /**
- * Arbitrary multi-selection over a virtualized list.
+ * Arbitrary multi-selection over any virtualized, windowed list.
  *
- * The selection is a set of track ids and never a set of rows. That is the
- * whole design: a row is a transient thing this panel borrows from main and
- * gives back, so a selection made of rows would be destroyed by the page cache
- * doing its job, and a selection made of positions would be destroyed by a
- * re-sort. Ids survive both, and they are also what M4 needs to hand a playlist.
+ * The selection is a set of row ids and never a set of rows. That is the whole
+ * design: a row is a transient thing a panel borrows from main and gives back,
+ * so a selection made of rows would be destroyed by the page cache doing its
+ * job, and a selection made of positions would be destroyed by a re-sort. Ids
+ * survive both, and they are also what M4 needs to hand a playlist.
  *
  * The cost of that choice is that a set of ids has no order and no positions.
  * Order is recovered on demand from main (`resolveSelection`), and positions are
  * only ever needed for two rows — the focus and the anchor — each of which is
  * carried as an id/index pair and re-adopted when its page happens to arrive.
+ *
+ * Nothing here knows what a row *is*. The song list, the artist pane and the
+ * album pane are three windows over three differently-ordered id spaces, and one
+ * of them behaving differently under Shift would be the kind of inconsistency a
+ * user reads as a bug — so all three drive this same module rather than three
+ * plausible re-implementations of it.
  *
  * Kept free of Vue components, IPC and the store so the semantics below can be
  * driven against a synthetic 100k-row source in a plain unit test.
@@ -46,13 +52,57 @@ export function selectionIntent(modifiers: SelectionModifiers): SelectionIntent 
   return toggling ? 'toggle' : 'replace'
 }
 
+/**
+ * Where a navigation key moves the focus, or `null` when the key is not a
+ * navigation key and the event should be left alone.
+ *
+ * Split out as a pure function because it is entirely arithmetic, and
+ * arithmetic that is wrong at the ends of a 100k-row list is invisible until
+ * someone presses End.
+ *
+ * Addresses rows by offset, not by display position, which is why the track
+ * list's album headers cost it nothing: a header is not a track, so arrow keys
+ * walk straight past one.
+ */
+export function nextFocusIndex(
+  key: string,
+  current: number | null,
+  total: number,
+  rowsPerPage: number
+): number | null {
+  if (total <= 0) return null
+
+  const last = total - 1
+  const clamp = (index: number): number => Math.min(last, Math.max(0, index))
+  const stride = Math.max(1, rowsPerPage)
+
+  switch (key) {
+    // With nothing selected, every key lands on the first row rather than
+    // guessing at an anchor the user never set.
+    case 'ArrowDown':
+      return current === null ? 0 : clamp(current + 1)
+    case 'ArrowUp':
+      return current === null ? 0 : clamp(current - 1)
+    case 'PageDown':
+      return current === null ? 0 : clamp(current + stride)
+    case 'PageUp':
+      return current === null ? 0 : clamp(current - stride)
+    case 'Home':
+      return 0
+    case 'End':
+      return last
+    default:
+      return null
+  }
+}
+
 /** A row as this module needs to see it: an id at a position. */
 interface IdentifiedRow {
   readonly id: number
 }
 
-export interface TrackSelectionDeps {
-  /** Track id at a loaded row, or `undefined` when its page is not held. */
+export interface IndexedSelectionDeps {
+  /** Row id at a loaded position, or `undefined` when its page is not held. */
   idAt: (index: number) => number | undefined
   /**
    * Ids for an inclusive index range under the current ordering, in list order.
@@ -67,7 +117,7 @@ export interface TrackSelectionDeps {
   total: () => number
 }
 
-export function createTrackSelection(deps: TrackSelectionDeps) {
+export function createIndexedSelection(deps: IndexedSelectionDeps) {
   /**
    * Membership, and the only authoritative part of the selection.
    *
@@ -201,6 +251,25 @@ export function createTrackSelection(deps: TrackSelectionDeps) {
   }
 
   /**
+   * Drops every id not in `keep`, leaving the rest selected.
+   *
+   * For the case where the list a selection was made against narrows under it:
+   * choosing a second artist removes albums that only the first one had, and the
+   * albums still on screen must stay ticked. Clearing and re-selecting would be
+   * simpler and would lose the user's work; `keep` comes from main, so this is
+   * "the ones that survived" rather than a guess.
+   *
+   * Deliberately does not touch the anchor. Its id may well have been dropped,
+   * but a Shift-range measured from a row that has gone still measures from the
+   * right *place* — the index is what a range reads, and `adoptPage` will retire
+   * the stale id the next time that page lands.
+   */
+  function retain(keep: Iterable<number>): void {
+    const surviving = keep instanceof Set ? keep : new Set(keep)
+    for (const id of ids.value) if (!surviving.has(id)) ids.value.delete(id)
+  }
+
+  /**
    * Reconciles focus and anchor against a page that just landed.
    *
    * Runs in both directions: a re-sort leaves an id without an index, and
@@ -239,7 +308,7 @@ export function createTrackSelection(deps: TrackSelectionDeps) {
   }
 
   /**
-   * The selection as track ids in list order.
+   * The selection as row ids in list order.
    *
    * Resolved in main because that is the only place the list order lives: a set
    * of ids has none, and keeping a position for every selected row would mean
@@ -265,10 +334,11 @@ export function createTrackSelection(deps: TrackSelectionDeps) {
     apply,
     moveFocusOnly,
     clear,
+    retain,
     adoptPage,
     invalidateIndices,
     resolveSelection
   }
 }
 
-export type TrackSelection = ReturnType<typeof createTrackSelection>
+export type IndexedSelection = ReturnType<typeof createIndexedSelection>

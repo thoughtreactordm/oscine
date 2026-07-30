@@ -1,7 +1,9 @@
-import { computed, ref } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import {
+  browseScopeKey,
   MAX_TRACK_ID_PAGE,
   MAX_TRACK_PAGE,
+  plainBrowseFilters,
   type LibraryBrowseFilters,
   type ListTrackGroupsQuery,
   type ListTrackGroupsResult,
@@ -18,11 +20,12 @@ import {
 // Relative rather than aliased: `tsconfig.node.json` reaches this module through
 // the renderer tests, and that project does not map `@renderer`.
 import {
-  createTrackSelection,
+  createIndexedSelection,
+  nextFocusIndex,
   selectionIntent,
   type SelectionIntent,
   type SelectionModifiers
-} from './trackSelection'
+} from './indexedSelection'
 
 /**
  * The windowing engine behind the track list.
@@ -83,10 +86,13 @@ export interface TrackWindowDeps {
 /**
  * The ordering a browse scope reads best in.
  *
- * One album is a running order. One artist is a discography, which means album
- * by album with each in playing order — `album` carries the disc/track
- * tiebreakers that make that true. Everything else is a flat list where the
- * artist is the only grouping worth defaulting to.
+ * *One* album is a running order, and only one: `trackNo` across several albums
+ * interleaves them into every record's track 1, then every track 2, which is not
+ * a reading of anything. Any wider record- or artist-shaped scope is album by
+ * album with each in playing order — `album` carries the disc/track tiebreakers
+ * that make that true, and it is the ordering the album headers are drawn
+ * against. Everything else is a flat list where the artist is the only grouping
+ * worth defaulting to.
  *
  * Keyed on the scope rather than on the transition into it. The previous form
  * tested three transitions and had no case for *entering* an artist, so the
@@ -95,53 +101,12 @@ export interface TrackWindowDeps {
  * listing — silently decided what followed what.
  */
 export function defaultSortFor(scope: LibraryBrowseFilters): TrackSortColumn {
-  if (scope.albumId !== undefined) return 'trackNo'
-  if (scope.artistId !== undefined) return 'album'
+  if (scope.albumIds?.length === 1) return 'trackNo'
+  if (scope.albumIds !== undefined || scope.artistIds !== undefined) return 'album'
   return 'artist'
 }
 
-/**
- * Where a navigation key moves the focus, or `null` when the key is not a
- * navigation key and the event should be left alone.
- *
- * Split out as a pure function because it is entirely arithmetic, and
- * arithmetic that is wrong at the ends of a 100k-row list is invisible until
- * someone presses End.
- *
- * Addresses tracks by offset, not display rows, which is why album headers cost
- * it nothing: a header is not a track, so arrow keys walk straight past one.
- */
-export function nextFocusIndex(
-  key: string,
-  current: number | null,
-  total: number,
-  rowsPerPage: number
-): number | null {
-  if (total <= 0) return null
-
-  const last = total - 1
-  const clamp = (index: number): number => Math.min(last, Math.max(0, index))
-  const stride = Math.max(1, rowsPerPage)
-
-  switch (key) {
-    // With nothing selected, every key lands on the first row rather than
-    // guessing at an anchor the user never set.
-    case 'ArrowDown':
-      return current === null ? 0 : clamp(current + 1)
-    case 'ArrowUp':
-      return current === null ? 0 : clamp(current - 1)
-    case 'PageDown':
-      return current === null ? 0 : clamp(current + stride)
-    case 'PageUp':
-      return current === null ? 0 : clamp(current - stride)
-    case 'Home':
-      return 0
-    case 'End':
-      return last
-    default:
-      return null
-  }
-}
+export { nextFocusIndex }
 
 export function createTrackWindow(deps: TrackWindowDeps) {
   const pageSize = deps.pageSize ?? TRACK_PAGE_SIZE
@@ -158,7 +123,15 @@ export function createTrackWindow(deps: TrackWindowDeps) {
 
   const sort = ref<TrackSortColumn>('artist')
   const direction = ref<SortDirection>('asc')
-  const filters = ref<LibraryBrowseFilters>({})
+  /**
+   * The browse predicate, held shallowly and stored plain.
+   *
+   * `shallowRef` rather than `ref` because a deep ref would re-proxy the id
+   * arrays on every read, defeating the normalisation below — and every read of
+   * this value ends up as an IPC request, which clones. The object is replaced
+   * wholesale rather than mutated, so shallow reactivity is all it ever needed.
+   */
+  const filters = shallowRef<LibraryBrowseFilters>({})
   const total = ref(0)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -256,7 +229,7 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     return ids
   }
 
-  const selection = createTrackSelection({
+  const selection = createIndexedSelection({
     idAt: (index) => rowAt(index)?.id,
     fetchIdRange,
     orderIds: (ids) =>
@@ -383,13 +356,12 @@ export function createTrackWindow(deps: TrackWindowDeps) {
   function setFilters(next: LibraryBrowseFilters): void {
     // Search text is not scope. Typing must not throw away a column the user
     // chose, so only an artist/album change re-defaults the ordering.
-    const scopeChanged =
-      next.artistId !== filters.value.artistId || next.albumId !== filters.value.albumId
+    const scopeChanged = browseScopeKey(next) !== browseScopeKey(filters.value)
     if (scopeChanged) {
       sort.value = defaultSortFor(next)
       direction.value = 'asc'
     }
-    filters.value = { ...next }
+    filters.value = plainBrowseFilters(next)
     invalidate()
   }
 

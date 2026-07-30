@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { reactive } from 'vue'
 import { createListPlayOrder } from '../../../src/renderer/playback/playOrder'
 import type { ListTracksQuery, ListTracksResult, Track } from '../../../src/shared/library'
 
@@ -71,15 +72,15 @@ describe('createListPlayOrder', () => {
       fetchPage,
       sort: 'album',
       direction: 'asc',
-      filters: { rootId: 2, artistId: 3, albumId: 4, searchText: 'hemian' }
+      filters: { rootId: 2, artistIds: [3], albumIds: [4], searchText: 'hemian' }
     })
 
     await order.at(7)
 
     expect(fetchPage).toHaveBeenCalledWith({
       rootId: 2,
-      artistId: 3,
-      albumId: 4,
+      artistIds: [3],
+      albumIds: [4],
       searchText: 'hemian',
       sort: 'album',
       direction: 'asc',
@@ -107,6 +108,36 @@ describe('createListPlayOrder', () => {
     await expect(order.at(-1)).resolves.toBeNull()
     await expect(order.at(1.5)).resolves.toBeNull()
     expect(fetchPage).not.toHaveBeenCalled()
+  })
+
+  /**
+   * A filter that has been through a reactive store still has to cross IPC.
+   *
+   * Electron clones every request, and a `Proxy` cannot be cloned — so the
+   * symptom of getting this wrong is not a subtly wrong query but "An object
+   * could not be cloned" the first time a selection is non-empty. The control
+   * assertion is deliberate: without it this test would keep passing if the
+   * proxying ever stopped happening for an unrelated reason.
+   */
+  it('builds queries that survive structured cloning', async () => {
+    const calls: ListTracksQuery[] = []
+    const store = reactive({ filters: { artistIds: [3], albumIds: [4] } })
+    expect(() => structuredClone(store.filters)).toThrow()
+
+    const order = createListPlayOrder({
+      fetchPage: async (query) => {
+        calls.push(query)
+        return { tracks: [track(1)], total: 1 }
+      },
+      sort: 'title',
+      direction: 'asc',
+      filters: store.filters
+    })
+
+    await order.at(0)
+
+    expect(() => structuredClone(calls[0])).not.toThrow()
+    expect(calls[0]?.artistIds).toEqual([3])
   })
 
   it('identifies orderings that traverse the same rows', () => {

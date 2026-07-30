@@ -1,10 +1,12 @@
-import type {
-  LibraryBrowseFilters,
-  ListTracksQuery,
-  ListTracksResult,
-  SortDirection,
-  Track,
-  TrackSortColumn
+import {
+  browseFilterKey,
+  plainBrowseFilters,
+  type LibraryBrowseFilters,
+  type ListTracksQuery,
+  type ListTracksResult,
+  type SortDirection,
+  type Track,
+  type TrackSortColumn
 } from '@shared/library'
 
 /**
@@ -64,16 +66,13 @@ export interface ListPlayOrderDeps {
  */
 export function createListPlayOrder(deps: ListPlayOrderDeps): PlayOrder {
   const { fetchPage, sort, direction } = deps
-  const filters = { ...deps.filters }
-  const filterId =
-    Object.keys(filters).length === 0
-      ? ''
-      : `:${[
-          filters.rootId ?? '',
-          filters.artistId ?? '',
-          filters.albumId ?? '',
-          filters.searchText ?? ''
-        ].join(':')}`
+  // Plain, not merely copied: these arrive from the Pinia store, which hands
+  // back a reactive proxy, and every one of them ends up in an IPC request.
+  const filters = plainBrowseFilters(deps.filters ?? {})
+  // Canonical, so a selection clicked bottom-to-top names the same order as the
+  // same selection clicked top-to-bottom. An id that varied with click order
+  // would read as a changed queue under a playing track.
+  const filterId = Object.keys(filters).length === 0 ? '' : `:${browseFilterKey(filters)}`
 
   return {
     id: `list:${sort}:${direction}${filterId}`,
