@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { hasArtwork } from "@shared/ipc";
-import { usePlaybackStore } from "@renderer/stores/playback";
-import { useShellStore } from "@renderer/stores/shell";
+import { computed } from 'vue'
+import { hasArtwork } from '@shared/ipc'
+import { usePlaybackStore } from '@renderer/stores/playback'
+import { useShellStore } from '@renderer/stores/shell'
 
 /**
  * The transport island.
@@ -12,14 +12,14 @@ import { useShellStore } from "@renderer/stores/shell";
  * `playback.next()` rather than anything about rows: the order was captured
  * when playback started and this panel does not need to know what it was.
  */
-const playback = usePlaybackStore();
+const playback = usePlaybackStore()
 
 /**
  * The thumbnail toggles the sidebar's blow-up through the shell store rather
  * than an emit, because nothing between here and the sidebar is a parent of
  * both. This panel never learns whether anything is listening.
  */
-const shell = useShellStore();
+const shell = useShellStore()
 
 /**
  * The cover to bleed behind the bar, or null when there is nothing worth
@@ -27,24 +27,24 @@ const shell = useShellStore();
  * either way, and the blur is what hides the upscale.
  */
 const backdrop = computed(() => {
-  const url = playback.nowPlaying?.artwork.large;
-  return url && hasArtwork(url) ? url : null;
-});
+  const url = playback.nowPlaying?.artwork.large
+  return url && hasArtwork(url) ? url : null
+})
 
 function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const total = Math.floor(seconds);
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+  const total = Math.floor(seconds)
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
 function onSeekInput(value: number | undefined): void {
-  if (value === undefined) return;
+  if (value === undefined) return
   // A drag has already announced itself with `pointerdown`, so the position is
   // held until release. Keyboard seeking produces no pointer events at all and
   // commits immediately — otherwise an arrow key would move the handle and
   // never reach the audio.
-  if (playback.scrubbing) playback.scrubTo(value);
-  else playback.seek(value);
+  if (playback.scrubbing) playback.scrubTo(value)
+  else playback.seek(value)
 }
 </script>
 
@@ -138,7 +138,8 @@ function onSeekInput(value: number | undefined): void {
 
       <div class="flex gap-3">
         <div class="flex justify-between tabular-nums text-xs font-medium text-muted">
-          <span>{{ formatTime(playback.currentTime) }}</span>&nbsp;/&nbsp;
+          <span>{{ formatTime(playback.currentTime) }}</span
+          >&nbsp;/&nbsp;
           <span>{{ formatTime(playback.duration) }}</span>
         </div>
       </div>
@@ -231,8 +232,8 @@ function onSeekInput(value: number | undefined): void {
           :max="1"
           :step="0.01"
           :ui="{
-          thumb: 'opacity-0 cursor-pointer hover:opacity-100 w-3 h-3 -ml-0.5'
-        }"
+            thumb: 'opacity-0 cursor-pointer hover:opacity-100 w-3 h-3 -ml-0.5'
+          }"
           @update:model-value="(value) => value !== undefined && playback.setVolume(value)"
         />
         <span class="wtext-right tabular-nums text-xs text-muted">
