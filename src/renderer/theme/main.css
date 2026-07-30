@@ -13,6 +13,22 @@
  * colours nobody is choosing. Token names stay private until they settle — D9.
  */
 
+/*
+ * Now Playing's cover backdrop. The panel owns the layer; a theme owns how much
+ * of the art bleeds through it, how soft it is and how far it drifts. Light mode
+ * needs markedly less bleed than dark — the same opacity that reads as a glow
+ * over a dark surface reads as a stain over a pale one.
+ */
+:root {
+  --fermata-cover-bleed: 0.18;
+  --fermata-cover-blur: 40px;
+  --fermata-cover-drift: 42s;
+}
+
+.dark {
+  --fermata-cover-bleed: 0.28;
+}
+
 .app-drag-region {
   -webkit-app-region: drag;
 }

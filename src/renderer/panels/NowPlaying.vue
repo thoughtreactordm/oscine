@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { hasArtwork } from '@shared/ipc'
 import { usePlaybackStore } from '@renderer/stores/playback'
 
 /**
@@ -18,6 +19,16 @@ const subtitle = computed(() => {
   if (!track) return 'Add a folder, then double-click a track'
   const parts = [track.artist, track.album].filter((part): part is string => Boolean(part))
   return parts.length > 0 ? parts.join(' — ') : '—'
+})
+
+/**
+ * The cover to bleed behind the bar, or null when there is nothing worth
+ * blowing up. `large` rather than `small`: it is scaled well past its own size
+ * either way, and the blur is what hides the upscale.
+ */
+const backdrop = computed(() => {
+  const url = playback.nowPlaying?.artwork.large
+  return url && hasArtwork(url) ? url : null
 })
 
 function formatTime(seconds: number): string {
@@ -41,10 +52,34 @@ function onSeekInput(value: number | undefined): void {
   <UCard
     as="footer"
     variant="soft"
-    class="h-full min-h-0 overflow-hidden rounded-none ring-0"
+    class="relative isolate h-full min-h-0 overflow-hidden rounded-none ring-0"
     :ui="{ body: 'flex h-full min-h-0 items-center gap-3 overflow-hidden p-2 sm:p-2' }"
     aria-label="Now playing"
   >
+    <!--
+      Keyed so a track change crossfades: Vue keeps the outgoing cover mounted
+      while the incoming one arrives, and both are out of flow, so they overlap
+      rather than shunting the controls.
+
+      Two elements rather than one because the drift never ends. Vue decides what
+      to wait for by taking the longest duration it can see, so an infinite
+      animation on the transitioning element means it waits for an `animationend`
+      that never arrives and the outgoing layer is never unmounted. The outer
+      element owns the crossfade, the inner owns the drift, and neither has to
+      know the other's timing.
+    -->
+    <Transition name="cover">
+      <div v-if="backdrop" :key="backdrop" class="cover-bleed" aria-hidden="true">
+        <div
+          class="cover-bleed-art"
+          :style="{
+            backgroundImage: `url('${backdrop}')`,
+            animationPlayState: playback.isPlaying ? 'running' : 'paused'
+          }"
+        />
+      </div>
+    </Transition>
+
     <UAvatar
       :src="playback.nowPlaying?.artwork.small"
       :icon="playback.nowPlaying ? undefined : 'i-lucide-disc-3'"
@@ -128,3 +163,69 @@ function onSeekInput(value: number | undefined): void {
     </div>
   </UCard>
 </template>
+
+<style scoped>
+/*
+ * Negative z-index rather than a z-index race with the controls: the card root
+ * carries `isolate`, so this paints above the card's own surface and below
+ * everything in flow without any sibling needing to opt in. `overflow-hidden`
+ * there is what clips the overscaled, blurred edges.
+ */
+.cover-bleed {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--fermata-cover-bleed);
+}
+
+.cover-bleed-art {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  filter: blur(var(--fermata-cover-blur)) saturate(1.3);
+  /* The resting value for when the drift is off, set to the keyframes' midpoint
+     so reduced motion gets the same framing as the average animated frame. */
+  transform: scale(1.7);
+  animation: cover-drift var(--fermata-cover-drift) ease-in-out infinite alternate;
+  /* The blur is expensive to recompute; promoting the layer means the drift is
+     a composited transform of a cached result, not a re-blur per frame. */
+  will-change: transform;
+}
+
+/*
+ * Deliberately tiny. Over 42s a 10% scale swing is below the threshold where
+ * the eye reads it as animation — it reads as the bar being alive.
+ */
+@keyframes cover-drift {
+  from {
+    transform: scale(1.62) translate3d(-1.5%, -1%, 0);
+  }
+  to {
+    transform: scale(1.78) translate3d(1.5%, 1%, 0);
+  }
+}
+
+.cover-enter-active,
+.cover-leave-active {
+  transition: opacity 700ms ease;
+}
+
+.cover-enter-from,
+.cover-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cover-bleed-art {
+    animation: none;
+  }
+
+  .cover-enter-active,
+  .cover-leave-active {
+    transition-duration: 200ms;
+  }
+}
+</style>

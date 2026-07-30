@@ -175,10 +175,25 @@ export function trackUrl(trackId: number): string {
   return `${TRACK_SCHEME}://track/${trackId}`
 }
 
+/** The hash segment standing in for an album that has no cover of its own. */
+const MISSING_ARTWORK = 'missing'
+
 /**
  * Builds a closed artwork route. `missing` is a real route backed by the
  * built-in placeholder, so views never need a filesystem path or data payload.
  */
 export function artworkUrl(hash: string | null, variant: ArtworkVariant): string {
-  return `${TRACK_SCHEME}://artwork/${hash ?? 'missing'}/${variant}`
+  return `${TRACK_SCHEME}://artwork/${hash ?? MISSING_ARTWORK}/${variant}`
+}
+
+/**
+ * Whether a route points at real cover art rather than the placeholder.
+ *
+ * Views that simply show artwork never need this — the placeholder is a real
+ * image and that is the whole point of it. Decoration does: a blurred blow-up
+ * of a flat grey square is noise, so a caller using the cover as a backdrop
+ * wants to render nothing at all instead.
+ */
+export function hasArtwork(url: string): boolean {
+  return !url.startsWith(`${TRACK_SCHEME}://artwork/${MISSING_ARTWORK}/`)
 }
