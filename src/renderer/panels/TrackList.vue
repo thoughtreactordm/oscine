@@ -7,6 +7,12 @@ import {
   type TrackColumnSpec
 } from '@renderer/panels/columnLayout'
 import { selectionIntent } from '@renderer/panels/trackSelection'
+import {
+  groupedLayout,
+  identityLayout,
+  type GroupedRun,
+  type GroupLayout
+} from '@renderer/panels/trackGrouping'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
 import { useTrackListStore } from '@renderer/stores/trackList'
 import type { Track } from '@shared/library'
@@ -43,11 +49,28 @@ const OVERSCAN = 8
 /** Pixels an arrow key moves a column edge. Shift narrows it to one. */
 const WIDTH_STEP = 16
 
+/**
+ * One row the virtualizer draws.
+ *
+ * `index` is a *track offset* and stays that way, which is what keeps album
+ * headers out of the selection contract: selection, the range anchor and
+ * keyboard focus all address tracks by offset and never learn that headers
+ * exist. `display` is the position on screen, and the two only differ by the
+ * headers above.
+ */
 interface TrackTableRow {
-  index: number
+  display: number
+  /** `null` on an album header, which is not a track and cannot be selected. */
+  index: number | null
+  run: GroupedRun | null
 }
 
+/** Album headers are taller than tracks — they carry the sleeve. */
+const HEADER_HEIGHT = 56
+
 const visibleColumns = computed(() => columns.visibleColumns)
+/** The column an album header spans from. Follows the user's column order. */
+const leadingColumnKey = computed(() => visibleColumns.value[0]?.key)
 
 function alignClass(column: TrackColumnSpec): string {
   const tone =
@@ -59,16 +82,48 @@ function alignClass(column: TrackColumnSpec): string {
   return column.numeric ? `text-right tabular-nums ${tone}` : tone
 }
 
+/**
+ * Album headers are drawn with a column span, not with a second table.
+ *
+ * Nuxt UI resolves `meta.colspan.td` per *cell*, so the leading column can span
+ * the whole row where a header sits and behave normally everywhere else. The
+ * remaining columns hide their cell on those rows — a `<td>` that is not
+ * displayed occupies no column, which is what leaves the span room to sit in.
+ *
+ * TanStack's own grouping is not an option here and would not have been simpler:
+ * this table's data is 100k bare indices whose values are fetched a page at a
+ * time, so a client-side row model can only see the rows already loaded and
+ * would regroup the list as it scrolled.
+ */
 const tableColumns = computed<TableColumn<TrackTableRow>[]>(() =>
-  visibleColumns.value.map((column) => {
+  visibleColumns.value.map((column, position) => {
     const width = `${columns.widthOf(column.key)}px`
+    const leading = position === 0
+    const spanned = visibleColumns.value.length
+
     return {
       id: column.key,
       header: column.label,
       accessorFn: (row: TrackTableRow) => row.index,
       meta: {
-        class: { th: alignClass(column), td: alignClass(column) },
-        style: { th: { width }, td: { width } }
+        class: {
+          th: alignClass(column),
+          td: (cell: { row: TableRow<TrackTableRow> }) => {
+            if (!isHeaderRow(cell.row.original)) return alignClass(column)
+            return leading ? 'h-14 px-2 py-0 align-middle' : 'hidden'
+          }
+        },
+        colspan: {
+          // A string because that is what Nuxt UI resolves this to; '1' is the
+          // default span and so is what an ordinary row wants.
+          td: (cell: { row: TableRow<TrackTableRow> }) =>
+            leading && isHeaderRow(cell.row.original) ? String(spanned) : '1'
+        },
+        style: {
+          th: { width },
+          td: (cell: { row: TableRow<TrackTableRow> }) =>
+            isHeaderRow(cell.row.original) ? { width: 'auto' } : { width }
+        }
       }
     }
   })
@@ -86,6 +141,10 @@ const tableMeta = computed(() => ({
   class: {
     tr: (row: TableRow<TrackTableRow>) => {
       const index = row.original.index
+      // Headers are scenery: not selectable, not hoverable, and visibly not a
+      // row you can act on.
+      if (index === null) return 'h-14 bg-elevated/40 hover:bg-elevated/40'
+
       const classes: string[] = []
       if (panel.isSelectedAt(index)) classes.push('bg-primary/15')
       if (panel.anchorIndex === index) classes.push('border-s-2 border-s-primary')
@@ -99,10 +158,66 @@ const table = ref<{ $el?: HTMLElement } | null>(null)
 const scrollTop = ref(0)
 const scrollPositions = new Map<string, number>()
 
+/**
+ * Grouped when the ordering is album-major and the runs describe this list.
+ *
+ * The runs and the row count arrive on separate responses, so for a moment
+ * after a re-sort they can disagree. Drawing ungrouped until they line up costs
+ * a frame; drawing headers against a list that has moved on puts every row
+ * underneath them beneath the wrong album.
+ */
+const layout = computed<GroupLayout>(() => {
+  void panel.ordering
+  const grouped = groupedLayout(panel.groups)
+  return grouped.runs.length > 0 && grouped.trackCount === panel.total
+    ? grouped
+    : identityLayout(panel.total)
+})
+
 const tableRows = computed<TrackTableRow[]>(() => {
   void panel.ordering
-  return Array.from({ length: panel.total }, (_, index) => ({ index }))
+  const current = layout.value
+  if (current.runs.length === 0) {
+    return Array.from({ length: current.displayCount }, (_, index) => ({
+      display: index,
+      index,
+      run: null
+    }))
+  }
+
+  // Built by walking the runs rather than by asking the layout row by row: at
+  // 100k rows the per-row binary search is real work for an answer the walk
+  // already has.
+  const rows: TrackTableRow[] = []
+  for (const run of current.runs) {
+    rows.push({ display: run.headerIndex, index: null, run })
+    for (let offset = 0; offset < run.group.trackCount; offset++) {
+      rows.push({
+        display: run.headerIndex + 1 + offset,
+        index: run.firstOffset + offset,
+        run: null
+      })
+    }
+  }
+  return rows
 })
+
+function estimateRowSize(display: number): number {
+  return layout.value.rowAt(display)?.kind === 'header' ? HEADER_HEIGHT : ROW_HEIGHT
+}
+
+/** The album header's own cell spans the table; the rest of the row is not drawn. */
+function isHeaderRow(row: TrackTableRow | undefined): boolean {
+  return !!row?.run
+}
+
+function groupSubtitle(run: GroupedRun): string {
+  const parts: string[] = []
+  if (run.group.albumArtist) parts.push(run.group.albumArtist)
+  if (run.group.year !== null) parts.push(String(run.group.year))
+  parts.push(run.group.trackCount === 1 ? '1 track' : `${run.group.trackCount} tracks`)
+  return parts.join(' · ')
+}
 const filterKey = computed(() => JSON.stringify(panel.filters))
 const layoutKey = computed(() => visibleColumns.value.map((column) => column.key).join())
 
@@ -117,6 +232,7 @@ function requestTrack(index: number): void {
 }
 
 function trackAt(row: TrackTableRow): Track | undefined {
+  if (row.index === null) return undefined
   const track = panel.rowAt(row.index)
   if (!track) requestTrack(row.index)
   return track
@@ -192,6 +308,10 @@ function ariaSort(key: TrackColumnKey): 'ascending' | 'descending' | 'none' {
 
 function onTableSelect(event: Event, row: TableRow<TrackTableRow>): void {
   const index = row.original.index
+  // Clicking an album header leaves the selection exactly as it was, rather
+  // than clearing it the way a click on empty space would.
+  if (index === null) return
+
   const intent = selectionIntent(event instanceof MouseEvent ? event : {})
   void panel.selectAt(index, intent)
 
@@ -205,10 +325,20 @@ function onTableSelect(event: Event, row: TableRow<TrackTableRow>): void {
   }
 }
 
+/**
+ * Brings a track offset into view.
+ *
+ * Takes an offset rather than a display row because that is what the focus
+ * model deals in. Headers are taller than tracks, so the pixel position is the
+ * rows above times their height plus the headers above times theirs — not
+ * `index * ROW_HEIGHT`, which stops being true at the first album boundary.
+ */
 function scrollIndexIntoView(index: number): void {
   const element = tableElement()
   if (!element) return
-  const top = index * ROW_HEIGHT
+  const display = layout.value.displayOf(index)
+  const headers = layout.value.headersBefore(display)
+  const top = headers * HEADER_HEIGHT + (display - headers) * ROW_HEIGHT
   if (top < element.scrollTop) element.scrollTop = top
   else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) {
     element.scrollTop = top + ROW_HEIGHT - element.clientHeight
@@ -373,13 +503,13 @@ onMounted(() => panel.ensureRange(0, 30))
       :data="tableRows"
       :columns="tableColumns"
       :meta="tableMeta"
-      :get-row-id="(row: TrackTableRow) => String(row.index)"
+      :get-row-id="(row: TrackTableRow) => String(row.display)"
       :on-select="onTableSelect"
       :loading="panel.loading"
       loading-color="primary"
       loading-animation="carousel"
       sticky="header"
-      :virtualize="{ estimateSize: ROW_HEIGHT, overscan: OVERSCAN }"
+      :virtualize="{ estimateSize: estimateRowSize, overscan: OVERSCAN }"
       :watch-options="{ deep: false }"
       :style="{ '--fermata-table-width': `${columns.totalWidth}px` }"
       class="h-full min-h-0 select-none overflow-auto overscroll-contain pb-2 outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-primary"
@@ -471,8 +601,32 @@ onMounted(() => panel.ensureRange(0, 30))
         :key="cellSlot(column.key)"
         #[cellSlot(column.key)]="{ row }"
       >
+        <!--
+          The album header. Only the leading column renders it; the others are
+          hidden on this row so the column span has the width to itself.
+        -->
+        <template v-if="row.original.run">
+          <div v-if="column.key === leadingColumnKey" class="flex items-center gap-3 py-1">
+            <img
+              :src="row.original.run.group.artwork.small"
+              alt=""
+              aria-hidden="true"
+              class="size-10 shrink-0 rounded bg-elevated object-cover"
+              loading="lazy"
+              draggable="false"
+            />
+            <span class="min-w-0">
+              <span class="block truncate text-sm font-medium text-highlighted">
+                {{ row.original.run.group.title ?? 'Unknown album' }}
+              </span>
+              <span class="block truncate text-xs text-muted">
+                {{ groupSubtitle(row.original.run) }}
+              </span>
+            </span>
+          </div>
+        </template>
         <USkeleton
-          v-if="cellText(row.original, column.key) === undefined"
+          v-else-if="cellText(row.original, column.key) === undefined"
           class="h-2 w-24 max-w-full"
         />
         <span v-else class="block truncate">{{ cellText(row.original, column.key) }}</span>

@@ -3,6 +3,8 @@ import {
   MAX_TRACK_ID_PAGE,
   MAX_TRACK_PAGE,
   type LibraryBrowseFilters,
+  type ListTrackGroupsQuery,
+  type ListTrackGroupsResult,
   type ListTrackIdsQuery,
   type ListTrackIdsResult,
   type ListTracksQuery,
@@ -10,6 +12,7 @@ import {
   type OrderTrackIdsQuery,
   type SortDirection,
   type Track,
+  type TrackGroup,
   type TrackSortColumn
 } from '@shared/library'
 // Relative rather than aliased: `tsconfig.node.json` reaches this module through
@@ -64,20 +67,19 @@ export interface TrackWindowDeps {
   fetchIdPage: (query: ListTrackIdsQuery) => Promise<ListTrackIdsResult>
   /** Orders an arbitrary id set the way this list would. */
   orderIds: (query: OrderTrackIdsQuery) => Promise<number[]>
+  /**
+   * The album runs behind the current list, for a grouped rendering.
+   *
+   * Optional because a list without it is merely ungrouped rather than broken,
+   * which is also what a failed request degrades to.
+   */
+  fetchGroups?: (query: ListTrackGroupsQuery) => Promise<ListTrackGroupsResult>
   pageSize?: number
   /** Rows per id request. Defaults to `MAX_TRACK_ID_PAGE`. */
   idPageSize?: number
   maxCachedPages?: number
 }
 
-/**
- * Where a navigation key moves the focus, or `null` when the key is not a
- * navigation key and the event should be left alone.
- *
- * Split out as a pure function because it is entirely arithmetic, and
- * arithmetic that is wrong at the ends of a 100k-row list is invisible until
- * someone presses End.
- */
 /**
  * The ordering a browse scope reads best in.
  *
@@ -98,6 +100,17 @@ export function defaultSortFor(scope: LibraryBrowseFilters): TrackSortColumn {
   return 'artist'
 }
 
+/**
+ * Where a navigation key moves the focus, or `null` when the key is not a
+ * navigation key and the event should be left alone.
+ *
+ * Split out as a pure function because it is entirely arithmetic, and
+ * arithmetic that is wrong at the ends of a 100k-row list is invisible until
+ * someone presses End.
+ *
+ * Addresses tracks by offset, not display rows, which is why album headers cost
+ * it nothing: a header is not a track, so arrow keys walk straight past one.
+ */
 export function nextFocusIndex(
   key: string,
   current: number | null,
@@ -161,6 +174,19 @@ export function createTrackWindow(deps: TrackWindowDeps) {
 
   /** Ordering identity. Anything derived from row *positions* is stale when it changes. */
   const ordering = ref(0)
+
+  const groupRuns = ref<TrackGroup[]>([])
+  const groupsOrdering = ref(-1)
+  /**
+   * Runs, but only while they still describe the list on screen.
+   *
+   * Held against the generation they were fetched for rather than cleared on
+   * every invalidation: a header drawn against the previous ordering would put
+   * every row beneath it under the wrong album, which is worse than no header.
+   */
+  const groups = computed<TrackGroup[]>(() =>
+    groupsOrdering.value === ordering.value ? groupRuns.value : []
+  )
 
   const pages = new Map<number, Track[]>()
   const pending = new Set<number>()
@@ -297,10 +323,39 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     }
   }
 
+  /**
+   * The album runs for the current ordering.
+   *
+   * Album-major orderings only — under any other column the albums interleave
+   * and there is nothing to head. A failure clears the runs rather than raising:
+   * a list without headers is still the right list, whereas `error` would blank
+   * rows that loaded perfectly well.
+   */
+  async function loadGroups(): Promise<void> {
+    const requested = ordering.value
+    if (!deps.fetchGroups || sort.value !== 'album') return
+
+    try {
+      const result = await deps.fetchGroups({
+        ...filters.value,
+        sort: sort.value,
+        direction: direction.value
+      })
+      if (requested !== ordering.value) return
+      groupRuns.value = result.groups
+      groupsOrdering.value = requested
+    } catch {
+      if (requested !== ordering.value) return
+      groupRuns.value = []
+      groupsOrdering.value = requested
+    }
+  }
+
   function invalidate(): void {
     ordering.value++
     pending.clear()
     loading.value = true
+    void loadGroups()
     // Positions only. Which tracks are selected survives a re-sort and a
     // filter — that is the contract W4-4 exists to keep.
     selection.invalidateIndices()
@@ -382,6 +437,7 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     direction,
     filters,
     total,
+    groups,
     loading,
     error,
     ordering,

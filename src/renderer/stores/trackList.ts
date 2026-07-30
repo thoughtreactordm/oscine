@@ -18,6 +18,8 @@ export const useTrackListStore = defineStore('trackList', () =>
     fetchPage: (query) => measureLibraryQuery('tracks-query', () => library.listTracks(query)),
     fetchIdPage: (query) =>
       measureLibraryQuery('track-ids-query', () => library.listTrackIds(query)),
-    orderIds: (query) => measureLibraryQuery('order-ids-query', () => library.orderTrackIds(query))
+    orderIds: (query) => measureLibraryQuery('order-ids-query', () => library.orderTrackIds(query)),
+    fetchGroups: (query) =>
+      measureLibraryQuery('track-groups-query', () => library.listTrackGroups(query))
   })
 )
