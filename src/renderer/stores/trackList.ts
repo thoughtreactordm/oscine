@@ -15,6 +15,9 @@ import { createTrackWindow } from '@renderer/panels/trackWindow'
  */
 export const useTrackListStore = defineStore('trackList', () =>
   createTrackWindow({
-    fetchPage: (query) => measureLibraryQuery('tracks-query', () => library.listTracks(query))
+    fetchPage: (query) => measureLibraryQuery('tracks-query', () => library.listTracks(query)),
+    fetchIdPage: (query) =>
+      measureLibraryQuery('track-ids-query', () => library.listTrackIds(query)),
+    orderIds: (query) => measureLibraryQuery('order-ids-query', () => library.orderTrackIds(query))
   })
 )

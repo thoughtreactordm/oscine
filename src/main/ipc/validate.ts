@@ -1,13 +1,19 @@
 import { FermataError } from '@shared/errors'
 import {
   MAX_FACET_PAGE,
+  MAX_ORDERED_TRACK_IDS,
   MAX_SEARCH_LENGTH,
+  MAX_TRACK_ID_PAGE,
   MAX_TRACK_PAGE,
   MIN_SEARCH_LENGTH,
   TRACK_SORT_COLUMNS,
   type LibraryBrowseFilters,
   type ListFacetsQuery,
-  type ListTracksQuery
+  type ListTrackIdsQuery,
+  type ListTracksQuery,
+  type OrderTrackIdsQuery,
+  type SortDirection,
+  type TrackSortColumn
 } from '@shared/library'
 
 /**
@@ -89,25 +95,16 @@ export function assertListFacetsQuery(value: unknown): ListFacetsQuery {
 }
 
 /**
- * Validates a track query.
+ * Validates the ordering half of a track query.
  *
  * `sort` and `direction` are checked against closed allowlists rather than
  * merely typed, because both are interpolated into an ORDER BY clause in W2-1.
  * A type annotation is erased at runtime; this check is not.
  */
-export function assertListTracksQuery(value: unknown): ListTracksQuery {
-  const raw = assertRecord(value, 'query')
-  assertOnlyKeys(raw, [
-    'rootId',
-    'artistId',
-    'albumId',
-    'searchText',
-    'sort',
-    'direction',
-    'offset',
-    'limit'
-  ])
-
+function assertOrdering(raw: Record<string, unknown>): {
+  sort: TrackSortColumn
+  direction: SortDirection
+} {
   const sort = raw.sort
   if (typeof sort !== 'string' || !TRACK_SORT_COLUMNS.includes(sort as never)) {
     invalid(`sort must be one of: ${TRACK_SORT_COLUMNS.join(', ')}.`)
@@ -118,10 +115,65 @@ export function assertListTracksQuery(value: unknown): ListTracksQuery {
     invalid("direction must be 'asc' or 'desc'.")
   }
 
+  return { sort: sort as TrackSortColumn, direction }
+}
+
+const TRACK_QUERY_KEYS = [
+  'rootId',
+  'artistId',
+  'albumId',
+  'searchText',
+  'sort',
+  'direction',
+  'offset',
+  'limit'
+] as const
+
+export function assertListTracksQuery(value: unknown): ListTracksQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, TRACK_QUERY_KEYS)
   return {
     ...assertBrowseFilters(raw),
-    sort: sort as ListTracksQuery['sort'],
-    direction,
+    ...assertOrdering(raw),
     ...assertWindow(raw, MAX_TRACK_PAGE)
   }
+}
+
+/**
+ * Same shape as a track query, larger page ceiling.
+ *
+ * The ceiling is the only difference and it is the whole point of the separate
+ * channel: an id page carries integers rather than the display projection, so a
+ * range selection can resolve ten thousand rows in one call without either side
+ * pretending that is the same cost as ten thousand `Track` objects.
+ */
+export function assertListTrackIdsQuery(value: unknown): ListTrackIdsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, TRACK_QUERY_KEYS)
+  return {
+    ...assertBrowseFilters(raw),
+    ...assertOrdering(raw),
+    ...assertWindow(raw, MAX_TRACK_ID_PAGE)
+  }
+}
+
+/**
+ * Validates a request to order an arbitrary id set.
+ *
+ * Every element is checked rather than sampled: these ids reach a JSON array
+ * that SQLite expands with `json_each`, and one non-integer in the middle of ten
+ * thousand would surface as an empty or short result rather than as an error.
+ */
+export function assertOrderTrackIdsQuery(value: unknown): OrderTrackIdsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['sort', 'direction', 'ids'])
+
+  const ids = raw.ids
+  if (!Array.isArray(ids)) invalid('ids must be an array.')
+  if (ids.length > MAX_ORDERED_TRACK_IDS) {
+    invalid(`ids must not exceed ${MAX_ORDERED_TRACK_IDS} entries.`)
+  }
+  for (const id of ids) assertPositiveInt(id, 'ids entry')
+
+  return { ...assertOrdering(raw), ids: ids as number[] }
 }

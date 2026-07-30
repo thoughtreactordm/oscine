@@ -9,8 +9,10 @@ import type {
 } from '@shared/ipc'
 import type {
   ListFacetsQuery,
+  ListTrackIdsQuery,
   ListTracksQuery,
   LibraryNotice,
+  OrderTrackIdsQuery,
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
@@ -77,6 +79,10 @@ const api = {
     listArtists: (query: ListFacetsQuery) => request('library.listArtists', query),
     listAlbums: (query: ListFacetsQuery) => request('library.listAlbums', query),
     listTracks: (query: ListTracksQuery) => request('library.listTracks', query),
+    /** The same window as `listTracks`, ids only — for range selection. */
+    listTrackIds: (query: ListTrackIdsQuery) => request('library.listTrackIds', query),
+    /** Orders an arbitrary id set the way the track list would. */
+    orderTrackIds: (query: OrderTrackIdsQuery) => request('library.orderTrackIds', query),
     /** Metadata-only lookup for the audio admission guard. */
     getTrackAudioMetadata: (trackId: number) =>
       request('library.getTrackAudioMetadata', { trackId }),

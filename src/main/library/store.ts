@@ -6,8 +6,11 @@ import type {
   ListAlbumsResult,
   ListArtistsResult,
   ListFacetsQuery,
+  ListTrackIdsQuery,
+  ListTrackIdsResult,
   ListTracksQuery,
   ListTracksResult,
+  OrderTrackIdsQuery,
   Track,
   TrackAudioMetadata,
   TrackSortColumn
@@ -327,8 +330,46 @@ function prepareStatements(db: Database.Database) {
              t.rg_source     AS rgSource
       FROM tracks t
       WHERE t.id = ?
+    `),
+    // Widens a page of already-chosen ids. Taking the ids as one JSON array
+    // rather than an IN-list of placeholders keeps this a single prepared
+    // statement whatever the page size — a placeholder list re-compiles on every
+    // distinct length, which for a virtualized list is most of them.
+    hydrateTracks: db.prepare(`
+      SELECT ${TRACK_PROJECTION}
+      FROM json_each(@ids) page
+      JOIN tracks t ON t.id = page.value
+      ${TRACK_JOINS}
     `)
   }
+}
+
+/**
+ * The ORDER BY that defines the track list.
+ *
+ * Nulls last in both directions: an untagged artist belongs at the bottom of
+ * the list whichever way it is sorted, and SQLite's default puts NULL first
+ * ascending. `t.id` is the tiebreaker — without a total order, two rows that
+ * compare equal can swap between pages and a virtualized list shows one row
+ * twice while skipping another.
+ *
+ * A free function because three query shapes need the identical clause. Any of
+ * them growing its own copy is how a Shift-range selection ends up one row out
+ * from the rows on screen.
+ */
+function orderByClause(keys: readonly SortKey[], direction: 'ASC' | 'DESC'): string {
+  const ordered = keys
+    .map((key) => {
+      const nullsLast = key.notNull ? '' : `${key.expr} IS NULL ASC, `
+      const collate = key.text ? ' COLLATE NOCASE' : ''
+      return `${nullsLast}${key.expr}${collate} ${direction}`
+    })
+    .join(', ')
+  return `${ordered}, t.id ASC`
+}
+
+function idsOf(rows: unknown[]): number[] {
+  return (rows as Array<{ id: number }>).map((row) => row.id)
 }
 
 export class LibraryStore {
@@ -528,12 +569,31 @@ export class LibraryStore {
   }
 
   listTracks(query: ListTracksQuery): ListTracksResult {
+    const { ids, total } = this.listTrackIds(query)
+    return { tracks: this.hydrateTracks(ids), total }
+  }
+
+  /**
+   * The same window as `listTracks`, resolved to ids without the display
+   * projection.
+   *
+   * This is the ordering authority, and `listTracks` is deliberately built on
+   * top of it rather than beside it. The renderer resolves a Shift-range that
+   * crosses unloaded pages through this call, so the two results must agree
+   * about which row sits at which offset; two ORDER BY clauses that merely
+   * looked alike would drift, and the symptom would be a range selection
+   * silently off by a row somewhere past the end of what is on screen.
+   *
+   * Ids also let a large range be resolved without mounting or retaining a
+   * single `Track` — the reason the page ceiling here is ten times the row one.
+   */
+  listTrackIds(query: ListTrackIdsQuery): ListTrackIdsResult {
     const keys = SORT_KEYS[query.sort]
     if (!keys) throw new Error(`Unsupported sort column: ${String(query.sort)}`)
     const direction = query.direction === 'desc' ? 'DESC' : 'ASC'
     const filtered =
       query.artistId !== undefined || query.albumId !== undefined || query.searchText !== undefined
-    if (filtered) return this.listFilteredTracks(query, keys, direction)
+    if (filtered) return this.listFilteredTrackIds(query, keys, direction)
 
     const where = query.rootId === undefined ? '' : 'WHERE t.root_id = @rootId'
     const params = { rootId: query.rootId ?? null, limit: query.limit, offset: query.offset }
@@ -544,42 +604,75 @@ export class LibraryStore {
 
     const joinedSort = JOINED_SORTS[query.sort]
     if (joinedSort) {
-      return {
-        tracks: this.listTracksByJoinedSort(query, joinedSort, direction),
-        total
-      }
+      return { ids: this.listTrackIdsByJoinedSort(query, joinedSort, direction), total }
     }
-
-    // Nulls last in both directions: an untagged artist belongs at the bottom of
-    // the list whichever way it is sorted, and SQLite's default puts NULL first
-    // ascending. `t.id` is the tiebreaker — without a total order, two rows that
-    // compare equal can swap between pages and a virtualized list shows one row
-    // twice while skipping another.
-    const orderBy = keys
-      .map((key) => {
-        const nullsLast = key.notNull ? '' : `${key.expr} IS NULL ASC, `
-        const collate = key.text ? ' COLLATE NOCASE' : ''
-        return `${nullsLast}${key.expr}${collate} ${direction}`
-      })
-      .join(', ')
 
     const rows = this.db
       .prepare(
-        `SELECT ${TRACK_PROJECTION}
-         FROM (
-           SELECT t.id
-           FROM tracks t
-           ${where}
-           ORDER BY ${orderBy}, t.id ASC
-           LIMIT @limit OFFSET @offset
-         ) page
-         JOIN tracks t ON t.id = page.id
-         ${TRACK_JOINS}
-         ORDER BY ${orderBy}, t.id ASC`
+        `SELECT t.id AS id
+         FROM tracks t
+         ${where}
+         ORDER BY ${orderByClause(keys, direction)}
+         LIMIT @limit OFFSET @offset`
       )
-      .all(params) as TrackRow[]
+      .all(params)
 
-    return { tracks: rows.map(toTrack), total }
+    return { ids: idsOf(rows), total }
+  }
+
+  /**
+   * Orders an arbitrary id set the way the track list would.
+   *
+   * The renderer's selection is a set of ids, which has no inherent order; this
+   * is how a consumer gets those tracks back in list order without scraping
+   * rendered rows or holding a position for every one of them.
+   *
+   * Two properties are contractual. Browse filters are not accepted, because a
+   * selection outlives the search that was active when it was made and
+   * filtering here would drop exactly the rows that promise keeps. And ids no
+   * longer in the library are omitted rather than reported — a caller about to
+   * add tracks to a playlist wants the surviving ones, and the shrunken result
+   * is how it learns the rest are gone.
+   */
+  orderTrackIds(query: OrderTrackIdsQuery): number[] {
+    const keys = SORT_KEYS[query.sort]
+    if (!keys) throw new Error(`Unsupported sort column: ${String(query.sort)}`)
+    const unique = [...new Set(query.ids)]
+    if (unique.length === 0) return []
+
+    const direction = query.direction === 'desc' ? 'DESC' : 'ASC'
+    const rows = this.db
+      .prepare(
+        `SELECT t.id AS id
+         FROM json_each(@ids) page
+         JOIN tracks t ON t.id = page.value
+         ${TRACK_JOINS}
+         ORDER BY ${orderByClause(keys, direction)}`
+      )
+      .all({ ids: JSON.stringify(unique) })
+
+    return idsOf(rows)
+  }
+
+  /**
+   * Widens a chosen page of ids into display rows, preserving the given order.
+   *
+   * Reapplying the order in JS rather than asking SQLite for it a second time is
+   * not a micro-optimisation: the wide projection reaches through three
+   * dimension joins, and re-deriving the sort keys across them was the
+   * expensive half of the query this replaced. The ids are already in order, so
+   * a lookup table is all that is needed.
+   */
+  private hydrateTracks(ids: readonly number[]): Track[] {
+    if (ids.length === 0) return []
+    const rows = this.statements.hydrateTracks.all({ ids: JSON.stringify(ids) }) as TrackRow[]
+    const byId = new Map(rows.map((row) => [row.id, row]))
+    // A track deleted between the two queries drops out rather than arriving as
+    // a hole the renderer would have to recognise.
+    return ids
+      .map((id) => byId.get(id))
+      .filter((row): row is TrackRow => row !== undefined)
+      .map(toTrack)
   }
 
   listArtists(query: ListFacetsQuery): ListArtistsResult {
@@ -675,11 +768,11 @@ export class LibraryStore {
    * contract. Splitting the query also makes a page that crosses that boundary
    * cheap instead of forcing a compound-query sort.
    */
-  private listTracksByJoinedSort(
-    query: ListTracksQuery,
+  private listTrackIdsByJoinedSort(
+    query: ListTrackIdsQuery,
     sort: JoinedSort,
     direction: 'ASC' | 'DESC'
-  ): Track[] {
+  ): number[] {
     const rootPredicate = query.rootId === undefined ? '' : 'AND t.root_id = @rootId'
     const params = { rootId: query.rootId ?? null, limit: query.limit, offset: query.offset }
     const { total: taggedTotal } = this.db
@@ -691,57 +784,49 @@ export class LibraryStore {
       )
       .get(params) as { total: number }
 
-    const rows: TrackRow[] = []
+    const ids: number[] = []
     const taggedAvailable = Math.max(0, taggedTotal - query.offset)
     const taggedLimit = Math.min(query.limit, taggedAvailable)
 
     if (taggedLimit > 0) {
-      rows.push(
-        ...(this.db
-          .prepare(
-            `SELECT ${TRACK_PROJECTION}
-             FROM (
-               SELECT t.id, ${sort.value} AS sortValue
+      ids.push(
+        ...idsOf(
+          this.db
+            .prepare(
+              `SELECT t.id AS id
                FROM ${sort.table} ${sort.alias} INDEXED BY ${sort.index}
                JOIN tracks t INDEXED BY ${sort.trackIndex}
                  ON t.${sort.foreignKey} = ${sort.alias}.id
                WHERE 1 = 1
                ${rootPredicate}
                ORDER BY ${sort.value} COLLATE NOCASE ${direction}, t.id ASC
-               LIMIT @limit OFFSET @offset
-             ) page
-             JOIN tracks t ON t.id = page.id
-             ${TRACK_JOINS}
-             ORDER BY page.sortValue COLLATE NOCASE ${direction}, t.id ASC`
-          )
-          .all({ ...params, limit: taggedLimit }) as TrackRow[])
+               LIMIT @limit OFFSET @offset`
+            )
+            .all({ ...params, limit: taggedLimit })
+        )
       )
     }
 
-    const nullLimit = query.limit - rows.length
+    const nullLimit = query.limit - ids.length
     if (nullLimit > 0) {
       const nullOffset = Math.max(0, query.offset - taggedTotal)
-      rows.push(
-        ...(this.db
-          .prepare(
-            `SELECT ${TRACK_PROJECTION}
-             FROM (
-               SELECT t.id
+      ids.push(
+        ...idsOf(
+          this.db
+            .prepare(
+              `SELECT t.id AS id
                FROM tracks t
                WHERE t.${sort.foreignKey} IS NULL
                ${rootPredicate}
                ORDER BY t.id ASC
-               LIMIT @limit OFFSET @offset
-             ) page
-             JOIN tracks t ON t.id = page.id
-             ${TRACK_JOINS}
-             ORDER BY t.id ASC`
-          )
-          .all({ ...params, limit: nullLimit, offset: nullOffset }) as TrackRow[])
+               LIMIT @limit OFFSET @offset`
+            )
+            .all({ ...params, limit: nullLimit, offset: nullOffset })
+        )
       )
     }
 
-    return rows.map(toTrack)
+    return ids
   }
 
   /**
@@ -751,11 +836,11 @@ export class LibraryStore {
    * bounded set is ordered and windowed; the wide display projection happens
    * after the page has been chosen.
    */
-  private listFilteredTracks(
-    query: ListTracksQuery,
+  private listFilteredTrackIds(
+    query: ListTrackIdsQuery,
     keys: readonly SortKey[],
     direction: 'ASC' | 'DESC'
-  ): ListTracksResult {
+  ): ListTrackIdsResult {
     const filter = buildFilter(query)
     const params = { ...filter.params, limit: query.limit, offset: query.offset }
     const { total } = this.db
@@ -768,33 +853,19 @@ export class LibraryStore {
       )
       .get(params) as { total: number }
 
-    const orderBy = keys
-      .map((key) => {
-        const nullsLast = key.notNull ? '' : `${key.expr} IS NULL ASC, `
-        const collate = key.text ? ' COLLATE NOCASE' : ''
-        return `${nullsLast}${key.expr}${collate} ${direction}`
-      })
-      .join(', ')
-
     const rows = this.db
       .prepare(
-        `SELECT ${TRACK_PROJECTION}
-         FROM (
-           SELECT t.id
-           FROM tracks t
-           ${filter.ftsJoin}
-           ${TRACK_JOINS}
-           ${filter.where}
-           ORDER BY ${orderBy}, t.id ASC
-           LIMIT @limit OFFSET @offset
-         ) page
-         JOIN tracks t ON t.id = page.id
+        `SELECT t.id AS id
+         FROM tracks t
+         ${filter.ftsJoin}
          ${TRACK_JOINS}
-         ORDER BY ${orderBy}, t.id ASC`
+         ${filter.where}
+         ORDER BY ${orderByClause(keys, direction)}
+         LIMIT @limit OFFSET @offset`
       )
-      .all(params) as TrackRow[]
+      .all(params)
 
-    return { tracks: rows.map(toTrack), total }
+    return { ids: idsOf(rows), total }
   }
 
   /**

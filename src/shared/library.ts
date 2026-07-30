@@ -139,6 +139,35 @@ export interface ListTracksQuery extends LibraryBrowseFilters {
 }
 
 /**
+ * The same window, resolved to ids and nothing else.
+ *
+ * Identical in shape to `ListTracksQuery` on purpose — the two must describe
+ * the same list or a range selection would not line up with the rows the user
+ * can see — but the two carry different page ceilings, because an id costs
+ * about two orders of magnitude less to ship than a display row.
+ */
+export type ListTrackIdsQuery = ListTracksQuery
+
+export interface ListTrackIdsResult {
+  ids: number[]
+  /** Total matching rows, ignoring offset/limit. Same value `listTracks` reports. */
+  total: number
+}
+
+/**
+ * Orders an arbitrary set of track ids the way the track list would.
+ *
+ * Carries no browse filters, and that is the contract rather than an omission:
+ * a selection outlives the search that was active when it was made, so
+ * filtering here would drop exactly the rows a selection promises to keep.
+ */
+export interface OrderTrackIdsQuery {
+  sort: TrackSortColumn
+  direction: SortDirection
+  ids: number[]
+}
+
+/**
  * Largest page `library.listTracks` will serve.
  *
  * Lives in `shared` rather than beside the validator because both sides need
@@ -148,6 +177,27 @@ export interface ListTracksQuery extends LibraryBrowseFilters {
  * `invalid-request` under fast scrolling.
  */
 export const MAX_TRACK_PAGE = 1000
+
+/**
+ * Largest page `library.listTrackIds` will serve.
+ *
+ * An order of magnitude above `MAX_TRACK_PAGE` because the response is a flat
+ * array of integers rather than the wide display projection with its three
+ * dimension joins. That is what lets a 10,000-row Shift-range resolve in one
+ * round trip instead of ten, while still refusing to hand the renderer an
+ * unbounded result.
+ */
+export const MAX_TRACK_ID_PAGE = 10_000
+
+/**
+ * Largest id set `library.orderTrackIds` will order in one call.
+ *
+ * Not a page size: ordering cannot be chunked, because subsets ordered
+ * independently say nothing about how the chunks interleave. So this is a
+ * whole-library ceiling, and a caller holding more selected ids than the
+ * library can contain has a bug worth failing on.
+ */
+export const MAX_ORDERED_TRACK_IDS = 200_000
 export const MAX_FACET_PAGE = 500
 /** FTS5 trigram search has no indexed terms below three Unicode characters. */
 export const MIN_SEARCH_LENGTH = 3

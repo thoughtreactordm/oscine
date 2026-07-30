@@ -1,0 +1,453 @@
+import { computed, ref } from 'vue'
+import { TRACK_SORT_COLUMNS, type Track, type TrackSortColumn } from '@shared/library'
+
+/**
+ * The track list's column layout: which columns, in what order, how wide.
+ *
+ * Two things make this its own module rather than component state. It has to
+ * survive a restart, so it needs a shape that can be validated coming back from
+ * storage rather than trusted — a stale or hand-edited blob must degrade to the
+ * defaults, not to a table with no columns. And the rules are worth testing
+ * without a DOM: that the last visible column cannot be hidden, that an unknown
+ * key from a future version is dropped rather than rendered, that a reset
+ * restores exactly the documented set.
+ *
+ * Storage is injected. Today it is `localStorage`, which is the renderer's own
+ * per-user store and involves no filesystem access — see `browserLayoutStorage`.
+ * If a later milestone wants layouts in the D11 export bundle, the seam is here
+ * and nothing above it moves.
+ */
+
+export type TrackColumnKey = TrackSortColumn | DisplayColumnKey
+
+/**
+ * Columns the list can show but the library cannot sort by.
+ *
+ * Sorting is a SQL concern: `TRACK_SORT_COLUMNS` is the closed set main will put
+ * in an ORDER BY, and offering a header click for anything else would promise an
+ * ordering that does not exist. Showing the value costs nothing, so these are
+ * available as columns and simply are not sortable.
+ */
+type DisplayColumnKey =
+  | 'albumArtist'
+  | 'discNo'
+  | 'year'
+  | 'codec'
+  | 'sampleRateHz'
+  | 'bitDepth'
+  | 'channels'
+  | 'encodedBytes'
+
+export interface TrackColumnSpec {
+  readonly key: TrackColumnKey
+  readonly label: string
+  /** Long-form name for the column chooser, where the header abbreviation is opaque. */
+  readonly title?: string
+  /** Right-aligned with tabular numerals, so digits line up down the column. */
+  readonly numeric?: boolean
+  readonly defaultWidth: number
+  readonly minWidth: number
+  /** Present in the default layout. */
+  readonly defaultVisible: boolean
+}
+
+/**
+ * Every column the list knows how to render.
+ *
+ * Order here is the default order and the chooser's listing order. The five
+ * visible ones are exactly what W4-1 shipped, so an existing user's table does
+ * not rearrange itself the first time they open this build.
+ */
+export const TRACK_COLUMNS: readonly TrackColumnSpec[] = [
+  {
+    key: 'trackNo',
+    label: '#',
+    title: 'Track number',
+    numeric: true,
+    defaultWidth: 56,
+    minWidth: 40,
+    defaultVisible: true
+  },
+  {
+    key: 'title',
+    label: 'Title',
+    defaultWidth: 320,
+    minWidth: 96,
+    defaultVisible: true
+  },
+  {
+    key: 'artist',
+    label: 'Artist',
+    defaultWidth: 220,
+    minWidth: 80,
+    defaultVisible: true
+  },
+  {
+    key: 'album',
+    label: 'Album',
+    defaultWidth: 220,
+    minWidth: 80,
+    defaultVisible: true
+  },
+  {
+    key: 'durationSec',
+    label: 'Time',
+    title: 'Duration',
+    numeric: true,
+    defaultWidth: 72,
+    minWidth: 56,
+    defaultVisible: true
+  },
+  {
+    key: 'albumArtist',
+    label: 'Album artist',
+    defaultWidth: 200,
+    minWidth: 80,
+    defaultVisible: false
+  },
+  {
+    key: 'discNo',
+    label: 'Disc',
+    numeric: true,
+    defaultWidth: 64,
+    minWidth: 48,
+    defaultVisible: false
+  },
+  {
+    key: 'year',
+    label: 'Year',
+    numeric: true,
+    defaultWidth: 72,
+    minWidth: 56,
+    defaultVisible: false
+  },
+  {
+    key: 'codec',
+    label: 'Format',
+    defaultWidth: 96,
+    minWidth: 64,
+    defaultVisible: false
+  },
+  {
+    key: 'sampleRateHz',
+    label: 'Sample rate',
+    numeric: true,
+    defaultWidth: 112,
+    minWidth: 80,
+    defaultVisible: false
+  },
+  {
+    key: 'bitDepth',
+    label: 'Bit depth',
+    numeric: true,
+    defaultWidth: 96,
+    minWidth: 72,
+    defaultVisible: false
+  },
+  {
+    key: 'channels',
+    label: 'Channels',
+    numeric: true,
+    defaultWidth: 96,
+    minWidth: 72,
+    defaultVisible: false
+  },
+  {
+    key: 'encodedBytes',
+    label: 'Size',
+    title: 'File size',
+    numeric: true,
+    defaultWidth: 96,
+    minWidth: 72,
+    defaultVisible: false
+  }
+]
+
+const COLUMNS_BY_KEY = new Map(TRACK_COLUMNS.map((column) => [column.key, column]))
+
+/**
+ * Whether the header for this column offers a sort.
+ *
+ * Derived from `TRACK_SORT_COLUMNS` rather than declared per column, so the
+ * catalogue cannot claim a sort main will reject. Adding a column to the shared
+ * allowlist is all it takes for its header to become clickable.
+ */
+export function isSortableColumn(key: TrackColumnKey): key is TrackSortColumn {
+  return (TRACK_SORT_COLUMNS as readonly string[]).includes(key)
+}
+
+/** Compile-time proof that every sortable column has an entry in the catalogue. */
+type UnlistedSortColumn = Exclude<TrackSortColumn, TrackColumnKey>
+const _everySortColumnListed: UnlistedSortColumn extends never ? true : never = true
+void _everySortColumnListed
+
+/** …and that every column names a real `Track` field to read. */
+type UnreadableColumn = Exclude<TrackColumnKey, keyof Track>
+const _everyColumnIsATrackField: UnreadableColumn extends never ? true : never = true
+void _everyColumnIsATrackField
+
+export interface TrackColumnLayout {
+  order: TrackColumnKey[]
+  hidden: TrackColumnKey[]
+  widths: Partial<Record<TrackColumnKey, number>>
+}
+
+/**
+ * Versioned in the key rather than in the payload.
+ *
+ * A layout is cheap to rebuild and worthless to migrate: bumping the suffix
+ * retires an incompatible shape without a migration path and without the
+ * previous version's blob shadowing the new one.
+ */
+export const COLUMN_LAYOUT_STORAGE_KEY = 'fermata.trackColumns.v1'
+
+/** The maximum a column can be dragged to. Wide enough for a long path-like title. */
+const MAX_COLUMN_WIDTH = 800
+
+export function defaultColumnLayout(): TrackColumnLayout {
+  return {
+    order: TRACK_COLUMNS.map((column) => column.key),
+    hidden: TRACK_COLUMNS.filter((column) => !column.defaultVisible).map((column) => column.key),
+    widths: {}
+  }
+}
+
+function isColumnKey(value: unknown): value is TrackColumnKey {
+  return typeof value === 'string' && COLUMNS_BY_KEY.has(value as TrackColumnKey)
+}
+
+function clampWidth(spec: TrackColumnSpec, width: number): number {
+  return Math.round(Math.min(MAX_COLUMN_WIDTH, Math.max(spec.minWidth, width)))
+}
+
+/**
+ * Rebuilds a usable layout from whatever storage actually held.
+ *
+ * Every field is treated as a suggestion. Unknown keys are dropped so a layout
+ * saved by a newer build does not render a phantom column; known keys missing
+ * from `order` are appended so a *newer* build's added column appears rather
+ * than vanishing; and a layout that would hide everything falls back to the
+ * default visible set, because a table with no columns has no way back.
+ */
+export function normalizeColumnLayout(raw: unknown): TrackColumnLayout {
+  const layout = defaultColumnLayout()
+  if (typeof raw !== 'object' || raw === null) return layout
+  const candidate = raw as Partial<Record<keyof TrackColumnLayout, unknown>>
+
+  if (Array.isArray(candidate.order)) {
+    const seen = new Set<TrackColumnKey>()
+    const order: TrackColumnKey[] = []
+    for (const key of candidate.order) {
+      if (!isColumnKey(key) || seen.has(key)) continue
+      seen.add(key)
+      order.push(key)
+    }
+    // Columns this build knows about but the stored layout did not.
+    for (const column of TRACK_COLUMNS) if (!seen.has(column.key)) order.push(column.key)
+    layout.order = order
+  }
+
+  if (Array.isArray(candidate.hidden)) {
+    const hidden = candidate.hidden.filter(isColumnKey)
+    layout.hidden = hidden.length < layout.order.length ? [...new Set(hidden)] : layout.hidden
+  }
+
+  if (typeof candidate.widths === 'object' && candidate.widths !== null) {
+    const widths: Partial<Record<TrackColumnKey, number>> = {}
+    for (const [key, width] of Object.entries(candidate.widths)) {
+      if (!isColumnKey(key) || typeof width !== 'number' || !Number.isFinite(width)) continue
+      widths[key] = clampWidth(COLUMNS_BY_KEY.get(key)!, width)
+    }
+    layout.widths = widths
+  }
+
+  return layout
+}
+
+export interface LayoutStorage {
+  read(): string | null
+  write(value: string): void
+}
+
+/**
+ * `localStorage`, guarded.
+ *
+ * Reads and writes are wrapped because storage can genuinely fail — a quota
+ * error, or a Chromium build launched with site data disabled — and a column
+ * layout is not worth taking the panel down for. A failure degrades to the
+ * defaults for the session.
+ */
+export function browserLayoutStorage(key: string): LayoutStorage {
+  return {
+    read: () => {
+      try {
+        return globalThis.localStorage?.getItem(key) ?? null
+      } catch {
+        return null
+      }
+    },
+    write: (value) => {
+      try {
+        globalThis.localStorage?.setItem(key, value)
+      } catch {
+        // Nothing useful to do: the layout stays correct for this session.
+      }
+    }
+  }
+}
+
+export interface ColumnLayoutDeps {
+  storage?: LayoutStorage
+}
+
+export function createColumnLayout(deps: ColumnLayoutDeps = {}) {
+  const storage = deps.storage
+  const layout = ref<TrackColumnLayout>(read())
+
+  function read(): TrackColumnLayout {
+    const stored = storage?.read()
+    if (stored === null || stored === undefined) return defaultColumnLayout()
+    try {
+      return normalizeColumnLayout(JSON.parse(stored))
+    } catch {
+      return defaultColumnLayout()
+    }
+  }
+
+  function persist(): void {
+    storage?.write(JSON.stringify(layout.value))
+  }
+
+  const hidden = computed(() => new Set(layout.value.hidden))
+
+  /** Every column in user order, hidden ones included — the chooser's listing. */
+  const orderedColumns = computed<readonly TrackColumnSpec[]>(() =>
+    layout.value.order.map((key) => COLUMNS_BY_KEY.get(key)!).filter((spec) => spec !== undefined)
+  )
+
+  const visibleColumns = computed<readonly TrackColumnSpec[]>(() =>
+    orderedColumns.value.filter((column) => !hidden.value.has(column.key))
+  )
+
+  function widthOf(key: TrackColumnKey): number {
+    const spec = COLUMNS_BY_KEY.get(key)
+    if (!spec) return 0
+    return layout.value.widths[key] ?? spec.defaultWidth
+  }
+
+  /**
+   * Total width of the visible columns.
+   *
+   * The table is laid out `table-fixed` at this width so the numbers the user
+   * dragged are the numbers they get. Below the container width CSS spreads the
+   * slack; above it the panel scrolls horizontally.
+   */
+  const totalWidth = computed(() =>
+    visibleColumns.value.reduce((sum, column) => sum + widthOf(column.key), 0)
+  )
+
+  function isVisible(key: TrackColumnKey): boolean {
+    return !hidden.value.has(key)
+  }
+
+  /**
+   * Shows or hides a column.
+   *
+   * Refuses to hide the last visible one: an empty table offers no header to
+   * click and no way to get a column back.
+   */
+  function toggleVisible(key: TrackColumnKey): boolean {
+    if (!COLUMNS_BY_KEY.has(key)) return false
+    const next = new Set(layout.value.hidden)
+    if (next.has(key)) next.delete(key)
+    else if (visibleColumns.value.length > 1) next.add(key)
+    else return false
+
+    layout.value = { ...layout.value, hidden: [...next] }
+    persist()
+    return true
+  }
+
+  /**
+   * Moves a column by `delta` positions among the *visible* ones.
+   *
+   * Stepping over hidden columns would make a keyboard reorder skip unpredictably
+   * — the user would press the key twice and see nothing move.
+   */
+  function move(key: TrackColumnKey, delta: number): boolean {
+    if (!isVisible(key) || delta === 0) return false
+    const visible = visibleColumns.value.map((column) => column.key)
+    const from = visible.indexOf(key)
+    const to = from + delta
+    if (from < 0 || to < 0 || to >= visible.length) return false
+    return moveBefore(key, visible[to]!, delta > 0)
+  }
+
+  /**
+   * Places `key` immediately before or after `target` in the full order.
+   *
+   * Both the pointer drop and the keyboard step funnel through here so the two
+   * cannot disagree about what "after" means when hidden columns sit between.
+   */
+  function moveBefore(key: TrackColumnKey, target: TrackColumnKey, after: boolean): boolean {
+    if (key === target || !COLUMNS_BY_KEY.has(key) || !COLUMNS_BY_KEY.has(target)) return false
+    const order = layout.value.order.filter((entry) => entry !== key)
+    const at = order.indexOf(target)
+    if (at < 0) return false
+    order.splice(after ? at + 1 : at, 0, key)
+    layout.value = { ...layout.value, order }
+    persist()
+    return true
+  }
+
+  /**
+   * Sets a column's width, clamped to its minimum.
+   *
+   * `persist: false` is for a pointer drag in progress: a resize fires on every
+   * pointer move, and writing the layout to storage sixty times a second to
+   * record intermediate widths nobody asked for is the kind of thing that shows
+   * up later as jank. The caller commits once on release.
+   */
+  function setWidth(key: TrackColumnKey, width: number, options: { persist?: boolean } = {}): void {
+    const spec = COLUMNS_BY_KEY.get(key)
+    if (!spec || !Number.isFinite(width)) return
+    layout.value = {
+      ...layout.value,
+      widths: { ...layout.value.widths, [key]: clampWidth(spec, width) }
+    }
+    if (options.persist !== false) persist()
+  }
+
+  function nudgeWidth(key: TrackColumnKey, delta: number): void {
+    setWidth(key, widthOf(key) + delta)
+  }
+
+  function specOf(key: TrackColumnKey): TrackColumnSpec | undefined {
+    return COLUMNS_BY_KEY.get(key)
+  }
+
+  /** Restores the documented default set: order, visibility and widths together. */
+  function reset(): void {
+    layout.value = defaultColumnLayout()
+    persist()
+  }
+
+  return {
+    layout,
+    orderedColumns,
+    visibleColumns,
+    totalWidth,
+    isVisible,
+    widthOf,
+    specOf,
+    toggleVisible,
+    move,
+    moveBefore,
+    setWidth,
+    nudgeWidth,
+    persist,
+    reset
+  }
+}
+
+export type ColumnLayout = ReturnType<typeof createColumnLayout>

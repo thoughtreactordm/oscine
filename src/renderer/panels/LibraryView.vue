@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import AppTitleBar from '@renderer/panels/AppTitleBar.vue'
+import ColumnChooser from '@renderer/panels/ColumnChooser.vue'
 import NowPlaying from '@renderer/panels/NowPlaying.vue'
 import Sources from '@renderer/panels/Sources.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useTrackColumnsStore } from '@renderer/stores/columns'
 import { useTrackListStore } from '@renderer/stores/trackList'
 import type { LibraryBrowseFilters, Track } from '@shared/library'
 
@@ -16,8 +18,21 @@ import type { LibraryBrowseFilters, Track } from '@shared/library'
  * activation captures that predicate for NowPlaying's traversal.
  */
 const trackList = useTrackListStore()
+const columns = useTrackColumnsStore()
 const playback = usePlaybackStore()
 const sources = ref<InstanceType<typeof Sources> | null>(null)
+
+/**
+ * The ordering, shown only when its column is not.
+ *
+ * A hidden sort column still orders the list, and with no header to carry the
+ * arrow the state would otherwise be invisible — the user would see a list
+ * sorted by something with no way to tell what. The chooser is where it is
+ * changed; this is where it is read.
+ */
+const hiddenSort = computed(() =>
+  columns.isVisible(trackList.sort) ? null : columns.specOf(trackList.sort)
+)
 
 function browse(filters: LibraryBrowseFilters): void {
   trackList.setFilters(filters)
@@ -68,9 +83,34 @@ onUnmounted(() => playback.dispose())
             >
               <UIcon name="i-lucide-list-music" class="size-4 text-primary" />
               <h2 class="font-semibold text-highlighted">Songs</h2>
-              <span class="ml-auto text-xs tabular-nums text-muted">
+
+              <UBadge
+                v-if="hiddenSort"
+                color="neutral"
+                variant="subtle"
+                size="sm"
+                :icon="
+                  trackList.direction === 'asc' ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'
+                "
+              >
+                {{ hiddenSort.title ?? hiddenSort.label }}
+              </UBadge>
+
+              <span
+                v-if="trackList.selectionCount > 0"
+                class="ml-auto text-xs tabular-nums text-primary"
+                aria-live="polite"
+              >
+                {{ trackList.selectionCount.toLocaleString() }} selected
+              </span>
+              <span
+                class="text-xs tabular-nums text-muted"
+                :class="{ 'ml-auto': trackList.selectionCount === 0 }"
+              >
                 {{ trackList.total.toLocaleString() }}
               </span>
+
+              <ColumnChooser />
             </div>
             <div class="min-h-0 flex-1">
               <TrackList @activate="playTrack" />

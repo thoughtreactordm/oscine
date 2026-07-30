@@ -5,7 +5,9 @@ import type { LibraryService } from '../library/service'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertListFacetsQuery,
+  assertListTrackIdsQuery,
   assertListTracksQuery,
+  assertOrderTrackIdsQuery,
   assertPositiveInt,
   assertRecord
 } from './validate'
@@ -53,6 +55,14 @@ export function registerIpcHandlers(library: LibraryService): void {
   handle('library.listAlbums', (request) => library.listAlbums(assertListFacetsQuery(request)))
 
   handle('library.listTracks', (request) => library.listTracks(assertListTracksQuery(request)))
+
+  handle('library.listTrackIds', (request) =>
+    library.listTrackIds(assertListTrackIdsQuery(request))
+  )
+
+  handle('library.orderTrackIds', (request) =>
+    library.orderTrackIds(assertOrderTrackIdsQuery(request))
+  )
 
   handle('library.getTrackAudioMetadata', async (request) => {
     const { trackId } = assertRecord(request, 'request')

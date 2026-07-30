@@ -3,8 +3,11 @@ import type {
   ListAlbumsResult,
   ListArtistsResult,
   ListFacetsQuery,
+  ListTrackIdsQuery,
+  ListTrackIdsResult,
   ListTracksQuery,
   ListTracksResult,
+  OrderTrackIdsQuery,
   ReplayGainJobProgress,
   ScanSummary,
   TrackAudioMetadata
@@ -25,6 +28,15 @@ export interface LibraryService {
   listArtists(query: ListFacetsQuery): Promise<ListArtistsResult>
   listAlbums(query: ListFacetsQuery): Promise<ListAlbumsResult>
   listTracks(query: ListTracksQuery): Promise<ListTracksResult>
+  /**
+   * The same window as `listTracks`, ids only.
+   *
+   * Exists so the renderer can resolve a range selection spanning pages it has
+   * never loaded without paying for — or retaining — the display rows.
+   */
+  listTrackIds(query: ListTrackIdsQuery): Promise<ListTrackIdsResult>
+  /** Orders an arbitrary id set the way the track list would. Ignores filters. */
+  orderTrackIds(query: OrderTrackIdsQuery): Promise<number[]>
   /** Metadata-only lookup used by the renderer's pre-fetch R1 admission guard. */
   getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null>
   /**

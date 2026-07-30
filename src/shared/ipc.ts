@@ -5,8 +5,11 @@ import type {
   ListFacetsQuery,
   LibraryRoot,
   LibraryNotice,
+  ListTrackIdsQuery,
+  ListTrackIdsResult,
   ListTracksQuery,
   ListTracksResult,
+  OrderTrackIdsQuery,
   ReplayGainJobProgress,
   ScanProgress,
   ScanSummary,
@@ -43,6 +46,22 @@ export interface IpcContract {
   'library.listArtists': { request: ListFacetsQuery; response: ListArtistsResult }
   'library.listAlbums': { request: ListFacetsQuery; response: ListAlbumsResult }
   'library.listTracks': { request: ListTracksQuery; response: ListTracksResult }
+  /**
+   * The same window as `library.listTracks`, resolved to ids only.
+   *
+   * The renderer's selection is a set of track ids, and a Shift-range routinely
+   * spans rows it has never loaded. Resolving that range through this channel
+   * keeps the page cache bounded no matter how large the selection grows —
+   * asking for the rows instead would make every range selection a decision to
+   * retain thousands of `Track` objects.
+   */
+  'library.listTrackIds': { request: ListTrackIdsQuery; response: ListTrackIdsResult }
+  /**
+   * Orders an arbitrary set of track ids the way the track list would, so a
+   * consumer can read a selection back in list order rather than scraping
+   * rendered rows. Ignores browse filters by design; drops unknown ids.
+   */
+  'library.orderTrackIds': { request: OrderTrackIdsQuery; response: number[] }
   /**
    * Supplies only the fields needed to price a decode. This is deliberately a
    * separate metadata request: the R1 guard must decide before it fetches any
@@ -111,6 +130,8 @@ export const IPC_CHANNELS = [
   'library.listArtists',
   'library.listAlbums',
   'library.listTracks',
+  'library.listTrackIds',
+  'library.orderTrackIds',
   'library.getTrackAudioMetadata',
   'library.getTrackFileUrl',
   'library.startReplayGain',

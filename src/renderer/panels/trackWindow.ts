@@ -1,13 +1,25 @@
 import { computed, ref } from 'vue'
 import {
+  MAX_TRACK_ID_PAGE,
   MAX_TRACK_PAGE,
   type LibraryBrowseFilters,
+  type ListTrackIdsQuery,
+  type ListTrackIdsResult,
   type ListTracksQuery,
   type ListTracksResult,
+  type OrderTrackIdsQuery,
   type SortDirection,
   type Track,
   type TrackSortColumn
 } from '@shared/library'
+// Relative rather than aliased: `tsconfig.node.json` reaches this module through
+// the renderer tests, and that project does not map `@renderer`.
+import {
+  createTrackSelection,
+  selectionIntent,
+  type SelectionIntent,
+  type SelectionModifiers
+} from './trackSelection'
 
 /**
  * The windowing engine behind the track list.
@@ -42,19 +54,31 @@ export const MAX_CACHED_PAGES = 32
 
 export interface TrackWindowDeps {
   fetchPage: (query: ListTracksQuery) => Promise<ListTracksResult>
+  /**
+   * The same window as `fetchPage`, ids only.
+   *
+   * A separate dependency rather than a flag on `fetchPage` because the two have
+   * genuinely different costs and ceilings, and because a range selection must
+   * be visibly unable to put rows into the page cache.
+   */
+  fetchIdPage: (query: ListTrackIdsQuery) => Promise<ListTrackIdsResult>
+  /** Orders an arbitrary id set the way this list would. */
+  orderIds: (query: OrderTrackIdsQuery) => Promise<number[]>
   pageSize?: number
+  /** Rows per id request. Defaults to `MAX_TRACK_ID_PAGE`. */
+  idPageSize?: number
   maxCachedPages?: number
 }
 
 /**
- * Where a navigation key moves the selection, or `null` when the key is not a
+ * Where a navigation key moves the focus, or `null` when the key is not a
  * navigation key and the event should be left alone.
  *
  * Split out as a pure function because it is entirely arithmetic, and
  * arithmetic that is wrong at the ends of a 100k-row list is invisible until
  * someone presses End.
  */
-export function nextSelectionIndex(
+export function nextFocusIndex(
   key: string,
   current: number | null,
   total: number,
@@ -93,6 +117,10 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     // surface as an `invalid-request` the moment the user scrolled.
     throw new RangeError(`pageSize must be an integer between 1 and ${MAX_TRACK_PAGE}.`)
   }
+  const idPageSize = deps.idPageSize ?? MAX_TRACK_ID_PAGE
+  if (!Number.isInteger(idPageSize) || idPageSize <= 0 || idPageSize > MAX_TRACK_ID_PAGE) {
+    throw new RangeError(`idPageSize must be an integer between 1 and ${MAX_TRACK_ID_PAGE}.`)
+  }
   const maxCachedPages = Math.max(1, deps.maxCachedPages ?? MAX_CACHED_PAGES)
 
   const sort = ref<TrackSortColumn>('artist')
@@ -101,18 +129,6 @@ export function createTrackWindow(deps: TrackWindowDeps) {
   const total = ref(0)
   const loading = ref(false)
   const error = ref<string | null>(null)
-
-  /**
-   * Selection is two values on purpose.
-   *
-   * `selectedId` is what the user chose; `selectedIndex` is where it currently
-   * sits. A re-sort invalidates the second and not the first, and the M1
-   * contract has no "where is track N under this ordering" query — so the index
-   * is dropped and re-adopted opportunistically when the row arrives in a
-   * loaded page. See `syncSelection`.
-   */
-  const selectedIndex = ref<number | null>(null)
-  const selectedId = ref<number | null>(null)
 
   /**
    * Bumped whenever the cache changes.
@@ -165,24 +181,43 @@ export function createTrackWindow(deps: TrackWindowDeps) {
   }
 
   /**
-   * Reconciles the two halves of the selection against a page that just landed.
+   * Ids for an inclusive index range, chunked to the id page ceiling.
    *
-   * Runs in both directions: a re-sort leaves the id without an index, and
-   * keyboard navigation onto an unloaded row leaves an index without an id.
+   * Sequential rather than concurrent: the chunks are only useful in order, and
+   * a re-sort part-way through makes every remaining one worthless, so the loop
+   * checks the ordering between chunks and stops rather than finishing work it
+   * is about to throw away.
    */
-  function syncSelection(tracks: Track[], page: number): void {
-    if (selectedIndex.value === null) {
-      if (selectedId.value === null) return
-      const offset = tracks.findIndex((track) => track.id === selectedId.value)
-      if (offset >= 0) selectedIndex.value = page * pageSize + offset
-      return
+  async function fetchIdRange(first: number, last: number): Promise<number[]> {
+    const generation = ordering.value
+    const ids: number[] = []
+
+    for (let offset = first; offset <= last; offset += idPageSize) {
+      const limit = Math.min(idPageSize, last - offset + 1)
+      const result = await deps.fetchIdPage({
+        ...filters.value,
+        sort: sort.value,
+        direction: direction.value,
+        offset,
+        limit
+      })
+      if (generation !== ordering.value) return ids
+      ids.push(...result.ids)
+      // A short page means the list ran out before `last` did.
+      if (result.ids.length < limit) break
     }
 
-    const offset = selectedIndex.value - page * pageSize
-    if (offset >= 0 && offset < tracks.length) {
-      selectedId.value = tracks[offset]?.id ?? null
-    }
+    return ids
   }
+
+  const selection = createTrackSelection({
+    idAt: (index) => rowAt(index)?.id,
+    fetchIdRange,
+    orderIds: (ids) =>
+      deps.orderIds({ sort: sort.value, direction: direction.value, ids: [...ids] }),
+    ordering: () => ordering.value,
+    total: () => total.value
+  })
 
   async function loadPage(page: number): Promise<void> {
     if (pending.has(page) || (presentingOrdering === ordering.value && pages.has(page))) return
@@ -212,7 +247,7 @@ export function createTrackWindow(deps: TrackWindowDeps) {
       }
       total.value = result.total
       pages.set(page, result.tracks)
-      syncSelection(result.tracks, page)
+      selection.adoptPage(result.tracks, page, pageSize)
       evictDistantPages()
       error.value = null
       revision.value++
@@ -246,7 +281,9 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     ordering.value++
     pending.clear()
     loading.value = true
-    selectedIndex.value = null
+    // Positions only. Which tracks are selected survives a re-sort and a
+    // filter — that is the contract W4-4 exists to keep.
+    selection.invalidateIndices()
     ensureRange(range.first, range.last)
   }
 
@@ -288,24 +325,38 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     invalidate()
   }
 
-  function select(index: number): void {
-    if (!Number.isInteger(index) || index < 0) return
-    if (total.value > 0 && index >= total.value) return
-
-    selectedIndex.value = index
-    selectedId.value = rowAt(index)?.id ?? null
-  }
-
-  /** Applies a navigation key. Returns the new index, or `null` if the key was not ours. */
-  function moveSelection(key: string, rowsPerPage: number): number | null {
-    const next = nextSelectionIndex(key, selectedIndex.value, total.value, rowsPerPage)
+  /**
+   * Applies a navigation key. Returns the new focus index, or `null` if the key
+   * was not ours.
+   *
+   * Ctrl+arrow moves the focus and nothing else. That is the half of the
+   * contract that makes a disjoint selection buildable from the keyboard at all:
+   * walk to a row without disturbing the set, then commit it with Ctrl+Space.
+   */
+  function moveFocus(
+    key: string,
+    rowsPerPage: number,
+    modifiers: SelectionModifiers = {}
+  ): number | null {
+    const next = nextFocusIndex(key, selection.focusIndex.value, total.value, rowsPerPage)
     if (next === null) return null
-    select(next)
+
+    const intent = selectionIntent(modifiers)
+    if (intent === 'toggle') selection.moveFocusOnly(next)
+    else void selection.apply(next, intent)
     return next
   }
 
-  const selectedTrack = computed(() =>
-    selectedIndex.value === null ? undefined : rowAt(selectedIndex.value)
+  /** Commits the focused row — Space and Ctrl+Space. */
+  function commitFocus(modifiers: SelectionModifiers): void {
+    const index = selection.focusIndex.value
+    if (index === null) return
+    const intent = selectionIntent(modifiers)
+    void selection.apply(index, intent === 'toggle' ? 'toggle' : 'replace')
+  }
+
+  const focusedTrack = computed(() =>
+    selection.focusIndex.value === null ? undefined : rowAt(selection.focusIndex.value)
   )
 
   return {
@@ -316,17 +367,41 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     loading,
     error,
     ordering,
-    selectedIndex,
-    selectedId,
-    selectedTrack,
     pageSize,
     rowAt,
     ensureRange,
     setSort,
     setFilters,
-    select,
-    moveSelection,
     reload,
+
+    /**
+     * Selection surface. Flat rather than nested because Pinia only unwraps refs
+     * at the top level of a setup store, and a template reaching
+     * `panel.selection.count` would render the ref itself.
+     */
+    selectedIds: selection.ids,
+    selectionCount: selection.count,
+    selectionResolving: selection.resolving,
+    focusIndex: selection.focusIndex,
+    focusId: selection.focusId,
+    anchorIndex: selection.anchorIndex,
+    focusedTrack,
+    isSelectedAt: selection.isSelectedAt,
+    isSelected: selection.isSelected,
+    selectAt: (index: number, intent: SelectionIntent): Promise<void> =>
+      selection.apply(index, intent),
+    moveFocus,
+    commitFocus,
+    clearSelection: selection.clear,
+    /**
+     * The selected tracks in list order, for M4's add-to-playlist action.
+     *
+     * Deliberately the only way to read the selection as an ordered list: it
+     * resolves through main, so it is correct after a re-sort and never depends
+     * on which rows happen to be rendered.
+     */
+    resolveSelection: selection.resolveSelection,
+
     /** Test seam: how much of the library the panel is actually holding. */
     cachedPageCount: (): number => pages.size
   }
