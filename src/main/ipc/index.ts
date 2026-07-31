@@ -2,16 +2,25 @@ import { BrowserWindow } from 'electron'
 import { FermataError } from '@shared/errors'
 import { trackUrl } from '@shared/ipc'
 import type { LibraryService } from '../library/service'
+import type { PlaylistService } from '../library/playlists/service'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
+  assertAddTracksRequest,
+  assertCrossfadeMs,
   assertListFacetIdsQuery,
   assertListFacetsQuery,
+  assertListPlaylistEntriesQuery,
+  assertListPlaylistEntryIdsQuery,
   assertListTrackGroupsQuery,
   assertListTrackIdsQuery,
   assertListTracksQuery,
+  assertMoveEntriesRequest,
   assertOrderTrackIdsQuery,
+  assertPlaylistName,
   assertPositiveInt,
-  assertRecord
+  assertRecord,
+  assertRemoveEntriesRequest,
+  assertTabIndex
 } from './validate'
 
 /**
@@ -20,7 +29,7 @@ import {
  * Handlers stay thin on purpose: validate, delegate, return. Anything they
  * throw is flattened by the registry before it reaches the renderer.
  */
-export function registerIpcHandlers(library: LibraryService): void {
+export function registerIpcHandlers(library: LibraryService, playlists: PlaylistService): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
     return null
@@ -113,6 +122,59 @@ export function registerIpcHandlers(library: LibraryService): void {
     const { jobId } = assertRecord(request, 'request')
     return library.resumeReplayGain(assertPositiveInt(jobId, 'jobId'))
   })
+
+  handle('playlists.list', () => playlists.list())
+
+  handle('playlists.create', (request) => {
+    const { name, crossfadeMs } = assertRecord(request, 'request')
+    // Omitted means gapless, which is the schema default and R2's zero.
+    return playlists.create(
+      assertPlaylistName(name),
+      crossfadeMs === undefined ? 0 : assertCrossfadeMs(crossfadeMs)
+    )
+  })
+
+  handle('playlists.rename', (request) => {
+    const { playlistId, name } = assertRecord(request, 'request')
+    return playlists.rename(assertPositiveInt(playlistId, 'playlistId'), assertPlaylistName(name))
+  })
+
+  handle('playlists.setCrossfade', (request) => {
+    const { playlistId, crossfadeMs } = assertRecord(request, 'request')
+    return playlists.setCrossfade(
+      assertPositiveInt(playlistId, 'playlistId'),
+      assertCrossfadeMs(crossfadeMs)
+    )
+  })
+
+  handle('playlists.delete', async (request) => {
+    const { playlistId } = assertRecord(request, 'request')
+    await playlists.delete(assertPositiveInt(playlistId, 'playlistId'))
+    return null
+  })
+
+  handle('playlists.reorder', (request) => {
+    const { playlistId, toIndex } = assertRecord(request, 'request')
+    return playlists.reorder(assertPositiveInt(playlistId, 'playlistId'), assertTabIndex(toIndex))
+  })
+
+  handle('playlists.listEntries', (request) =>
+    playlists.listEntries(assertListPlaylistEntriesQuery(request))
+  )
+
+  handle('playlists.listEntryIds', (request) =>
+    playlists.listEntryIds(assertListPlaylistEntryIdsQuery(request))
+  )
+
+  handle('playlists.addTracks', (request) => playlists.addTracks(assertAddTracksRequest(request)))
+
+  handle('playlists.moveEntries', (request) =>
+    playlists.moveEntries(assertMoveEntriesRequest(request))
+  )
+
+  handle('playlists.removeEntries', (request) =>
+    playlists.removeEntries(assertRemoveEntriesRequest(request))
+  )
 
   assertEveryChannelHandled()
 }

@@ -18,6 +18,13 @@ import type {
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
+import type {
+  AddTracksToPlaylistRequest,
+  ListPlaylistEntriesQuery,
+  ListPlaylistEntryIdsQuery,
+  MovePlaylistEntriesRequest,
+  RemovePlaylistEntriesRequest
+} from '@shared/playlists'
 
 /**
  * The entire main/renderer seam.
@@ -103,6 +110,28 @@ const api = {
     onNotice: (listener: (notice: LibraryNotice) => void) => subscribe('library.notice', listener),
     onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
       subscribe('library.replayGainProgress', listener)
+  },
+  playlists: {
+    /** Every playlist, in tab order. */
+    list: () => request('playlists.list', null),
+    /** `crossfadeMs` omitted means gapless — R2's zero. */
+    create: (name: string, crossfadeMs?: number) =>
+      request('playlists.create', { name, crossfadeMs }),
+    rename: (playlistId: number, name: string) => request('playlists.rename', { playlistId, name }),
+    setCrossfade: (playlistId: number, crossfadeMs: number) =>
+      request('playlists.setCrossfade', { playlistId, crossfadeMs }),
+    /** Cascades to the playlist's entries. The tracks themselves are untouched. */
+    delete: (playlistId: number) => request('playlists.delete', { playlistId }),
+    reorder: (playlistId: number, toIndex: number) =>
+      request('playlists.reorder', { playlistId, toIndex }),
+    listEntries: (query: ListPlaylistEntriesQuery) => request('playlists.listEntries', query),
+    /** The same window, ids only — for range selection in the contents pane. */
+    listEntryIds: (query: ListPlaylistEntryIdsQuery) => request('playlists.listEntryIds', query),
+    /** A whole multi-selection in one call, however large. */
+    addTracks: (payload: AddTracksToPlaylistRequest) => request('playlists.addTracks', payload),
+    moveEntries: (payload: MovePlaylistEntriesRequest) => request('playlists.moveEntries', payload),
+    removeEntries: (payload: RemovePlaylistEntriesRequest) =>
+      request('playlists.removeEntries', payload)
   }
 } as const
 

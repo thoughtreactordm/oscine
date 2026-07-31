@@ -7,6 +7,7 @@ import { openDatabase } from './db'
 import { artworkCachePath, libraryDatabasePath } from './db/location'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { SqliteLibraryService } from './library/sqliteService'
+import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 
 const isDev = !app.isPackaged
@@ -197,6 +198,10 @@ if (!app.requestSingleInstanceLock()) {
       onReplayGainProgress: broadcastReplayGainProgress
     })
 
+    // Its own service on the same connection: playlists own two tables the
+    // library layer never touches, and the library owns the rest.
+    const playlists = new SqlitePlaylistService({ db })
+
     let readyToQuit = false
     let quitInProgress = false
     app.on('before-quit', (event) => {
@@ -221,7 +226,7 @@ if (!app.requestSingleInstanceLock()) {
 
     setTrustedRendererUrl(rendererUrl)
     registerTrackProtocol(library, artworkCachePath())
-    registerIpcHandlers(library)
+    registerIpcHandlers(library, playlists)
 
     mainWindow = createWindow()
     mainWindow.on('maximize', () => {

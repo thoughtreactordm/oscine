@@ -19,6 +19,16 @@ import type {
   ScanSummary,
   TrackAudioMetadata
 } from './library'
+import type {
+  AddTracksToPlaylistRequest,
+  ListPlaylistEntriesQuery,
+  ListPlaylistEntriesResult,
+  ListPlaylistEntryIdsQuery,
+  ListPlaylistEntryIdsResult,
+  MovePlaylistEntriesRequest,
+  Playlist,
+  RemovePlaylistEntriesRequest
+} from './playlists'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -102,6 +112,50 @@ export interface IpcContract {
     request: { jobId: number }
     response: ReplayGainJobProgress
   }
+  /**
+   * Every playlist, in tab order. Unpaged: these are tabs, and a user who has
+   * made a thousand of them has a different problem than pagination solves.
+   */
+  'playlists.list': { request: null; response: Playlist[] }
+  'playlists.create': {
+    request: { name: string; crossfadeMs?: number }
+    response: Playlist
+  }
+  'playlists.rename': { request: { playlistId: number; name: string }; response: Playlist }
+  /** R2's per-playlist policy. Persisted here; W3 reads it. */
+  'playlists.setCrossfade': {
+    request: { playlistId: number; crossfadeMs: number }
+    response: Playlist
+  }
+  /** Cascades to the playlist's entries. The tracks themselves are untouched. */
+  'playlists.delete': { request: { playlistId: number }; response: null }
+  /**
+   * Moves a tab to `toIndex` and returns the whole bar in its new order.
+   *
+   * Returning the full list rather than the moved playlist is deliberate: a
+   * reorder renumbers its neighbours too, so anything less would leave the
+   * caller to guess at the result it just asked for.
+   */
+  'playlists.reorder': {
+    request: { playlistId: number; toIndex: number }
+    response: Playlist[]
+  }
+  'playlists.listEntries': {
+    request: ListPlaylistEntriesQuery
+    response: ListPlaylistEntriesResult
+  }
+  /** The same window as `playlists.listEntries`, ids only — for range selection. */
+  'playlists.listEntryIds': {
+    request: ListPlaylistEntryIdsQuery
+    response: ListPlaylistEntryIdsResult
+  }
+  /**
+   * The four mutating entry operations, each returning the playlist so the tab
+   * badge and `updatedAt` never need a second round trip to stay honest.
+   */
+  'playlists.addTracks': { request: AddTracksToPlaylistRequest; response: Playlist }
+  'playlists.moveEntries': { request: MovePlaylistEntriesRequest; response: Playlist }
+  'playlists.removeEntries': { request: RemovePlaylistEntriesRequest; response: Playlist }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -155,7 +209,18 @@ export const IPC_CHANNELS = [
   'library.startReplayGain',
   'library.getReplayGainJob',
   'library.cancelReplayGain',
-  'library.resumeReplayGain'
+  'library.resumeReplayGain',
+  'playlists.list',
+  'playlists.create',
+  'playlists.rename',
+  'playlists.setCrossfade',
+  'playlists.delete',
+  'playlists.reorder',
+  'playlists.listEntries',
+  'playlists.listEntryIds',
+  'playlists.addTracks',
+  'playlists.moveEntries',
+  'playlists.removeEntries'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [

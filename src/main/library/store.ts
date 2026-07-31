@@ -26,7 +26,9 @@ import type { TrackTags } from './metadata'
 import { fileStem, type AudioFile } from './walk'
 
 /**
- * Every SQL statement the library layer issues.
+ * Every SQL statement the library layer issues. `./playlists` owns the
+ * `playlists` and `playlist_entries` tables and issues its own, borrowing only
+ * the track projection below so both produce identical display rows.
  *
  * Concentrated in one class so the scanner and the service stay free of schema
  * knowledge, and so the statements are prepared once rather than per row — on a
@@ -169,7 +171,7 @@ const JOINED_SORTS: Partial<Record<TrackSortColumn, JoinedSort>> = {
  * `aa` is the album's artist, which is a different join from the track's own —
  * a compilation has one album artist and a different artist per track.
  */
-const TRACK_JOINS = `
+export const TRACK_JOINS = `
   LEFT JOIN artists ar ON ar.id = t.artist_id
   LEFT JOIN albums  al ON al.id = t.album_id
   LEFT JOIN artists aa ON aa.id = al.album_artist_id
@@ -181,7 +183,14 @@ const TRACK_JOINS = `
  */
 const BROWSE_ARTIST_ID = 'COALESCE(al.album_artist_id, t.artist_id)' as const
 
-const TRACK_PROJECTION = `
+/**
+ * Exported alongside `TRACK_JOINS` and `toTrack` so `./playlists` can widen a
+ * page of entries into the *same* display rows the track list produces. Three
+ * columns copied into a second module is three columns that stop matching, and
+ * the symptom would be a playlist showing no artwork after someone adds a
+ * field here.
+ */
+export const TRACK_PROJECTION = `
   t.id           AS id,
   t.root_id      AS rootId,
   t.title        AS title,
@@ -205,7 +214,7 @@ const TRACK_PROJECTION = `
   t.rg_source     AS rgSource
 `
 
-interface TrackRow {
+export interface TrackRow {
   id: number
   rootId: number
   title: string | null
@@ -1220,7 +1229,7 @@ function facetTotal(
   return total
 }
 
-function toTrack(row: TrackRow): Track {
+export function toTrack(row: TrackRow): Track {
   return {
     id: row.id,
     rootId: row.rootId,
