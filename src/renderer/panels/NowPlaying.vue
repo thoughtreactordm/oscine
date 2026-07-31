@@ -31,6 +31,12 @@ const backdrop = computed(() => {
   return url && hasArtwork(url) ? url : null
 })
 
+const repeatLabel = computed(() => {
+  if (playback.repeatMode === 'all') return 'Repeat: all'
+  if (playback.repeatMode === 'one') return 'Repeat: this track'
+  return 'Repeat: off'
+})
+
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
   const total = Math.floor(seconds)
@@ -240,6 +246,35 @@ function onSeekInput(value: number | undefined): void {
           {{ Math.round(playback.volume * 100) }}
         </span>
       </section>
+
+      <!--
+        Both are modes, so both announce a state rather than only an action:
+        `aria-pressed` for shuffle, which is on or off, and a label that names
+        the current mode for repeat, which has three.
+      -->
+      <UTooltip :text="playback.shuffleEnabled ? 'Shuffle: on' : 'Shuffle: off'">
+        <UButton
+          variant="ghost"
+          size="lg"
+          :icon="playback.shuffleEnabled ? 'i-tabler-arrows-shuffle' : 'i-tabler-arrows-right'"
+          :color="playback.shuffleEnabled ? 'primary' : 'neutral'"
+          :aria-pressed="playback.shuffleEnabled"
+          aria-label="Shuffle"
+          @click="playback.toggleShuffle()"
+        />
+      </UTooltip>
+
+      <UTooltip :text="repeatLabel">
+        <UButton
+          variant="ghost"
+          size="lg"
+          :icon="playback.repeatMode === 'one' ? 'i-tabler-repeat-once' : 'i-tabler-repeat'"
+          :color="playback.repeatMode === 'off' ? 'neutral' : 'primary'"
+          :aria-pressed="playback.repeatMode !== 'off'"
+          :aria-label="repeatLabel"
+          @click="playback.cycleRepeat()"
+        />
+      </UTooltip>
 
       <UTooltip text="Open Tunedeck">
         <UButton variant="ghost" size="lg" icon="i-tabler-device-audio-tape" />
