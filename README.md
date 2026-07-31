@@ -49,6 +49,9 @@ npm run dist:win    # NSIS installer into release/
 Run each on its own platform — the native dependencies resolve platform-specific prebuilt addons
 that are only installed there, so cross-building yields a broken app rather than a build error.
 
+The icon set in `build/` is generated from the title bar's mark by `npm run icons`, one render per
+size rather than one master downscaled, so 16 px stays legible on a 1x panel.
+
 ## Layout
 
 ```
