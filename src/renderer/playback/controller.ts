@@ -22,6 +22,13 @@ import type {
 import type { MediaSessionBinding, MediaSessionState, MediaSessionTransport } from './mediaSession'
 import { createListPlayOrder, type PlayOrder } from './playOrder'
 import { PlaybackScheduler, type PrefetchState, type PrefetchStatus } from './scheduler'
+import { createShuffledPlayOrder, type ShuffledPlayOrder } from './shufflePlayOrder'
+import { cycleRepeatMode, nextIndex, previousIndex, type RepeatMode } from './traversal'
+import {
+  readTransportPreferences,
+  writeTransportPreferences,
+  type TransportStorage
+} from './transportPreferences'
 
 /**
  * The bridge between the `AudioEngine` and the UI.
@@ -68,6 +75,16 @@ export interface PlaybackControllerDeps {
     state: MediaSessionState
     transport: MediaSessionTransport
   }) => MediaSessionBinding
+  /**
+   * Where shuffle and repeat are remembered. Omitting it is supported and
+   * means the modes last for the session, which is what the tests want.
+   */
+  storage?: TransportStorage
+  /**
+   * The seed for a shuffle, drawn each time shuffle is switched on so that off
+   * and on again reshuffles. Injected only so a test can assert a sequence.
+   */
+  createShuffleSeed?: () => number
 }
 
 export interface PlayFromListParams {
@@ -101,6 +118,24 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   /** Position of the playing track within `order`, or `null` when idle. */
   const orderIndex = ref<number | null>(null)
 
+  const preferences = readTransportPreferences(deps.storage)
+  const repeatMode = ref<RepeatMode>(preferences.repeat)
+  const shuffleEnabled = ref(preferences.shuffle)
+
+  /**
+   * How many positions the playing order has, or `null` when unknown — which
+   * includes the common case of repeat being off, where nothing needs it.
+   *
+   * Resolved eagerly when repeat makes it reachable, rather than at the moment
+   * it is needed, because the moment it is needed is a Next press: the
+   * transport writes `orderIndex` *before* awaiting anything so that two fast
+   * presses advance two rows, and an await here would have both presses
+   * compute the same target. Unknown degrades to not wrapping — one press in
+   * the first instants of playback, at the very end of the order, which is the
+   * cheapest possible thing to get wrong.
+   */
+  const orderTotal = ref<number | null>(null)
+
   /**
    * True while the user holds the seek handle.
    *
@@ -118,6 +153,21 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   let scheduler: PlaybackScheduler | null = null
   let unsubscribes: Array<() => void> = []
   let order: PlayOrder | null = null
+
+  /**
+   * The unshuffled ordering, kept alongside `order` for the whole time a
+   * shuffled one is playing.
+   *
+   * Shuffle has to be reversible without re-deriving anything: turning it off
+   * mid-album resumes the linear order the user started from, including its
+   * sort and its filters, which is information a shuffled order permutes but
+   * does not replace. `order` is `shuffled ?? base`, never something third.
+   */
+  let baseOrder: PlayOrder | null = null
+  let shuffledOrder: ShuffledPlayOrder | null = null
+
+  /** Guards the one place a shuffle toggle awaits before it mutates state. */
+  let shuffleToken = 0
 
   /**
    * Bumped by every play request. A request that finds the token changed while
@@ -153,7 +203,8 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     const created = new PlaybackScheduler({
       createEngine: deps.createEngine,
       crossfadeMs: crossfadeMs.value,
-      normalizationMode: normalizationMode.value
+      normalizationMode: normalizationMode.value,
+      repeatMode: repeatMode.value
     })
     unsubscribes = [
       created.on('statuschange', (next) => {
@@ -234,40 +285,155 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    * play order. See the note in `playOrder.ts` on why it is a snapshot.
    */
   async function playFromList(params: PlayFromListParams): Promise<void> {
-    order = createListPlayOrder({
+    const base = createListPlayOrder({
       fetchPage: deps.fetchPage,
       sort: params.sort,
       direction: params.direction,
       filters: params.filters
     })
+    baseOrder = base
+
+    // The clicked row is pinned to the front of the shuffle, so "shuffle is on"
+    // never means "the row I clicked is not what plays". The pin resolves
+    // without the permutation, so this costs the click path nothing — the
+    // length query and the shuffle itself happen while the track is decoding.
+    shuffledOrder = shuffleEnabled.value
+      ? createShuffledPlayOrder(base, { seed: shuffleSeed(), pinnedBaseIndex: params.index })
+      : null
+    order = shuffledOrder ?? base
+    const index = shuffledOrder ? 0 : params.index
+    captureTotal()
 
     // With the row already in hand there is nothing to look up, so skip `goTo`
     // and its round trip.
     if (params.track) {
       ++requestToken
-      orderIndex.value = params.index
+      orderIndex.value = index
       nowPlaying.value = params.track
       error.value = null
-      await startAt(params.index, params.track)
+      await startAt(index, params.track)
       return
     }
 
     ++requestToken
     error.value = null
-    await startAt(params.index)
+    await startAt(index)
   }
 
   async function next(): Promise<void> {
-    if (orderIndex.value === null) return
-    await goTo(orderIndex.value + 1)
+    const from = orderIndex.value
+    if (from === null) return
+    // Repeat-one is deliberately not honoured here: pressing Next under it
+    // moves on, as it does in every player anyone has used. See `traversal.ts`.
+    const index = nextIndex(from, orderTotal.value, repeatMode.value, 'explicit')
+    if (index === null) {
+      // The end of the order with nothing to wrap to. Pausing is what `goTo`
+      // does on finding no row there, and doing it here as well keeps the
+      // clean stop from depending on whether the length happened to be known.
+      pause()
+      return
+    }
+    await goTo(index)
   }
 
   async function previous(): Promise<void> {
-    // At the first row there is nowhere to go. Restarting the current track
-    // instead is a convention worth having, but it belongs with the rest of the
-    // transport polish rather than smuggled in here.
-    if (orderIndex.value === null || orderIndex.value <= 0) return
-    await goTo(orderIndex.value - 1)
+    // At the first row there is nowhere to go without repeat. Restarting the
+    // current track instead is a convention worth having, but it belongs with
+    // the rest of the transport polish rather than smuggled in here.
+    const from = orderIndex.value
+    if (from === null) return
+    const index = previousIndex(from, orderTotal.value, repeatMode.value)
+    if (index === null) return
+    await goTo(index)
+  }
+
+  function shuffleSeed(): number {
+    return deps.createShuffleSeed?.() ?? Math.floor(Math.random() * 0x1_0000_0000)
+  }
+
+  /** Resolves the playing order's length in the background. See `orderTotal`. */
+  function captureTotal(): void {
+    orderTotal.value = null
+    const captured = order
+    // Only wrapping needs a length. Asking unconditionally would put a round
+    // trip on the play path that the default configuration has no use for —
+    // and the play path is the one that deliberately avoids a lookup when the
+    // clicked row is already in hand.
+    if (!captured || repeatMode.value === 'off') return
+    void captured.count().then((total) => {
+      // A newer order may have been captured while this was in flight, and its
+      // length is not this one's.
+      if (order === captured) orderTotal.value = total
+    })
+  }
+
+  function setRepeatMode(mode: RepeatMode): void {
+    if (mode === repeatMode.value) return
+    repeatMode.value = mode
+    persistPreferences()
+    // Wrapping has just become possible, or just stopped being possible.
+    captureTotal()
+    // The scheduler decided the successor minutes ago and may have it decoded
+    // and scheduled already, so this is a re-decision rather than a setting.
+    scheduler?.setRepeatMode(mode)
+  }
+
+  /** The single button's cycle: none, then the whole order, then this track. */
+  function cycleRepeat(): void {
+    setRepeatMode(cycleRepeatMode(repeatMode.value))
+  }
+
+  /**
+   * Switch shuffle without interrupting what is playing.
+   *
+   * On, the playing row is pinned to the front of a fresh permutation and
+   * keeps playing from its new position 0. Off, traversal resumes linearly
+   * from where the user actually *is* rather than from where the shuffle
+   * started — anything else would feel like the transport jumped.
+   *
+   * With nothing playing this only records the preference; it applies to the
+   * next thing started from a list.
+   */
+  async function setShuffle(enabled: boolean): Promise<void> {
+    if (enabled === shuffleEnabled.value) return
+    shuffleEnabled.value = enabled
+    persistPreferences()
+
+    const base = baseOrder
+    const current = orderIndex.value
+    if (!base || !order || current === null || !scheduler) return
+    const token = ++shuffleToken
+
+    if (enabled) {
+      const shuffled = createShuffledPlayOrder(base, {
+        seed: shuffleSeed(),
+        pinnedBaseIndex: current
+      })
+      shuffledOrder = shuffled
+      order = shuffled
+      orderIndex.value = 0
+      scheduler.retarget(shuffled, 0)
+    } else {
+      const resumeAt = (await shuffledOrder?.baseIndexAt(current)) ?? current
+      if (token !== shuffleToken) return
+      shuffledOrder = null
+      order = base
+      orderIndex.value = resumeAt
+      scheduler.retarget(base, resumeAt)
+    }
+
+    captureTotal()
+  }
+
+  async function toggleShuffle(): Promise<void> {
+    await setShuffle(!shuffleEnabled.value)
+  }
+
+  function persistPreferences(): void {
+    writeTransportPreferences(deps.storage, {
+      repeat: repeatMode.value,
+      shuffle: shuffleEnabled.value
+    })
   }
 
   /**
@@ -344,8 +510,14 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   /** Stop playback and invalidate current and prefetched work. */
   function stop(): void {
     requestToken++
+    shuffleToken++
     scheduler?.stop()
     order = null
+    // The orders go; the modes stay. Shuffle and repeat are settings, and
+    // stopping is not a request to change one.
+    baseOrder = null
+    shuffledOrder = null
+    orderTotal.value = null
     orderIndex.value = null
     nowPlaying.value = null
     error.value = null
@@ -371,7 +543,11 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     scheduler = null
     // Strands anything still in flight so it cannot resurrect a disposed engine.
     requestToken++
+    shuffleToken++
     order = null
+    baseOrder = null
+    shuffledOrder = null
+    orderTotal.value = null
     status.value = 'idle'
     applyPrefetch({
       status: 'idle',
@@ -391,6 +567,9 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     normalizationMode,
     nowPlaying,
     orderIndex,
+    orderTotal,
+    repeatMode,
+    shuffleEnabled,
     error,
     prefetchStatus,
     prefetchedTrackId,
@@ -413,6 +592,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     setVolume,
     setCrossfadeMs,
     setNormalizationMode,
+    setRepeatMode,
+    cycleRepeat,
+    setShuffle,
+    toggleShuffle,
     stop,
     dispose,
     /** Test seam: whether the audio device has actually been claimed yet. */

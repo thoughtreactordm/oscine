@@ -155,6 +155,8 @@ function harness(
     total?: number
     manualLoad?: boolean
     createMediaSession?: PlaybackControllerDeps['createMediaSession']
+    storage?: PlaybackControllerDeps['storage']
+    createShuffleSeed?: PlaybackControllerDeps['createShuffleSeed']
   } = {}
 ) {
   const total = options.total ?? 10
@@ -178,7 +180,10 @@ function harness(
       return engine
     },
     fetchPage,
-    ...(options.createMediaSession ? { createMediaSession: options.createMediaSession } : {})
+    ...(options.createMediaSession ? { createMediaSession: options.createMediaSession } : {}),
+    ...(options.storage ? { storage: options.storage } : {}),
+    // Fixed by default, so a shuffled traversal is something a test can name.
+    createShuffleSeed: options.createShuffleSeed ?? ((): number => 1234)
   })
   return { controller, engine: engines[0], engines, fetchPage }
 }
@@ -343,6 +348,251 @@ describe('createPlaybackController', () => {
       await fresh.controller.previous()
 
       expect(fresh.controller.hasEngine()).toBe(false)
+    })
+  })
+
+  describe('repeat', () => {
+    async function playing(total: number, index: number) {
+      const h = harness({ total })
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index,
+        track: track(index)
+      })
+      return h
+    }
+
+    it('costs no length query while it is off', async () => {
+      // The play path deliberately avoids a lookup when the clicked row is
+      // already in hand; a length nothing can use would put one back.
+      const h = await playing(3, 0)
+      expect(h.fetchPage).toHaveBeenCalledTimes(1)
+      expect(h.fetchPage).toHaveBeenCalledWith(expect.objectContaining({ offset: 1 }))
+    })
+
+    it('wraps to the top from the last row', async () => {
+      const h = await playing(3, 2)
+      h.controller.setRepeatMode('all')
+      await settle()
+
+      await h.controller.next()
+
+      expect(h.controller.orderIndex.value).toBe(0)
+      expect(h.controller.nowPlaying.value?.id).toBe(0)
+    })
+
+    it('wraps to the last row from the top', async () => {
+      const h = await playing(3, 0)
+      h.controller.setRepeatMode('all')
+      await settle()
+
+      await h.controller.previous()
+
+      expect(h.controller.orderIndex.value).toBe(2)
+      expect(h.controller.nowPlaying.value?.id).toBe(2)
+    })
+
+    it('still stops at the last row once repeat is switched back off', async () => {
+      const h = await playing(3, 2)
+      h.controller.setRepeatMode('all')
+      await settle()
+      h.controller.setRepeatMode('off')
+      await settle()
+
+      await h.controller.next()
+
+      expect(h.controller.orderIndex.value).toBe(2)
+      expect(h.controller.error.value).toBeNull()
+    })
+
+    it('moves on when Next is pressed under repeat-one', async () => {
+      const h = await playing(6, 2)
+      h.controller.setRepeatMode('one')
+      await settle()
+
+      await h.controller.next()
+
+      expect(h.controller.orderIndex.value).toBe(3)
+    })
+
+    it('cycles none, all, one and back on one button', () => {
+      const h = harness()
+      expect(h.controller.repeatMode.value).toBe('off')
+      h.controller.cycleRepeat()
+      expect(h.controller.repeatMode.value).toBe('all')
+      h.controller.cycleRepeat()
+      expect(h.controller.repeatMode.value).toBe('one')
+      h.controller.cycleRepeat()
+      expect(h.controller.repeatMode.value).toBe('off')
+    })
+
+    it('is a setting, so stopping does not clear it', async () => {
+      const h = await playing(3, 1)
+      h.controller.setRepeatMode('one')
+
+      h.controller.stop()
+
+      expect(h.controller.repeatMode.value).toBe('one')
+    })
+  })
+
+  describe('shuffle', () => {
+    /** A traversal is only shuffled if it is not the order it permutes. */
+    async function traverse(controller: ReturnType<typeof harness>['controller'], steps: number) {
+      const seen = [controller.nowPlaying.value?.id]
+      for (let i = 0; i < steps; i += 1) {
+        await controller.next()
+        seen.push(controller.nowPlaying.value?.id)
+      }
+      return seen
+    }
+
+    it('plays the row that was clicked, then shuffles what follows', async () => {
+      // "Shuffle is on" must never mean "the row I clicked is not what plays".
+      const h = harness({ total: 40 })
+      await h.controller.setShuffle(true)
+
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 12,
+        track: track(12)
+      })
+      await settle()
+
+      expect(h.controller.nowPlaying.value?.id).toBe(12)
+      expect(h.controller.orderIndex.value).toBe(0)
+      expect(h.controller.orderId()).toBe('shuffle:1234:12:list:artist:asc')
+      expect(await traverse(h.controller, 5)).not.toEqual([12, 13, 14, 15, 16, 17])
+    })
+
+    it('does not interrupt what is playing when switched on', async () => {
+      const h = harness({ total: 40 })
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 12,
+        track: track(12)
+      })
+      const loaded = [...h.engines[0].loaded]
+
+      await h.controller.setShuffle(true)
+      await settle()
+
+      expect(h.controller.nowPlaying.value?.id).toBe(12)
+      expect(h.controller.orderIndex.value).toBe(0)
+      // Neither decoded again nor started again: only the successor changed.
+      expect(h.engines[0].loaded).toEqual(loaded)
+      expect(h.engines[0].playCount).toBe(1)
+      expect(h.engines[0].pauseCount).toBe(0)
+    })
+
+    it('resumes linear traversal from where the user actually is', async () => {
+      // Not from where the shuffle started: anything else reads as the
+      // transport jumping when the button is pressed.
+      const h = harness({ total: 40 })
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 12,
+        track: track(12)
+      })
+      await h.controller.setShuffle(true)
+      await h.controller.next()
+      await h.controller.next()
+      const landedOn = h.controller.nowPlaying.value?.id
+
+      await h.controller.setShuffle(false)
+      await settle()
+
+      expect(h.controller.orderId()).toBe('list:artist:asc')
+      // Track ids are their own base positions in this library, so the two
+      // agreeing is the round trip through the permutation coming back.
+      expect(h.controller.orderIndex.value).toBe(landedOn)
+      expect(h.controller.nowPlaying.value?.id).toBe(landedOn)
+
+      await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe((landedOn ?? 0) + 1)
+    })
+
+    it('reshuffles rather than resuming the old sequence', async () => {
+      let seed = 0
+      const h = harness({ total: 40, createShuffleSeed: () => ++seed })
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 0,
+        track: track(0)
+      })
+
+      await h.controller.setShuffle(true)
+      const first = await traverse(h.controller, 5)
+      await h.controller.setShuffle(false)
+      await h.controller.setShuffle(true)
+      const second = await traverse(h.controller, 5)
+
+      expect(second).not.toEqual(first)
+    })
+
+    it('only records the preference when nothing is playing', async () => {
+      const h = harness()
+
+      await h.controller.toggleShuffle()
+
+      expect(h.controller.shuffleEnabled.value).toBe(true)
+      expect(h.controller.hasEngine()).toBe(false)
+      expect(h.controller.orderId()).toBeNull()
+    })
+
+    it('is a setting, so stopping does not clear it', async () => {
+      const h = harness({ total: 40 })
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 0,
+        track: track(0)
+      })
+      await h.controller.setShuffle(true)
+
+      h.controller.stop()
+
+      expect(h.controller.shuffleEnabled.value).toBe(true)
+      expect(h.controller.orderId()).toBeNull()
+    })
+  })
+
+  describe('remembering the modes', () => {
+    function storage(): PlaybackControllerDeps['storage'] & { value: string | null } {
+      return {
+        value: null,
+        read() {
+          return this.value
+        },
+        write(next: string) {
+          this.value = next
+        }
+      }
+    }
+
+    it('restores shuffle and repeat from a previous session', async () => {
+      const store = storage()
+      const before = harness({ storage: store })
+      before.controller.setRepeatMode('one')
+      await before.controller.setShuffle(true)
+
+      const after = harness({ storage: store })
+
+      expect(after.controller.repeatMode.value).toBe('one')
+      expect(after.controller.shuffleEnabled.value).toBe(true)
+    })
+
+    it('runs unbound', () => {
+      // Omitting storage is a supported configuration: the modes last for the
+      // session, which is what every other test here wants.
+      const h = harness()
+      expect(() => h.controller.setRepeatMode('all')).not.toThrow()
+      expect(h.controller.repeatMode.value).toBe('all')
     })
   })
 

@@ -10,6 +10,7 @@ import {
 } from '../../../src/renderer/audio/AudioEngine'
 import type { PlayOrder } from '../../../src/renderer/playback/playOrder'
 import { PlaybackScheduler } from '../../../src/renderer/playback/scheduler'
+import type { RepeatMode } from '../../../src/renderer/playback/traversal'
 import type { Track } from '../../../src/shared/library'
 
 function track(id: number): Track {
@@ -220,16 +221,18 @@ class FakeEngine implements AudioEngine {
   }
 }
 
-function harness(total = 6, crossfadeMs = 0) {
+function harness(total = 6, crossfadeMs = 0, repeatMode: RepeatMode = 'off') {
   const engines = [new FakeEngine(), new FakeEngine()]
   const timeline = Symbol('shared-audio-context')
   for (const engine of engines) engine.timeline = timeline
   let engineIndex = 0
   const at = vi.fn(async (index: number) => (index >= 0 && index < total ? track(index) : null))
-  const order: PlayOrder = { id: 'snapshot', at }
+  const count = vi.fn(async () => total)
+  const order: PlayOrder = { id: 'snapshot', at, count }
   const onCrossfadeAdjusted = vi.fn()
   const scheduler = new PlaybackScheduler({
     crossfadeMs,
+    repeatMode,
     onCrossfadeAdjusted,
     createEngine: () => {
       const engine = engines[engineIndex++]
@@ -237,7 +240,7 @@ function harness(total = 6, crossfadeMs = 0) {
       return engine
     }
   })
-  return { scheduler, engines, order, at, onCrossfadeAdjusted }
+  return { scheduler, engines, order, at, count, onCrossfadeAdjusted }
 }
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
@@ -261,6 +264,190 @@ describe('PlaybackScheduler', () => {
     expect(h.engines[1].scheduledStart).toEqual({
       timeline: h.engines[0].timeline,
       timeSec: 120
+    })
+  })
+
+  describe('repeat', () => {
+    it('costs no length query when it cannot wrap', async () => {
+      // The boundary path runs on every track, so a count per track would be a
+      // round trip per track for a mode that has no use for the answer.
+      const h = harness(6, 0, 'off')
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+
+      expect(h.count).not.toHaveBeenCalled()
+    })
+
+    it('stops at the last row with repeat off', async () => {
+      const h = harness(3, 0, 'off')
+      await h.scheduler.start(h.order, 2, track(2))
+      await settle()
+
+      expect(h.engines[1].loads).toEqual([])
+      expect(h.scheduler.prefetchState).toMatchObject({ status: 'idle', index: null })
+    })
+
+    it('prepares the first row at the last boundary under repeat-all', async () => {
+      const h = harness(3, 0, 'all')
+      await h.scheduler.start(h.order, 2, track(2))
+      await settle()
+
+      expect(h.at).toHaveBeenCalledWith(0)
+      expect(h.engines[1].loads).toEqual([0])
+      expect(h.scheduler.prefetchState).toMatchObject({ status: 'ready', index: 0, trackId: 0 })
+      // A wrap is a boundary like any other: prepared and scheduled, not a
+      // reload after the fact.
+      expect(h.engines[1].scheduledStart).not.toBeNull()
+    })
+
+    describe('repeat-one', () => {
+      it('prepares the playing track again, as a real gapless boundary', async () => {
+        const h = harness(6, 0, 'one')
+        await h.scheduler.start(h.order, 1, track(1))
+        await settle()
+
+        expect(h.engines[1].loads).toEqual([1])
+        expect(h.scheduler.prefetchState).toMatchObject({ status: 'ready', index: 1, trackId: 1 })
+        expect(h.engines[1].scheduledStart).toEqual({
+          timeline: h.engines[0].timeline,
+          timeSec: 120
+        })
+      })
+
+      it('decodes twice however long it loops', async () => {
+        // From the second lap the outgoing slot already holds this very track
+        // at `ended`, and an ended decoded source can be scheduled again from
+        // zero — so the loop ping-pongs between two slots. This is also why R1
+        // accounts two copies of a repeating track rather than one.
+        const h = harness(6, 0, 'one')
+        const changes: number[] = []
+        h.scheduler.on('trackchange', ({ track: next }) => changes.push(next.id))
+
+        await h.scheduler.start(h.order, 1, track(1))
+        await settle()
+        h.engines[0].end()
+        await settle()
+        h.engines[1].end()
+        await settle()
+
+        expect(changes).toEqual([1, 1, 1])
+        expect(h.engines[0].loads).toEqual([1])
+        expect(h.engines[1].loads).toEqual([1])
+      })
+
+      it('moves on when Next is pressed', async () => {
+        const h = harness(6, 0, 'one')
+        await h.scheduler.start(h.order, 1, track(1))
+        await settle()
+
+        await expect(h.scheduler.next()).resolves.toMatchObject({ id: 2 })
+      })
+    })
+
+    it('wraps both directions on an explicit press', async () => {
+      const h = harness(3, 0, 'all')
+      await h.scheduler.start(h.order, 0, track(0))
+      await settle()
+
+      await expect(h.scheduler.previous()).resolves.toMatchObject({ id: 2 })
+      await expect(h.scheduler.next()).resolves.toMatchObject({ id: 0 })
+    })
+
+    it('re-decides a successor that has already been prepared', async () => {
+      const h = harness(3, 0, 'off')
+      await h.scheduler.start(h.order, 2, track(2))
+      await settle()
+      expect(h.scheduler.prefetchState).toMatchObject({ status: 'idle' })
+
+      h.scheduler.setRepeatMode('all')
+      await settle()
+
+      expect(h.engines[1].loads).toEqual([0])
+      expect(h.scheduler.prefetchState).toMatchObject({ status: 'ready', index: 0 })
+    })
+
+    it('keeps a ready boundary when the mode names the same successor', async () => {
+      // Repeat-all differs from repeat-off only at the last row. Discarding a
+      // decoded, scheduled successor everywhere else would turn a button press
+      // into an audible risk for nothing.
+      const h = harness(6, 0, 'off')
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+      const cancelled = h.engines[1].cancelledCount
+
+      h.scheduler.setRepeatMode('all')
+      await settle()
+
+      expect(h.engines[1].loads).toEqual([2])
+      expect(h.engines[1].cancelledCount).toBe(cancelled)
+      expect(h.scheduler.prefetchState).toMatchObject({ status: 'ready', index: 2 })
+    })
+
+    it('reports the mode it is traversing under', () => {
+      const h = harness()
+      expect(h.scheduler.repeatMode).toBe('off')
+      h.scheduler.setRepeatMode('one')
+      expect(h.scheduler.repeatMode).toBe('one')
+    })
+  })
+
+  describe('retarget', () => {
+    it('swaps the order under the playing track without restarting it', async () => {
+      // What turning shuffle on mid-album does: the audible row keeps playing
+      // and simply acquires a new position in a new order.
+      const h = harness()
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+      expect(h.engines[1].loads).toEqual([2])
+
+      const reversed: PlayOrder = {
+        id: 'reversed',
+        at: vi.fn(async (index: number) => track(10 + index)),
+        count: vi.fn(async () => 6)
+      }
+      h.scheduler.retarget(reversed, 4)
+      await settle()
+
+      expect(h.engines[0].playCount).toBe(1)
+      expect(h.engines[0].loads).toEqual([1])
+      expect(reversed.at).toHaveBeenCalledWith(5)
+      expect(h.scheduler.prefetchState).toMatchObject({ status: 'ready', index: 5, trackId: 15 })
+    })
+
+    it('republishes the playing track at its new position', async () => {
+      const h = harness()
+      const changes: Array<{ id: number; index: number }> = []
+      h.scheduler.on('trackchange', ({ track: next, index }) =>
+        changes.push({ id: next.id, index })
+      )
+
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+      h.scheduler.retarget(h.order, 0)
+      await settle()
+
+      expect(changes).toEqual([
+        { id: 1, index: 1 },
+        { id: 1, index: 0 }
+      ])
+    })
+
+    it('strands a successor that was already decoding', async () => {
+      const h = harness()
+      h.engines[1].manual = true
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+      expect(h.engines[1].loads).toEqual([2])
+
+      h.scheduler.retarget(h.order, 3)
+      await settle()
+      // The decode of 2 is still parked. Releasing it must not let it claim a
+      // prefetch slot that now belongs to a different position.
+      h.engines[1].settle(0)
+      await settle()
+
+      expect(h.engines[1].loads).toEqual([2, 4])
+      expect(h.scheduler.prefetchState).toMatchObject({ index: 4, trackId: 4 })
     })
   })
 

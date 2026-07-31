@@ -11,6 +11,13 @@ import {
 } from '../audio/AudioEngine'
 import { Emitter } from '../audio/emitter'
 import type { PlayOrder } from './playOrder'
+import {
+  needsTotal,
+  nextIndex,
+  previousIndex,
+  type AdvanceReason,
+  type RepeatMode
+} from './traversal'
 
 export type PrefetchStatus = 'idle' | 'resolving' | 'loading' | 'ready' | 'failed'
 
@@ -35,6 +42,13 @@ export interface PlaybackSchedulerDeps {
    */
   crossfadeMs?: number
   normalizationMode?: NormalizationMode
+  /**
+   * Traversal policy. It belongs here rather than in the transport because the
+   * successor is decided while the current track is still audible — a repeat
+   * mode consulted at the moment Next is pressed would be a repeat mode the
+   * gapless boundary never saw.
+   */
+  repeatMode?: RepeatMode
   onCrossfadeAdjusted?: (adjustment: CrossfadeAdjustment) => void
 }
 
@@ -76,6 +90,7 @@ export class PlaybackScheduler {
 
   #crossfadeMs: number
   #normalizationMode: NormalizationMode
+  #repeatMode: RepeatMode
 
   #slots: Slot[] = []
   #active: Slot | null = null
@@ -85,6 +100,16 @@ export class PlaybackScheduler {
   #prefetchState: PrefetchState = idlePrefetch()
   #generation = 0
   #boundaryGeneration = 0
+  /**
+   * Invalidates prefetch alone.
+   *
+   * `#generation` cannot serve here. Changing the repeat mode or the play
+   * order under a playing track has to strand the successor that is already
+   * decoding, but bumping `#generation` would also strand an in-flight
+   * `#goTo`, and that one has already emitted `trackchange` — the track would
+   * be shown as playing and never start.
+   */
+  #prefetchToken = 0
   #volume = 1
   #disposed = false
 
@@ -92,6 +117,7 @@ export class PlaybackScheduler {
     this.#createEngine = deps.createEngine
     this.#crossfadeMs = this.#normalizeCrossfadeMs(deps.crossfadeMs ?? 0)
     this.#normalizationMode = deps.normalizationMode ?? 'track'
+    this.#repeatMode = deps.repeatMode ?? 'off'
     this.#onCrossfadeAdjusted =
       deps.onCrossfadeAdjusted ??
       ((adjustment) => {
@@ -117,6 +143,10 @@ export class PlaybackScheduler {
 
   get normalizationMode(): NormalizationMode {
     return this.#normalizationMode
+  }
+
+  get repeatMode(): RepeatMode {
+    return this.#repeatMode
   }
 
   get status(): PlaybackStatus {
@@ -166,15 +196,22 @@ export class PlaybackScheduler {
   }
 
   async next(): Promise<Track | null | undefined> {
-    const index = this.#active?.index
-    if (index === null || index === undefined) return undefined
-    return this.goTo(index + 1)
+    const from = this.#active?.index
+    if (from === null || from === undefined) return undefined
+    const index = await this.#successorIndex(from, 'explicit')
+    if (index === null) return null
+    return this.goTo(index)
   }
 
   async previous(): Promise<Track | null | undefined> {
-    const index = this.#active?.index
-    if (index === null || index === undefined || index <= 0) return undefined
-    return this.goTo(index - 1)
+    const from = this.#active?.index
+    if (from === null || from === undefined) return undefined
+    const total = this.#repeatMode === 'off' ? null : await this.#total()
+    const index = previousIndex(from, total, this.#repeatMode)
+    // `undefined` rather than `null`: nothing was attempted, so nothing was
+    // superseded and nothing ran off the end either.
+    if (index === null) return undefined
+    return this.goTo(index)
   }
 
   async play(): Promise<void> {
@@ -230,6 +267,42 @@ export class PlaybackScheduler {
   }
 
   /**
+   * Change traversal under a playing track.
+   *
+   * The successor has usually already been decoded into the spare slot and
+   * scheduled against the current source's exact end, so this is not a setter
+   * — the decision it feeds has been made. Re-resolved rather than replanned,
+   * because the new mode may name a different row.
+   */
+  setRepeatMode(mode: RepeatMode): void {
+    this.#assertUsable()
+    if (mode === this.#repeatMode) return
+    this.#repeatMode = mode
+    this.#resolveSuccessorAgain()
+  }
+
+  /**
+   * Swap the play order under the playing track without restarting it.
+   *
+   * Turning shuffle on mid-album must not interrupt anything: the row that is
+   * audible stays audible and simply acquires a new position in a new order.
+   * Only the successor changes, which is exactly what this invalidates.
+   *
+   * `index` is where the playing track now sits in `order`; the caller is the
+   * one that built the order and so is the only thing that can know.
+   */
+  retarget(order: PlayOrder, index: number): void {
+    this.#assertUsable()
+    this.#order = order
+
+    const active = this.#active
+    if (!active || active.index === null) return
+    active.index = index
+    if (active.track) this.#events.emit('trackchange', { track: active.track, index })
+    this.#resolveSuccessorAgain({ force: true })
+  }
+
+  /**
    * Invalidate every lookup and decode and release both engine slots.
    *
    * AudioEngine intentionally has no public unload operation. Disposal is the
@@ -240,6 +313,7 @@ export class PlaybackScheduler {
     if (this.#disposed) return
     this.#generation += 1
     this.#boundaryGeneration += 1
+    this.#prefetchToken += 1
     this.#order = null
     this.#cancelPlannedBoundary()
     this.#active = null
@@ -327,21 +401,45 @@ export class PlaybackScheduler {
     const order = this.#order
     if (!active || !order || active.index === null) return
 
-    const index = active.index + 1
+    const from = active.index
+    const token = ++this.#prefetchToken
+    // Announced before the successor is even named, and that matters: the
+    // natural-end handler reads `resolving` as "work is in flight, fail
+    // closed", so a window of `idle` while the position is being decided would
+    // let a boundary arriving in the first moments of a track read as a clean
+    // end of the order.
     this.#setPrefetch({
       status: 'resolving',
-      index,
+      index: null,
       trackId: null,
       transitionPolicy: null,
       error: null
     })
 
     const task = (async () => {
+      const index = await this.#successorIndex(from, 'boundary')
+      if (!this.#isPrefetchCurrent(generation, active, token)) return
+      if (index === null) {
+        // Traversal stops here — the last row without repeat. Idle is what the
+        // boundary handler reads as "nothing follows", which is the existing
+        // clean stop.
+        this.#prefetched = null
+        this.#setPrefetch(idlePrefetch())
+        return
+      }
+      this.#setPrefetch({
+        status: 'resolving',
+        index,
+        trackId: null,
+        transitionPolicy: null,
+        error: null
+      })
+
       let track: Track | null
       try {
         track = await order.at(index)
       } catch {
-        if (!this.#isCurrent(generation, active)) return
+        if (!this.#isPrefetchCurrent(generation, active, token)) return
         const failure = new AudioEngineError('io-error', 'Could not resolve the prefetched track.')
         this.#setPrefetch({
           status: 'failed',
@@ -352,7 +450,7 @@ export class PlaybackScheduler {
         })
         return
       }
-      if (!this.#isCurrent(generation, active)) return
+      if (!this.#isPrefetchCurrent(generation, active, token)) return
       if (!track) {
         this.#prefetched = null
         this.#setPrefetch(idlePrefetch())
@@ -367,6 +465,12 @@ export class PlaybackScheduler {
       // Navigating backwards commonly makes the just-paused former current
       // track the next track again. Its source is already prepared; retain it
       // instead of paying for a duplicate decode.
+      //
+      // Repeat-one lands here too, from the second lap onwards: promotion left
+      // the outgoing slot holding this very track at `ended`, and an ended
+      // decoded source can be scheduled again from zero. So a repeating track
+      // ping-pongs between two slots and decodes exactly twice however long it
+      // loops — which is also why R1 accounts two copies of it, not one.
       if (
         slot.engine.trackId === track.id &&
         ['ready', 'paused', 'ended'].includes(slot.engine.status)
@@ -393,7 +497,7 @@ export class PlaybackScheduler {
       try {
         slot.load = slot.engine.load(track.id)
         await slot.load
-        if (!this.#isCurrent(generation, active) || this.#prefetched !== slot) return
+        if (!this.#isPrefetchCurrent(generation, active, token) || this.#prefetched !== slot) return
         this.#setPrefetch({
           status: 'ready',
           index,
@@ -403,7 +507,7 @@ export class PlaybackScheduler {
         })
         this.#planBoundary(generation, active, slot)
       } catch (error) {
-        if (!this.#isCurrent(generation, active) || this.#prefetched !== slot) return
+        if (!this.#isPrefetchCurrent(generation, active, token) || this.#prefetched !== slot) return
         if (error instanceof AudioEngineError && error.code === 'aborted') return
         const failure =
           error instanceof AudioEngineError
@@ -531,6 +635,69 @@ export class PlaybackScheduler {
 
   #isCurrent(generation: number, active: Slot): boolean {
     return generation === this.#generation && active === this.#active
+  }
+
+  #isPrefetchCurrent(generation: number, active: Slot, token: number): boolean {
+    return token === this.#prefetchToken && this.#isCurrent(generation, active)
+  }
+
+  /** The successor under the current repeat mode, or `null` to stop there. */
+  async #successorIndex(from: number, reason: AdvanceReason): Promise<number | null> {
+    const repeat = this.#repeatMode
+    const total = needsTotal(repeat, reason) ? await this.#total() : null
+    return nextIndex(from, total, repeat, reason)
+  }
+
+  async #total(): Promise<number | null> {
+    return (await this.#order?.count()) ?? null
+  }
+
+  /**
+   * Re-decide the successor for a track that is already playing.
+   *
+   * By this point the old successor is usually decoded and scheduled against
+   * the current source's sample-accurate end, so changing traversal means
+   * unpicking a boundary rather than setting a flag.
+   *
+   * `force` is for a play order swap, where the position numbers may be
+   * unchanged but no longer mean the same rows.
+   */
+  #resolveSuccessorAgain(options: { force?: boolean } = {}): void {
+    const active = this.#active
+    if (!active || active.index === null) return
+
+    const generation = this.#generation
+    const from = active.index
+
+    void (async () => {
+      const index = await this.#successorIndex(from, 'boundary')
+      if (!this.#isCurrent(generation, active) || active.index !== from) return
+      // A mode change that leaves the same row next keeps the decode that is
+      // already prepared. Repeat-all differs from repeat-off only at the last
+      // row, and discarding a ready boundary everywhere else would turn a
+      // button press into an audible risk.
+      if (!options.force && index === this.#prefetchState.index) return
+
+      this.#discardPrefetch()
+      if (index !== null) void this.#beginPrefetch(generation)
+    })()
+  }
+
+  /**
+   * Strand the prepared successor and everything scheduled against it.
+   *
+   * Deliberately not a `stop()`: the audible slot is untouched, so this is
+   * inaudible unless it happens within the crossfade of a boundary — in which
+   * case the boundary generation bump stops playback rather than promoting a
+   * slot that no longer holds the right row.
+   */
+  #discardPrefetch(): void {
+    this.#prefetchToken += 1
+    this.#boundaryGeneration += 1
+    this.#cancelPlannedBoundary()
+    this.#prefetched = null
+    this.#prefetchTask = null
+    this.#setPrefetch(idlePrefetch())
   }
 
   /**

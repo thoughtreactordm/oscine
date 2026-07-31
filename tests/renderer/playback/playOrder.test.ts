@@ -140,6 +140,60 @@ describe('createListPlayOrder', () => {
     expect(calls[0]?.artistIds).toEqual([3])
   })
 
+  describe('count', () => {
+    it('reports the matching rows, ignoring offset and limit', async () => {
+      const order = createListPlayOrder({ fetchPage: library(50), sort: 'title', direction: 'asc' })
+      await expect(order.count()).resolves.toBe(50)
+    })
+
+    it('counts under the same filters it traverses', async () => {
+      const fetchPage = vi.fn(library(50))
+      const order = createListPlayOrder({
+        fetchPage,
+        sort: 'album',
+        direction: 'asc',
+        filters: { artistIds: [3], searchText: 'hemian' }
+      })
+
+      await order.count()
+
+      // Asking for one row rather than none: main rejects a non-positive
+      // limit, and the row that comes back is the cheapest one to discard.
+      expect(fetchPage).toHaveBeenCalledWith({
+        artistIds: [3],
+        searchText: 'hemian',
+        sort: 'album',
+        direction: 'asc',
+        offset: 0,
+        limit: 1
+      })
+    })
+
+    it('asks once however many callers want it', async () => {
+      // The boundary path asks on every track under repeat, and the transport
+      // asks on every press. One round trip for the life of the order.
+      const fetchPage = vi.fn(library(50))
+      const order = createListPlayOrder({ fetchPage, sort: 'title', direction: 'asc' })
+
+      await Promise.all([order.count(), order.count()])
+      await order.count()
+
+      expect(fetchPage).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports null when it cannot be established, and tries again later', async () => {
+      // A count that failed once because main was busy must not disable
+      // wrapping for the rest of the session.
+      const fetchPage = vi.fn<(query: ListTracksQuery) => Promise<ListTracksResult>>()
+      fetchPage.mockRejectedValueOnce(new Error('main is busy'))
+      fetchPage.mockImplementation(library(12))
+      const order = createListPlayOrder({ fetchPage, sort: 'title', direction: 'asc' })
+
+      await expect(order.count()).resolves.toBeNull()
+      await expect(order.count()).resolves.toBe(12)
+    })
+  })
+
   it('identifies orderings that traverse the same rows', () => {
     const deps = { fetchPage: library(1), sort: 'artist', direction: 'asc' } as const
     const other = { fetchPage: library(1), sort: 'artist', direction: 'desc' } as const

@@ -46,6 +46,25 @@ export interface PlayOrder {
    * renderer holds no complete copy of it and at 100k rows never will.
    */
   at(index: number): Promise<Track | null>
+
+  /**
+   * How many positions the order has, or `null` when that cannot be
+   * established.
+   *
+   * Not needed to walk forwards — `at()` reporting `null` is what the end of
+   * the order means — but wrapping cannot be expressed without it, and neither
+   * can shuffling, which has to permute a range before it can name one. Both
+   * arrived with repeat and shuffle rather than being reserved in advance.
+   *
+   * `null` rather than a rejection or a zero: a failed count degrades repeat
+   * to a clean stop at the end, which is exactly the behaviour that was there
+   * before, whereas a zero would read as an empty order and stop playback.
+   *
+   * A snapshot, like the ordering itself. A scan that adds rows under a
+   * playing order changes neither this nor what `at()` resolves — the same
+   * property the offsets have always had.
+   */
+  count(): Promise<number | null>
 }
 
 export interface ListPlayOrderDeps {
@@ -74,8 +93,34 @@ export function createListPlayOrder(deps: ListPlayOrderDeps): PlayOrder {
   // would read as a changed queue under a playing track.
   const filterId = Object.keys(filters).length === 0 ? '' : `:${browseFilterKey(filters)}`
 
+  // Memoised, because the count is asked for on transport presses and on every
+  // boundary under repeat, and every one of them wants the same answer for the
+  // life of this order. Held as the promise rather than the value so that two
+  // callers arriving together share one round trip.
+  let counted: Promise<number | null> | null = null
+
   return {
     id: `list:${sort}:${direction}${filterId}`,
+
+    count(): Promise<number | null> {
+      counted ??= (async () => {
+        try {
+          // `limit: 1` rather than zero: main rejects a non-positive limit, and
+          // the row that comes back is the cheapest possible one to discard.
+          // `total` is reported ignoring offset and limit, which is the number
+          // wanted here.
+          const result = await fetchPage({ ...filters, sort, direction, offset: 0, limit: 1 })
+          return result.total
+        } catch {
+          // Cleared rather than remembered as `null`, so the next boundary can
+          // try again — a count that failed once because main was busy should
+          // not disable wrapping for the rest of the session.
+          counted = null
+          return null
+        }
+      })()
+      return counted
+    },
 
     async at(index: number): Promise<Track | null> {
       // A negative or fractional offset is a caller bug, and main would reject
