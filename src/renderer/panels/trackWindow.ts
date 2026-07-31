@@ -400,8 +400,11 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     void selection.apply(index, intent === 'toggle' ? 'toggle' : 'replace')
   }
 
+  // `null` rather than `undefined` for both of the two ways there is no focused
+  // track — nothing focused, and a focused row whose page is not held. They are
+  // the same answer to the caller, and `TrackListSource` names it once.
   const focusedTrack = computed(() =>
-    selection.focusIndex.value === null ? undefined : rowAt(selection.focusIndex.value)
+    selection.focusIndex.value === null ? null : (rowAt(selection.focusIndex.value) ?? null)
   )
 
   return {
@@ -421,6 +424,12 @@ export function createTrackWindow(deps: TrackWindowDeps) {
     loading,
     error,
     ordering,
+    /**
+     * `TrackListSource`'s scroll memory key. The browse predicate is what makes
+     * one library list a different list from another, so it is what a remembered
+     * pixel offset belongs to.
+     */
+    scrollKey: computed(() => JSON.stringify(filters.value)),
     pageSize,
     rowAt,
     ensureRange,

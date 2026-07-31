@@ -2,7 +2,12 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { FermataError, playlists } from '@renderer/ipc'
 import { usePlaybackStore } from '@renderer/stores/playback'
-import type { Playlist, PlaylistExportResult, PlaylistPathStyle } from '@shared/playlists'
+import type {
+  Playlist,
+  PlaylistExportResult,
+  PlaylistInsertion,
+  PlaylistPathStyle
+} from '@shared/playlists'
 
 /**
  * The playlists, and which one is being *looked at*.
@@ -31,6 +36,23 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   const viewed = computed(
     () => list.value.find((playlist) => playlist.id === viewedPlaylistId.value) ?? null
   )
+
+  /**
+   * The last edit to some playlist's *entries*, and a sequence so that two edits
+   * to the same playlist are two events.
+   *
+   * Published rather than pushed. An add can be aimed at any tab from the
+   * library list, so the place that knows an edit happened is whatever performed
+   * it, and the place that knows whether it matters is the contents pane —
+   * which reloads only when the edit was to the playlist it is showing. The
+   * track list watches `roots.version` for exactly this reason and with exactly
+   * this shape.
+   */
+  const entriesEdited = ref<{ playlistId: number; seq: number } | null>(null)
+
+  function noteEntriesChanged(playlistId: number): void {
+    entriesEdited.value = { playlistId, seq: (entriesEdited.value?.seq ?? 0) + 1 }
+  }
 
   function report(cause: unknown, fallback: string): void {
     notice.value = cause instanceof FermataError ? cause.message : fallback
@@ -144,6 +166,35 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     }
   }
 
+  /**
+   * Adds tracks to any playlist, viewed or not.
+   *
+   * Here rather than on the entries store because the target is named: "add
+   * these to Mix" is a gesture made from the *library*, about a tab the operator
+   * is not looking at, and routing it through the pane would mean the pane could
+   * only ever add to itself.
+   *
+   * One call for the whole selection. `AddTracksToPlaylistRequest` takes a list
+   * precisely so that dropping four thousand rows is one request and one
+   * transaction rather than four thousand of each.
+   */
+  async function addTracks(
+    playlistId: number,
+    trackIds: readonly number[],
+    insertion: PlaylistInsertion = { at: 'end' }
+  ): Promise<boolean> {
+    if (trackIds.length === 0) return false
+    try {
+      await playlists.addTracks({ playlistId, trackIds: [...trackIds], insertion })
+      noteEntriesChanged(playlistId)
+      await refresh()
+      return true
+    } catch (cause) {
+      report(cause, 'Those tracks could not be added.')
+      return false
+    }
+  }
+
   async function reorder(playlistId: number, toIndex: number): Promise<void> {
     try {
       // Returns the whole list rather than the moved playlist, so the tab bar
@@ -166,6 +217,9 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     rename,
     setCrossfade,
     remove,
+    addTracks,
+    entriesEdited,
+    noteEntriesChanged,
     reorder,
     exportM3u8
   }

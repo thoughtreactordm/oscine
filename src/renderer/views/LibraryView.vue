@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { ContextMenuItem } from '@nuxt/ui'
 import ColumnChooser from '@renderer/panels/ColumnChooser.vue'
 import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
+import { beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
+import type { TrackListDrag, TrackListMenu } from '@renderer/panels/trackListSource'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
+import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { useTrackListStore } from '@renderer/stores/trackList'
 import type { Track } from '@shared/library'
 
@@ -19,6 +23,7 @@ import type { Track } from '@shared/library'
 const trackList = useTrackListStore()
 const columns = useTrackColumnsStore()
 const playback = usePlaybackStore()
+const playlists = usePlaylistsStore()
 
 /**
  * The ordering, shown only when its column is not.
@@ -40,6 +45,74 @@ function playTrack(track: Track, index: number): void {
     index,
     track
   })
+}
+
+/**
+ * The rows a gesture is about: the selection when the row is in it, that row
+ * alone when it is not.
+ *
+ * `resolveSelection` is the only honest way to read a selection as an ordered
+ * list — it goes through main, so it is right after a re-sort and does not
+ * depend on which rows happen to be mounted. That is also why it is a promise
+ * and why `dragstart` cannot wait for it; see `trackDrag.ts`.
+ */
+function trackIdsFor(index: number): () => Promise<readonly number[]> {
+  if (trackList.isSelectedAt(index)) return lazily(() => trackList.resolveSelection())
+  const track = trackList.rowAt(index)
+  return () => Promise.resolve(track ? [track.id] : [])
+}
+
+function rowCount(index: number): number {
+  return trackList.isSelectedAt(index) ? Math.max(1, trackList.selectionCount) : 1
+}
+
+/**
+ * The library is a drag *source* and never a target — dropping tracks onto the
+ * library would have to mean copying files, which v1 does not do (D7's
+ * neighbour: nothing here writes to disk).
+ */
+const drag: TrackListDrag = {
+  enabled: true,
+  indicatorAt: () => null,
+  start(index) {
+    beginRowDrag({
+      count: rowCount(index),
+      playlistId: null,
+      trackIds: trackIdsFor(index),
+      // Library rows are not playlist entries, so there is nothing to reorder.
+      entryIds: null
+    })
+    return true
+  },
+  over: () => false,
+  drop: () => {},
+  end: endRowDrag
+}
+
+/**
+ * "Add to playlist", the keyboard-and-menu half of the same gesture the drag
+ * performs. Both end at one batched call.
+ */
+const menu: TrackListMenu = (index): ContextMenuItem[] => {
+  const count = rowCount(index)
+  const label = count === 1 ? 'Add to playlist' : `Add ${count.toLocaleString()} tracks to playlist`
+  return [
+    {
+      label,
+      icon: 'i-tabler-playlist-add',
+      children:
+        playlists.list.length === 0
+          ? [{ label: 'No playlists yet', disabled: true }]
+          : playlists.list.map((playlist) => ({
+              label: playlist.name,
+              onSelect: () => void addToPlaylist(playlist.id, index)
+            }))
+    }
+  ]
+}
+
+async function addToPlaylist(playlistId: number, index: number): Promise<void> {
+  await playlists.addTracks(playlistId, await trackIdsFor(index)())
 }
 </script>
 
@@ -77,7 +150,7 @@ function playTrack(track: Track, index: number): void {
       <ColumnChooser />
     </div>
     <div class="min-h-0 flex-1">
-      <TrackList @activate="playTrack" />
+      <TrackList :source="trackList" :drag="drag" :menu="menu" @activate="playTrack" />
     </div>
   </section>
 </template>

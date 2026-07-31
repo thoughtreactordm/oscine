@@ -327,6 +327,42 @@ describe('moving entries', () => {
     expect(trackOrder(playlistId)).toEqual([tracks[1], tracks[4], tracks[2], tracks[3], tracks[0]])
   })
 
+  it('writes exactly one row for a dragged reorder and leaves the rest byte-identical', () => {
+    const { playlistId, tracks } = setup(10)
+    const ids = entryIds(playlistId)
+
+    const before = positions(playlistId)
+    // The gesture W5-6's contents pane produces for a single row dragged onto
+    // the lower half of another: one entry, anchored on the neighbour it was
+    // dropped against. The pane's whole claim to writing one row rests on this.
+    store.moveEntries(playlistId, [ids[8]], { at: 'after', entryId: ids[2] }, tick())
+
+    const after = positions(playlistId)
+    expect(after).toHaveLength(10)
+
+    // Compared by identity of the double, as the between-insert test is: an
+    // implementation that renumbered the tail would order the rows correctly
+    // and still fail here, which is the whole point of the REAL column.
+    const survivors = new Map(after.map((row) => [row.id, row.position]))
+    for (const row of before) {
+      if (row.id === ids[8]) continue
+      expect(Object.is(survivors.get(row.id), row.position)).toBe(true)
+    }
+
+    expect(trackOrder(playlistId)).toEqual([
+      tracks[0],
+      tracks[1],
+      tracks[2],
+      tracks[8],
+      tracks[3],
+      tracks[4],
+      tracks[5],
+      tracks[6],
+      tracks[7],
+      tracks[9]
+    ])
+  })
+
   it('lands a block where it was dropped even when the row above it is moving too', () => {
     const { playlistId, tracks } = setup()
     const ids = entryIds(playlistId)

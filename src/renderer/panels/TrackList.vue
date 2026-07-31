@@ -13,13 +13,26 @@ import {
   type GroupedRun,
   type GroupLayout
 } from '@renderer/panels/trackGrouping'
+import type {
+  RowDropSide,
+  TrackListDrag,
+  TrackListMenu,
+  TrackListSource
+} from '@renderer/panels/trackListSource'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
 import { useTrackGroupingStore } from '@renderer/stores/grouping'
-import { useTrackListStore } from '@renderer/stores/trackList'
 import type { Track } from '@shared/library'
 
 /**
  * The virtualized song list.
+ *
+ * One implementation, two lists. It reached into the track list store until
+ * W5-6, which made "the song list" and "the library" the same object; the
+ * playlist contents pane is the same virtualized list over a different sequence,
+ * so the rows now arrive through `TrackListSource` and the component no longer
+ * knows which of the two it is drawing. Drag and the row menu are optional
+ * capabilities for the same reason: a list nobody drags into binds no drag
+ * handlers rather than carrying a set of no-ops.
  *
  * Two things are deliberately not delegated to Nuxt UI here, and both for the
  * same reason — the component is virtualizing 100k rows and neither feature can
@@ -29,7 +42,7 @@ import type { Track } from '@shared/library'
  * a map keyed by row id, which for us is a *position*; feeding it our id-based
  * selection would mean holding a position for every selected row and rebuilding
  * an object of them on every click, and it would still be wrong the moment a
- * re-sort moved the rows. Rows are styled from `panel.isSelectedAt` instead,
+ * re-sort moved the rows. Rows are styled from `source.isSelectedAt` instead,
  * which asks the loaded row for its id and tests set membership — correct after
  * a re-sort, and costing nothing for the 99% of the library that is not mounted.
  *
@@ -38,18 +51,47 @@ import type { Track } from '@shared/library'
  * anyway, one source of truth in `columnLayout` is simpler than two.
  */
 
+const props = defineProps<{
+  /** The rows, the selection and the ordering. See `TrackListSource`. */
+  source: TrackListSource
+  /** Row drag and drop, when the list has any. */
+  drag?: TrackListDrag
+  /** The row context menu, when the list has one. */
+  menu?: TrackListMenu
+  /** What the list is called, for assistive technology. */
+  label?: string
+}>()
+
 const emit = defineEmits<{
   select: [track: Track]
   activate: [track: Track, index: number]
 }>()
 
-const panel = useTrackListStore()
 const columns = useTrackColumnsStore()
 const grouping = useTrackGroupingStore()
 const ROW_HEIGHT = 32
 const OVERSCAN = 8
 /** Pixels an arrow key moves a column edge. Shift narrows it to one. */
 const WIDTH_STEP = 16
+
+/**
+ * The drop marker, drawn as a pseudo-element rather than as a border or a
+ * second shadow.
+ *
+ * A border on a `tr` takes part in the table's border collapsing and lands
+ * ragged against the first cell, which is why the range anchor is an inset
+ * shadow already — and that is the problem with a shadow here: two arbitrary
+ * `shadow-[…]` classes on one row are the same CSS property twice, and which
+ * one won would depend on stylesheet order. A `::before` composes with both,
+ * and with the selection tint underneath it.
+ *
+ * Written out rather than composed at runtime because Tailwind reads source
+ * text: a class name assembled from parts is a class name that never ships.
+ */
+const DROP_BEFORE_CLASS =
+  "relative before:absolute before:inset-x-0 before:top-0 before:z-10 before:h-0.5 before:bg-primary before:content-['']"
+const DROP_AFTER_CLASS =
+  "relative before:absolute before:inset-x-0 before:bottom-0 before:z-10 before:h-0.5 before:bg-primary before:content-['']"
 
 /**
  * One row the virtualizer draws.
@@ -148,16 +190,18 @@ const tableMeta = computed(() => ({
       if (index === null) return 'bg-elevated/40 hover:bg-elevated/40'
 
       const classes: string[] = []
-      if (panel.isSelectedAt(index)) classes.push('bg-primary/15')
+      if (props.source.isSelectedAt(index)) classes.push('bg-primary/15')
       // Worth drawing only once there is a span to measure. On a single-row
       // selection the anchor *is* that row, so the marker says nothing and reads
       // as a stray sliver on the row's leading edge. Painted as an inset shadow
       // rather than a border because a border on a `tr` takes part in the
       // table's border collapsing and lands ragged against the first cell.
-      if (panel.anchorIndex === index && panel.selectionCount > 1) {
+      if (props.source.anchorIndex === index && props.source.selectionCount > 1) {
         classes.push('shadow-[inset_2px_0_0_0_var(--ui-primary)]')
       }
-      if (panel.focusIndex === index) classes.push('ring-1 ring-inset ring-primary/70')
+      if (props.source.focusIndex === index) classes.push('ring-1 ring-inset ring-primary/70')
+      const side = props.drag?.indicatorAt(index) ?? null
+      if (side !== null) classes.push(side === 'before' ? DROP_BEFORE_CLASS : DROP_AFTER_CLASS)
       return classes.join(' ')
     }
   },
@@ -182,16 +226,16 @@ const scrollPositions = new Map<string, number>()
  * underneath them beneath the wrong album.
  */
 const layout = computed<GroupLayout>(() => {
-  void panel.ordering
-  if (!grouping.enabled) return identityLayout(panel.total)
-  const grouped = groupedLayout(panel.groups)
-  return grouped.runs.length > 0 && grouped.trackCount === panel.total
+  void props.source.ordering
+  if (!grouping.enabled) return identityLayout(props.source.total)
+  const grouped = groupedLayout(props.source.groups)
+  return grouped.runs.length > 0 && grouped.trackCount === props.source.total
     ? grouped
-    : identityLayout(panel.total)
+    : identityLayout(props.source.total)
 })
 
 const tableRows = computed<TrackTableRow[]>(() => {
-  void panel.ordering
+  void props.source.ordering
   const current = layout.value
   if (current.runs.length === 0) {
     return Array.from({ length: current.displayCount }, (_, index) => ({
@@ -234,7 +278,6 @@ function groupSubtitle(run: GroupedRun): string {
   parts.push(run.group.trackCount === 1 ? '1 track' : `${run.group.trackCount} tracks`)
   return parts.join(' · ')
 }
-const filterKey = computed(() => JSON.stringify(panel.filters))
 const layoutKey = computed(() => visibleColumns.value.map((column) => column.key).join())
 
 function tableElement(): HTMLElement | null {
@@ -243,13 +286,16 @@ function tableElement(): HTMLElement | null {
 
 function requestTrack(index: number): void {
   queueMicrotask(() =>
-    panel.ensureRange(Math.max(0, index - OVERSCAN), Math.min(panel.total - 1, index + OVERSCAN))
+    props.source.ensureRange(
+      Math.max(0, index - OVERSCAN),
+      Math.min(props.source.total - 1, index + OVERSCAN)
+    )
   )
 }
 
 function trackAt(row: TrackTableRow): Track | undefined {
   if (row.index === null) return undefined
-  const track = panel.rowAt(row.index)
+  const track = props.source.rowAt(row.index)
   if (!track) requestTrack(row.index)
   return track
 }
@@ -318,8 +364,24 @@ function columnName(column: TrackColumnSpec): string {
 }
 
 function ariaSort(key: TrackColumnKey): 'ascending' | 'descending' | 'none' {
-  if (panel.sort !== key) return 'none'
-  return panel.direction === 'asc' ? 'ascending' : 'descending'
+  if (props.source.sort !== key) return 'none'
+  return props.source.direction === 'asc' ? 'ascending' : 'descending'
+}
+
+/**
+ * Whether a header click re-orders anything.
+ *
+ * False for the playlist contents pane, where the order is a stored position
+ * rather than a column's to change — see `TrackListSource.sort`. Every header
+ * then renders as the inert kind, which is the same treatment a column that
+ * cannot be sorted has always had here.
+ */
+const sortable = computed(() => props.source.sort !== null)
+
+function unsortableTitle(column: TrackColumnSpec): string {
+  return sortable.value
+    ? `${columnName(column)} — this column cannot be sorted`
+    : `${columnName(column)} — this list is in its own order`
 }
 
 function onTableSelect(event: Event, row: TableRow<TrackTableRow>): void {
@@ -329,9 +391,9 @@ function onTableSelect(event: Event, row: TableRow<TrackTableRow>): void {
   if (index === null) return
 
   const intent = selectionIntent(event instanceof MouseEvent ? event : {})
-  void panel.selectAt(index, intent)
+  void props.source.selectAt(index, intent)
 
-  const track = panel.rowAt(index)
+  const track = props.source.rowAt(index)
   if (!track) return
   emit('select', track)
   // A modified double-click is a selection gesture, not a request to play:
@@ -340,6 +402,88 @@ function onTableSelect(event: Event, row: TableRow<TrackTableRow>): void {
     emit('activate', track, index)
   }
 }
+
+/**
+ * Row drag, when the source has any.
+ *
+ * The handlers hang off the cell wrapper rather than the `tr`, because Nuxt UI
+ * renders the row and takes no attributes for it — and the wrapper is bled out
+ * over the cell's padding so that there is no strip between columns where a
+ * drag would read as having left the row.
+ *
+ * `dataTransfer` carries a marker and nothing else. What is being dragged is a
+ * *selection*, which has no order until main puts one on it, and `dragstart`
+ * cannot await; the rows themselves travel beside the drag in `trackDrag.ts`.
+ */
+function onRowDragStart(index: number | null, event: DragEvent): void {
+  if (index === null || props.drag?.enabled !== true || !props.drag.start(index)) {
+    event.preventDefault()
+    return
+  }
+  if (event.dataTransfer === null) return
+  event.dataTransfer.effectAllowed = 'move'
+  // Chromium cancels a drag that carries no payload at all.
+  event.dataTransfer.setData('text/plain', String(index))
+}
+
+/** Which side of the row's midpoint the pointer fell on decides which edge it drops against. */
+function sideOf(event: DragEvent): RowDropSide {
+  const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  return event.clientY < box.top + box.height / 2 ? 'before' : 'after'
+}
+
+function onRowDragOver(index: number | null, event: DragEvent): void {
+  // An album header is scenery and cannot be an anchor; the drag falls through
+  // to whatever the source makes of a target it has no row for.
+  if (props.drag?.over(index, sideOf(event)) !== true) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
+}
+
+function onRowDrop(): void {
+  props.drag?.drop()
+}
+
+function onRowDragEnd(): void {
+  props.drag?.end()
+}
+
+/**
+ * Right-click. The row under the pointer joins the selection first unless it is
+ * already in it, which is what makes "act on the selection" and "act on this
+ * row" the same verb.
+ *
+ * Bound on the cell rather than passed as Nuxt UI's `on-contextmenu`, which
+ * looks like the obvious home and is not: `UContextMenu` opens by merging its
+ * own handler onto the table, `UTable` *declares* `onContextmenu` as a prop, and
+ * whichever of the two is written last silently wins. The menu never opened.
+ */
+const menuIndex = ref<number | null>(null)
+/**
+ * The event a row already claimed.
+ *
+ * The table sees the same right-click bubbling up, and without this it could not
+ * tell "on a row" from "in the empty space below the last one" — which would
+ * offer the previous row's verbs for a click on nothing. Propagation cannot be
+ * stopped instead: the menu itself opens from a handler further up.
+ */
+let claimedContextmenu: Event | null = null
+
+function onRowContextmenu(index: number | null, event: Event): void {
+  if (index === null || props.menu === undefined) return
+  claimedContextmenu = event
+  if (!props.source.isSelectedAt(index)) void props.source.selectAt(index, 'replace')
+  menuIndex.value = index
+}
+
+function onTableContextmenu(event: Event): void {
+  if (event !== claimedContextmenu) menuIndex.value = null
+}
+
+const menuItems = computed(() =>
+  props.menu === undefined || menuIndex.value === null ? [] : props.menu(menuIndex.value)
+)
 
 /**
  * Brings a track offset into view.
@@ -369,8 +513,8 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.target instanceof Element && event.target.closest('thead')) return
 
   if (event.key === 'Enter') {
-    const track = panel.focusedTrack
-    const index = panel.focusIndex
+    const track = props.source.focusedTrack
+    const index = props.source.focusIndex
     if (!track || index === null) return
     event.preventDefault()
     emit('activate', track, index)
@@ -378,17 +522,17 @@ function onKeydown(event: KeyboardEvent): void {
   }
 
   if (event.key === 'Escape') {
-    if (panel.selectionCount === 0) return
+    if (props.source.selectionCount === 0) return
     event.preventDefault()
-    panel.clearSelection()
+    props.source.clearSelection()
     return
   }
 
   if (event.key === ' ') {
-    if (panel.focusIndex === null) return
+    if (props.source.focusIndex === null) return
     event.preventDefault()
-    panel.commitFocus(event)
-    const track = panel.focusedTrack
+    props.source.commitFocus(event)
+    const track = props.source.focusedTrack
     if (track) emit('select', track)
     return
   }
@@ -397,12 +541,12 @@ function onKeydown(event: KeyboardEvent): void {
     1,
     Math.floor((tableElement()?.clientHeight ?? ROW_HEIGHT) / ROW_HEIGHT)
   )
-  const next = panel.moveFocus(event.key, rowsPerPage, event)
+  const next = props.source.moveFocus(event.key, rowsPerPage, event)
   if (next === null) return
   event.preventDefault()
   requestTrack(next)
   scrollIndexIntoView(next)
-  const track = panel.focusedTrack
+  const track = props.source.focusedTrack
   if (track) emit('select', track)
 }
 
@@ -489,11 +633,14 @@ function restoreScroll(top: number): void {
   if (element) element.scrollTop = top
 }
 
-watch(filterKey, async (next, previous) => {
-  scrollPositions.set(previous, tableElement()?.scrollTop ?? scrollTop.value)
-  await nextTick()
-  restoreScroll(scrollPositions.get(next) ?? 0)
-})
+watch(
+  () => props.source.scrollKey,
+  async (next, previous) => {
+    scrollPositions.set(previous, tableElement()?.scrollTop ?? scrollTop.value)
+    await nextTick()
+    restoreScroll(scrollPositions.get(next) ?? 0)
+  }
+)
 
 // Changing the visible columns rebuilds the table, which resets the scroll
 // container. Showing a column should not also send the user back to row zero.
@@ -503,9 +650,9 @@ watch(layoutKey, async () => {
   restoreScroll(previous)
 })
 
-watch([() => panel.sort, () => panel.direction], () => restoreScroll(0))
+watch([() => props.source.sort, () => props.source.direction], () => restoreScroll(0))
 
-onMounted(() => panel.ensureRange(0, 30))
+onMounted(() => props.source.ensureRange(0, 30))
 </script>
 
 <template>
@@ -514,153 +661,187 @@ onMounted(() => panel.ensureRange(0, 30))
     class="h-full min-h-0 overflow-hidden rounded-none ring-0"
     :ui="{ body: 'h-full min-h-0 p-0 sm:p-0' }"
   >
-    <UTable
-      ref="table"
-      :data="tableRows"
-      :columns="tableColumns"
-      :meta="tableMeta"
-      :get-row-id="(row: TrackTableRow) => String(row.display)"
-      :on-select="onTableSelect"
-      :loading="panel.loading"
-      loading-color="primary"
-      loading-animation="carousel"
-      sticky="header"
-      :virtualize="{ estimateSize: estimateRowSize, overscan: OVERSCAN }"
-      :watch-options="{ deep: false }"
-      :style="{ '--fermata-table-width': `${columns.totalWidth}px` }"
-      class="h-full min-h-0 select-none overflow-auto overscroll-contain pb-2 outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-primary"
-      :ui="{
-        base: 'table-fixed w-[var(--fermata-table-width)] min-w-full',
-        thead: 'bg-elevated/75',
-        th: 'h-8 px-0 py-0 text-xs font-medium uppercase tracking-wide text-muted',
-        tbody: 'divide-y divide-default/60',
-        td: 'h-8 overflow-hidden px-2 py-0 text-sm last:pe-4',
-        tr: 'h-8 hover:bg-elevated/70',
-        empty: 'h-full p-0'
-      }"
-      tabindex="0"
-      aria-label="Songs"
-      @scroll.passive="scrollTop = tableElement()?.scrollTop ?? 0"
-      @keydown="onKeydown"
+    <UContextMenu
+      :items="menuItems"
+      :disabled="menu === undefined"
+      :ui="{ content: 'w-56' }"
+      class="h-full min-h-0"
     >
-      <template
-        v-for="column in visibleColumns"
-        :key="headerSlot(column.key)"
-        #[headerSlot(column.key)]
+      <UTable
+        ref="table"
+        :data="tableRows"
+        :columns="tableColumns"
+        :meta="tableMeta"
+        :get-row-id="(row: TrackTableRow) => String(row.display)"
+        :on-select="onTableSelect"
+        :loading="source.loading"
+        loading-color="primary"
+        loading-animation="carousel"
+        sticky="header"
+        :virtualize="{ estimateSize: estimateRowSize, overscan: OVERSCAN }"
+        :watch-options="{ deep: false }"
+        :style="{ '--fermata-table-width': `${columns.totalWidth}px` }"
+        class="h-full min-h-0 select-none overflow-auto overscroll-contain pb-2 outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-primary"
+        :ui="{
+          base: 'table-fixed w-[var(--fermata-table-width)] min-w-full',
+          thead: 'bg-elevated/75',
+          th: 'h-8 px-0 py-0 text-xs font-medium uppercase tracking-wide text-muted',
+          tbody: 'divide-y divide-default/60',
+          td: 'h-8 overflow-hidden px-2 py-0 text-sm last:pe-4',
+          tr: 'h-8 hover:bg-elevated/70',
+          empty: 'h-full p-0'
+        }"
+        tabindex="0"
+        :aria-label="label ?? 'Songs'"
+        @scroll.passive="scrollTop = tableElement()?.scrollTop ?? 0"
+        @keydown="onKeydown"
+        @contextmenu="onTableContextmenu"
+        @dragover="onRowDragOver(null, $event)"
+        @drop.prevent="onRowDrop()"
+        @dragend="onRowDragEnd()"
       >
-        <div
-          class="relative flex h-8 items-center"
-          :class="{
-            'opacity-50': draggingKey === column.key,
-            'bg-primary/10': dropTargetKey === column.key
-          }"
-          draggable="true"
-          @dragstart="onDragStart(column.key, $event)"
-          @dragover="onDragOver(column.key, $event)"
-          @drop.prevent="onDrop(column.key)"
-          @dragend="onDragEnd"
+        <template
+          v-for="column in visibleColumns"
+          :key="headerSlot(column.key)"
+          #[headerSlot(column.key)]
         >
-          <UButton
-            v-if="isSortableColumn(column.key)"
-            color="neutral"
-            variant="ghost"
-            size="xs"
-            class="min-w-0 flex-1 justify-start rounded-none px-2 uppercase"
-            :class="alignClass(column)"
-            :aria-sort="ariaSort(column.key)"
-            :title="`Sort by ${columnName(column)}`"
-            @click="panel.setSort(column.key)"
+          <div
+            class="relative flex h-8 items-center"
+            :class="{
+              'opacity-50': draggingKey === column.key,
+              'bg-primary/10': dropTargetKey === column.key
+            }"
+            draggable="true"
+            @dragstart.stop="onDragStart(column.key, $event)"
+            @dragover.stop="onDragOver(column.key, $event)"
+            @drop.stop.prevent="onDrop(column.key)"
+            @dragend.stop="onDragEnd"
           >
-            <span class="truncate">{{ column.label }}</span>
-            <UIcon
-              v-if="panel.sort === column.key"
-              :name="panel.direction === 'asc' ? 'i-tabler-chevron-up' : 'i-tabler-chevron-down'"
-              class="size-3 shrink-0 text-primary"
-            />
-          </UButton>
-          <span
-            v-else
-            class="min-w-0 flex-1 truncate px-2"
-            :class="alignClass(column)"
-            :title="`${columnName(column)} — this column cannot be sorted`"
-          >
-            {{ column.label }}
-          </span>
+            <UButton
+              v-if="sortable && isSortableColumn(column.key)"
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              class="min-w-0 flex-1 justify-start rounded-none px-2 uppercase"
+              :class="alignClass(column)"
+              :aria-sort="ariaSort(column.key)"
+              :title="`Sort by ${columnName(column)}`"
+              @click="source.setSort?.(column.key)"
+            >
+              <span class="truncate">{{ column.label }}</span>
+              <UIcon
+                v-if="source.sort === column.key"
+                :name="source.direction === 'asc' ? 'i-tabler-chevron-up' : 'i-tabler-chevron-down'"
+                class="size-3 shrink-0 text-primary"
+              />
+            </UButton>
+            <span
+              v-else
+              class="min-w-0 flex-1 truncate px-2"
+              :class="alignClass(column)"
+              :title="unsortableTitle(column)"
+            >
+              {{ column.label }}
+            </span>
 
-          <!--
+            <!--
             A focusable separator rather than a bare drag affordance: resizing a
             column is not a pointer-only capability, and the window-splitter
             pattern gives it arrow keys for free.
           -->
-          <button
-            type="button"
-            role="separator"
-            aria-orientation="vertical"
-            :aria-label="`Resize ${columnName(column)} column`"
-            :aria-valuenow="columns.widthOf(column.key)"
-            :aria-valuemin="column.minWidth"
-            :aria-valuemax="800"
-            class="absolute inset-y-0 -end-1 z-10 w-2 cursor-col-resize touch-none rounded-none hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none"
-            :class="{ 'bg-primary/60': resizing?.key === column.key }"
-            @pointerdown="onGripDown(column.key, $event)"
-            @pointermove="onGripMove"
-            @pointerup="onGripUp"
-            @pointercancel="onGripUp"
-            @dblclick="columns.setWidth(column.key, column.defaultWidth)"
-            @keydown="onGripKeydown(column, $event)"
-          />
-        </div>
-      </template>
-
-      <template
-        v-for="column in visibleColumns"
-        :key="cellSlot(column.key)"
-        #[cellSlot(column.key)]="{ row }"
-      >
-        <!--
-          The album header. Only the leading column renders it; the others are
-          hidden on this row so the column span has the width to itself.
-        -->
-        <template v-if="row.original.run">
-          <section class="flex justify-between items-center">
-            <div v-if="column.key === leadingColumnKey" class="flex items-center gap-3 py-1">
-              <img
-                :src="row.original.run.group.artwork.small"
-                alt=""
-                aria-hidden="true"
-                class="shrink-0 rounded bg-elevated object-cover"
-                :style="{ width: `${grouping.artPx}px`, height: `${grouping.artPx}px` }"
-                loading="lazy"
-                draggable="false"
-              />
-              <span class="min-w-0">
-                <span class="block truncate text-sm font-medium text-highlighted">
-                  {{ row.original.run.group.title ?? 'Unknown album' }}
-                </span>
-                <span class="block truncate text-xs text-muted">
-                  {{ groupSubtitle(row.original.run) }}
-                </span>
-              </span>
-            </div>
-            <UButton variant="ghost" color="neutral" icon="i-tabler-dots-vertical-filled" />
-          </section>
+            <button
+              type="button"
+              role="separator"
+              aria-orientation="vertical"
+              :aria-label="`Resize ${columnName(column)} column`"
+              :aria-valuenow="columns.widthOf(column.key)"
+              :aria-valuemin="column.minWidth"
+              :aria-valuemax="800"
+              class="absolute inset-y-0 -end-1 z-10 w-2 cursor-col-resize touch-none rounded-none hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none"
+              :class="{ 'bg-primary/60': resizing?.key === column.key }"
+              @pointerdown="onGripDown(column.key, $event)"
+              @pointermove="onGripMove"
+              @pointerup="onGripUp"
+              @pointercancel="onGripUp"
+              @dblclick="columns.setWidth(column.key, column.defaultWidth)"
+              @keydown="onGripKeydown(column, $event)"
+            />
+          </div>
         </template>
-        <USkeleton
-          v-else-if="cellText(row.original, column.key) === undefined"
-          class="h-2 w-24 max-w-full"
-        />
-        <span v-else class="block truncate">{{ cellText(row.original, column.key) }}</span>
-      </template>
 
-      <template #empty>
-        <UEmpty
-          variant="naked"
-          icon="i-tabler-playlist"
-          title="No tracks yet"
-          description="Add a folder to index music, or change the active filters."
-          class="h-full"
-        />
-      </template>
-    </UTable>
+        <template
+          v-for="column in visibleColumns"
+          :key="cellSlot(column.key)"
+          #[cellSlot(column.key)]="{ row }"
+        >
+          <!--
+          The cell's whole area, bled back out over the `td` padding so that a
+          drag crossing a column edge never leaves the row it is over.
+        -->
+          <div
+            class="-mx-2 flex h-full items-center px-2"
+            :draggable="drag?.enabled === true && row.original.index !== null"
+            @contextmenu="onRowContextmenu(row.original.index, $event)"
+            @dragstart.stop="onRowDragStart(row.original.index, $event)"
+            @dragover.stop="onRowDragOver(row.original.index, $event)"
+            @drop.stop.prevent="onRowDrop()"
+            @dragend.stop="onRowDragEnd()"
+          >
+            <!--
+            The album header. Only the leading column renders it; the others are
+            hidden on this row so the column span has the width to itself.
+          -->
+            <template v-if="row.original.run">
+              <section class="flex w-full items-center justify-between">
+                <div v-if="column.key === leadingColumnKey" class="flex items-center gap-3 py-1">
+                  <img
+                    :src="row.original.run.group.artwork.small"
+                    alt=""
+                    aria-hidden="true"
+                    class="shrink-0 rounded bg-elevated object-cover"
+                    :style="{ width: `${grouping.artPx}px`, height: `${grouping.artPx}px` }"
+                    loading="lazy"
+                    draggable="false"
+                  />
+                  <span class="min-w-0">
+                    <span class="block truncate text-sm font-medium text-highlighted">
+                      {{ row.original.run.group.title ?? 'Unknown album' }}
+                    </span>
+                    <span class="block truncate text-xs text-muted">
+                      {{ groupSubtitle(row.original.run) }}
+                    </span>
+                  </span>
+                </div>
+                <UButton variant="ghost" color="neutral" icon="i-tabler-dots-vertical-filled" />
+              </section>
+            </template>
+            <USkeleton
+              v-else-if="cellText(row.original, column.key) === undefined"
+              class="h-2 w-24 max-w-full"
+            />
+            <span v-else class="block w-full truncate">
+              {{ cellText(row.original, column.key) }}
+            </span>
+          </div>
+        </template>
+
+        <template #empty>
+          <!--
+          Whose emptiness it is depends on the list, so the wording comes from
+          above rather than from a component that no longer knows which of the
+          two it is drawing.
+        -->
+          <slot name="empty">
+            <UEmpty
+              variant="naked"
+              icon="i-tabler-playlist"
+              title="No tracks yet"
+              description="Add a folder to index music, or change the active filters."
+              class="h-full"
+            />
+          </slot>
+        </template>
+      </UTable>
+    </UContextMenu>
   </UCard>
 </template>
