@@ -64,6 +64,18 @@
         "W2",
         "W4"
       ]
+    },
+    {
+      "tag": "W7",
+      "name": "Tunedeck",
+      "description": "The extended control and information surface (D15): a resizable right-side drawer hosting a panel island, opened from NowPlaying. Phase 1 (M5) is entirely local — up-next queue editor, format and signal readout, play history trail, related-in-library. Phase 2 (M7) is the artist nexus and Fermata's first network surface: D14's opt-in consent gate, a main-process-only fetch layer against MusicBrainz and Wikipedia, cache.db with TTLs and negative caching, and R5's artist identity resolution with operator correction. Owns D14, D15 and R5.",
+      "color": "fuchsia",
+      "order": 6,
+      "cardCounter": 14,
+      "dependsOn": [
+        "W4",
+        "W5"
+      ]
     }
   ]
 }
