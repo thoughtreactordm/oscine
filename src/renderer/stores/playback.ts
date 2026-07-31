@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { createAudioEngineFactory } from '@renderer/audio'
-import { library } from '@renderer/ipc'
+import { library, playlists } from '@renderer/ipc'
 import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMediaSession'
 import { createPlaybackController } from '@renderer/playback/controller'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
@@ -31,6 +31,7 @@ export const usePlaybackStore = defineStore('playback', () => {
   return createPlaybackController({
     createEngine,
     fetchPage: (query) => library.listTracks(query),
+    fetchPlaylistEntries: (query) => playlists.listEntries(query),
     // Shuffle and repeat survive a restart; the shuffle sequence does not.
     storage: browserTransportStorage(),
     ...(mediaSessionPlatform

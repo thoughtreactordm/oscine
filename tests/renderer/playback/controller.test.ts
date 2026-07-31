@@ -14,6 +14,10 @@ import {
   type SampleAccurateTime
 } from '../../../src/renderer/audio/AudioEngine'
 import type { ListTracksQuery, ListTracksResult, Track } from '../../../src/shared/library'
+import type {
+  ListPlaylistEntriesQuery,
+  ListPlaylistEntriesResult
+} from '../../../src/shared/playlists'
 
 function track(id: number): Track {
   return {
@@ -150,16 +154,26 @@ class FakeEngine implements AudioEngine {
   }
 }
 
+/**
+ * Track ids for playlist entries start well clear of the library fixture's, so
+ * a test that reads `nowPlaying` can say which of the two orders resolved the
+ * row rather than inferring it from a position that both would answer.
+ */
+const PLAYLIST_TRACK_BASE = 1000
+
 function harness(
   options: {
     total?: number
+    playlistTotal?: number
     manualLoad?: boolean
     createMediaSession?: PlaybackControllerDeps['createMediaSession']
     storage?: PlaybackControllerDeps['storage']
     createShuffleSeed?: PlaybackControllerDeps['createShuffleSeed']
+    crossfadeMs?: number
   } = {}
 ) {
   const total = options.total ?? 10
+  const playlistTotal = options.playlistTotal ?? 6
   const engines = [
     new FakeEngine(options.manualLoad ?? false),
     new FakeEngine(options.manualLoad ?? false)
@@ -173,6 +187,20 @@ function harness(
     total
   }))
 
+  /** Answers any window over one playlist, whichever playlist is asked for. */
+  const fetchPlaylistEntries = vi.fn(
+    async (query: ListPlaylistEntriesQuery): Promise<ListPlaylistEntriesResult> => ({
+      entries: Array.from(
+        { length: Math.max(0, Math.min(query.limit, playlistTotal - query.offset)) },
+        (_, i) => ({
+          id: query.offset + i + 1,
+          track: track(PLAYLIST_TRACK_BASE + query.offset + i)
+        })
+      ),
+      total: playlistTotal
+    })
+  )
+
   const controller = createPlaybackController({
     createEngine: () => {
       const engine = engines[engineIndex++]
@@ -180,12 +208,14 @@ function harness(
       return engine
     },
     fetchPage,
+    fetchPlaylistEntries,
     ...(options.createMediaSession ? { createMediaSession: options.createMediaSession } : {}),
     ...(options.storage ? { storage: options.storage } : {}),
+    ...(options.crossfadeMs === undefined ? {} : { crossfadeMs: options.crossfadeMs }),
     // Fixed by default, so a shuffled traversal is something a test can name.
     createShuffleSeed: options.createShuffleSeed ?? ((): number => 1234)
   })
-  return { controller, engine: engines[0], engines, fetchPage }
+  return { controller, engine: engines[0], engines, fetchPage, fetchPlaylistEntries }
 }
 
 /** Lets every already-queued microtask run. */
@@ -942,6 +972,279 @@ describe('createPlaybackController', () => {
 
       bound.controller.dispose()
       expect(dispose).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('playing a playlist', () => {
+    it('traverses the playlist it was handed rather than the library', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 1, crossfadeMs: 0 })
+
+      expect(h.controller.orderId()).toBe('playlist:7')
+      expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 1)
+      expect(h.fetchPlaylistEntries).toHaveBeenCalledWith({ playlistId: 7, offset: 1, limit: 1 })
+      // The library is not consulted at all, not even to size anything.
+      expect(h.fetchPage).not.toHaveBeenCalled()
+    })
+
+    it('plays a row it was handed without looking it up again', async () => {
+      const h = harness()
+      await h.controller.playFromPlaylist({
+        playlistId: 7,
+        index: 3,
+        crossfadeMs: 0,
+        track: track(PLAYLIST_TRACK_BASE + 3)
+      })
+
+      expect(h.engine.loaded).toEqual([PLAYLIST_TRACK_BASE + 3])
+      expect(h.controller.orderIndex.value).toBe(3)
+      // As with the list: the row was handed over, so the only lookup is the
+      // decode-ahead row.
+      expect(h.fetchPlaylistEntries).toHaveBeenCalledTimes(1)
+      expect(h.fetchPlaylistEntries).toHaveBeenCalledWith({ playlistId: 7, offset: 4, limit: 1 })
+    })
+
+    it('advances through the playlist entries', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.next()
+
+      expect(h.controller.orderIndex.value).toBe(1)
+      expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 1)
+    })
+
+    // §5 rule 3. Nothing else in the controller writes it, and viewing a tab
+    // is emphatically not "playing a track from a playlist".
+    it('records which playlist is playing, and clears it for the library', async () => {
+      const h = harness()
+      expect(h.controller.playingPlaylistId.value).toBeNull()
+
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      expect(h.controller.playingPlaylistId.value).toBe(7)
+
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 0,
+        track: track(0)
+      })
+      expect(h.controller.playingPlaylistId.value).toBeNull()
+      expect(h.controller.orderId()).toBe('list:artist:asc')
+    })
+
+    it('stops cleanly at the playlist end rather than running into the library', async () => {
+      const h = harness({ total: 50, playlistTotal: 3 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+      await h.controller.next()
+
+      // Position 3 exists in the library fixture and not in the playlist, so a
+      // traversal that had leaked into the library would have advanced here.
+      expect(h.controller.orderIndex.value).toBe(2)
+      expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 2)
+    })
+
+    it('wraps at the playlist end under repeat-all, not the library end', async () => {
+      const h = harness({ total: 50, playlistTotal: 3 })
+      h.controller.setRepeatMode('all')
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+      await settle()
+
+      expect(h.controller.orderTotal.value).toBe(3)
+
+      await h.controller.next()
+      expect(h.controller.orderIndex.value).toBe(0)
+      expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE)
+    })
+
+    describe('shuffle', () => {
+      it('permutes the playing playlist entries and nothing else', async () => {
+        const h = harness({ total: 50, playlistTotal: 5 })
+        await h.controller.setShuffle(true)
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+        await settle()
+
+        // The shuffle is layered over the playlist order, which is the whole of
+        // "a playlist gets shuffle for free": the id names both.
+        expect(h.controller.orderId()).toBe('shuffle:1234:2:playlist:7')
+        // The pinned row is the one that was clicked, at its new position 0.
+        expect(h.controller.orderIndex.value).toBe(0)
+        expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 2)
+
+        const played: number[] = []
+        for (let step = 0; step < 4; step += 1) {
+          await h.controller.next()
+          played.push(h.controller.nowPlaying.value!.id)
+        }
+
+        // Every row came from the playlist, and each of its entries appeared
+        // exactly once — a permutation of that playlist, not a walk into the
+        // fifty-row library beside it.
+        const visited = [PLAYLIST_TRACK_BASE + 2, ...played].sort((a, b) => a - b)
+        expect(visited).toEqual([0, 1, 2, 3, 4].map((i) => PLAYLIST_TRACK_BASE + i))
+        expect(h.fetchPage).not.toHaveBeenCalled()
+      })
+
+      it('keeps the unshuffled playlist order alongside the shuffled one', async () => {
+        const h = harness({ playlistTotal: 5 })
+        await h.controller.setShuffle(true)
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+        await settle()
+
+        await h.controller.setShuffle(false)
+
+        // Exactly as for the library order: switching shuffle off resumes the
+        // linear traversal from where the user actually is, and the base order
+        // that survived is the playlist's own.
+        expect(h.controller.orderId()).toBe('playlist:7')
+        expect(h.controller.orderIndex.value).toBe(2)
+        expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 2)
+      })
+    })
+
+    describe('the viewed and playing split', () => {
+      /**
+       * The §5 preamble's guarantee, tested from the playback side.
+       *
+       * `viewedPlaylistId` lives in the playlists store and cannot be reached
+       * from here — that is the point, and it is also why this test does not
+       * instantiate the store. Stores compile against `@renderer` and the DOM,
+       * neither of which exists under this config, so what is exercised instead
+       * is the only thing viewing a tab actually does to the outside world:
+       * page another playlist's entries through the same dependency the playing
+       * traversal uses.
+       */
+      it('leaves playback untouched while another playlist is browsed', async () => {
+        const h = harness({ playlistTotal: 6 })
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 1, crossfadeMs: 0 })
+        await settle()
+
+        const before = {
+          orderId: h.controller.orderId(),
+          orderIndex: h.controller.orderIndex.value,
+          trackId: h.controller.nowPlaying.value?.id,
+          playingPlaylistId: h.controller.playingPlaylistId.value,
+          loaded: [...h.engine.loaded],
+          playCount: h.engine.playCount,
+          pauseCount: h.engine.pauseCount,
+          disposed: h.engine.disposed,
+          prefetchStatus: h.controller.prefetchStatus.value,
+          prefetchedTrackId: h.controller.prefetchedTrackId.value
+        }
+
+        // What the contents pane does when the user clicks a different tab.
+        await h.fetchPlaylistEntries({ playlistId: 9, offset: 0, limit: 100 })
+        await h.fetchPlaylistEntries({ playlistId: 9, offset: 100, limit: 100 })
+        await settle()
+
+        expect({
+          orderId: h.controller.orderId(),
+          orderIndex: h.controller.orderIndex.value,
+          trackId: h.controller.nowPlaying.value?.id,
+          playingPlaylistId: h.controller.playingPlaylistId.value,
+          loaded: [...h.engine.loaded],
+          playCount: h.engine.playCount,
+          pauseCount: h.engine.pauseCount,
+          disposed: h.engine.disposed,
+          prefetchStatus: h.controller.prefetchStatus.value,
+          prefetchedTrackId: h.controller.prefetchedTrackId.value
+        }).toEqual(before)
+      })
+
+      it('offers no way to set a viewed playlist', () => {
+        // Structural, and deliberately so: the guarantee above is worth more as
+        // "there is no wire to pull" than as a rule someone has to remember.
+        expect(harness().controller).not.toHaveProperty('viewedPlaylistId')
+      })
+    })
+
+    // §5 rule 4, second half.
+    describe('deletion', () => {
+      it('stops playback when the playing playlist is deleted', async () => {
+        const h = harness()
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 1, crossfadeMs: 0 })
+        expect(h.engine.playCount).toBe(1)
+
+        h.controller.playlistDeleted(7)
+
+        // A real stop, not merely forgotten state: the device is released, so
+        // nothing can still be audible from a playlist that no longer exists.
+        expect(h.engine.disposed).toBe(true)
+        expect(h.controller.status.value).toBe('idle')
+        expect(h.controller.orderId()).toBeNull()
+        expect(h.controller.nowPlaying.value).toBeNull()
+        expect(h.controller.playingPlaylistId.value).toBeNull()
+      })
+
+      it('leaves playback alone when any other playlist is deleted', async () => {
+        const h = harness()
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 1, crossfadeMs: 0 })
+
+        h.controller.playlistDeleted(9)
+
+        expect(h.engine.disposed).toBe(false)
+        expect(h.controller.orderId()).toBe('playlist:7')
+        expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 1)
+        expect(h.controller.playingPlaylistId.value).toBe(7)
+      })
+
+      it('leaves a library traversal alone', async () => {
+        const h = harness()
+        await h.controller.playFromList({
+          sort: 'artist',
+          direction: 'asc',
+          index: 0,
+          track: track(0)
+        })
+
+        h.controller.playlistDeleted(7)
+
+        expect(h.engine.disposed).toBe(false)
+        expect(h.controller.orderId()).toBe('list:artist:asc')
+      })
+    })
+
+    describe('the boundary policy', () => {
+      it('gives the scheduler the playing playlist crossfade', async () => {
+        const h = harness({ crossfadeMs: 250 })
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 1500 })
+
+        expect(h.controller.crossfadeMs.value).toBe(1500)
+        expect(h.controller.schedulerCrossfadeMs()).toBe(1500)
+      })
+
+      it('gives the global setting back when the library plays again', async () => {
+        const h = harness({ crossfadeMs: 250 })
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 1500 })
+        await h.controller.playFromList({
+          sort: 'artist',
+          direction: 'asc',
+          index: 0,
+          track: track(0)
+        })
+
+        expect(h.controller.schedulerCrossfadeMs()).toBe(250)
+      })
+
+      it('keeps the playlist value while the global setting is changed under it', async () => {
+        const h = harness({ crossfadeMs: 250 })
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 1500 })
+
+        h.controller.setCrossfadeMs(800)
+
+        expect(h.controller.defaultCrossfadeMs.value).toBe(800)
+        expect(h.controller.schedulerCrossfadeMs()).toBe(1500)
+      })
+
+      it('follows an edit to the playing playlist', async () => {
+        const h = harness()
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 1500 })
+
+        h.controller.playlistCrossfadeChanged(9, 4000)
+        expect(h.controller.schedulerCrossfadeMs()).toBe(1500)
+
+        h.controller.playlistCrossfadeChanged(7, 0)
+        expect(h.controller.schedulerCrossfadeMs()).toBe(0)
+      })
     })
   })
 })
