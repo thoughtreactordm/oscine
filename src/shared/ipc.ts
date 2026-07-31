@@ -1,12 +1,13 @@
 import type {
   ArtworkVariant,
+  GetTracksByIdsQuery,
+  LibraryNotice,
+  LibraryRoot,
   ListAlbumsResult,
   ListArtistsResult,
   ListFacetIdsQuery,
   ListFacetIdsResult,
   ListFacetsQuery,
-  LibraryRoot,
-  LibraryNotice,
   ListTrackGroupsQuery,
   ListTrackGroupsResult,
   ListTrackIdsQuery,
@@ -17,6 +18,7 @@ import type {
   ReplayGainJobProgress,
   ScanProgress,
   ScanSummary,
+  Track,
   TrackAudioMetadata
 } from './library'
 import type {
@@ -89,6 +91,15 @@ export interface IpcContract {
    * rendered rows. Ignores browse filters by design; drops unknown ids.
    */
   'library.orderTrackIds': { request: OrderTrackIdsQuery; response: number[] }
+  /**
+   * Display rows for an id list the caller already has in order.
+   *
+   * Capped at `MAX_TRACK_PAGE` like every other request that returns rows: the
+   * ceiling belongs to the width of the response, not to the size of a
+   * selection, so a caller queueing thousands chunks and the wire never carries
+   * a page nobody sized for.
+   */
+  'library.getTracksByIds': { request: GetTracksByIdsQuery; response: Track[] }
   /**
    * Supplies only the fields needed to price a decode. This is deliberately a
    * separate metadata request: the R1 guard must decide before it fetches any
@@ -216,6 +227,7 @@ export const IPC_CHANNELS = [
   'library.listTrackIds',
   'library.listTrackGroups',
   'library.orderTrackIds',
+  'library.getTracksByIds',
   'library.getTrackAudioMetadata',
   'library.getTrackFileUrl',
   'library.startReplayGain',

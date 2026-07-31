@@ -11,6 +11,7 @@ import type {
   ListFacetIdsQuery,
   ListFacetsQuery,
   ListTrackGroupsQuery,
+  GetTracksByIdsQuery,
   ListTrackIdsQuery,
   ListTracksQuery,
   LibraryNotice,
@@ -97,6 +98,8 @@ const api = {
     listTrackGroups: (query: ListTrackGroupsQuery) => request('library.listTrackGroups', query),
     /** Orders an arbitrary id set the way the track list would. */
     orderTrackIds: (query: OrderTrackIdsQuery) => request('library.orderTrackIds', query),
+    /** Display rows for an id list the caller already ordered. */
+    getTracksByIds: (query: GetTracksByIdsQuery) => request('library.getTracksByIds', query),
     /** Metadata-only lookup for the audio admission guard. */
     getTrackAudioMetadata: (trackId: number) =>
       request('library.getTrackAudioMetadata', { trackId }),

@@ -6,7 +6,14 @@ import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
 import type { TrackListDrag, TrackListMenu } from '@renderer/panels/trackListSource'
+import {
+  queueCommandLabel,
+  queueIds,
+  queueRows,
+  type QueueTarget
+} from '@renderer/playback/queueCommands'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { useTrackListStore } from '@renderer/stores/trackList'
@@ -24,6 +31,7 @@ const trackList = useTrackListStore()
 const columns = useTrackColumnsStore()
 const playback = usePlaybackStore()
 const playlists = usePlaylistsStore()
+const queue = useQueueCommandsStore()
 
 /**
  * The ordering, shown only when its column is not.
@@ -90,13 +98,31 @@ const drag: TrackListDrag = {
 }
 
 /**
- * "Add to playlist", the keyboard-and-menu half of the same gesture the drag
- * performs. Both end at one batched call.
+ * The row menu: the queue verbs, then "add to playlist".
+ *
+ * Both queue verbs come from `queueCommands`, wording included, so that this
+ * menu and the playlist pane's cannot drift — and so W7-2's deck pane inherits
+ * them rather than restating them.
+ *
+ * A single loaded row is handed over as a *row*, a multi-select as ids. The
+ * queue holds display snapshots, and the list resolves a selection through main
+ * precisely so it never has to keep the rows for one.
  */
 const menu: TrackListMenu = (index): ContextMenuItem[] => {
   const count = rowCount(index)
   const label = count === 1 ? 'Add to playlist' : `Add ${count.toLocaleString()} tracks to playlist`
   return [
+    {
+      label: queueCommandLabel('playNext', count),
+      icon: 'i-tabler-corner-right-down',
+      onSelect: () => void targetFor(index).then(queue.playNext)
+    },
+    {
+      label: queueCommandLabel('addToQueue', count),
+      icon: 'i-tabler-list-numbers',
+      onSelect: () => void targetFor(index).then(queue.addToQueue)
+    },
+    { type: 'separator' },
     {
       label,
       icon: 'i-tabler-playlist-add',
@@ -109,6 +135,19 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
             }))
     }
   ]
+}
+
+/**
+ * What a queue verb is aimed at, resolved the same way the drag resolves.
+ *
+ * Ids rather than the `Set` behind the selection, because a set has no order
+ * and the visible one is the whole point — `resolveSelection` is where that
+ * order lives, which is why this is a promise.
+ */
+async function targetFor(index: number): Promise<QueueTarget> {
+  if (trackList.isSelectedAt(index)) return queueIds(await trackList.resolveSelection())
+  const track = trackList.rowAt(index)
+  return queueRows(track ? [track] : [])
 }
 
 async function addToPlaylist(playlistId: number, index: number): Promise<void> {

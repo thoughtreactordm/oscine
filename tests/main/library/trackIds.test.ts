@@ -496,3 +496,42 @@ describe('orderTrackIds', () => {
     expect(await service.orderTrackIds({ sort: 'title', direction: 'asc', ids: [] })).toEqual([])
   })
 })
+
+describe('getTracksByIds', () => {
+  it('widens an id list into rows, in the order the caller gave', async () => {
+    const ascending = await idsFromRows('artist', 'asc')
+    // Deliberately not in list order: the caller has already decided the
+    // sequence — a selection's visible order, or a queue's — and this verb
+    // preserves it rather than re-deriving one.
+    const picked = [9_998, 8, 2_501].map((offset) => ascending[offset]!)
+
+    const rows = await service.getTracksByIds({ ids: picked })
+
+    expect(rows.map((row) => row.id)).toEqual(picked)
+    expect(rows.every((row) => typeof row.title === 'string')).toBe(true)
+  })
+
+  it('repeats a row for a repeated id, because the queue may hold it twice', async () => {
+    const [first] = (
+      await service.listTrackIds({ sort: 'title', direction: 'asc', offset: 0, limit: 1 })
+    ).ids
+
+    const rows = await service.getTracksByIds({ ids: [first!, first!] })
+
+    expect(rows.map((row) => row.id)).toEqual([first, first])
+  })
+
+  it('drops ids the library no longer has rather than reporting them', async () => {
+    const known = (
+      await service.listTrackIds({ sort: 'title', direction: 'asc', offset: 0, limit: 2 })
+    ).ids
+
+    const rows = await service.getTracksByIds({ ids: [known[0]!, 999_999_999, known[1]!] })
+
+    expect(rows.map((row) => row.id)).toEqual(known)
+  })
+
+  it('has nothing to widen for an empty list', async () => {
+    expect(await service.getTracksByIds({ ids: [] })).toEqual([])
+  })
+})

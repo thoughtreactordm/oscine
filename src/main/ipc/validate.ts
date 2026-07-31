@@ -1,5 +1,12 @@
 import { FermataError } from '@shared/errors'
 import {
+  type GetTracksByIdsQuery,
+  type LibraryBrowseFilters,
+  type ListFacetIdsQuery,
+  type ListFacetsQuery,
+  type ListTrackGroupsQuery,
+  type ListTrackIdsQuery,
+  type ListTracksQuery,
   MAX_FACET_ID_PAGE,
   MAX_FACET_PAGE,
   MAX_FILTER_IDS,
@@ -8,15 +15,9 @@ import {
   MAX_TRACK_ID_PAGE,
   MAX_TRACK_PAGE,
   MIN_SEARCH_LENGTH,
-  TRACK_SORT_COLUMNS,
-  type LibraryBrowseFilters,
-  type ListFacetIdsQuery,
-  type ListFacetsQuery,
-  type ListTrackGroupsQuery,
-  type ListTrackIdsQuery,
-  type ListTracksQuery,
   type OrderTrackIdsQuery,
   type SortDirection,
+  TRACK_SORT_COLUMNS,
   type TrackSortColumn
 } from '@shared/library'
 import {
@@ -232,6 +233,31 @@ export function assertListTrackGroupsQuery(value: unknown): ListTrackGroupsQuery
     ...assertBrowseFilters(raw),
     ...assertOrdering(raw)
   }
+}
+
+/**
+ * Validates a request to widen an id list into display rows.
+ *
+ * Every element is checked rather than sampled, for the reason the sibling
+ * below gives: these ids reach SQLite through `json_each`, where one
+ * non-integer is a short result rather than an error.
+ */
+export function assertGetTracksByIdsQuery(value: unknown): GetTracksByIdsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['ids'])
+
+  const ids = raw.ids
+  if (!Array.isArray(ids)) invalid('ids must be an array.')
+  // `MAX_TRACK_PAGE`, not `MAX_ORDERED_TRACK_IDS`: this response carries display
+  // rows rather than bare integers, so the ceiling is the one every other
+  // row-returning request is held to. A caller queueing a large selection
+  // chunks against it.
+  if (ids.length > MAX_TRACK_PAGE) {
+    invalid(`ids must not exceed ${MAX_TRACK_PAGE} entries.`)
+  }
+  for (const id of ids) assertPositiveInt(id, 'ids entry')
+
+  return { ids: ids as number[] }
 }
 
 /**

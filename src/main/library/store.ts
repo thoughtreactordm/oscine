@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3'
 import type {
   AlbumFacet,
   ArtistFacet,
+  GetTracksByIdsQuery,
   LibraryBrowseFilters,
   ListAlbumsResult,
   ListArtistsResult,
@@ -712,6 +713,17 @@ export class LibraryStore {
       .all({ ids: JSON.stringify(unique) })
 
     return idsOf(rows)
+  }
+
+  /**
+   * Display rows for an id list the caller already ordered.
+   *
+   * The public face of `hydrateTracks`, which every paged read here already
+   * goes through — so an explicit id list costs the same wide projection as a
+   * page of the list does, and drops deleted ids the same way.
+   */
+  getTracksByIds(query: GetTracksByIdsQuery): Track[] {
+    return this.hydrateTracks(query.ids)
   }
 
   /**

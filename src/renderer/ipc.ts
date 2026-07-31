@@ -3,6 +3,7 @@ import type {
   ListFacetIdsQuery,
   ListFacetsQuery,
   ListTrackGroupsQuery,
+  GetTracksByIdsQuery,
   ListTrackIdsQuery,
   ListTracksQuery,
   LibraryNotice,
@@ -53,6 +54,8 @@ export const library = {
   listTrackGroups: (query: ListTrackGroupsQuery) =>
     unwrap(window.fermata.library.listTrackGroups(query)),
   orderTrackIds: (query: OrderTrackIdsQuery) => unwrap(window.fermata.library.orderTrackIds(query)),
+  getTracksByIds: (query: GetTracksByIdsQuery) =>
+    unwrap(window.fermata.library.getTracksByIds(query)),
   getTrackAudioMetadata: (trackId: number) =>
     unwrap(window.fermata.library.getTrackAudioMetadata(trackId)),
   getTrackFileUrl: (trackId: number) => unwrap(window.fermata.library.getTrackFileUrl(trackId)),

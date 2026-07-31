@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import UpNextOverlay from '@renderer/panels/UpNextOverlay.vue'
 import { hasArtwork } from '@shared/ipc'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
@@ -13,6 +14,15 @@ import { useShellStore } from '@renderer/stores/shell'
  * when playback started and this panel does not need to know what it was.
  */
 const playback = usePlaybackStore()
+
+/** Names the count as well as the control, so the badge is not the only telling. */
+const queueLabel = computed(() =>
+  playback.queuedCount === 0
+    ? 'Up next: nothing queued'
+    : playback.queuedCount === 1
+      ? 'Up next: 1 track queued'
+      : `Up next: ${playback.queuedCount.toLocaleString()} tracks queued`
+)
 
 /**
  * The thumbnail toggles the sidebar's blow-up through the shell store rather
@@ -278,6 +288,37 @@ function onSeekInput(value: number | undefined): void {
           :aria-label="repeatLabel"
           @click="playback.cycleRepeat()"
         />
+      </UTooltip>
+
+      <!--
+        The queued count is on the transport rather than inside the popover,
+        because a non-empty queue changes what Next does and must never be
+        invisible. The badge is the count; the popover is what it is.
+      -->
+      <UTooltip :text="queueLabel">
+        <UPopover :ui="{ content: 'p-0' }">
+          <UButton
+            variant="ghost"
+            size="lg"
+            icon="i-tabler-list-numbers"
+            :color="playback.queuedCount > 0 ? 'primary' : 'neutral'"
+            :aria-label="queueLabel"
+          >
+            <UBadge
+              v-if="playback.queuedCount > 0"
+              color="primary"
+              variant="solid"
+              size="sm"
+              class="tabular-nums"
+            >
+              {{ playback.queuedCount.toLocaleString() }}
+            </UBadge>
+          </UButton>
+
+          <template #content>
+            <UpNextOverlay />
+          </template>
+        </UPopover>
       </UTooltip>
 
       <UTooltip text="Open Tunedeck">

@@ -241,6 +241,24 @@ export interface ListTrackIdsResult {
  * a selection outlives the search that was active when it was made, so
  * filtering here would drop exactly the rows a selection promises to keep.
  */
+/**
+ * Display rows for an explicit id list, in the order given.
+ *
+ * The complement of `orderTrackIds`, and the two are deliberately separate
+ * verbs: that one decides a *sequence* for a set with none, this one widens a
+ * sequence somebody already has. The up-next queue is what needs it — it holds
+ * display snapshots (§5), and a selection of four thousand rows spans pages the
+ * list never loaded, so "whatever offered the user the row is holding the
+ * `Track` already" stops being true exactly when a multi-select is queued.
+ *
+ * Ids no longer in the library are omitted rather than reported, as they are
+ * from `orderTrackIds` and from a playlist add: the caller wants the survivors,
+ * and the shorter result is how it learns the rest are gone.
+ */
+export interface GetTracksByIdsQuery {
+  ids: number[]
+}
+
 export interface OrderTrackIdsQuery {
   sort: TrackSortColumn
   direction: SortDirection

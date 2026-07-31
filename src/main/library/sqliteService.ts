@@ -3,8 +3,9 @@ import { stat } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { FermataError } from '@shared/errors'
 import type {
-  LibraryRoot,
+  GetTracksByIdsQuery,
   LibraryNotice,
+  LibraryRoot,
   LibraryWatchMode,
   ListAlbumsResult,
   ListArtistsResult,
@@ -21,6 +22,7 @@ import type {
   ReplayGainJobProgress,
   ScanProgress,
   ScanSummary,
+  Track,
   TrackAudioMetadata
 } from '@shared/library'
 import { readTrackTags, type MetadataReader } from './metadata'
@@ -216,6 +218,10 @@ export class SqliteLibraryService implements LibraryService {
 
   async orderTrackIds(query: OrderTrackIdsQuery): Promise<number[]> {
     return this.store.orderTrackIds(query)
+  }
+
+  async getTracksByIds(query: GetTracksByIdsQuery): Promise<Track[]> {
+    return this.store.getTracksByIds(query)
   }
 
   async listArtists(query: ListFacetsQuery): Promise<ListArtistsResult> {

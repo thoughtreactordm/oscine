@@ -15,6 +15,7 @@ import {
   assertListFacetsQuery,
   assertListTrackIdsQuery,
   assertListTracksQuery,
+  assertGetTracksByIdsQuery,
   assertOrderTrackIdsQuery
 } from '../../../src/main/ipc/validate'
 
@@ -103,6 +104,25 @@ describe('library browse IPC validation', () => {
     expect(() => assertListFacetIdsQuery({ offset: 0, limit: MAX_FACET_ID_PAGE + 1 })).toThrow(
       FermataError
     )
+  })
+
+  it('holds a row-widening request to the row-page ceiling, not the id one', () => {
+    expect(assertGetTracksByIdsQuery({ ids: [3, 1, 2] })).toEqual({ ids: [3, 1, 2] })
+    // Duplicates survive: the up-next queue may legitimately hold one track
+    // twice, and it is the caller's sequence that is being widened.
+    expect(assertGetTracksByIdsQuery({ ids: [7, 7] }).ids).toEqual([7, 7])
+    expect(assertGetTracksByIdsQuery({ ids: [] }).ids).toEqual([])
+
+    for (const query of [
+      { ids: 5 },
+      { ids: [1, 'two'] },
+      { ids: [1, 0] },
+      { ids: [1, 2.5] },
+      { ids: [1], sort: 'title' },
+      { ids: Array.from({ length: MAX_TRACK_PAGE + 1 }, (_, index) => index + 1) }
+    ]) {
+      expect(() => assertGetTracksByIdsQuery(query)).toThrow(FermataError)
+    }
   })
 
   it('validates every id in a selection to be ordered', () => {

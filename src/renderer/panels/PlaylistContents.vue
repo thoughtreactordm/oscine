@@ -5,7 +5,9 @@ import { createPlaylistContents } from '@renderer/panels/playlistContents'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { activeRowDrag, beginRowDrag, endRowDrag } from '@renderer/panels/trackDrag'
 import type { TrackListDrag, TrackListMenu } from '@renderer/panels/trackListSource'
+import { queueCommandLabel, queueRows, type QueueTarget } from '@renderer/playback/queueCommands'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { usePlaylistEntriesStore } from '@renderer/stores/playlistEntries'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { PLAYLIST_PATH_STYLES } from '@shared/playlists'
@@ -28,6 +30,7 @@ import type { Track } from '@shared/library'
 const playlists = usePlaylistsStore()
 const entries = usePlaylistEntriesStore()
 const playback = usePlaybackStore()
+const queue = useQueueCommandsStore()
 
 const model = createPlaylistContents({
   playlistId: () => entries.playlistId,
@@ -66,14 +69,35 @@ const drag: TrackListDrag = {
 
 const selectionSize = computed(() => Math.max(1, entries.selectionCount))
 
+/**
+ * The row menu. The two queue verbs are the same module the library list uses,
+ * wording included — "available from the library list, the playlist contents
+ * pane, and any multi-select in either" is one import, not two menus that agree.
+ *
+ * Queueing from here goes by *track*, never by entry id: the queue holds track
+ * ids so that deleting the playlist a row came from cannot reach it (§5 rule 4),
+ * and an entry id would be the one identity that could.
+ */
 const menu: TrackListMenu = (index): ContextMenuItem[] => {
   const many = entries.isSelectedAt(index) && entries.selectionCount > 1
+  const count = many ? entries.selectionCount : 1
   return [
     {
       label: 'Play',
       icon: 'i-tabler-player-play',
       onSelect: () => playAt(index)
     },
+    {
+      label: queueCommandLabel('playNext', count),
+      icon: 'i-tabler-corner-right-down',
+      onSelect: () => void targetFor(index).then(queue.playNext)
+    },
+    {
+      label: queueCommandLabel('addToQueue', count),
+      icon: 'i-tabler-list-numbers',
+      onSelect: () => void targetFor(index).then(queue.addToQueue)
+    },
+    { type: 'separator' },
     {
       label: many
         ? `Remove ${selectionSize.value.toLocaleString()} entries`
@@ -102,6 +126,22 @@ const exportItems = computed<ContextMenuItem[]>(() =>
     }
   }))
 )
+
+/**
+ * The rows a queue verb is about.
+ *
+ * A selection crosses back from entry identity to *track* identity, because the
+ * queue holds track ids so that deleting the playlist a row came from cannot
+ * reach it (§5 rule 4). `resolveSelectedTracks` is that crossing, and it keeps
+ * the playlist order the user is looking at.
+ */
+async function targetFor(index: number): Promise<QueueTarget> {
+  if (!entries.isSelectedAt(index)) {
+    const track = entries.rowAt(index)
+    return queueRows(track ? [track] : [])
+  }
+  return queueRows(await entries.resolveSelectedTracks())
+}
 
 function playAt(index: number): void {
   const track = entries.rowAt(index)

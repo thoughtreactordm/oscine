@@ -183,6 +183,42 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
     total: () => total.value
   })
 
+  /**
+   * The selected rows as the **tracks** they hold, in playlist order.
+   *
+   * The up-next queue holds track ids, so that deleting the playlist a row was
+   * queued from cannot reach it (§5 rule 4) — which means queueing from this
+   * pane has to cross from entry identity back to track identity, and only the
+   * rows themselves carry both.
+   *
+   * Walked over `fetchPage` rather than resolved through `fetchIdPage` first:
+   * that would be two passes over the same playlist to learn what one pass
+   * already knows. It stops as soon as the selection is accounted for, so a
+   * selection near the top costs one page whatever the playlist's length, and
+   * the worst case — the last row of a long playlist — is that playlist read
+   * once in `pageSize` chunks. Only ever on an explicit gesture, never while
+   * scrolling.
+   */
+  async function resolveSelectedTracks(): Promise<Track[]> {
+    const id = playlistId.value
+    const wanted = new Set(selection.ids.value)
+    if (id === null || wanted.size === 0) return []
+
+    const generation = ordering.value
+    const tracks: Track[] = []
+
+    for (let offset = 0; wanted.size > 0; offset += pageSize) {
+      const result = await deps.fetchPage({ playlistId: id, offset, limit: pageSize })
+      if (generation !== ordering.value) return tracks
+      for (const entry of result.entries) {
+        if (wanted.delete(entry.id)) tracks.push(entry.track)
+      }
+      if (result.entries.length < pageSize) break
+    }
+
+    return tracks
+  }
+
   async function loadPage(page: number): Promise<void> {
     const id = playlistId.value
     if (id === null) return
@@ -358,6 +394,8 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
     clearSelection: selection.clear,
     /** The selected rows as entry ids, in playlist order. */
     resolveSelection: selection.resolveSelection,
+    /** The same rows as the tracks they hold, for the up-next queue. */
+    resolveSelectedTracks,
 
     /** Test seam: how much of the playlist the pane is actually holding. */
     cachedPageCount: (): number => pages.size

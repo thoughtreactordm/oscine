@@ -16,6 +16,7 @@ import {
   assertListTrackIdsQuery,
   assertListTracksQuery,
   assertMoveEntriesRequest,
+  assertGetTracksByIdsQuery,
   assertOrderTrackIdsQuery,
   assertPlaylistName,
   assertPositiveInt,
@@ -86,6 +87,10 @@ export function registerIpcHandlers(library: LibraryService, playlists: Playlist
 
   handle('library.orderTrackIds', (request) =>
     library.orderTrackIds(assertOrderTrackIdsQuery(request))
+  )
+
+  handle('library.getTracksByIds', (request) =>
+    library.getTracksByIds(assertGetTracksByIdsQuery(request))
   )
 
   handle('library.getTrackAudioMetadata', async (request) => {

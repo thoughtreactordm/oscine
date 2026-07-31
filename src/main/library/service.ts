@@ -1,4 +1,5 @@
 import type {
+  GetTracksByIdsQuery,
   LibraryRoot,
   ListAlbumsResult,
   ListArtistsResult,
@@ -14,6 +15,7 @@ import type {
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
   ScanSummary,
+  Track,
   TrackAudioMetadata
 } from '@shared/library'
 
@@ -50,6 +52,8 @@ export interface LibraryService {
   listTrackGroups(query: ListTrackGroupsQuery): Promise<ListTrackGroupsResult>
   /** Orders an arbitrary id set the way the track list would. Ignores filters. */
   orderTrackIds(query: OrderTrackIdsQuery): Promise<number[]>
+  /** Display rows for an id list the caller already ordered. */
+  getTracksByIds(query: GetTracksByIdsQuery): Promise<Track[]>
   /** Metadata-only lookup used by the renderer's pre-fetch R1 admission guard. */
   getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null>
   /**
