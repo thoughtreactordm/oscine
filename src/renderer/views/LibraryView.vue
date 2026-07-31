@@ -5,7 +5,11 @@ import ColumnChooser from '@renderer/panels/ColumnChooser.vue'
 import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
-import type { TrackListDrag, TrackListMenu } from '@renderer/panels/trackListSource'
+import type {
+  TrackListDrag,
+  TrackListGroupMenu,
+  TrackListMenu
+} from '@renderer/panels/trackListSource'
 import {
   queueCommandLabel,
   queueIds,
@@ -134,6 +138,38 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
 }
 
 /**
+ * The album-header menu: the same three verbs, aimed at a whole run.
+ *
+ * The run's rows are a contiguous span of the list as it is currently filtered
+ * and sorted, so they resolve through `idsInRange` rather than by re-querying
+ * the album — which would quietly ignore the browse predicate and hand over
+ * tracks the operator cannot see. It also means the untagged run works, and it
+ * has no album id to query by at all.
+ *
+ * Nothing here touches the selection. The album under the pointer is what the
+ * verb is about, whatever is ticked elsewhere.
+ */
+const groupMenu: TrackListGroupMenu = (run): ContextMenuItem[] => {
+  const count = run.group.trackCount
+  const trackIds = lazily(() => trackList.idsInRange(run.firstOffset, run.firstOffset + count - 1))
+  const album = run.group.title ?? 'Unknown album'
+  return [
+    {
+      label: queueCommandLabel('playNext', count),
+      icon: 'i-tabler-corner-right-down',
+      onSelect: () => void trackIds().then((ids) => queue.playNext(queueIds(ids)))
+    },
+    {
+      label: queueCommandLabel('addToQueue', count),
+      icon: 'i-tabler-list-numbers',
+      onSelect: () => void trackIds().then((ids) => queue.addToQueue(queueIds(ids)))
+    },
+    { type: 'separator' },
+    addToPlaylist.menuItem({ count, trackIds, suggestedName: album })
+  ]
+}
+
+/**
  * What a queue verb is aimed at, resolved the same way the drag resolves.
  *
  * Ids rather than the `Set` behind the selection, because a set has no order
@@ -177,11 +213,20 @@ async function targetFor(index: number): Promise<QueueTarget> {
         {{ trackList.total.toLocaleString() }}
       </span>
 
-      <GroupChooser />
+      <GroupChooser
+        :groupable="trackList.sort === 'album'"
+        hint="Albums are grouped when the list is sorted by Album — selecting an artist does that. Sorted by another column, the albums interleave and there are no runs to head."
+      />
       <ColumnChooser />
     </div>
     <div class="min-h-0 flex-1">
-      <TrackList :source="trackList" :drag="drag" :menu="menu" @activate="playTrack" />
+      <TrackList
+        :source="trackList"
+        :drag="drag"
+        :menu="menu"
+        :group-menu="groupMenu"
+        @activate="playTrack"
+      />
     </div>
   </section>
 </template>

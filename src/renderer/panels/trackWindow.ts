@@ -465,6 +465,20 @@ export function createTrackWindow(deps: TrackWindowDeps) {
      */
     resolveSelection: selection.resolveSelection,
 
+    /**
+     * Ids for a contiguous span of rows, resolved through main.
+     *
+     * The album-header menu is what needs this: a run occupies a known offset
+     * range and the operator has asked to act on all of it, which is not the
+     * same thing as selecting it — a menu click must not throw away whatever
+     * they had selected already.
+     *
+     * The same resolver the Shift-range uses, so a run's rows come back in the
+     * order they are drawn in and never depend on which pages happen to be
+     * loaded.
+     */
+    idsInRange: fetchIdRange,
+
     /** Test seam: how much of the library the panel is actually holding. */
     cachedPageCount: (): number => pages.size
   }

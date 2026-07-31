@@ -1,13 +1,16 @@
 import { computed, ref } from 'vue'
-import type { Track } from '@shared/library'
+import type { Track, TrackGroup } from '@shared/library'
 import {
   MAX_PLAYLIST_ENTRY_ID_PAGE,
   MAX_PLAYLIST_ENTRY_PAGE,
   type ListPlaylistEntriesQuery,
   type ListPlaylistEntriesResult,
+  type ListPlaylistEntryGroupsQuery,
+  type ListPlaylistEntryGroupsResult,
   type ListPlaylistEntryIdsQuery,
   type ListPlaylistEntryIdsResult,
-  type PlaylistEntry
+  type PlaylistEntry,
+  type PlaylistEntryOrder
 } from '@shared/playlists'
 import {
   createIndexedSelection,
@@ -54,6 +57,14 @@ export interface PlaylistEntryWindowDeps {
    * resolving it must be visibly unable to put entries into the page cache.
    */
   fetchIdPage: (query: ListPlaylistEntryIdsQuery) => Promise<ListPlaylistEntryIdsResult>
+  /**
+   * The album runs, for `album` ordering only.
+   *
+   * Optional the way `trackWindow`'s is, and unasked-for under `position`: a
+   * playlist ordered by its stored sequence has no contiguous runs to describe,
+   * so the request would be a query per reload for headers nobody is drawing.
+   */
+  fetchGroups?: (query: ListPlaylistEntryGroupsQuery) => Promise<ListPlaylistEntryGroupsResult>
   pageSize?: number
   idPageSize?: number
   maxCachedPages?: number
@@ -74,6 +85,17 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
 
   const playlistId = ref<number | null>(null)
   const total = ref(0)
+
+  /**
+   * How the entries are presented. `position` is the playlist; `album` is a
+   * view of it — see `PlaylistEntryOrder`.
+   *
+   * Changing it is an `ordering` bump like an edit, because it is the same
+   * event as far as anything holding an index is concerned: every row moves,
+   * so a half-resolved Shift-range and the focus index are both stale.
+   */
+  const order = ref<PlaylistEntryOrder>('position')
+  const groups = ref<readonly TrackGroup[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -95,6 +117,18 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
 
   function pageOf(index: number): number {
     return Math.floor(index / pageSize)
+  }
+
+  /**
+   * The ordering, as a query fragment, omitted when it is the default.
+   *
+   * Every read goes through this rather than naming the field itself: the rows,
+   * the ids behind a Shift-range and the walk `resolveSelectedTracks` makes all
+   * have to describe *one* list, and a call site that forgot the order would
+   * resolve a selection against a sequence the operator is not looking at.
+   */
+  function windowOrder(): { order?: PlaylistEntryOrder } {
+    return order.value === 'position' ? {} : { order: order.value }
   }
 
   function entryAt(index: number): PlaylistEntry | undefined {
@@ -133,7 +167,7 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
 
     for (let offset = first; offset <= last; offset += idPageSize) {
       const limit = Math.min(idPageSize, last - offset + 1)
-      const result = await deps.fetchIdPage({ playlistId: id, offset, limit })
+      const result = await deps.fetchIdPage({ playlistId: id, offset, limit, ...windowOrder() })
       if (generation !== ordering.value) return ids
       ids.push(...result.ids)
       // A short page means the playlist ran out before `last` did.
@@ -163,7 +197,12 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
     const ordered: number[] = []
 
     for (let offset = 0; remaining.size > 0; offset += idPageSize) {
-      const result = await deps.fetchIdPage({ playlistId: id, offset, limit: idPageSize })
+      const result = await deps.fetchIdPage({
+        playlistId: id,
+        offset,
+        limit: idPageSize,
+        ...windowOrder()
+      })
       if (generation !== ordering.value) return ordered
       for (const entryId of result.ids) {
         if (remaining.delete(entryId)) ordered.push(entryId)
@@ -172,6 +211,38 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
     }
 
     return ordered
+  }
+
+  /**
+   * The rows of a contiguous span, as tracks.
+   *
+   * A span is the one shape that needs no searching: `fetchPage` takes an
+   * offset and a limit, so this is the range read straight out, chunked only
+   * because the page ceiling says so. `resolveSelectedTracks` walks the whole
+   * playlist looking for a scattered set; this knows exactly where its rows
+   * are.
+   *
+   * Tracks and not entry ids, because the queue and the playlists both hold
+   * track ids — an entry belongs to the playlist it is in, and a copy of it
+   * does not.
+   */
+  async function tracksInRange(first: number, last: number): Promise<Track[]> {
+    const id = playlistId.value
+    if (id === null || last < first) return []
+
+    const generation = ordering.value
+    const tracks: Track[] = []
+
+    for (let offset = first; offset <= last; offset += pageSize) {
+      const limit = Math.min(pageSize, last - offset + 1)
+      const result = await deps.fetchPage({ playlistId: id, offset, limit, ...windowOrder() })
+      if (generation !== ordering.value) return tracks
+      tracks.push(...result.entries.map((entry) => entry.track))
+      // A short page means the playlist ran out before `last` did.
+      if (result.entries.length < limit) break
+    }
+
+    return tracks
   }
 
   const selection = createIndexedSelection({
@@ -208,7 +279,12 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
     const tracks: Track[] = []
 
     for (let offset = 0; wanted.size > 0; offset += pageSize) {
-      const result = await deps.fetchPage({ playlistId: id, offset, limit: pageSize })
+      const result = await deps.fetchPage({
+        playlistId: id,
+        offset,
+        limit: pageSize,
+        ...windowOrder()
+      })
       if (generation !== ordering.value) return tracks
       for (const entry of result.entries) {
         if (wanted.delete(entry.id)) tracks.push(entry.track)
@@ -232,7 +308,8 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
       const result = await deps.fetchPage({
         playlistId: id,
         offset: page * pageSize,
-        limit: pageSize
+        limit: pageSize,
+        ...windowOrder()
       })
 
       // A response issued before the last edit describes rows that have since
@@ -277,7 +354,55 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
     // Positions only. *Which* entries are selected survives an edit, so the rows
     // a user just dragged are still selected where they landed.
     selection.invalidateIndices()
+    void refreshGroups()
     ensureRange(range.first, range.last)
+  }
+
+  /**
+   * Re-reads the album runs, or drops them.
+   *
+   * Guarded on the generation it started under, like every other read here: an
+   * edit or an order change while this is in flight makes the answer describe a
+   * list that no longer exists, and a stale run table is worse than none —
+   * `TrackList` sizes its virtualizer from it.
+   *
+   * A failure clears the runs rather than keeping the last good ones. The pane
+   * falls back to an ungrouped list, which is always a correct rendering of the
+   * rows; headers left over from a previous read are not.
+   */
+  async function refreshGroups(): Promise<void> {
+    const id = playlistId.value
+    if (id === null || order.value !== 'album' || !deps.fetchGroups) {
+      groups.value = []
+      return
+    }
+
+    const generation = ordering.value
+    try {
+      const result = await deps.fetchGroups({ playlistId: id })
+      if (generation !== ordering.value) return
+      groups.value = result.groups
+    } catch {
+      if (generation !== ordering.value) return
+      groups.value = []
+    }
+  }
+
+  /**
+   * Switches between the stored sequence and the album-major view.
+   *
+   * Everything the window holds by position is thrown away, because every row
+   * has moved: the pages, the range it was showing and the indices behind the
+   * selection. Which *entries* are selected survives, exactly as it does across
+   * an edit — the operator picked those rows and re-sorting the view is not a
+   * reason to unpick them.
+   */
+  function setOrder(next: PlaylistEntryOrder): void {
+    if (order.value === next) return
+    order.value = next
+    pages.clear()
+    revision.value++
+    invalidate()
   }
 
   /**
@@ -300,7 +425,11 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
     pending.clear()
     presentingOrdering = ordering.value
     loading.value = false
-    if (next !== null) ensureRange(0, pageSize - 1)
+    groups.value = []
+    if (next !== null) {
+      void refreshGroups()
+      ensureRange(0, pageSize - 1)
+    }
   }
 
   /** Re-reads the playlist under a new edit generation. */
@@ -358,15 +487,25 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
     /**
      * `TrackListSource` calls for these two and a playlist has neither.
      *
-     * `null` is what tells the list its headers are inert: position is the
-     * truth here, so a column that re-sorted the view would be offering an
-     * order the store cannot express and a drag could not be interpreted
-     * against. See the note at the top of this module.
+     * `null` is what tells the list its headers are inert, and it stays `null`
+     * under `album` ordering too: the album view is a *view*, chosen from the
+     * grouping preference rather than by clicking a column, and a sortable
+     * header would offer orders the store cannot express. Position remains the
+     * truth underneath. See the note at the top of this module.
      */
     sort: null,
     direction: 'asc' as const,
-    /** No album runs: a playlist is an authored sequence, not an album-major list. */
-    groups: [] as const,
+    order,
+    setOrder,
+    /**
+     * Album runs, empty under `position`.
+     *
+     * `TrackList` compares their total against this window's own before it
+     * draws them, so the moment between an edit and the reload that follows —
+     * when the runs describe one row count and `total` another — renders
+     * ungrouped rather than wrong.
+     */
+    groups: computed<readonly TrackGroup[]>(() => groups.value),
     scrollKey: computed(() => `playlist:${playlistId.value ?? 'none'}`),
 
     pageSize,
@@ -375,6 +514,7 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
     entryIdAt: (index: number): number | undefined => entryAt(index)?.id,
     ensureRange,
     reload,
+    refreshGroups,
     setPlaylist,
     forget,
 
@@ -394,6 +534,15 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
     clearSelection: selection.clear,
     /** The selected rows as entry ids, in playlist order. */
     resolveSelection: selection.resolveSelection,
+    /**
+     * Entry ids for a contiguous span, resolved through main.
+     *
+     * The album-header menu's "remove" is what needs *entry* ids rather than
+     * track ids: D12 makes the same track legal twice, and removing a run must
+     * take the copies inside it and leave the ones outside.
+     */
+    idsInRange: fetchIdRange,
+    tracksInRange,
     /** The same rows as the tracks they hold, for the up-next queue. */
     resolveSelectedTracks,
 

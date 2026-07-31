@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ContextMenuItem } from '@nuxt/ui'
+import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import { createPlaylistContents } from '@renderer/panels/playlistContents'
 import TrackList from '@renderer/panels/TrackList.vue'
-import { activeRowDrag, beginRowDrag, endRowDrag } from '@renderer/panels/trackDrag'
-import type { TrackListDrag, TrackListMenu } from '@renderer/panels/trackListSource'
+import { activeRowDrag, beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
+import type {
+  TrackListDrag,
+  TrackListGroupMenu,
+  TrackListMenu
+} from '@renderer/panels/trackListSource'
 import { queueCommandLabel, queueRows, type QueueTarget } from '@renderer/playback/queueCommands'
 import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -51,23 +56,50 @@ const model = createPlaylistContents({
 })
 
 /**
+ * Whether the pane is showing the playlist or a view of it.
+ *
+ * Album grouping re-sorts the entries, so while it is on the rows on screen are
+ * not the sequence the positions describe. Everything that reads a row is fine
+ * with that; everything that *writes* one is not.
+ */
+const albumMajor = computed(() => entries.order === 'album')
+
+/**
  * The list's drag adapter.
  *
  * "Past the last row" is drawn as a marker under the final row rather than as a
  * separate target, because in a virtualized list there is no reliable space
  * after the rows to aim at — and the bottom edge of the last row already means
  * the same thing.
+ *
+ * Off entirely under album grouping, and this is the honest half of that trade.
+ * A drop is expressed against the entry it lands beside (`PlaylistInsertion`),
+ * and beside-in-the-album-view is a different row from beside-in-the-playlist —
+ * so a drag that looked right would write a position the operator did not
+ * choose. Refusing the gesture is better than performing a different one, and
+ * the header says why rather than leaving a dead drag to be discovered.
  */
-const drag: TrackListDrag = {
-  enabled: true,
-  indicatorAt: (index) =>
-    model.dropIndicator(index) ??
-    (model.droppingAtEnd.value && index === entries.total - 1 ? 'after' : null),
-  start: (index) => model.beginDrag(index),
-  over: (index, side) => model.dragOver(index, side),
-  drop: () => void model.drop(),
-  end: () => model.endDrag()
-}
+const drag = computed<TrackListDrag>(() =>
+  albumMajor.value
+    ? {
+        enabled: false,
+        indicatorAt: () => null,
+        start: () => false,
+        over: () => false,
+        drop: () => {},
+        end: () => {}
+      }
+    : {
+        enabled: true,
+        indicatorAt: (index) =>
+          model.dropIndicator(index) ??
+          (model.droppingAtEnd.value && index === entries.total - 1 ? 'after' : null),
+        start: (index) => model.beginDrag(index),
+        over: (index, side) => model.dragOver(index, side),
+        drop: () => void model.drop(),
+        end: () => model.endDrag()
+      }
+)
 
 const selectionSize = computed(() => Math.max(1, entries.selectionCount))
 
@@ -112,6 +144,59 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
       icon: 'i-tabler-trash',
       color: 'error',
       onSelect: () => void model.remove(index)
+    }
+  ]
+}
+
+/**
+ * The album-header menu — the run's verbs, including the one only a playlist
+ * has.
+ *
+ * Two identities in play, and which one each verb takes is the whole of the
+ * care here. "Remove" takes **entry ids**, because D12 makes the same track
+ * legal twice and removing this album must take the copies inside the run and
+ * leave any outside it. Everything else takes **tracks**, because the queue and
+ * the playlists hold track ids so that deleting the playlist a row came from
+ * cannot reach them (§5 rule 4).
+ *
+ * Both resolve from the run's offset span rather than from the selection, so a
+ * menu click acts on the album under the pointer and leaves whatever the
+ * operator had ticked exactly as it was.
+ */
+const groupMenu: TrackListGroupMenu = (run): ContextMenuItem[] => {
+  const count = run.group.trackCount
+  const last = run.firstOffset + count - 1
+  const album = run.group.title ?? 'Unknown album'
+  const tracks = lazily(() => entries.tracksInRange(run.firstOffset, last))
+  const trackIds = async (): Promise<readonly number[]> => (await tracks()).map((track) => track.id)
+
+  return [
+    {
+      label: 'Play',
+      icon: 'i-tabler-player-play',
+      onSelect: () => playAt(run.firstOffset)
+    },
+    {
+      label: queueCommandLabel('playNext', count),
+      icon: 'i-tabler-corner-right-down',
+      onSelect: () => void tracks().then((rows) => queue.playNext(queueRows(rows)))
+    },
+    {
+      label: queueCommandLabel('addToQueue', count),
+      icon: 'i-tabler-list-numbers',
+      onSelect: () => void tracks().then((rows) => queue.addToQueue(queueRows(rows)))
+    },
+    { type: 'separator' },
+    addToPlaylist.menuItem({ count, trackIds, suggestedName: album }),
+    { type: 'separator' },
+    {
+      label: count === 1 ? 'Remove from playlist' : `Remove ${count.toLocaleString()} entries`,
+      icon: 'i-tabler-trash',
+      color: 'error',
+      onSelect: () =>
+        void entries
+          .idsInRange(run.firstOffset, last)
+          .then((entryIds) => entries.removeEntries(entryIds))
     }
   ]
 }
@@ -202,6 +287,29 @@ function play(track: Track, index: number): void {
         {{ entries.total.toLocaleString() }}
       </span>
 
+      <!--
+        Said once, in the header, rather than discovered by dragging a row and
+        watching nothing happen. The positions are untouched underneath — this
+        is a view — so the wording is about what is on screen, not about the
+        playlist having changed.
+      -->
+      <UBadge
+        v-if="albumMajor"
+        color="neutral"
+        variant="subtle"
+        size="sm"
+        icon="i-tabler-arrows-sort"
+        title="Turn album grouping off to reorder this playlist by hand."
+      >
+        By album
+      </UBadge>
+
+      <!--
+        Always groupable: turning it on re-sorts the pane, rather than waiting
+        for a column this list does not have. So there is no hint to give.
+      -->
+      <GroupChooser :groupable="true" />
+
       <UDropdownMenu :items="exportItems">
         <UButton
           icon="i-tabler-dots"
@@ -218,6 +326,7 @@ function play(track: Track, index: number): void {
         :source="entries"
         :drag="drag"
         :menu="menu"
+        :group-menu="groupMenu"
         :label="`${playlists.viewed.name} entries`"
         @activate="play"
       >

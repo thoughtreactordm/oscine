@@ -8,6 +8,12 @@ import {
 } from '@renderer/panels/columnLayout'
 import { selectionIntent } from '@renderer/panels/indexedSelection'
 import {
+  nowPlayingIcon,
+  nowPlayingLabel,
+  nowPlayingMark,
+  type NowPlayingMark
+} from '@renderer/panels/nowPlayingMark'
+import {
   groupedLayout,
   identityLayout,
   type GroupedRun,
@@ -16,11 +22,13 @@ import {
 import type {
   RowDropSide,
   TrackListDrag,
+  TrackListGroupMenu,
   TrackListMenu,
   TrackListSource
 } from '@renderer/panels/trackListSource'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
 import { useTrackGroupingStore } from '@renderer/stores/grouping'
+import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
 import type { Track } from '@shared/library'
 
@@ -59,6 +67,16 @@ const props = defineProps<{
   drag?: TrackListDrag
   /** The row context menu, when the list has one. */
   menu?: TrackListMenu
+  /**
+   * The album-header menu, when the list has one.
+   *
+   * A separate prop from `menu` because it is aimed at a different thing: the
+   * run, not a row, and every one of its verbs acts on the whole album whatever
+   * happens to be selected. Absent by default, and the button is not drawn at
+   * all without it — a dead affordance is worse than none, which is what that
+   * button was until now.
+   */
+  groupMenu?: TrackListGroupMenu
   /** What the list is called, for assistive technology. */
   label?: string
 }>()
@@ -70,6 +88,7 @@ const emit = defineEmits<{
 
 const columns = useTrackColumnsStore()
 const grouping = useTrackGroupingStore()
+const playback = usePlaybackStore()
 const shell = useShellStore()
 const ROW_HEIGHT = 32
 const OVERSCAN = 8
@@ -115,9 +134,37 @@ const visibleColumns = computed(() => columns.visibleColumns)
 /** The column an album header spans from. Follows the user's column order. */
 const leadingColumnKey = computed(() => visibleColumns.value[0]?.key)
 
-function alignClass(column: TrackColumnSpec): string {
-  const tone =
-    column.key === 'title'
+/**
+ * The playing mark for a track offset, or `null`.
+ *
+ * Asked per cell rather than folded into `tableRows`, because the alternative is
+ * rebuilding a 100k-entry array every time the transport changes track. Both
+ * reads are O(1) — a loaded-page lookup and two comparisons — and both happen
+ * inside the render effect, which is what makes the mark move on its own when
+ * the next track starts. Exactly how `isSelectedAt` already works.
+ */
+function markAt(index: number | null): NowPlayingMark | null {
+  if (index === null) return null
+  return nowPlayingMark({
+    trackId: props.source.rowAt(index)?.id,
+    playingTrackId: playback.nowPlaying?.id ?? null,
+    status: playback.status
+  })
+}
+
+/**
+ * The mark for one cell: only the leading column draws the glyph, so only the
+ * leading column is asked.
+ */
+function cellMark(row: TrackTableRow, columnKey: TrackColumnKey): NowPlayingMark | null {
+  if (row.run !== null || columnKey !== leadingColumnKey.value) return null
+  return markAt(row.index)
+}
+
+function alignClass(column: TrackColumnSpec, playing = false): string {
+  const tone = playing
+    ? 'text-primary'
+    : column.key === 'title'
       ? 'text-highlighted'
       : column.key === 'trackNo'
         ? 'text-dimmed'
@@ -152,7 +199,12 @@ const tableColumns = computed<TableColumn<TrackTableRow>[]>(() =>
         class: {
           th: alignClass(column),
           td: (cell: { row: TableRow<TrackTableRow> }) => {
-            if (!isHeaderRow(cell.row.original)) return alignClass(column)
+            // The playing row is tinted across every column, not just the one
+            // holding the glyph: the table scrolls sideways, and a mark that
+            // lives only in the leading column is a mark that scrolls away.
+            if (!isHeaderRow(cell.row.original)) {
+              return alignClass(column, markAt(cell.row.original.index) !== null)
+            }
             return leading ? 'px-2 py-0 align-middle' : 'hidden'
           }
         },
@@ -847,9 +899,19 @@ onMounted(() => props.source.ensureRange(0, 30))
             The album header. Only the leading column renders it; the others are
             hidden on this row so the column span has the width to itself.
           -->
+            <!--
+            The leading column only. The guard used to sit on the sleeve and the
+            title, which left every other column of a header row rendering its
+            own copy of the section — four invisible, zero-width duplicates of
+            the actions button, each one focusable by a screen reader and by
+            Tab. One header row, one section, one button.
+          -->
             <template v-if="row.original.run">
-              <section class="flex w-full items-center justify-between">
-                <div v-if="column.key === leadingColumnKey" class="flex items-center gap-3 py-1">
+              <section
+                v-if="column.key === leadingColumnKey"
+                class="flex w-full items-center justify-between"
+              >
+                <div class="flex items-center gap-3 py-1">
                   <img
                     :src="row.original.run.group.artwork.small"
                     alt=""
@@ -868,16 +930,51 @@ onMounted(() => props.source.ensureRange(0, 30))
                     </span>
                   </span>
                 </div>
-                <UButton variant="ghost" color="neutral" icon="i-tabler-dots-vertical-filled" />
+                <UDropdownMenu
+                  v-if="groupMenu"
+                  :items="groupMenu(row.original.run)"
+                  :ui="{ content: 'w-60' }"
+                >
+                  <UButton
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-tabler-dots-vertical-filled"
+                    :aria-label="`Actions for ${row.original.run.group.title ?? 'Unknown album'}`"
+                    @click.stop
+                    @dblclick.stop
+                  />
+                </UDropdownMenu>
               </section>
             </template>
-            <USkeleton
-              v-else-if="cellText(row.original, column.key) === undefined"
-              class="h-2 w-24 max-w-full"
-            />
-            <span v-else class="block w-full truncate">
-              {{ cellText(row.original, column.key) }}
-            </span>
+            <template v-else>
+              <!--
+              The playing glyph, in the leading column whichever column that is.
+              It sits beside the value rather than replacing it — a numeric
+              leading column is right-aligned, so the glyph takes the space at
+              the start that the digits were never using, and no column loses
+              the thing it exists to show.
+            -->
+              <span
+                v-if="cellMark(row.original, column.key) !== null"
+                class="me-1.5 inline-flex shrink-0 items-center"
+              >
+                <UIcon
+                  :name="nowPlayingIcon(cellMark(row.original, column.key))"
+                  class="size-3 text-primary"
+                  aria-hidden="true"
+                />
+                <span class="sr-only">{{
+                  nowPlayingLabel(cellMark(row.original, column.key))
+                }}</span>
+              </span>
+              <USkeleton
+                v-if="cellText(row.original, column.key) === undefined"
+                class="h-2 w-24 max-w-full"
+              />
+              <span v-else class="block w-full truncate">
+                {{ cellText(row.original, column.key) }}
+              </span>
+            </template>
           </div>
         </template>
 

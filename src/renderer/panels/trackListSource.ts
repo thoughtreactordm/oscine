@@ -1,5 +1,6 @@
 import type { ContextMenuItem } from '@nuxt/ui'
 import type { SelectionIntent, SelectionModifiers } from '@renderer/panels/indexedSelection'
+import type { GroupedRun } from '@renderer/panels/trackGrouping'
 import type { SortDirection, Track, TrackGroup, TrackSortColumn } from '@shared/library'
 
 /**
@@ -95,3 +96,17 @@ export interface TrackListDrag {
  * what is selected — "Add 4,312 tracks to…" is a different item from "Add to…".
  */
 export type TrackListMenu = (index: number) => ContextMenuItem[]
+
+/**
+ * The album-header menu, when the list draws headers.
+ *
+ * Takes the run rather than an index, because that is the whole of what its
+ * verbs are about: a run knows where its rows start (`firstOffset`) and how
+ * many there are (`group.trackCount`), which is everything needed to resolve
+ * the album through the same range reader a Shift-range uses.
+ *
+ * Deliberately independent of the selection. "Add this album to a playlist" is
+ * about the album under the pointer whatever else is ticked, and a menu that
+ * silently reselected would destroy work the operator had done to get there.
+ */
+export type TrackListGroupMenu = (run: GroupedRun) => ContextMenuItem[]

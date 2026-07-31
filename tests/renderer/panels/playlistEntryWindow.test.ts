@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createPlaylistEntryWindow } from '../../../src/renderer/panels/playlistEntryWindow'
-import type { Track } from '../../../src/shared/library'
+import type { Track, TrackGroup } from '../../../src/shared/library'
 import type {
   ListPlaylistEntriesQuery,
   ListPlaylistEntriesResult,
+  ListPlaylistEntryGroupsResult,
   ListPlaylistEntryIdsQuery,
   ListPlaylistEntryIdsResult,
-  PlaylistEntry
+  PlaylistEntry,
+  PlaylistEntryOrder
 } from '../../../src/shared/playlists'
 
 /**
@@ -54,14 +56,18 @@ interface Source {
   fetchIdPage: (query: ListPlaylistEntryIdsQuery) => Promise<ListPlaylistEntryIdsResult>
   pageRequests: () => number
   idRequests: () => number
+  /** Every ordering the window has asked for, page queries and id queries alike. */
+  orders: () => Array<PlaylistEntryOrder | undefined>
 }
 
 function source(total: number): Source {
   let pageRequests = 0
   let idRequests = 0
+  const orders: Array<PlaylistEntryOrder | undefined> = []
   return {
     fetchPage: (query) => {
       pageRequests += 1
+      orders.push(query.order)
       const entries: PlaylistEntry[] = []
       for (let index = query.offset; index < Math.min(total, query.offset + query.limit); index++) {
         entries.push(entry(index))
@@ -70,6 +76,7 @@ function source(total: number): Source {
     },
     fetchIdPage: (query) => {
       idRequests += 1
+      orders.push(query.order)
       const ids: number[] = []
       for (let index = query.offset; index < Math.min(total, query.offset + query.limit); index++) {
         ids.push(entry(index).id)
@@ -77,8 +84,23 @@ function source(total: number): Source {
       return Promise.resolve({ ids, total })
     },
     pageRequests: () => pageRequests,
-    idRequests: () => idRequests
+    idRequests: () => idRequests,
+    orders: () => orders
   }
+}
+
+/** Two albums, so a run table has something to say. */
+function albumGroups(total: number): ListPlaylistEntryGroupsResult {
+  const first = Math.ceil(total / 2)
+  const run = (albumId: number, title: string, trackCount: number): TrackGroup => ({
+    albumId,
+    title,
+    albumArtist: 'Artist',
+    year: null,
+    trackCount,
+    artwork: { small: 'fermata://artwork/missing/small', large: 'fermata://artwork/missing/large' }
+  })
+  return { groups: [run(1, 'A', first), run(2, 'B', total - first)], total }
 }
 
 /** Lets every queued page settle. Two ticks: `loadPage` awaits once, then writes. */
@@ -220,11 +242,11 @@ describe('playlist entry window', () => {
   it('has no sort column, because position is the truth here', () => {
     const window = createPlaylistEntryWindow(source(10))
 
-    // `null` is what tells `TrackList` its headers are inert. A pane that could
-    // re-sort the view would be offering an order the store cannot express and a
-    // reorder drag could not be interpreted against.
+    // `null` is what tells `TrackList` its headers are inert, and it stays null
+    // under album ordering: that view is chosen from the grouping preference,
+    // not by clicking a column, and position remains the truth underneath.
     expect(window.sort).toBeNull()
-    expect(window.groups).toEqual([])
+    expect(window.groups.value).toEqual([])
     expect('setSort' in window).toBe(false)
   })
 
@@ -234,6 +256,162 @@ describe('playlist entry window', () => {
     expect(window.scrollKey.value).toBe('playlist:none')
     window.setPlaylist(12)
     expect(window.scrollKey.value).toBe('playlist:12')
+  })
+
+  it('sends the ordering on every read, so a range resolves against the rows on screen', async () => {
+    const rows = source(500)
+    const window = createPlaylistEntryWindow({
+      ...rows,
+      pageSize: 100,
+      idPageSize: 200,
+      fetchGroups: () => Promise.resolve(albumGroups(500))
+    })
+
+    window.setPlaylist(7)
+    await settle()
+    // Absent while it is the default, so a position read looks as it always did.
+    expect(rows.orders().every((order) => order === undefined)).toBe(true)
+
+    window.setOrder('album')
+    await settle()
+    window.ensureRange(0, 99)
+    await settle()
+    await window.selectAt(0, 'replace')
+    await window.selectAt(150, 'range')
+    await window.resolveSelection()
+
+    // Rows, the ids behind the Shift-range and the ordering walk: one list, or
+    // the selection is of rows the operator is not looking at.
+    const afterSwitch = rows.orders().slice(rows.orders().indexOf('album'))
+    expect(afterSwitch.every((order) => order === 'album')).toBe(true)
+    expect(afterSwitch.length).toBeGreaterThan(2)
+  })
+
+  it('asks for album runs only under album ordering', async () => {
+    const rows = source(40)
+    const fetchGroups = vi.fn().mockResolvedValue(albumGroups(40))
+    const window = createPlaylistEntryWindow({ ...rows, pageSize: 100, fetchGroups })
+
+    window.setPlaylist(7)
+    await settle()
+    // A playlist in its stored sequence has no contiguous runs to describe, so
+    // asking would be a query per reload for headers nobody draws.
+    expect(fetchGroups).not.toHaveBeenCalled()
+    expect(window.groups.value).toEqual([])
+
+    window.setOrder('album')
+    await settle()
+    expect(fetchGroups).toHaveBeenCalledTimes(1)
+    expect(window.groups.value.map((group) => group.title)).toEqual(['A', 'B'])
+
+    window.setOrder('position')
+    await settle()
+    expect(window.groups.value).toEqual([])
+  })
+
+  it('re-reads the runs after an edit, since an added track can start a new one', async () => {
+    const rows = source(40)
+    const fetchGroups = vi.fn().mockResolvedValue(albumGroups(40))
+    const window = createPlaylistEntryWindow({ ...rows, pageSize: 100, fetchGroups })
+
+    window.setPlaylist(7)
+    window.setOrder('album')
+    await settle()
+    expect(fetchGroups).toHaveBeenCalledTimes(1)
+
+    window.reload()
+    await settle()
+    expect(fetchGroups).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps which entries are selected when the ordering changes, and drops the indices', async () => {
+    const rows = source(200)
+    const window = createPlaylistEntryWindow({
+      ...rows,
+      pageSize: 100,
+      fetchGroups: () => Promise.resolve(albumGroups(200))
+    })
+
+    window.setPlaylist(7)
+    await settle()
+    await window.selectAt(2, 'replace')
+    await window.selectAt(4, 'toggle')
+
+    // Re-sorting the view moves every row, exactly as an edit does. The operator
+    // picked those two entries and a change of view is not a reason to unpick
+    // them — but the positions they were picked at mean nothing now.
+    window.setOrder('album')
+    expect(window.focusIndex.value).toBeNull()
+    expect(window.anchorIndex.value).toBeNull()
+
+    // Asserted before the reload settles, on purpose: indices are re-derived
+    // from whatever the new pages hold, and this fixture serves the same rows
+    // whichever order is asked for. Membership is the part that has to survive.
+    await settle()
+    expect(window.selectionCount.value).toBe(2)
+    await expect(window.resolveSelection()).resolves.toEqual([entry(2).id, entry(4).id])
+  })
+
+  it('falls back to no runs when the group read fails', async () => {
+    const rows = source(40)
+    const window = createPlaylistEntryWindow({
+      ...rows,
+      pageSize: 100,
+      fetchGroups: vi.fn().mockRejectedValue(new Error('gone'))
+    })
+
+    window.setPlaylist(7)
+    window.setOrder('album')
+    await settle()
+
+    // An ungrouped list is always a correct rendering of the rows; a stale run
+    // table is not, and `TrackList` sizes its virtualizer from it.
+    expect(window.groups.value).toEqual([])
+    expect(window.error.value).toBeNull()
+  })
+
+  it('resolves an album run by its span, without disturbing the selection', async () => {
+    const rows = source(200)
+    const window = createPlaylistEntryWindow({
+      ...rows,
+      pageSize: 100,
+      idPageSize: 200,
+      fetchGroups: () => Promise.resolve(albumGroups(200))
+    })
+
+    window.setPlaylist(7)
+    await settle()
+    await window.selectAt(3, 'replace')
+
+    // A run is a contiguous span, so both readers take it directly rather than
+    // going anywhere near what happens to be ticked.
+    await expect(window.idsInRange(10, 13)).resolves.toEqual([
+      entry(10).id,
+      entry(11).id,
+      entry(12).id,
+      entry(13).id
+    ])
+    await expect(window.tracksInRange(10, 12)).resolves.toEqual([
+      entry(10).track,
+      entry(11).track,
+      entry(12).track
+    ])
+
+    // The whole point of resolving by span: the operator's selection is theirs.
+    expect(window.selectionCount.value).toBe(1)
+    await expect(window.resolveSelection()).resolves.toEqual([entry(3).id])
+  })
+
+  it('stops a span read at the end of the playlist rather than inventing rows', async () => {
+    const rows = source(12)
+    const window = createPlaylistEntryWindow({ ...rows, pageSize: 5, idPageSize: 5 })
+
+    window.setPlaylist(7)
+    await settle()
+
+    await expect(window.tracksInRange(10, 40)).resolves.toHaveLength(2)
+    await expect(window.idsInRange(10, 40)).resolves.toEqual([entry(10).id, entry(11).id])
+    await expect(window.tracksInRange(4, 3)).resolves.toEqual([])
   })
 
   it('reports a failed read rather than blanking rows that loaded', async () => {

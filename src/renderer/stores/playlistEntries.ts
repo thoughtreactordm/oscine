@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { watch } from 'vue'
 import { FermataError, playlists as ipc } from '@renderer/ipc'
 import { createPlaylistEntryWindow } from '@renderer/panels/playlistEntryWindow'
+import { useTrackGroupingStore } from '@renderer/stores/grouping'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import type { PlaylistInsertion } from '@shared/playlists'
 
@@ -26,12 +27,35 @@ import type { PlaylistInsertion } from '@shared/playlists'
 export const usePlaylistEntriesStore = defineStore('playlistEntries', () => {
   const playlists = usePlaylistsStore()
 
+  const grouping = useTrackGroupingStore()
+
   const panel = createPlaylistEntryWindow({
     fetchPage: (query) => ipc.listEntries(query),
-    fetchIdPage: (query) => ipc.listEntryIds(query)
+    fetchIdPage: (query) => ipc.listEntryIds(query),
+    fetchGroups: (query) => ipc.listEntryGroups(query)
   })
 
   watch(() => playlists.viewedPlaylistId, panel.setPlaylist, { immediate: true })
+
+  /**
+   * One preference, both lists.
+   *
+   * The operator asked for album headers in a playlist the same way they ask
+   * for them in the song list, so it is the same switch — `GroupChooser` sits
+   * in both headers and writes one stored value. A second preference would let
+   * the two disagree about what "grouped" means and give the chooser two
+   * meanings depending on which pane it was rendered in.
+   *
+   * Grouping a playlist necessarily re-sorts it, which grouping the song list
+   * does not: the library is already album-major when the headers appear, and a
+   * playlist is in whatever order it was authored. That is the trade the pane
+   * makes explicit by disabling its reorder drag while this is on.
+   */
+  watch(
+    () => grouping.enabled,
+    (enabled) => panel.setOrder(enabled ? 'album' : 'position'),
+    { immediate: true }
+  )
 
   /**
    * Re-reads when *someone* edited the playlist on screen.
