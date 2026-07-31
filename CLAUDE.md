@@ -33,6 +33,7 @@ W5 Playlists & Queue, W6 Packaging & Ops.
 | Test | `npm test` (Vitest) · `npm run test:watch` |
 | Typecheck | `npm run typecheck` (`tsc` for node, `vue-tsc` for web) |
 | Build | `npm run build` (typechecks first) |
+| Package | `npm run dist:win` (NSIS) · `npm run dist:linux` (AppImage + deb) · `npm run dist` for the host platform · `npm run pack` for an unpacked tree, no installer |
 | Native ABI check | `npm run verify:native` |
 | Seed test library | `npm run seed:synthetic` |
 | Mixed-format fixture | `npm run probe:fixture` (needs ffmpeg) |
@@ -45,6 +46,13 @@ W5 Playlists & Queue, W6 Packaging & Ops.
 formatting and ESLint owns everything else — `eslint-config-prettier` is last in the flat config so
 the two never argue. Markdown and `.kleron/` are outside Prettier's reach on purpose; prose here is
 hand-wrapped.
+
+Packaging targets live in `electron-builder.yml`; the `dist:*` scripts only choose a platform.
+**Each platform packages itself** — there is no cross-building. Both sharp and node-web-audio-api
+resolve their prebuilt addon from a platform-specific package that only `npm install` on that
+platform puts in the tree, so `dist:win` run from Linux produces an installer whose artwork and
+ReplayGain paths cannot load. That is what the CI matrix is for. Artifacts land in `release/`,
+which is gitignored.
 
 `fermata/no-windows-path-literals` (`tools/eslint/`) enforces the path invariant below across
 `src/`: no backslash separators, no hand-rolled path concatenation. It is off under `tests/`, where

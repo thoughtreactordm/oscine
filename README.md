@@ -39,6 +39,16 @@ npm run typecheck  # both the Node and the web project
 
 Requires Node 20 or newer.
 
+## Packaging
+
+```bash
+npm run dist:linux  # AppImage + deb into release/
+npm run dist:win    # NSIS installer into release/
+```
+
+Run each on its own platform — the native dependencies resolve platform-specific prebuilt addons
+that are only installed there, so cross-building yields a broken app rather than a build error.
+
 ## Layout
 
 ```

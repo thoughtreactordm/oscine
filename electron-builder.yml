@@ -3,15 +3,36 @@ productName: Fermata
 directories:
   output: release
   buildResources: build
+# electron-builder always adds the production `dependencies` closure on top of
+# whatever is listed here, so the only packages in node_modules are the three
+# native ones plus music-metadata. Everything the renderer uses — Vue, Nuxt UI
+# and its Tailwind/esbuild/lightningcss toolchain — is a devDependency, because
+# Vite bundles it into out/renderer and shipping the build tools as well put
+# ~60 MB of esbuild and lightningcss inside the AppImage.
 files:
   - out/**
   - '!**/*.map'
+  # Build-time only: the SQLite amalgamation and the addon's C++ sources are
+  # what a source build consumes. We never source-build (see npmRebuild below).
+  - '!node_modules/better-sqlite3/deps/**'
+  - '!node_modules/better-sqlite3/src/**'
+  # D10 has no macOS target, so no build ever needs the darwin prebuilds.
+  - '!node_modules/better-sqlite3/prebuilds/darwin-*'
+  - '!node_modules/node-web-audio-api/*.darwin-*.node'
 
 # D10: Windows and Linux are both first-class. No macOS target — that is a
 # deliberate scope decision, not an omission.
+#
+# The per-platform `files` blocks drop the other platform's prebuilds. These are
+# not micro-optimisations: node-web-audio-api ships seven prebuilt addons at
+# ~5 MB each and better-sqlite3 eight more, so an untrimmed build carries about
+# 50 MB of binaries it can never load.
 win:
   target:
     - nsis
+  files:
+    - '!node_modules/better-sqlite3/prebuilds/linux*'
+    - '!node_modules/node-web-audio-api/*.linux-*.node'
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -21,6 +42,9 @@ linux:
   target:
     - AppImage
     - deb
+  files:
+    - '!node_modules/better-sqlite3/prebuilds/win32*'
+    - '!node_modules/node-web-audio-api/*.win32-*.node'
   # W3-10. The desktop entry is how the shell resolves the MPRIS client we
   # publish into an application identity — without it GNOME/KDE show the media
   # widget with a generic name and no icon.
@@ -37,5 +61,23 @@ linux:
 
 # better-sqlite3 arrives in W2-1 and is native: it must be unpacked from the
 # asar to be loadable at runtime.
+#
+# sharp is the trap. Its own binary is a `.node` and matches the glob, but the
+# libvips it dlopens is `@img/sharp-libvips-<platform>/lib/libvips-cpp.so.*` — a
+# plain shared object that the glob misses, and dlopen cannot read through an
+# asar. Unpacking the whole of `@img` and `sharp` is what sharp's own packaging
+# guidance asks for; without it artwork extraction fails only in a packaged
+# build, which is the worst place to find out.
 asarUnpack:
   - '**/*.node'
+  - '**/node_modules/sharp/**'
+  - '**/node_modules/@img/**'
+
+# All three native dependencies — better-sqlite3, sharp, node-web-audio-api —
+# ship N-API prebuilds, which are ABI-stable across Node and Electron. That is
+# why `verify:native` passes without a rebuild step. Letting electron-builder
+# run @electron/rebuild here would replace those prebuilds with node-gyp builds
+# against Electron's headers, and the next `npm test` — running under system
+# Node — would fail to load better-sqlite3. Revisit only if a dependency without
+# N-API prebuilds is added.
+npmRebuild: false
