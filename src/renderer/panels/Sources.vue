@@ -1,44 +1,39 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { FermataError, library } from '@renderer/ipc'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { library } from '@renderer/ipc'
 import { measureLibraryQuery } from '@renderer/metrics'
-import CoverArt from '@renderer/panels/CoverArt.vue'
 import FacetList from '@renderer/panels/FacetList.vue'
 import { createFacetWindow } from '@renderer/panels/facetWindow'
-import { useShellStore } from '@renderer/stores/shell'
+import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
+import { useTrackListStore } from '@renderer/stores/trackList'
 import {
   MAX_SEARCH_LENGTH,
   MIN_SEARCH_LENGTH,
   type AlbumFacet,
   type ArtistFacet,
-  type LibraryBrowseFilters,
-  type LibraryRoot,
-  type ScanProgress
+  type LibraryBrowseFilters
 } from '@shared/library'
-
-const emit = defineEmits<{
-  filtersChange: [filters: LibraryBrowseFilters]
-  libraryChange: []
-}>()
 
 const ARTIST_ROW_HEIGHT = 32
 const ALBUM_ROW_HEIGHT = 44
 const SEARCH_DELAY_MS = 250
 
 /**
- * Read-only here. The cover pane is toggled from the transport's thumbnail, and
- * this panel does nothing with the flag but give the pane somewhere to land.
+ * The Library tab's sidebar contents, mounted by the frame above its cover pane.
+ *
+ * It used to be the sidebar itself, and to hand its predicate up to a parent
+ * that owned the song list. It has no parent now — the sidebar and the body are
+ * sibling routed views — so the predicate goes to the store the song list reads,
+ * which is the same message travelling a different way. The folder list and the
+ * scan belong to the frame, because the title bar can start a scan from any tab.
  */
-const shell = useShellStore()
+const roots = useLibraryRootsStore()
+const trackList = useTrackListStore()
 
-const roots = ref<LibraryRoot[]>([])
 const rootId = ref<number | null>(null)
 const searchInput = ref('')
 const activeSearch = ref<string | null>(null)
 const searchPending = ref(false)
-const adding = ref(false)
-const scan = ref<ScanProgress | null>(null)
-const notice = ref<string | null>(null)
 
 const artists = createFacetWindow<ArtistFacet>({
   dimension: 'artistIds',
@@ -79,7 +74,7 @@ const currentFilters = computed<LibraryBrowseFilters>(() => ({
 
 const rootItems = computed(() => [
   { label: 'All folders', value: 0 },
-  ...roots.value.map((root) => ({
+  ...roots.roots.map((root) => ({
     label: `${root.path} (${root.trackCount.toLocaleString()})`,
     value: root.id
   }))
@@ -129,15 +124,22 @@ watch(
 watch(
   currentFilters,
   (filters) => {
-    emit('filtersChange', { ...filters })
+    trackList.setFilters({ ...filters })
     performance.mark('fermata:library:browse-change')
   },
   { immediate: true }
 )
 
+/**
+ * A finished scan has moved the rows underneath both panes. The counter says so;
+ * what to do about it is each list's own business, and this is the facets'.
+ */
+watch(
+  () => roots.version,
+  () => reloadFacets()
+)
+
 let searchTimer: ReturnType<typeof setTimeout> | null = null
-let stopScan: (() => void) | null = null
-let stopNotice: (() => void) | null = null
 
 function searchableText(value: string): string | null {
   const trimmed = value.trim()
@@ -161,65 +163,18 @@ const searchHelp = computed(() =>
     : undefined
 )
 
-async function refreshRoots(): Promise<void> {
-  try {
-    roots.value = await library.listRoots()
-  } catch {
-    notice.value = 'Could not read library folders.'
-  }
-}
-
-async function addFolder(): Promise<void> {
-  adding.value = true
-  notice.value = null
-  try {
-    const root = await library.addRoot()
-    if (root) await refreshRoots()
-  } catch (cause) {
-    notice.value = cause instanceof FermataError ? cause.message : 'That folder could not be added.'
-  } finally {
-    adding.value = false
-  }
-}
-
-defineExpose({ addFolder })
-
 function reloadFacets(): void {
   artists.reload()
   albums.reload()
 }
 
-onMounted(async () => {
-  stopScan = library.onScanProgress((progress) => {
-    scan.value = progress.done ? null : progress
-    if (progress.done) {
-      void refreshRoots()
-      reloadFacets()
-      emit('libraryChange')
-    }
-  })
-  stopNotice = library.onNotice((finding) => {
-    notice.value = finding.message
-    void refreshRoots()
-  })
-  await refreshRoots()
-})
-
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)
-  stopScan?.()
-  stopNotice?.()
 })
 </script>
 
 <template>
-  <UCard
-    as="aside"
-    variant="soft"
-    class="h-full min-h-0 overflow-hidden rounded-none ring-0"
-    :ui="{ body: 'flex h-full min-h-0 flex-col p-0 sm:p-0' }"
-    aria-label="Library sources"
-  >
+  <section class="flex h-full min-h-0 flex-col" aria-label="Library sources">
     <div class="space-y-2 border-b border-default bg-elevated/40 p-2">
       <div class="flex items-center gap-2">
         <UIcon name="i-tabler-library" class="size-5 text-primary" />
@@ -230,9 +185,9 @@ onUnmounted(() => {
           size="xs"
           color="neutral"
           variant="ghost"
-          :loading="adding"
+          :loading="roots.adding"
           aria-label="Add library folder"
-          @click="addFolder"
+          @click="roots.addFolder()"
         />
       </div>
 
@@ -261,20 +216,20 @@ onUnmounted(() => {
     </div>
 
     <UAlert
-      v-if="notice"
+      v-if="roots.notice"
       color="warning"
       variant="subtle"
       icon="i-tabler-alert-triangle"
-      :description="notice"
+      :description="roots.notice"
       class="rounded-none"
     />
 
-    <div v-if="scan" class="space-y-2 border-b border-default px-3 py-2" role="status">
+    <div v-if="roots.scan" class="space-y-2 border-b border-default px-3 py-2" role="status">
       <UProgress animation="carousel" size="2xs" />
       <p class="text-xs text-muted">
-        {{ scan.filesSeen }} found · {{ scan.tracksIndexed }} indexed
+        {{ roots.scan.filesSeen }} found · {{ roots.scan.tracksIndexed }} indexed
       </p>
-      <p class="truncate text-xs text-muted">{{ scan.currentFile ?? 'Reading folders…' }}</p>
+      <p class="truncate text-xs text-muted">{{ roots.scan.currentFile ?? 'Reading folders…' }}</p>
     </div>
 
     <section class="flex min-h-0 flex-1 basis-0 flex-col border-b border-default">
@@ -394,53 +349,5 @@ onUnmounted(() => {
         class="min-h-0 flex-1"
       />
     </section>
-
-    <!--
-      Pinned to the foot of the sidebar, below both facet panes, which keeps the
-      two lists in the same place whether or not the cover is showing. The slot
-      is only a mount point and a collapse animation — everything about what is
-      drawn belongs to `CoverArt`.
-    -->
-    <Transition name="coverSlot">
-      <div v-if="shell.coverExpanded" class="cover-slot shrink-0">
-        <div class="cover-slot-inner">
-          <CoverArt />
-        </div>
-      </div>
-    </Transition>
-  </UCard>
+  </section>
 </template>
-
-<style scoped>
-/*
- * `0fr` → `1fr` rather than a height transition: the pane's height depends on
- * the sidebar's width, so there is no pixel value to animate to that would
- * still be right after a resize. The grid row is the measurement.
- */
-.cover-slot {
-  display: grid;
-  grid-template-rows: 1fr;
-}
-
-.cover-slot-inner {
-  min-height: 0;
-  overflow: hidden;
-}
-
-.coverSlot-enter-active,
-.coverSlot-leave-active {
-  transition: grid-template-rows 260ms ease;
-}
-
-.coverSlot-enter-from,
-.coverSlot-leave-to {
-  grid-template-rows: 0fr;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .coverSlot-enter-active,
-  .coverSlot-leave-active {
-    transition-duration: 0ms;
-  }
-}
-</style>

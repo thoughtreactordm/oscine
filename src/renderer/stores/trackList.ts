@@ -4,6 +4,7 @@ import { library } from '@renderer/ipc'
 import { measureLibraryQuery } from '@renderer/metrics'
 import { createTrackWindow } from '@renderer/panels/trackWindow'
 import { useTrackGroupingStore } from '@renderer/stores/grouping'
+import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 
 /**
  * Panel state for the track list: sort column, direction, selection, and the
@@ -17,6 +18,7 @@ import { useTrackGroupingStore } from '@renderer/stores/grouping'
  */
 export const useTrackListStore = defineStore('trackList', () => {
   const grouping = useTrackGroupingStore()
+  const roots = useLibraryRootsStore()
 
   const panel = createTrackWindow({
     fetchPage: (query) => measureLibraryQuery('tracks-query', () => library.listTracks(query)),
@@ -38,6 +40,11 @@ export const useTrackListStore = defineStore('trackList', () => {
   // Switching grouping back on has to fetch what was skipped, but the rows have
   // not moved, so this refreshes the runs rather than reloading the list.
   watch(() => grouping.enabled, panel.refreshGroups)
+
+  // A finished scan has moved the rows themselves. Watched here rather than
+  // signalled by the sidebar, because a scan started from the title bar has to
+  // reach the list whichever tab was showing when it finished.
+  watch(() => roots.version, panel.reload)
 
   return panel
 })

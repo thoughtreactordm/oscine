@@ -2,12 +2,15 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { windowControls } from '@renderer/ipc'
+import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { usePlaybackStore } from '@renderer/stores/playback'
 
-const emit = defineEmits<{
-  addFolder: []
-}>()
-
+/**
+ * The menu reaches the stores directly rather than emitting to a parent. The
+ * bar outlives every tab now, so there is no parent that could still be holding
+ * the panel an "Add music folder…" would have been forwarded to.
+ */
+const roots = useLibraryRootsStore()
 const playback = usePlaybackStore()
 const maximized = ref(false)
 let stopMaximizedListener: (() => void) | null = null
@@ -16,7 +19,7 @@ const libraryItems: DropdownMenuItem[] = [
   {
     label: 'Add music folder…',
     icon: 'i-tabler-folder-plus',
-    onSelect: () => emit('addFolder')
+    onSelect: () => void roots.addFolder()
   }
 ]
 
