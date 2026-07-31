@@ -2,7 +2,10 @@ import type { Component } from 'vue'
 import type { RouteRecordRaw } from 'vue-router'
 import AppShell from '@renderer/shell/AppShell.vue'
 import Sources from '@renderer/panels/Sources.vue'
+import CurateSidebar from '@renderer/views/CurateSidebar.vue'
+import CurateView from '@renderer/views/CurateView.vue'
 import LibraryView from '@renderer/views/LibraryView.vue'
+import StageView from '@renderer/views/StageView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -46,6 +49,21 @@ const TABS: ShellTab[] = [
     icon: 'i-tabler-library',
     view: LibraryView,
     sidebar: Sources
+  },
+  {
+    name: 'curate',
+    path: 'curate',
+    label: 'Curate',
+    icon: 'i-tabler-sparkles',
+    view: CurateView,
+    sidebar: CurateSidebar
+  },
+  {
+    name: 'now-playing',
+    path: 'now-playing',
+    label: 'Now Playing',
+    icon: 'i-tabler-disc',
+    view: StageView
   }
 ]
 
