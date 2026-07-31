@@ -61,6 +61,7 @@ function harness(options: { chunkSize?: number; missing?: number[] } = {}) {
       enqueue: queue.enqueue,
       enqueueNext: queue.enqueueNext,
       remove: queue.remove,
+      clearUser: queue.clearUser,
       clear: queue.clear,
       play: (entryId) => {
         played.push(entryId)

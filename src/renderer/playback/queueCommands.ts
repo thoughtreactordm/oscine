@@ -45,6 +45,8 @@ export interface QueueCommandsQueue {
   enqueue: (tracks: readonly Track[]) => unknown
   enqueueNext: (tracks: readonly Track[]) => unknown
   remove: (entryId: string) => unknown
+  /** Clears the hand-queued rows only. See `clearUser` below. */
+  clearUser: () => unknown
   clear: () => unknown
   /** Plays a queued entry now, out of turn (§5 rule 1's shift). */
   play: (entryId: string) => void | Promise<void>
@@ -103,6 +105,16 @@ export function createQueueCommands(deps: QueueCommandsDeps) {
     /** Appends, after everything already queued. */
     addToQueue: (target: QueueTarget): Promise<number> => add(target, false),
     remove: (entryId: string): void => void deps.queue.remove(entryId),
+    /**
+     * Clears what the operator put there, and only that.
+     *
+     * The verb the up-next surface actually offers, because the session tier is
+     * not the operator's to lose: it is a view of the scope that is playing, it
+     * comes back on the next click, and a "Clear" that wiped three hundred rows
+     * nobody chose would be a button that undoes nothing it did.
+     */
+    clearUser: (): void => void deps.queue.clearUser(),
+    /** Both tiers. The surface offers `clearUser`; this is for a full reset. */
     clear: (): void => void deps.queue.clear(),
     /** Jump-to-entry: plays it now and takes only it out of the queue. */
     jumpTo: (entryId: string): Promise<void> => Promise.resolve(deps.queue.play(entryId))
@@ -114,12 +126,22 @@ export type QueueCommands = ReturnType<typeof createQueueCommands>
 /**
  * How a verb names what it is about to do.
  *
- * Here rather than in the two components that build menus, so that "Play next"
- * and "Play 4,312 tracks next" cannot drift apart between the library and the
- * playlist pane — and so that W7-2 gets the same wording without copying it.
+ * Here rather than in the components that build menus, so that "Play next" and
+ * "Play 4,312 tracks next" cannot drift apart between the library, the playlist
+ * pane and the sidebar — and so that W7-2 gets the same wording without copying
+ * it.
+ *
+ * `unit` is what the operator selected rather than what will be queued: the
+ * facet panes hold artists and albums, and how many *tracks* three artists come
+ * to is a query away and not what the menu should be waiting on. Already plural;
+ * `count` of one never uses it.
  */
-export function queueCommandLabel(verb: 'playNext' | 'addToQueue', count: number): string {
-  const many = count > 1 ? `${count.toLocaleString()} tracks` : null
+export function queueCommandLabel(
+  verb: 'playNext' | 'addToQueue',
+  count: number,
+  unit = 'tracks'
+): string {
+  const many = count > 1 ? `${count.toLocaleString()} ${unit}` : null
   if (verb === 'playNext') return many === null ? 'Play next' : `Play ${many} next`
   return many === null ? 'Add to queue' : `Add ${many} to queue`
 }

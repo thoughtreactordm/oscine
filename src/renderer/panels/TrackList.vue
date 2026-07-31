@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { TableColumn, TableRow } from '@nuxt/ui'
 import {
   isSortableColumn,
@@ -21,6 +21,7 @@ import type {
 } from '@renderer/panels/trackListSource'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
 import { useTrackGroupingStore } from '@renderer/stores/grouping'
+import { useShellStore } from '@renderer/stores/shell'
 import type { Track } from '@shared/library'
 
 /**
@@ -69,6 +70,7 @@ const emit = defineEmits<{
 
 const columns = useTrackColumnsStore()
 const grouping = useTrackGroupingStore()
+const shell = useShellStore()
 const ROW_HEIGHT = 32
 const OVERSCAN = 8
 /** Pixels an arrow key moves a column edge. Shift narrows it to one. */
@@ -215,7 +217,22 @@ const tableMeta = computed(() => ({
 
 const table = ref<{ $el?: HTMLElement } | null>(null)
 const scrollTop = ref(0)
-const scrollPositions = new Map<string, number>()
+
+/**
+ * Where this list was left, held outside the component.
+ *
+ * It was a `Map` here until the tab row became the router, which made it scroll
+ * memory with a component's lifetime: the map went out of scope with the mount,
+ * so every tab change sent the user back to row zero of a 100k list — and the
+ * one thing worth remembering about a list that long is where they were in it.
+ * The store keeps it for the session, keyed the same way and bounded, because
+ * the keys are browse predicates and there is no ceiling on how many of those
+ * an afternoon produces.
+ *
+ * Read once here rather than on mount: the restore below is an `immediate`
+ * watcher, which runs during setup, before `onMounted` would have claimed it.
+ */
+let pendingScroll: number | null = shell.recallScroll(props.source.scrollKey) || null
 
 /**
  * Grouped when the ordering is album-major and the runs describe this list.
@@ -636,11 +653,44 @@ function restoreScroll(top: number): void {
 watch(
   () => props.source.scrollKey,
   async (next, previous) => {
-    scrollPositions.set(previous, tableElement()?.scrollTop ?? scrollTop.value)
+    shell.rememberScroll(previous, tableElement()?.scrollTop ?? scrollTop.value)
+    pendingScroll = null
     await nextTick()
-    restoreScroll(scrollPositions.get(next) ?? 0)
+    restoreScroll(shell.recallScroll(next))
   }
 )
+
+/**
+ * The remembered offset, applied on the first render that has somewhere to go.
+ *
+ * Not on mount: the list's total is still zero then, so the virtualizer's
+ * scroll height is too and a `scrollTop` written into it is discarded without a
+ * sound. This waits for the first page instead, and only fires once.
+ *
+ * A user who scrolled during that gap has said where they want to be more
+ * recently than the last session did, so a container already off zero is left
+ * alone.
+ */
+watch(
+  () => props.source.total,
+  async (total) => {
+    if (pendingScroll === null || total <= 0) return
+    const top = pendingScroll
+    pendingScroll = null
+    await nextTick()
+    if ((tableElement()?.scrollTop ?? 0) > 0) return
+    restoreScroll(top)
+  },
+  { immediate: true }
+)
+
+/**
+ * Handing the offset back on the way out, because there is no scroll event for
+ * "unmounted": the container is gone by the time anything could ask it.
+ */
+onUnmounted(() => {
+  shell.rememberScroll(props.source.scrollKey, tableElement()?.scrollTop ?? scrollTop.value)
+})
 
 // Changing the visible columns rebuilds the table, which resets the scroll
 // container. Showing a column should not also send the user back to row zero.
@@ -650,7 +700,13 @@ watch(layoutKey, async () => {
   restoreScroll(previous)
 })
 
-watch([() => props.source.sort, () => props.source.direction], () => restoreScroll(0))
+// A re-sort has moved every row, so the offset means nothing now — including a
+// remembered one that has not been applied yet, which would otherwise land on
+// top of the reset a moment later.
+watch([() => props.source.sort, () => props.source.direction], () => {
+  pendingScroll = null
+  restoreScroll(0)
+})
 
 onMounted(() => props.source.ensureRange(0, 30))
 </script>

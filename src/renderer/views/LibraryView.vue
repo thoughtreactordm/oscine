@@ -12,10 +12,10 @@ import {
   queueRows,
   type QueueTarget
 } from '@renderer/playback/queueCommands'
+import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
-import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { useTrackListStore } from '@renderer/stores/trackList'
 import type { Track } from '@shared/library'
 
@@ -30,8 +30,8 @@ import type { Track } from '@shared/library'
 const trackList = useTrackListStore()
 const columns = useTrackColumnsStore()
 const playback = usePlaybackStore()
-const playlists = usePlaylistsStore()
 const queue = useQueueCommandsStore()
+const addToPlaylist = useAddToPlaylistStore()
 
 /**
  * The ordering, shown only when its column is not.
@@ -104,13 +104,17 @@ const drag: TrackListDrag = {
  * menu and the playlist pane's cannot drift — and so W7-2's deck pane inherits
  * them rather than restating them.
  *
+ * The playlist half is now the same import the sidebar's facet menus use, which
+ * is what carries "New playlist…" here without this view knowing there is a
+ * modal. It used to build its own submenu, and the disabled "No playlists yet"
+ * it ended at for an empty library is exactly what that item replaces.
+ *
  * A single loaded row is handed over as a *row*, a multi-select as ids. The
  * queue holds display snapshots, and the list resolves a selection through main
  * precisely so it never has to keep the rows for one.
  */
 const menu: TrackListMenu = (index): ContextMenuItem[] => {
   const count = rowCount(index)
-  const label = count === 1 ? 'Add to playlist' : `Add ${count.toLocaleString()} tracks to playlist`
   return [
     {
       label: queueCommandLabel('playNext', count),
@@ -123,17 +127,9 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
       onSelect: () => void targetFor(index).then(queue.addToQueue)
     },
     { type: 'separator' },
-    {
-      label,
-      icon: 'i-tabler-playlist-add',
-      children:
-        playlists.list.length === 0
-          ? [{ label: 'No playlists yet', disabled: true }]
-          : playlists.list.map((playlist) => ({
-              label: playlist.name,
-              onSelect: () => void addToPlaylist(playlist.id, index)
-            }))
-    }
+    // No suggested name: a track selection has nothing to call itself, and the
+    // one row case would suggest a song title for a playlist.
+    addToPlaylist.menuItem({ count, trackIds: trackIdsFor(index) })
   ]
 }
 
@@ -148,10 +144,6 @@ async function targetFor(index: number): Promise<QueueTarget> {
   if (trackList.isSelectedAt(index)) return queueIds(await trackList.resolveSelection())
   const track = trackList.rowAt(index)
   return queueRows(track ? [track] : [])
-}
-
-async function addToPlaylist(playlistId: number, index: number): Promise<void> {
-  await playlists.addTracks(playlistId, await trackIdsFor(index)())
 }
 </script>
 

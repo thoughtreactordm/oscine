@@ -25,6 +25,7 @@ export const useQueueCommandsStore = defineStore('queueCommands', () => {
       enqueue: (tracks) => playback.enqueue(tracks),
       enqueueNext: (tracks) => playback.enqueueNext(tracks),
       remove: (entryId) => playback.removeQueued(entryId),
+      clearUser: () => playback.clearUserQueue(),
       clear: () => playback.clearQueue(),
       play: (entryId) => playback.playQueued(entryId)
     }

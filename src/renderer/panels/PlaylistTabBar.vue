@@ -1,16 +1,26 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
-import { createPlaylistTabs, PLAYLIST_NAME_MAX_LENGTH } from '@renderer/panels/playlistTabs'
+import {
+  createPlaylistTabs,
+  DISCOVER_TAB,
+  PLAYLIST_NAME_MAX_LENGTH,
+  type TabStop
+} from '@renderer/panels/playlistTabs'
 import type { DropSide } from '@renderer/panels/playlistReorder'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 
 /**
- * D5's backbone, made visible: the playlists that are *open*.
+ * D5's backbone, made visible: Discover, then the playlists that are *open*.
  *
  * It used to draw every playlist, which made its close button a delete — there
  * was nowhere for a closed playlist to go. `PlaylistRail` is that somewhere now,
  * so this strip opens nothing, deletes nothing, and closing a tab is free.
+ *
+ * Discover is a fixture rather than a tab that happens to always be there. It
+ * carries no close button, no rename, no drag handle and no track count, and it
+ * is `DISCOVER_TAB` — `null` — everywhere the other tabs are an id, which is
+ * what keeps every destructive verb in this file unable to name it.
  *
  * Two states are drawn, and they are drawn *differently* on purpose. The viewed
  * tab is the one whose surface lifts out of the strip; the playing tab is the
@@ -49,14 +59,15 @@ const model = createPlaylistTabs({
   }
 })
 
-const tabEls = new Map<number, HTMLElement>()
+const tabEls = new Map<TabStop, HTMLElement>()
 const renameInput = ref<HTMLInputElement | null>(null)
 
 // Function refs rather than named ones: both of these live inside the `v-for`,
-// where a string ref collects into an array whose order is not the bar's.
-function registerTab(playlistId: number, el: unknown): void {
-  if (el instanceof HTMLElement) tabEls.set(playlistId, el)
-  else tabEls.delete(playlistId)
+// where a string ref collects into an array whose order is not the bar's. The
+// fixture registers through the same map so focus can reach it by the same path.
+function registerTab(stop: TabStop, el: unknown): void {
+  if (el instanceof HTMLElement) tabEls.set(stop, el)
+  else tabEls.delete(stop)
 }
 
 function registerRenameInput(el: unknown): void {
@@ -71,9 +82,7 @@ function registerRenameInput(el: unknown): void {
  */
 async function focusViewed(): Promise<void> {
   await nextTick()
-  const id = playlists.viewedPlaylistId
-  if (id === null) return
-  const el = tabEls.get(id)
+  const el = tabEls.get(playlists.viewedPlaylistId)
   el?.focus()
   el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 }
@@ -136,6 +145,36 @@ onMounted(() => {
         aria-orientation="horizontal"
         @keydown="onKeydown"
       >
+        <!--
+          The fixture. Same surface treatment as a viewed playlist tab so the
+          strip reads as one row of tabs, and deliberately none of the affordances
+          — no close, no dblclick rename, no `draggable`, no drop handlers. It is
+          not draggable in the other direction either: a playlist dragged over it
+          finds no `dragover` listener, so the fixture cannot be displaced from
+          the left end.
+        -->
+        <div
+          :ref="(el) => registerTab(DISCOVER_TAB, el)"
+          role="tab"
+          :aria-selected="model.discoverViewed.value"
+          :tabindex="model.discoverViewed.value ? 0 : -1"
+          class="relative flex shrink-0 cursor-default items-center gap-1.5 border-r border-default px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+          :class="
+            model.discoverViewed.value
+              ? 'bg-default text-highlighted shadow-[inset_0_-2px_0_0_var(--ui-primary)]'
+              : 'text-muted hover:bg-elevated/70 hover:text-default'
+          "
+          @click="model.select(DISCOVER_TAB)"
+        >
+          <UIcon
+            name="i-tabler-compass"
+            class="size-3.5 shrink-0"
+            :class="model.discoverViewed.value ? 'text-primary' : ''"
+            aria-hidden="true"
+          />
+          <span>Discover</span>
+        </div>
+
         <div
           v-for="tab in model.tabs.value"
           :key="tab.id"

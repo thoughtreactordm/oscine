@@ -1,17 +1,24 @@
 <script setup lang="ts">
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { shellTabs } from '@renderer/shell/routes'
+import { useShellStore } from '@renderer/stores/shell'
 
 /**
  * The tab row, between the title bar and everything that changes.
  *
  * Buttons rather than links: these are panes of one application window, not
  * pages, and `aria-current="page"` on an anchor would claim a navigation that
- * the user never made. The router is still what holds the state — the route is
- * the tab — so the position survives a reload and can be deep-linked.
+ * the user never made. The router is still what the row *pushes* to — the route
+ * is what survives a reload and what a deep link addresses — but what it reads
+ * back is `shell.activeTab`, which the frame mirrors from the route.
+ *
+ * One direction each way, deliberately. A row that both wrote and read the
+ * router would be the second place in the shell that decides which tab is
+ * current, and the transition direction already has to be computed from one
+ * ordered sequence of tab changes rather than from two.
  */
-const route = useRoute()
 const router = useRouter()
+const shell = useShellStore()
 </script>
 
 <template>
@@ -26,10 +33,10 @@ const router = useRouter()
       :label="tab.label"
       size="xs"
       variant="ghost"
-      :color="route.name === tab.name ? 'primary' : 'neutral'"
+      :color="shell.activeTab === tab.name ? 'primary' : 'neutral'"
       class="h-full rounded-none border-b-2 px-3 text-xs"
-      :class="route.name === tab.name ? 'border-primary' : 'border-transparent'"
-      :aria-pressed="route.name === tab.name"
+      :class="shell.activeTab === tab.name ? 'border-primary' : 'border-transparent'"
+      :aria-pressed="shell.activeTab === tab.name"
       @click="router.push({ name: tab.name })"
     />
   </nav>

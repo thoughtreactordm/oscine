@@ -101,6 +101,90 @@ describe('the up-next queue', () => {
       expect(ids(queue.entries.value)).toEqual([1, 2, 3])
     })
 
+    it('keeps the user tier above the session tier however it is filled', () => {
+      const queue = createUpNextQueue()
+      queue.fillSession([
+        { track: track(10), orderIndex: 1 },
+        { track: track(11), orderIndex: 2 }
+      ])
+      queue.enqueue([track(1)])
+      queue.enqueue([track(2)])
+      queue.enqueueNext([track(3)])
+
+      // Play-next at the absolute head; add-to-queue at the tail of the *user*
+      // tier, which is what stops an append meaning "in four hours".
+      expect(ids(queue.entries.value)).toEqual([3, 1, 2, 10, 11])
+      expect(ids(queue.userEntries.value)).toEqual([3, 1, 2])
+      expect(ids(queue.sessionEntries.value)).toEqual([10, 11])
+      expect(queue.userCount.value).toBe(3)
+      expect(queue.sessionCount.value).toBe(2)
+    })
+
+    it('replaces the session tier wholesale and leaves the user tier alone', () => {
+      const queue = createUpNextQueue()
+      const hand = queue.enqueue([track(1), track(2)])
+      queue.fillSession([{ track: track(10), orderIndex: 1 }])
+
+      queue.fillSession([
+        { track: track(20), orderIndex: 5 },
+        { track: track(21), orderIndex: 6 }
+      ])
+
+      expect(queue.userEntries.value).toEqual(hand)
+      expect(ids(queue.sessionEntries.value)).toEqual([20, 21])
+
+      queue.clearSession()
+      expect(queue.entries.value).toEqual(hand)
+    })
+
+    it('carries an order index on a session row and none on a hand-queued one', () => {
+      const queue = createUpNextQueue()
+      const [hand] = queue.enqueue([track(1)])
+      const [session] = queue.fillSession([{ track: track(10), orderIndex: 7 }])
+
+      expect(hand?.origin).toBe('user')
+      expect(hand?.orderIndex).toBeNull()
+      expect(session?.origin).toBe('session')
+      expect(session?.orderIndex).toBe(7)
+    })
+
+    it('clamps a move into the mover own tier rather than into the queue', () => {
+      // The invariant is the queue's to keep, not its callers': a drag that
+      // dropped a hand-queued row under the session tier would silently mean
+      // "in four hours".
+      const queue = createUpNextQueue()
+      const hand = queue.enqueue([track(1), track(2)])
+      const session = queue.fillSession([
+        { track: track(10), orderIndex: 1 },
+        { track: track(11), orderIndex: 2 }
+      ])
+
+      expect(queue.move(hand[0]?.id ?? '', 99)).toBe(true)
+      expect(ids(queue.entries.value)).toEqual([2, 1, 10, 11])
+
+      expect(queue.move(session[1]?.id ?? '', 0)).toBe(true)
+      expect(ids(queue.entries.value)).toEqual([2, 1, 11, 10])
+    })
+
+    it('takes the session rows above a jump and only the row itself for a user jump', () => {
+      const queue = createUpNextQueue()
+      queue.enqueue([track(1), track(2)])
+      const session = queue.fillSession([
+        { track: track(10), orderIndex: 1 },
+        { track: track(11), orderIndex: 2 },
+        { track: track(12), orderIndex: 3 }
+      ])
+
+      // A session row is an order row: everything above it is behind the
+      // operator now. The user tier is above the session tier and is not.
+      queue.takeThrough(session[1]?.id ?? '')
+      expect(ids(queue.entries.value)).toEqual([1, 2, 12])
+
+      // A user row destroys nothing but itself — W5-5's decision, unchanged.
+      queue.takeThrough(queue.entries.value[1]?.id ?? '')
+      expect(ids(queue.entries.value)).toEqual([1, 12])
+    })
+
     it('reports an edit that changed nothing as no edit', () => {
       const onChange = vi.fn()
       const queue = createUpNextQueue({ onChange })
@@ -154,7 +238,7 @@ describe('the up-next queue', () => {
       const first = successorOf({ from, head: queue.head(), total: 10 })
       expect(first).toEqual({
         kind: 'queue',
-        position: { index: 4, queueEntryId: queued?.id },
+        position: { index: 4, queueEntryId: queued?.id, queueOrigin: 'user' },
         entry: queued
       })
 
@@ -171,14 +255,16 @@ describe('the up-next queue', () => {
       const queue = createUpNextQueue()
       const [a, b] = queue.enqueue([track(70), track(71)])
 
-      // Playing row 4, two entries queued. Both inherit position 4 — the queue
-      // is a detour, and a detour does not move the place it was taken from.
+      // Playing row 4, two entries queued by hand. Both inherit position 4 — a
+      // *user* entry is a detour, and a detour does not move the place it was
+      // taken from. The session tier is the half of the amendment that does;
+      // see "a session entry carries its own order index" below.
       const first = successorOf({ from: orderPosition(4), head: queue.head(), total: 10 })
-      expect(first?.position).toEqual({ index: 4, queueEntryId: a?.id })
+      expect(first?.position).toEqual({ index: 4, queueEntryId: a?.id, queueOrigin: 'user' })
 
       queue.take(a?.id ?? '')
       const second = successorOf({ from: first?.position ?? orderPosition(4), head: queue.head() })
-      expect(second?.position).toEqual({ index: 4, queueEntryId: b?.id })
+      expect(second?.position).toEqual({ index: 4, queueEntryId: b?.id, queueOrigin: 'user' })
 
       queue.take(b?.id ?? '')
       const third = successorOf({ from: second?.position ?? orderPosition(4), head: queue.head() })
@@ -198,13 +284,57 @@ describe('the up-next queue', () => {
       // pure function of the queue, and the position is an argument the queue
       // is never handed. Rule 1 asks about `from` afterwards and gets the same
       // anchor back.
+      //
+      // Rule 2 as amended narrows to this tier: "only the user tier is
+      // queueing". Filling the session tier is part of *starting* playback,
+      // which moves the position by definition — see the session-tier tests.
       expect(successorOf({ from, head: queue.head() })?.position.index).toBe(4)
 
       // The playlist half is structural rather than behavioural: a queue row
-      // has no field that could name a playlist to change. If a fourth key
-      // ever appears here, rules 2 and 4 both need rereading.
+      // has no field that could name a playlist to change. If a sixth key ever
+      // appears here, rules 2 and 4 both need rereading — `origin` and
+      // `orderIndex` arrived with the amendment and name a tier and an order
+      // position, neither of which is a playlist.
       const [entry] = queue.enqueue([track(9)])
-      expect(Object.keys(entry ?? {}).sort()).toEqual(['id', 'track', 'trackId'])
+      expect(Object.keys(entry ?? {}).sort()).toEqual([
+        'id',
+        'orderIndex',
+        'origin',
+        'track',
+        'trackId'
+      ])
+    })
+
+    it('rule 1 as amended: a session entry carries its own order index, and a drained cap resumes after it', () => {
+      // The second consequence of the amendment, and the one that is a real bug
+      // rather than a nicety: a session tier holding the scope's rows 1..N
+      // against an anchor still at 0 replays the scope from its second track
+      // the moment it drains.
+      const queue = createUpNextQueue()
+      const session = queue.fillSession([
+        { track: track(10), orderIndex: 1 },
+        { track: track(11), orderIndex: 2 },
+        { track: track(12), orderIndex: 3 }
+      ])
+      let from = orderPosition(0)
+
+      for (const expected of [1, 2, 3]) {
+        const successor = successorOf({ from, head: queue.head(), total: 100 })
+        expect(successor?.position).toEqual({
+          index: expected,
+          queueEntryId: session[expected - 1]?.id,
+          queueOrigin: 'session'
+        })
+        queue.take(session[expected - 1]?.id ?? '')
+        from = successor?.position ?? from
+      }
+
+      // Row 4, not row 1. The anchor travelled with the tier, so a session
+      // truncated by the cap is correct rather than merely truncated.
+      expect(successorOf({ from, head: queue.head(), total: 100 })).toEqual({
+        kind: 'order',
+        position: orderPosition(4)
+      })
     })
 
     it('rule 3: the queue survives playing from another playlist', () => {

@@ -6,6 +6,7 @@ import TrackList from '@renderer/panels/TrackList.vue'
 import { activeRowDrag, beginRowDrag, endRowDrag } from '@renderer/panels/trackDrag'
 import type { TrackListDrag, TrackListMenu } from '@renderer/panels/trackListSource'
 import { queueCommandLabel, queueRows, type QueueTarget } from '@renderer/playback/queueCommands'
+import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { usePlaylistEntriesStore } from '@renderer/stores/playlistEntries'
@@ -31,6 +32,7 @@ const playlists = usePlaylistsStore()
 const entries = usePlaylistEntriesStore()
 const playback = usePlaybackStore()
 const queue = useQueueCommandsStore()
+const addToPlaylist = useAddToPlaylistStore()
 
 const model = createPlaylistContents({
   playlistId: () => entries.playlistId,
@@ -98,6 +100,11 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
       onSelect: () => void targetFor(index).then(queue.addToQueue)
     },
     { type: 'separator' },
+    // Copying entries out into another playlist, including a new one. By track
+    // id and never by entry id, for the same reason the queue verbs above are:
+    // an entry belongs to the playlist it is in, and a copy of it does not.
+    addToPlaylist.menuItem({ count, trackIds: () => trackIdsFor(index) }),
+    { type: 'separator' },
     {
       label: many
         ? `Remove ${selectionSize.value.toLocaleString()} entries`
@@ -141,6 +148,12 @@ async function targetFor(index: number): Promise<QueueTarget> {
     return queueRows(track ? [track] : [])
   }
   return queueRows(await entries.resolveSelectedTracks())
+}
+
+/** The same rows, as ids — what a playlist stores. */
+async function trackIdsFor(index: number): Promise<readonly number[]> {
+  const target = await targetFor(index)
+  return target.kind === 'rows' ? target.tracks.map((track) => track.id) : target.trackIds
 }
 
 function playAt(index: number): void {

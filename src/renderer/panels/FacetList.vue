@@ -1,5 +1,6 @@
 <script setup lang="ts" generic="T extends { id: number }">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { ContextMenuItem } from '@nuxt/ui'
 import { selectionIntent } from '@renderer/panels/indexedSelection'
 import type { FacetWindow } from '@renderer/panels/facetWindow'
 
@@ -27,6 +28,14 @@ const props = defineProps<{
   label: string
   /** Rows rendered beyond the viewport, absorbing fast scrolls. */
   overscan?: number
+  /**
+   * The row menu, built per right-click from the index under the pointer.
+   *
+   * A prop and not a fixture, for the reason the whole component is generic: the
+   * pane knows it holds rows at indices and nothing about what an artist or an
+   * album *is*, and the verbs are entirely about that. `Sources` supplies both.
+   */
+  menu?: (index: number) => ContextMenuItem[]
 }>()
 
 const emit = defineEmits<{
@@ -120,11 +129,47 @@ function scrollIndexIntoView(index: number): void {
 }
 
 function onRowPointerDown(index: number, event: MouseEvent): void {
+  // The primary button only. A real right-click fires `mousedown` with
+  // `button: 2` *before* `contextmenu`, and treating that as an ordinary click
+  // resolved it to a `replace` — so opening a menu on nine selected artists
+  // threw eight of them away on the way to drawing it. What a right-click does
+  // to the selection is `onRowContextmenu`'s decision, below, and only its.
+  if (event.button !== 0) return
   // Selection commits on pointer-down, matching every other list the user has
   // used: waiting for the click means a Shift-drag starts from the wrong row.
   const intent = selectionIntent(event)
   void props.model.select(index, intent)
 }
+
+/**
+ * Right-click. The row under the pointer joins the selection unless it is
+ * already in it, which is what makes "act on the selection" and "act on this
+ * row" one verb — the same rule the track list follows, and the reason a
+ * right-click on the seventh of nine ticked artists does not throw the other
+ * eight away.
+ *
+ * The claim exists because the viewport sees the same event bubbling up and
+ * cannot otherwise tell a row from the empty space below the last one, which
+ * would offer the previous row's verbs for a click on nothing. Propagation
+ * cannot be stopped instead: the menu itself opens from a handler further up.
+ */
+const menuIndex = ref<number | null>(null)
+let claimedContextmenu: Event | null = null
+
+function onRowContextmenu(index: number, event: Event): void {
+  if (props.menu === undefined) return
+  claimedContextmenu = event
+  if (!props.model.isSelectedAt(index)) void props.model.select(index, 'replace')
+  menuIndex.value = index
+}
+
+function onViewportContextmenu(event: Event): void {
+  if (event !== claimedContextmenu) menuIndex.value = null
+}
+
+const menuItems = computed(() =>
+  props.menu === undefined || menuIndex.value === null ? [] : props.menu(menuIndex.value)
+)
 
 function onRowDoubleClick(index: number, event: MouseEvent): void {
   // A modified double-click is a selection gesture, not an activation:
@@ -167,39 +212,48 @@ function onKeydown(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <div
-    ref="viewport"
-    role="listbox"
-    aria-multiselectable="true"
-    :aria-label="label"
-    tabindex="0"
-    class="min-h-0 flex-1 select-none overflow-y-auto overscroll-contain outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-    @scroll.passive="measure"
-    @keydown="onKeydown"
-  >
-    <!-- The spacer carries the full height so the scrollbar describes the whole
-         facet, not the handful of rows currently mounted. -->
-    <div class="relative w-full" :style="{ height: `${model.total.value * rowHeight}px` }">
-      <div
-        v-for="row in rows"
-        :key="row.item ? `facet:${row.item.id}` : `index:${row.index}`"
-        role="option"
-        :aria-selected="model.isSelectedAt(row.index)"
-        class="absolute inset-x-0 flex items-center gap-2 px-2 text-sm"
-        :class="{
-          'bg-primary/15': model.isSelectedAt(row.index),
-          'ring-1 ring-inset ring-primary/70': model.focusIndex.value === row.index,
-          'hover:bg-elevated/70': !model.isSelectedAt(row.index),
-          'text-dimmed': !row.item
-        }"
-        :style="{ top: `${row.index * rowHeight}px`, height: `${rowHeight}px` }"
-        @mousedown="onRowPointerDown(row.index, $event)"
-        @dblclick="onRowDoubleClick(row.index, $event)"
-      >
-        <slot name="row" :item="row.item" :index="row.index">
-          <span class="truncate">{{ row.item ? '' : 'Loading…' }}</span>
-        </slot>
+  <!--
+    `as-child`, so this adds no element: the trigger's handler is merged onto the
+    viewport below rather than wrapping it, which is what keeps the pane's flex
+    sizing exactly as it was before there was a menu.
+  -->
+  <UContextMenu :items="menuItems" :disabled="menu === undefined" :ui="{ content: 'w-60' }">
+    <div
+      ref="viewport"
+      role="listbox"
+      aria-multiselectable="true"
+      :aria-label="label"
+      tabindex="0"
+      class="min-h-0 flex-1 select-none overflow-y-auto overscroll-contain outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+      @scroll.passive="measure"
+      @keydown="onKeydown"
+      @contextmenu="onViewportContextmenu"
+    >
+      <!-- The spacer carries the full height so the scrollbar describes the whole
+           facet, not the handful of rows currently mounted. -->
+      <div class="relative w-full" :style="{ height: `${model.total.value * rowHeight}px` }">
+        <div
+          v-for="row in rows"
+          :key="row.item ? `facet:${row.item.id}` : `index:${row.index}`"
+          role="option"
+          :aria-selected="model.isSelectedAt(row.index)"
+          class="absolute inset-x-0 flex items-center gap-2 px-2 text-sm"
+          :class="{
+            'bg-primary/15': model.isSelectedAt(row.index),
+            'ring-1 ring-inset ring-primary/70': model.focusIndex.value === row.index,
+            'hover:bg-elevated/70': !model.isSelectedAt(row.index),
+            'text-dimmed': !row.item
+          }"
+          :style="{ top: `${row.index * rowHeight}px`, height: `${rowHeight}px` }"
+          @mousedown="onRowPointerDown(row.index, $event)"
+          @dblclick="onRowDoubleClick(row.index, $event)"
+          @contextmenu="onRowContextmenu(row.index, $event)"
+        >
+          <slot name="row" :item="row.item" :index="row.index">
+            <span class="truncate">{{ row.item ? '' : 'Loading…' }}</span>
+          </slot>
+        </div>
       </div>
     </div>
-  </div>
+  </UContextMenu>
 </template>

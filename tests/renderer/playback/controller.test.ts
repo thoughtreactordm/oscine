@@ -13,7 +13,14 @@ import {
   type PlaybackStatus,
   type SampleAccurateTime
 } from '../../../src/renderer/audio/AudioEngine'
-import type { ListTracksQuery, ListTracksResult, Track } from '../../../src/shared/library'
+import type {
+  GetTracksByIdsQuery,
+  ListTrackIdsQuery,
+  ListTrackIdsResult,
+  ListTracksQuery,
+  ListTracksResult,
+  Track
+} from '../../../src/shared/library'
 import type {
   ListPlaylistEntriesQuery,
   ListPlaylistEntriesResult
@@ -170,6 +177,15 @@ function harness(
     storage?: PlaybackControllerDeps['storage']
     createShuffleSeed?: PlaybackControllerDeps['createShuffleSeed']
     crossfadeMs?: number
+    /** Shrinks the session fill so the past-the-cap behaviour is reachable. */
+    sessionCap?: number
+    /**
+     * Parks the session fill's first read forever.
+     *
+     * The only honest way to prove the fill is off the click path: if playback
+     * waited on it, `playFromList` would simply never resolve.
+     */
+    stallSessionFill?: boolean
   } = {}
 ) {
   const total = options.total ?? 10
@@ -186,6 +202,27 @@ function harness(
     ),
     total
   }))
+
+  /**
+   * The session tier's two verbs, over the same fixture `fetchPage` serves: the
+   * row at library position `n` is `track(n)`, so its id is `n` too. That is
+   * what lets a test say "the session tier holds positions 1..N" by naming
+   * track ids.
+   */
+  const fetchTrackIds = vi.fn(async (query: ListTrackIdsQuery): Promise<ListTrackIdsResult> => {
+    if (options.stallSessionFill) return new Promise<ListTrackIdsResult>(() => {})
+    return {
+      ids: Array.from(
+        { length: Math.max(0, Math.min(query.limit, total - query.offset)) },
+        (_, i) => query.offset + i
+      ),
+      total
+    }
+  })
+
+  const fetchTracksByIds = vi.fn(async (query: GetTracksByIdsQuery): Promise<Track[]> =>
+    query.ids.filter((id) => id < total).map(track)
+  )
 
   /** Answers any window over one playlist, whichever playlist is asked for. */
   const fetchPlaylistEntries = vi.fn(
@@ -209,13 +246,24 @@ function harness(
     },
     fetchPage,
     fetchPlaylistEntries,
+    fetchTrackIds,
+    fetchTracksByIds,
     ...(options.createMediaSession ? { createMediaSession: options.createMediaSession } : {}),
     ...(options.storage ? { storage: options.storage } : {}),
     ...(options.crossfadeMs === undefined ? {} : { crossfadeMs: options.crossfadeMs }),
+    ...(options.sessionCap === undefined ? {} : { sessionQueueCap: options.sessionCap }),
     // Fixed by default, so a shuffled traversal is something a test can name.
     createShuffleSeed: options.createShuffleSeed ?? ((): number => 1234)
   })
-  return { controller, engine: engines[0], engines, fetchPage, fetchPlaylistEntries }
+  return {
+    controller,
+    engine: engines[0],
+    engines,
+    fetchPage,
+    fetchPlaylistEntries,
+    fetchTrackIds,
+    fetchTracksByIds
+  }
 }
 
 /** Lets every already-queued microtask run. */
@@ -654,7 +702,13 @@ describe('createPlaybackController', () => {
         index: 1,
         track: track(1)
       })
-      broken.fetchPage.mockRejectedValueOnce(new Error('ipc down'))
+      await settle()
+      // The successor has to come from the *order* for a lookup to be able to
+      // fail at all: with the session tier standing, rule 1 answers from the
+      // queue and never asks. Draining it puts the order back in the path.
+      broken.controller.clearQueue()
+      await settle()
+      broken.fetchPage.mockRejectedValue(new Error('ipc down'))
 
       await broken.controller.next()
 
@@ -999,9 +1053,15 @@ describe('createPlaybackController', () => {
 
       expect(h.engine.loaded).toEqual([PLAYLIST_TRACK_BASE + 3])
       expect(h.controller.orderIndex.value).toBe(3)
-      // As with the list: the row was handed over, so the only lookup is the
-      // decode-ahead row.
-      expect(h.fetchPlaylistEntries).toHaveBeenCalledTimes(1)
+      // As with the list: the row was handed over, so nothing looked it up.
+      // Stated as "not this window" rather than as a call count, because the
+      // session fill reads the same playlist for its own reasons and is not
+      // the lookup this is about.
+      expect(h.fetchPlaylistEntries).not.toHaveBeenCalledWith({
+        playlistId: 7,
+        offset: 3,
+        limit: 1
+      })
       expect(h.fetchPlaylistEntries).toHaveBeenCalledWith({ playlistId: 7, offset: 4, limit: 1 })
     })
 
@@ -1258,15 +1318,32 @@ describe('createPlaybackController', () => {
    * controller quietly clears a queue the rules say survives.
    */
   describe('the up-next queue (§5)', () => {
-    const queuedIds = (controller: ReturnType<typeof harness>['controller']): number[] =>
+    type Controller = ReturnType<typeof harness>['controller']
+
+    const queuedIds = (controller: Controller): number[] =>
       controller.queuedEntries.value.map((entry) => entry.trackId)
+
+    /**
+     * The tiers, separately — which is what most of the seven rules are about
+     * since the 2026-07-31 amendment. Rules 2, 3 and 6 all narrowed to the
+     * *user* tier, because the session tier is filled by starting playback
+     * rather than by queueing, and is replaced by it rather than surviving it.
+     */
+    const userIds = (controller: Controller): number[] =>
+      controller.queuedUserEntries.value.map((entry) => entry.trackId)
+
+    const sessionIds = (controller: Controller): number[] =>
+      controller.queuedSessionEntries.value.map((entry) => entry.trackId)
 
     it('rule 1: decode-ahead warms the queue head, not the playing playlist next entry', async () => {
       const h = harness({ playlistTotal: 4 })
       await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
       await settle()
-      // Nothing queued yet, so the playlist's second entry is the successor.
-      expect(h.engines[1].loaded).toEqual([PLAYLIST_TRACK_BASE + 1])
+      // Nothing hand-queued yet. The successor is the playlist's second entry
+      // either way — since the amendment it arrives as the session tier's head
+      // rather than as a bare order row, which is a change of identity and not
+      // of which track gets warmed.
+      expect(h.controller.prefetchedTrackId.value).toBe(PLAYLIST_TRACK_BASE + 1)
 
       h.controller.enqueue([track(42)])
       await settle()
@@ -1274,7 +1351,7 @@ describe('createPlaybackController', () => {
       // The boundary that was already armed is re-decided rather than left
       // pointing at the row the queue has just displaced. Warming the wrong
       // track is not merely a wrong answer — it spends R1's budget to get it.
-      expect(h.engines[1].loaded).toEqual([PLAYLIST_TRACK_BASE + 1, 42])
+      expect(h.engines[1].loaded.at(-1)).toBe(42)
       expect(h.controller.prefetchedTrackId.value).toBe(42)
       expect(h.controller.prefetchStatus.value).toBe('ready')
     })
@@ -1303,17 +1380,19 @@ describe('createPlaybackController', () => {
 
       await h.controller.next()
       expect(h.controller.nowPlaying.value?.id).toBe(42)
-      expect(h.controller.queuedCount.value).toBe(0)
-      // §5 rule 2's other half: the detour did not move the position.
+      expect(h.controller.queuedUserCount.value).toBe(0)
+      // §5 rule 2's other half: the *user* detour did not move the position.
       expect(h.controller.orderIndex.value).toBe(0)
       expect(h.controller.playingQueueEntryId.value).not.toBeNull()
 
       await h.controller.next()
-      // Entry 1, not entry 2: the queue is a detour, and traversal resumes
-      // after the row it was taken from rather than after itself.
+      // Entry 1, not entry 2: a user entry is a detour, and traversal resumes
+      // after the row it was taken from rather than after itself. Since the
+      // amendment that row reaches the transport as the session tier's head,
+      // so the position it names is the same and its identity is not.
       expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 1)
       expect(h.controller.orderIndex.value).toBe(1)
-      expect(h.controller.playingQueueEntryId.value).toBeNull()
+      expect(sessionIds(h.controller)).toEqual([PLAYLIST_TRACK_BASE + 2, PLAYLIST_TRACK_BASE + 3])
     })
 
     it('rule 1: two fast presses take two entries rather than the same one twice', async () => {
@@ -1326,7 +1405,7 @@ describe('createPlaybackController', () => {
       // adopts is chosen inside an await the first press has not left yet.
       await Promise.all([h.controller.next(), h.controller.next()])
 
-      expect(h.controller.queuedCount.value).toBe(0)
+      expect(h.controller.queuedUserCount.value).toBe(0)
       expect(h.controller.nowPlaying.value?.id).toBe(43)
     })
 
@@ -1341,7 +1420,7 @@ describe('createPlaybackController', () => {
       await settle()
 
       expect(h.controller.nowPlaying.value?.id).toBe(42)
-      expect(h.controller.queuedCount.value).toBe(0)
+      expect(h.controller.queuedUserCount.value).toBe(0)
       expect(h.controller.orderIndex.value).toBe(0)
     })
 
@@ -1389,12 +1468,17 @@ describe('createPlaybackController', () => {
 
       await h.controller.playFromPlaylist({ playlistId: 9, index: 1, crossfadeMs: 0 })
       expect(h.controller.playingPlaylistId.value).toBe(9)
-      expect(queuedIds(h.controller)).toEqual([42, 43])
+      // The *user* tier, which is what rule 3 narrowed to in the amendment.
+      // The session tier is replaced by a new session rather than surviving it.
+      expect(userIds(h.controller)).toEqual([42, 43])
 
       // Nor does going back to the library, nor stopping outright.
       await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
-      expect(queuedIds(h.controller)).toEqual([42, 43])
+      expect(userIds(h.controller)).toEqual([42, 43])
       h.controller.stop()
+      await settle()
+      // Stopping ends a traversal, so the session tier ends with it — and the
+      // hand-queued rows are all that is left, which is the whole queue again.
       expect(queuedIds(h.controller)).toEqual([42, 43])
     })
 
@@ -1407,7 +1491,7 @@ describe('createPlaybackController', () => {
       await settle()
 
       h.controller.playlistDeleted(9)
-      expect(queuedIds(h.controller)).toEqual([42, 43])
+      expect(userIds(h.controller)).toEqual([42, 43])
       // A deletion of any other playlist is not playback's business.
       expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE)
 
@@ -1425,7 +1509,7 @@ describe('createPlaybackController', () => {
       before.controller.enqueue([track(42), track(43)])
       before.controller.setRepeatMode('all')
       await settle()
-      expect(before.controller.queuedCount.value).toBe(2)
+      expect(before.controller.queuedUserCount.value).toBe(2)
 
       // Shuffle and repeat are settings and do survive; the queue is a
       // statement about the next few minutes and deliberately does not.
@@ -1437,25 +1521,37 @@ describe('createPlaybackController', () => {
       expect(after.controller.queuedEntries.value).toEqual([])
     })
 
-    it('rule 6: shuffle reorders the playing playlist and never the queue', async () => {
+    it('rule 6: shuffle reorders the playing playlist and never the user tier', async () => {
       const h = harness({ playlistTotal: 6 })
       await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
       h.controller.enqueue([track(42), track(43), track(44)])
       await settle()
-      const entries = h.controller.queuedEntries.value
+      const entries = [...h.controller.queuedUserEntries.value]
+      const linearSession = sessionIds(h.controller)
 
       await h.controller.setShuffle(true)
       await settle()
 
-      // The order was permuted — and the queue was not so much as touched.
+      // The order was permuted — and the user tier was not so much as touched.
+      // Byte-identical, not merely equal by track id: a refill that happened to
+      // mint the same tracks would pass the weaker assertion.
       expect(h.controller.orderId()).toBe('shuffle:1234:0:playlist:7')
-      expect(h.controller.queuedEntries.value).toEqual(entries)
-      expect(queuedIds(h.controller)).toEqual([42, 43, 44])
+      expect(h.controller.queuedUserEntries.value).toEqual(entries)
+      expect(userIds(h.controller)).toEqual([42, 43, 44])
       // The head is still what plays next, whatever the permutation says.
       expect(h.controller.prefetchedTrackId.value).toBe(42)
 
+      // The session tier is the half rule 6 gained in the amendment: it claims
+      // to describe what is actually going to play, so a reshuffle refills it
+      // rather than leaving it showing an order that will not happen.
+      const shuffledSession = sessionIds(h.controller)
+      expect(shuffledSession).not.toEqual(linearSession)
+      expect([...shuffledSession].sort()).toEqual([...linearSession].sort())
+
       await h.controller.setShuffle(false)
-      expect(queuedIds(h.controller)).toEqual([42, 43, 44])
+      await settle()
+      expect(userIds(h.controller)).toEqual([42, 43, 44])
+      expect(sessionIds(h.controller)).toEqual(linearSession)
     })
 
     it('rule 7: repeat-one overrides the queue at a boundary, and repeat-all wraps while the queue still wins', async () => {
@@ -1471,12 +1567,12 @@ describe('createPlaybackController', () => {
       h.engine.emit('ended', { trackId: PLAYLIST_TRACK_BASE })
       await settle()
       expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE)
-      expect(queuedIds(h.controller)).toEqual([42])
+      expect(userIds(h.controller)).toEqual([42])
 
       // Pressing Next under repeat-one moves on, and moving on means the queue.
       await h.controller.next()
       expect(h.controller.nowPlaying.value?.id).toBe(42)
-      expect(h.controller.queuedCount.value).toBe(0)
+      expect(h.controller.queuedUserCount.value).toBe(0)
 
       // Repeat-all wraps the playing playlist at its last row — but the queue
       // takes priority over the wrap for as long as it has anything to say.
@@ -1503,8 +1599,10 @@ describe('createPlaybackController', () => {
 
       expect(h.controller.nowPlaying.value?.id).toBe(43)
       // Only the row that was played leaves. §5 does not choose between this
-      // and dropping everything above it, so this destroys nothing.
-      expect(queuedIds(h.controller)).toEqual([42, 44])
+      // and dropping everything above it, so this destroys nothing. That is
+      // the *user* tier's reading and it survives the amendment; a session
+      // entry takes the rows above it with it, which is tested separately.
+      expect(userIds(h.controller)).toEqual([42, 44])
       expect(h.controller.orderIndex.value).toBe(0)
     })
 
@@ -1520,6 +1618,236 @@ describe('createPlaybackController', () => {
 
       expect(h.controller.queuedCount.value).toBe(0)
       expect(h.controller.prefetchedTrackId.value).toBe(PLAYLIST_TRACK_BASE + 1)
+    })
+  })
+
+  /**
+   * The session tier — §5 amendment of 2026-07-31.
+   *
+   * The scope has always bounded traversal; what these prove is that it is now
+   * also *visible*, that making it visible did not change what plays, and that
+   * the two tiers keep the guarantees rule 3 was written for.
+   */
+  describe('the session-primed queue (§5 amendment)', () => {
+    type Controller = ReturnType<typeof harness>['controller']
+
+    const userIds = (controller: Controller): number[] =>
+      controller.queuedUserEntries.value.map((entry) => entry.trackId)
+
+    const sessionIds = (controller: Controller): number[] =>
+      controller.queuedSessionEntries.value.map((entry) => entry.trackId)
+
+    it('fills the up-next surface with the scoped rows behind the clicked one', async () => {
+      const h = harness({ total: 6 })
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        filters: { artistIds: [3, 7, 11] },
+        index: 1,
+        track: track(1)
+      })
+      await settle()
+
+      // Rows 2..5 of the scope, in the visible sort — the tracks that were
+      // always going to play and previously had nowhere to be seen.
+      expect(sessionIds(h.controller)).toEqual([2, 3, 4, 5])
+      expect(userIds(h.controller)).toEqual([])
+
+      // The scope reached the fill, not just the order: a session tier read
+      // without the filters would be the whole library rather than the facet.
+      expect(h.fetchTrackIds.mock.calls[0]?.[0]).toMatchObject({
+        artistIds: [3, 7, 11],
+        sort: 'artist',
+        direction: 'asc'
+      })
+    })
+
+    it('plays through the session tier exactly as the order alone did', async () => {
+      // The equivalence that says this card changed the surface and not the
+      // music. Same fixture, same clicks, and the sequence of audible tracks
+      // has to match what traversal produced before the tier existed.
+      const h = harness({ total: 5 })
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      await settle()
+
+      const heard = [h.controller.nowPlaying.value?.id]
+      for (let step = 0; step < 4; step += 1) {
+        await h.controller.next()
+        heard.push(h.controller.nowPlaying.value?.id)
+      }
+
+      expect(heard).toEqual([0, 1, 2, 3, 4])
+      // And the anchor tracked the rows rather than staying pinned to the
+      // click, which is what the order index means for a session entry.
+      expect(h.controller.orderIndex.value).toBe(4)
+      expect(sessionIds(h.controller)).toEqual([])
+    })
+
+    it('resumes after the last materialized row when a capped session drains', async () => {
+      // The bug the anchor rule exists to prevent, and it is invisible under
+      // any scope smaller than the cap: a session tier holding rows 1..N
+      // against an anchor still at 0 replays the scope from its second track
+      // the moment it drains. Driven with a tiny cap rather than 5,000 rows.
+      const h = harness({ total: 40, sessionCap: 3 })
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      await settle()
+      expect(sessionIds(h.controller)).toEqual([1, 2, 3])
+
+      for (let step = 0; step < 3; step += 1) await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe(3)
+      expect(h.controller.queuedCount.value).toBe(0)
+
+      // Track 4, not track 1. The tier drained and traversal picked up after
+      // the last row it had materialized.
+      await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe(4)
+      expect(h.controller.orderIndex.value).toBe(4)
+    })
+
+    it('leaves hand-queued tracks standing above a new session', async () => {
+      // Rule 3 as amended, and the failure the two-tier split exists to
+      // prevent: queue five tracks, click a library row, lose them.
+      const h = harness({ total: 6 })
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      await settle()
+      const hand = h.controller.enqueue([track(90), track(91), track(92), track(93), track(94)])
+      await settle()
+
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await settle()
+
+      expect(h.controller.queuedUserEntries.value).toEqual(hand)
+      expect(userIds(h.controller)).toEqual([90, 91, 92, 93, 94])
+      // The session tier was replaced rather than appended to — it describes
+      // the session that just ended.
+      expect(sessionIds(h.controller)).toEqual([
+        PLAYLIST_TRACK_BASE + 1,
+        PLAYLIST_TRACK_BASE + 2,
+        PLAYLIST_TRACK_BASE + 3,
+        PLAYLIST_TRACK_BASE + 4,
+        PLAYLIST_TRACK_BASE + 5
+      ])
+      // And the user tier is still what plays next, above all of it.
+      expect(h.controller.queuedEntries.value[0]?.trackId).toBe(90)
+    })
+
+    it('lands an add above the session tier rather than at the true tail', async () => {
+      // Against a loaded session, an append to the true tail means "in four
+      // hours", which makes the verb useless.
+      const h = harness({ total: 8 })
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      await settle()
+      expect(sessionIds(h.controller)).toEqual([1, 2, 3, 4, 5, 6, 7])
+
+      h.controller.enqueue([track(90)])
+      h.controller.enqueue([track(91)])
+      h.controller.enqueueNext([track(92)])
+
+      // Play-next at the absolute head, add-to-queue at the tail of the user
+      // tier — which is immediately above the first session row.
+      expect(userIds(h.controller)).toEqual([92, 90, 91])
+      expect(h.controller.queuedEntries.value.slice(0, 4).map((entry) => entry.trackId)).toEqual([
+        92, 90, 91, 1
+      ])
+    })
+
+    it('leaves exactly the second row session queued when two are clicked in quick succession', async () => {
+      const h = harness({ total: 20 })
+      const first = h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      const second = h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 10 })
+      await Promise.all([first, second])
+      await settle()
+
+      expect(h.controller.nowPlaying.value?.id).toBe(10)
+      expect(sessionIds(h.controller)).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19])
+    })
+
+    it('does not make the click path wait on the fill', async () => {
+      // The fill is several round trips behind the audio, and the click must
+      // not be behind the fill. Proved by parking the fill's first read
+      // forever rather than by counting microtasks: if playback waited on it,
+      // this `await` would never return and the test would time out.
+      const h = harness({ total: 6, stallSessionFill: true })
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 0,
+        track: track(0)
+      })
+      await settle()
+
+      expect(h.engine.loaded).toEqual([0])
+      expect(h.controller.nowPlaying.value?.id).toBe(0)
+      expect(h.engine.playCount).toBe(1)
+      // The queue is the only thing the stall costs.
+      expect(sessionIds(h.controller)).toEqual([])
+      expect(h.fetchTrackIds).toHaveBeenCalled()
+    })
+
+    it('drops the session rows above a jump and keeps the user tier whole', async () => {
+      const h = harness({ total: 8 })
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      await settle()
+      h.controller.enqueue([track(90)])
+      const target = h.controller.queuedSessionEntries.value[3]
+
+      await h.controller.playQueued(target?.id ?? '')
+
+      // The anchor moved to the row that was jumped to, because a session entry
+      // *is* an order row — and the rows above it are behind the operator now.
+      expect(h.controller.nowPlaying.value?.id).toBe(4)
+      expect(h.controller.orderIndex.value).toBe(4)
+      expect(sessionIds(h.controller)).toEqual([5, 6, 7])
+      // The user tier sits above the session tier and is not behind anything.
+      expect(userIds(h.controller)).toEqual([90])
+    })
+
+    it('steps back to the previous row from a session entry, not onto itself', async () => {
+      const h = harness({ total: 6 })
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      await settle()
+      await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe(1)
+
+      await h.controller.previous()
+
+      // A session entry is the order row at its index, so Previous means the
+      // row before it. Backing out to `index` would replay what is playing —
+      // which is what a user detour means and this is not one.
+      expect(h.controller.nowPlaying.value?.id).toBe(0)
+      expect(h.controller.orderIndex.value).toBe(0)
+    })
+
+    it('refills the tier when Previous moves the anchor out from under it', async () => {
+      // The tier describes the rows after the anchor, and Previous moves the
+      // anchor backwards without consuming anything. Left alone, the tier would
+      // still be headed by row 3 against an anchor of 1 — and the next advance
+      // would take that head and skip row 2 outright.
+      const h = harness({ total: 8 })
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 2 })
+      await settle()
+      expect(sessionIds(h.controller)).toEqual([3, 4, 5, 6, 7])
+
+      await h.controller.previous()
+      await settle()
+
+      expect(h.controller.orderIndex.value).toBe(1)
+      expect(sessionIds(h.controller)).toEqual([2, 3, 4, 5, 6, 7])
+
+      // And the advance that follows plays row 2 rather than jumping to row 3.
+      await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe(2)
+      expect(h.controller.orderIndex.value).toBe(2)
+    })
+
+    it('stops filling at the end of a short scope', async () => {
+      const h = harness({ total: 3 })
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 1 })
+      await settle()
+
+      // Two rows behind the anchor and nothing invented past the end.
+      expect(sessionIds(h.controller)).toEqual([2])
+      expect(h.controller.queuedCount.value).toBe(1)
     })
   })
 })

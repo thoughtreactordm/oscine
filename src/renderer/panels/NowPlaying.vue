@@ -15,14 +15,25 @@ import { useShellStore } from '@renderer/stores/shell'
  */
 const playback = usePlaybackStore()
 
-/** Names the count as well as the control, so the badge is not the only telling. */
-const queueLabel = computed(() =>
-  playback.queuedCount === 0
-    ? 'Up next: nothing queued'
-    : playback.queuedCount === 1
-      ? 'Up next: 1 track queued'
-      : `Up next: ${playback.queuedCount.toLocaleString()} tracks queued`
-)
+/**
+ * Names the count as well as the control, so the badge is not the only telling.
+ *
+ * The *hand-queued* count, and the session depth after it. A badge reading 312
+ * after every click is noise, and the state the badge exists to make visible —
+ * a non-empty queue changes what Next does — is a statement about the tier the
+ * operator built by hand (§5 amendment). The scope is still reported, because
+ * "nothing queued" would be a lie with three hundred rows lined up behind it.
+ */
+const queueLabel = computed(() => {
+  const queued =
+    playback.queuedUserCount === 0
+      ? 'Up next: nothing queued'
+      : playback.queuedUserCount === 1
+        ? 'Up next: 1 track queued'
+        : `Up next: ${playback.queuedUserCount.toLocaleString()} tracks queued`
+  if (playback.queuedSessionCount === 0) return queued
+  return `${queued}, ${playback.queuedSessionCount.toLocaleString()} more in this selection`
+})
 
 /**
  * The thumbnail toggles the sidebar's blow-up through the shell store rather
@@ -294,6 +305,11 @@ function onSeekInput(value: number | undefined): void {
         The queued count is on the transport rather than inside the popover,
         because a non-empty queue changes what Next does and must never be
         invisible. The badge is the count; the popover is what it is.
+
+        The count is the *user* tier. The session tier is always non-empty
+        under a playing scope, so badging it would make the badge mean "music
+        is playing" — which the transport already says, and which would drown
+        out the one thing this is here to signal.
       -->
       <UTooltip :text="queueLabel">
         <UPopover :ui="{ content: 'p-0' }">
@@ -301,17 +317,17 @@ function onSeekInput(value: number | undefined): void {
             variant="ghost"
             size="lg"
             icon="i-tabler-list-numbers"
-            :color="playback.queuedCount > 0 ? 'primary' : 'neutral'"
+            :color="playback.queuedUserCount > 0 ? 'primary' : 'neutral'"
             :aria-label="queueLabel"
           >
             <UBadge
-              v-if="playback.queuedCount > 0"
+              v-if="playback.queuedUserCount > 0"
               color="primary"
               variant="solid"
               size="sm"
               class="tabular-nums"
             >
-              {{ playback.queuedCount.toLocaleString() }}
+              {{ playback.queuedUserCount.toLocaleString() }}
             </UBadge>
           </UButton>
 

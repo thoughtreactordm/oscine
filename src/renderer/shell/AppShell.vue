@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppTitleBar from '@renderer/panels/AppTitleBar.vue'
+import NewPlaylistModal from '@renderer/panels/NewPlaylistModal.vue'
 import NowPlaying from '@renderer/panels/NowPlaying.vue'
+import PaneResizer from '@renderer/shell/PaneResizer.vue'
+import { shellTabs } from '@renderer/shell/routes'
+import { SIDEBAR_PANE } from '@renderer/shell/shellLayout'
 import ShellSidebar from '@renderer/shell/ShellSidebar.vue'
 import ShellTabs from '@renderer/shell/ShellTabs.vue'
+import { useBrowseStore } from '@renderer/stores/browse'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { usePlaylistsStore } from '@renderer/stores/playlists'
+import { useShellStore } from '@renderer/stores/shell'
 
 /**
  * The frame.
@@ -20,24 +27,88 @@ import { usePlaybackStore } from '@renderer/stores/playback'
  * and optionally something for the sidebar to put above its cover pane. Both
  * arrive as routed views, which is what keeps this component ignorant of every
  * tab that exists: it places, it does not know.
+ *
+ * What it no longer does is let the router own the frame's *shape*. The
+ * sidebar's width used to live inside `UDashboardPanel`, which meant it lived
+ * inside a `v-if` — a look at Now Playing unmounted the panel and the dragged
+ * width went with it. That component could not be fixed from outside: it takes
+ * `defaultSize` and emits nothing, so the number was unreachable. The split is
+ * a `PaneResizer` over the shell store now, and the width is a value the frame
+ * reads rather than a value the frame happens to still have.
  */
 const route = useRoute()
 const roots = useLibraryRootsStore()
 const playback = usePlaybackStore()
+const playlists = usePlaylistsStore()
+const shell = useShellStore()
 
 /**
- * Tabs that want the whole width say so in the route table. Dropping the panel
- * rather than collapsing it is deliberate: a zero-width pane still owns a
- * resize handle, and a distraction-free screen with a drag target down its left
- * edge is not one.
+ * Instantiated here, not in `Sources`.
+ *
+ * The browse predicate decides what the song list contains, and the song list
+ * is not the sidebar's dependant — it outlives it. Creating the store with the
+ * frame is what makes the library filtered by whatever the user last chose
+ * regardless of which tab is showing, including on the tab where the facets are
+ * not drawn at all.
  */
-const hasSidebar = computed(() => route.meta.sidebar)
+useBrowseStore()
+
+const sidebarWidth = shell.paneSize(SIDEBAR_PANE)
+
+/**
+ * Suspends the collapse animation for the length of a drag.
+ *
+ * The two want the same property for opposite reasons: the collapse needs the
+ * width interpolated so the pane can leave rather than vanish, and the drag
+ * needs it applied on the frame it was computed or the edge is towed 200ms
+ * behind the cursor. Measured on the built app before this was here — the pane
+ * settled at the right number, a fifth of a second after the pointer stopped.
+ */
+const resizing = ref(false)
+
+/**
+ * Tabs that want the whole width say so in the route table. The sidebar is
+ * collapsed to nothing rather than dropped: at zero width there is no resize
+ * handle to catch — the handle is hidden with it — and animating a width is the
+ * only way the pane can leave without the body jumping the moment the route
+ * changes.
+ */
+const hasSidebar = computed(() => route.meta.sidebar === true)
+
+/**
+ * Which way the body slides, from the order of the tab row.
+ *
+ * Driven from the route rather than from the click, so the direction is right
+ * for a keyboard shortcut, a deep link and the back button too — anything that
+ * moves the tab without going through the row. The first tab of the session
+ * resolves to `none`, because there is no previous index to have come from and
+ * a frame that animates itself in on launch reads as a page load.
+ */
+watch(
+  () => route.name,
+  (name) => {
+    const index = shellTabs.findIndex((tab) => tab.name === name)
+    shell.setActiveTab(typeof name === 'string' ? name : null, index)
+  },
+  { immediate: true }
+)
+
+const bodyTransition = computed(() => `tab-${shell.direction}`)
 
 /**
  * Scan progress and the roots list outlive any one tab, so the frame owns their
  * subscription rather than the sidebar that happens to draw them.
+ *
+ * The playlists are here for the same reason, and it took a real gap to notice:
+ * the rail and the tab strip each read them on mount, and both live in Curate,
+ * so on a launch straight into Library the "Add to playlist" submenu offered
+ * "New playlist…" and nothing else — against a library that had three. The list
+ * is not Curate's; Curate is just where it was first drawn.
  */
-onMounted(() => roots.start())
+onMounted(() => {
+  roots.start()
+  void playlists.refresh()
+})
 
 onUnmounted(() => {
   roots.stop()
@@ -47,42 +118,159 @@ onUnmounted(() => {
 
 <template>
   <main
-    class="grid h-screen grid-rows-[2.25rem_2.25rem_minmax(0,1fr)_5rem] overflow-hidden bg-border text-default"
+    class="grid h-screen grid-rows-[2.25rem_2.25rem_minmax(0,1fr)_5rem] overflow-hidden bg-default text-default"
   >
     <AppTitleBar />
 
     <ShellTabs />
 
-    <div class="relative min-h-0 overflow-hidden">
-      <UDashboardGroup
-        unit="px"
-        :persistent="false"
-        class="gap-px"
-        :ui="{ base: 'absolute inset-0' }"
-        storage-key="fermata-shell"
+    <div class="flex min-h-0 min-w-0 overflow-hidden">
+      <div
+        class="shell-sidebar min-h-0 overflow-hidden bg-default"
+        :style="{ width: hasSidebar ? `${sidebarWidth}px` : '0px' }"
+        :data-resizing="resizing || undefined"
+        :inert="hasSidebar ? undefined : true"
       >
-        <UDashboardPanel
-          v-if="hasSidebar"
-          id="sidebar"
-          :default-size="320"
-          :min-size="240"
-          :max-size="480"
-          resizable
-          class="min-h-0 min-w-60 bg-default"
-        >
+        <!--
+          The inner width is the full one whatever the outer is animating
+          towards. Without it the sidebar's contents would reflow through every
+          frame of the collapse — a virtualized facet list re-measuring itself
+          320 times on the way to zero — instead of being clipped by a container
+          that is closing over them.
+        -->
+        <div class="h-full min-h-0" :style="{ width: `${sidebarWidth}px` }">
           <ShellSidebar>
-            <RouterView name="sidebar" />
+            <RouterView v-slot="{ Component }" name="sidebar">
+              <Transition name="tab-fade" mode="out-in">
+                <component :is="Component" v-if="Component" :key="shell.activeTab" />
+              </Transition>
+            </RouterView>
           </ShellSidebar>
-        </UDashboardPanel>
+        </div>
+      </div>
 
-        <UDashboardPanel id="body" class="min-h-0 min-w-120 flex-1 bg-default">
-          <RouterView />
-        </UDashboardPanel>
-      </UDashboardGroup>
+      <PaneResizer
+        v-if="hasSidebar"
+        v-model:size="sidebarWidth"
+        :pane="SIDEBAR_PANE"
+        @dragging="resizing = $event"
+      />
+
+      <div class="relative min-h-0 min-w-120 flex-1 overflow-hidden bg-default">
+        <RouterView v-slot="{ Component }">
+          <Transition :name="bodyTransition">
+            <component
+              :is="Component"
+              v-if="Component"
+              :key="shell.activeTab"
+              class="absolute inset-0"
+            />
+          </Transition>
+        </RouterView>
+      </div>
     </div>
 
     <div class="min-h-0 border-t border-default bg-default">
       <NowPlaying />
     </div>
+
+    <!--
+      Mounted with the frame, like the title bar and the transport, and for the
+      same reason: the gesture that opens it is made in the sidebar, which a tab
+      change unmounts. It draws nothing until something asks it to.
+    -->
+    <NewPlaylistModal />
   </main>
 </template>
+
+<style scoped>
+/*
+ * The collapse, and only the collapse.
+ *
+ * A drag has to be exempt rather than merely brief: an interrupted transition
+ * does not snap to its new target, it re-eases towards it, so every pointermove
+ * restarts a 200ms interpolation and the edge trails the cursor for as long as
+ * the drag lasts. `data-resizing` is the handle saying it has the width for
+ * now.
+ */
+.shell-sidebar {
+  transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.shell-sidebar[data-resizing] {
+  transition: none;
+}
+
+/*
+ * Tabs cross-fade with a few pixels of travel in the direction the row moved.
+ * Small on purpose: these are panes of one window, and a slide long enough to
+ * read as navigation would be claiming something about the application that is
+ * not true.
+ */
+.tab-forward-enter-active,
+.tab-forward-leave-active,
+.tab-back-enter-active,
+.tab-back-leave-active,
+.tab-fade-enter-active,
+.tab-fade-leave-active {
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+/*
+ * Both views are `absolute inset-0` inside a `relative` body, which is what
+ * lets them overlap for the length of the cross-fade instead of the outgoing
+ * one collapsing the layout as it leaves. It does mean a tab's view has to have
+ * a single root element — every one of them does, and a fragment would lose the
+ * transition silently rather than break.
+ */
+.tab-forward-enter-from {
+  opacity: 0;
+  transform: translateX(1.5rem);
+}
+
+.tab-forward-leave-to {
+  opacity: 0;
+  transform: translateX(-1.5rem);
+}
+
+.tab-back-enter-from {
+  opacity: 0;
+  transform: translateX(-1.5rem);
+}
+
+.tab-back-leave-to {
+  opacity: 0;
+  transform: translateX(1.5rem);
+}
+
+/*
+ * The sidebar fades without travel, and out before in. It is inside a container
+ * that is changing width at the same time, so a horizontal slide would be two
+ * horizontal movements disagreeing about the same edge.
+ */
+.tab-fade-enter-from,
+.tab-fade-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-sidebar,
+  .tab-forward-enter-active,
+  .tab-forward-leave-active,
+  .tab-back-enter-active,
+  .tab-back-leave-active,
+  .tab-fade-enter-active,
+  .tab-fade-leave-active {
+    transition-duration: 0ms;
+  }
+
+  .tab-forward-enter-from,
+  .tab-forward-leave-to,
+  .tab-back-enter-from,
+  .tab-back-leave-to {
+    transform: none;
+  }
+}
+</style>

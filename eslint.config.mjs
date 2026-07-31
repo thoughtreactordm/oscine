@@ -8,6 +8,39 @@ import tseslint from 'typescript-eslint'
 import fermata from './tools/eslint/no-windows-path-literals.mjs'
 
 /**
+ * Nuxt UI's auto-imported composables, as globals the renderer may see.
+ *
+ * The `ui()` Vite plugin injects these the way it injects the `U*` components,
+ * so there is no import statement for ESLint to follow and `no-undef` reads
+ * `useToast()` as a typo. TypeScript already knows about them — the plugin
+ * writes `src/renderer/auto-imports.d.ts`, which is generated and therefore
+ * ignored below — so this is the linter being told what the compiler is told.
+ *
+ * Listed by hand rather than parsed out of that file: a generated file the lint
+ * gate depends on would have to exist before a fresh clone could lint, and the
+ * set changes about once per major version of Nuxt UI.
+ */
+const nuxtUiComposables = Object.fromEntries(
+  [
+    'defineLocale',
+    'defineShortcuts',
+    'extendLocale',
+    'extractShortcuts',
+    'useAppConfig',
+    'useContentSearch',
+    'useFileUpload',
+    'useFormField',
+    'useKbd',
+    'useOverlay',
+    'useResizable',
+    'useScrollShadow',
+    'useScrollspy',
+    'useToast',
+    'useTour'
+  ].map((name) => [name, 'readonly'])
+)
+
+/**
  * One config, four environments.
  *
  * The process split in this repo is a real boundary — main runs in Node with
@@ -84,7 +117,7 @@ export default tseslint.config(
     name: 'fermata/renderer',
     files: ['src/renderer/**/*.{ts,vue}'],
     languageOptions: {
-      globals: globals.browser,
+      globals: { ...globals.browser, ...nuxtUiComposables },
       parser: vueParser,
       parserOptions: {
         // vue-eslint-parser owns the SFC; the TS parser handles what is inside

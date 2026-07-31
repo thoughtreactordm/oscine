@@ -29,6 +29,27 @@ export { PLAYLIST_NAME_MAX_LENGTH } from './playlistRename'
 export { destinationIndex, type DropSide } from './playlistReorder'
 
 /**
+ * The fixture tab at the left end of the strip, and what a null `viewedId`
+ * means.
+ *
+ * The strip is therefore never empty. Discover is there whether or not any
+ * playlist is open, it is where the view lands when the last tab closes, and it
+ * is what a session with nothing restored opens on.
+ *
+ * Representing it as `null` rather than as a synthetic playlist row is the whole
+ * of the trick, and it is why this change adds so little: `viewedId` was already
+ * nullable, `commands.view` already took `number | null`, and `close` already
+ * handed the view to `null` when it ran out of neighbours. Every verb that could
+ * damage a fixture tab — `close`, `beginRename`, `beginDrag` — takes a `number`,
+ * so "Discover cannot be closed, renamed or dragged" is a fact the type checker
+ * holds rather than three branches someone has to remember to write.
+ */
+export const DISCOVER_TAB = null
+
+/** A place the strip can be, which is a playlist or the fixture. */
+export type TabStop = number | typeof DISCOVER_TAB
+
+/**
  * What a keypress turned into, so the component knows whether to swallow it and
  * whether focus has to chase the selection.
  *
@@ -90,7 +111,15 @@ export function createPlaylistTabs(deps: PlaylistTabsDeps) {
   const playingId = computed(() => toValue(deps.playingId))
   const order = computed(() => tabs.value.map((tab) => tab.id))
 
-  const viewedIndex = computed(() => order.value.indexOf(viewedId.value ?? -1))
+  /**
+   * Every place the strip can be, left to right: Discover, then the open
+   * playlists. Navigation counts stops; `order` stays playlists-only because
+   * that is what a reorder is an index into.
+   */
+  const stops = computed<readonly TabStop[]>(() => [DISCOVER_TAB, ...order.value])
+
+  /** An index into `stops`, not into `tabs` — the fixture occupies zero. */
+  const viewedIndex = computed(() => stops.value.indexOf(viewedId.value))
 
   function tab(playlistId: number): Playlist | null {
     return tabs.value.find((candidate) => candidate.id === playlistId) ?? null
@@ -99,29 +128,36 @@ export function createPlaylistTabs(deps: PlaylistTabsDeps) {
   const isViewed = (playlistId: number): boolean => playlistId === viewedId.value
   const isPlaying = (playlistId: number): boolean => playlistId === playingId.value
 
+  /** The fixture's half of `isViewed`. There is no `isPlayingDiscover`: it plays nothing. */
+  const discoverViewed = computed(() => viewedId.value === DISCOVER_TAB)
+
   const rename = createPlaylistRename({ find: tab, commit: commands.rename })
 
   // -- selection ------------------------------------------------------------
 
-  function select(playlistId: number): void {
-    if (playlistId === viewedId.value) return
+  function select(stop: TabStop): void {
+    if (stop === viewedId.value) return
     rename.cancel()
-    commands.view(playlistId)
+    commands.view(stop)
   }
 
-  /** Clamped, not wrapped: a tab bar has ends, and arrowing off one is a mistake, not a cycle. */
+  /**
+   * Clamped, not wrapped: a tab bar has ends, and arrowing off one is a mistake,
+   * not a cycle. `stops` is never empty, so there is always somewhere to clamp
+   * to — arrowing left with no playlists open lands on Discover and stays.
+   */
   function selectAt(index: number): boolean {
-    if (tabs.value.length === 0) return false
-    const clamped = Math.max(0, Math.min(index, tabs.value.length - 1))
-    const target = tabs.value[clamped]
-    if (target === undefined || target.id === viewedId.value) return false
-    select(target.id)
+    const clamped = Math.max(0, Math.min(index, stops.value.length - 1))
+    const target = stops.value[clamped]
+    if (target === viewedId.value) return false
+    select(target)
     return true
   }
 
   function selectRelative(delta: number): boolean {
     // An unknown viewed tab arrows in from the near end rather than from -1.
-    const from = viewedIndex.value === -1 ? (delta < 0 ? tabs.value.length : -1) : viewedIndex.value
+    const from =
+      viewedIndex.value === -1 ? (delta < 0 ? stops.value.length : -1) : viewedIndex.value
     return selectAt(from + delta)
   }
 
@@ -163,6 +199,9 @@ export function createPlaylistTabs(deps: PlaylistTabsDeps) {
    * Delete closes rather than deletes. It used to delete, back when a tab was a
    * playlist; the destructive key now lives in the rail, where the thing under
    * the cursor is the playlist itself.
+   *
+   * F2 and Delete on Discover are `none` rather than special cases: the fixture
+   * is `null`, and both verbs need a playlist id to have anything to do.
    */
   function onKeydown(event: TabKeyEvent): TabKeyAction {
     if (rename.renamingId.value !== null) return 'none'
@@ -179,13 +218,13 @@ export function createPlaylistTabs(deps: PlaylistTabsDeps) {
         selectAt(0)
         return 'navigate'
       case 'End':
-        selectAt(tabs.value.length - 1)
+        selectAt(stops.value.length - 1)
         return 'navigate'
       case 'F2':
-        if (viewedId.value === null) return 'none'
+        if (viewedId.value === DISCOVER_TAB) return 'none'
         return rename.begin(viewedId.value) ? 'rename' : 'none'
       case 'Delete':
-        if (viewedId.value === null) return 'none'
+        if (viewedId.value === DISCOVER_TAB) return 'none'
         close(viewedId.value)
         return 'close'
       default:
@@ -195,11 +234,13 @@ export function createPlaylistTabs(deps: PlaylistTabsDeps) {
 
   return {
     tabs,
+    stops,
     viewedId,
     playingId,
     viewedIndex,
     isViewed,
     isPlaying,
+    discoverViewed,
     renamingId: rename.renamingId,
     draft: rename.draft,
     dragId: drag.dragId,

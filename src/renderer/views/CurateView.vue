@@ -1,23 +1,30 @@
 <script setup lang="ts">
+import DiscoverPane from '@renderer/panels/DiscoverPane.vue'
 import PlaylistContents from '@renderer/panels/PlaylistContents.vue'
 import PlaylistTabBar from '@renderer/panels/PlaylistTabBar.vue'
+import { DISCOVER_TAB } from '@renderer/panels/playlistTabs'
+import { usePlaylistsStore } from '@renderer/stores/playlists'
 
 /**
- * Curate's body: the tab strip of open playlists, and the entries of whichever
- * one is viewed. The rail of *all* playlists is the sidebar, next door.
+ * Curate's body: the tab strip, and whichever tab is viewed. The rail of *all*
+ * playlists is the sidebar, next door.
  *
- * The artwork shelves that stood here were a scaffold for a shape W5 has since
- * settled, and D5 settled it differently — the backbone is a named tab bar, not
- * a wall of cards. They are gone rather than kept alongside because the shelves
- * were the one with no data behind them.
+ * The strip always has at least one tab, because Discover is a fixture at its
+ * left end. That is what removed the empty state this pane used to need: there
+ * is no "nothing viewed" any more, only a viewed thing that is not a playlist.
+ *
+ * The switch compares against `DISCOVER_TAB` rather than against a bare `null`
+ * so that the rule — a null `viewedPlaylistId` *is* Discover — is named at both
+ * of the two places that depend on it, here and in the strip.
  *
  * Two siblings, no parent-child wiring between them: the strip wrote
  * `viewedPlaylistId` before this pane existed and does not know it now has a
  * reader. That is what makes either one dockable elsewhere later (D4).
  *
- * The pane scrolls itself — it is a virtualized list and owns its own scroll
- * container — so nothing here may add a second one around it.
+ * Both panes scroll themselves — one is a virtualized list, the other owns its
+ * own overflow — so nothing here may add a second scroll container around them.
  */
+const playlists = usePlaylistsStore()
 </script>
 
 <template>
@@ -25,7 +32,8 @@ import PlaylistTabBar from '@renderer/panels/PlaylistTabBar.vue'
     <PlaylistTabBar />
 
     <div class="min-h-0 flex-1">
-      <PlaylistContents />
+      <DiscoverPane v-if="playlists.viewedPlaylistId === DISCOVER_TAB" />
+      <PlaylistContents v-else />
     </div>
   </section>
 </template>

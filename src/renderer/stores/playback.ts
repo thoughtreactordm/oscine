@@ -32,6 +32,11 @@ export const usePlaybackStore = defineStore('playback', () => {
     createEngine,
     fetchPage: (query) => library.listTracks(query),
     fetchPlaylistEntries: (query) => playlists.listEntries(query),
+    // The session tier's two verbs (§5 amendment). Both already existed —
+    // materializing the scope needed no new IPC surface, which is what made the
+    // shuffle case affordable.
+    fetchTrackIds: (query) => library.listTrackIds(query),
+    fetchTracksByIds: (query) => library.getTracksByIds(query),
     // Shuffle and repeat survive a restart; the shuffle sequence does not.
     storage: browserTransportStorage(),
     ...(mediaSessionPlatform

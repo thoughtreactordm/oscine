@@ -1,76 +1,58 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
-import { library } from '@renderer/ipc'
-import { measureLibraryQuery } from '@renderer/metrics'
+import { computed } from 'vue'
+import type { ContextMenuItem } from '@nuxt/ui'
+import type { AddTarget } from '@renderer/panels/addToPlaylist'
+import type { FacetDimension, FacetWindow } from '@renderer/panels/facetWindow'
 import FacetList from '@renderer/panels/FacetList.vue'
-import { createFacetWindow } from '@renderer/panels/facetWindow'
+import { queueCommandLabel, queueIds } from '@renderer/playback/queueCommands'
+import PaneResizer from '@renderer/shell/PaneResizer.vue'
+import { SOURCES_ARTISTS_PANE } from '@renderer/shell/shellLayout'
+import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
+import { useBrowseStore } from '@renderer/stores/browse'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
-import { useTrackListStore } from '@renderer/stores/trackList'
-import {
-  MAX_SEARCH_LENGTH,
-  MIN_SEARCH_LENGTH,
-  type AlbumFacet,
-  type ArtistFacet,
-  type LibraryBrowseFilters
-} from '@shared/library'
+import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
+import { useShellStore } from '@renderer/stores/shell'
+import { MAX_SEARCH_LENGTH, type AlbumFacet, type ArtistFacet } from '@shared/library'
 
 const ARTIST_ROW_HEIGHT = 32
 const ALBUM_ROW_HEIGHT = 44
-const SEARCH_DELAY_MS = 250
 
 /**
  * The Library tab's sidebar contents, mounted by the frame above its cover pane.
  *
  * It used to be the sidebar itself, and to hand its predicate up to a parent
  * that owned the song list. It has no parent now — the sidebar and the body are
- * sibling routed views — so the predicate goes to the store the song list reads,
- * which is the same message travelling a different way. The folder list and the
- * scan belong to the frame, because the title bar can start a scan from any tab.
+ * sibling routed views — so the predicate goes to a store the song list reads.
+ *
+ * It also used to *hold* that predicate, which is the part the routed shell got
+ * wrong: a routed view is unmounted on every tab change, so the root, the search
+ * text and both facet selections were being discarded by a look at Now Playing —
+ * and the `immediate` watcher that rebuilt them wrote the empty predicate over
+ * `trackList.filters` on the way back, resetting the song list too. All of it
+ * lives in `browse` now and this is a view of it, the way `LibraryView` is
+ * already a view of `trackList`. What is left here is layout, wording and the
+ * two lists: nothing that answers "what is the library filtered to", which is
+ * why nothing here is worth keeping across a mount.
+ *
+ * The folder list and the scan still belong to the frame, because the title bar
+ * can start a scan from any tab.
  */
 const roots = useLibraryRootsStore()
-const trackList = useTrackListStore()
-
-const rootId = ref<number | null>(null)
-const searchInput = ref('')
-const activeSearch = ref<string | null>(null)
-const searchPending = ref(false)
-
-const artists = createFacetWindow<ArtistFacet>({
-  dimension: 'artistIds',
-  fetchPage: async (query) => {
-    const result = await measureLibraryQuery('artists-query', () => library.listArtists(query))
-    return { items: result.artists, total: result.total }
-  },
-  fetchIdPage: (query) => library.listArtistIds(query)
-})
-const albums = createFacetWindow<AlbumFacet>({
-  dimension: 'albumIds',
-  fetchPage: async (query) => {
-    const result = await measureLibraryQuery('albums-query', () => library.listAlbums(query))
-    return { items: result.albums, total: result.total }
-  },
-  fetchIdPage: (query) => library.listAlbumIds(query)
-})
+const browse = useBrowseStore()
+const shell = useShellStore()
+const queue = useQueueCommandsStore()
+const addToPlaylist = useAddToPlaylistStore()
 
 /**
- * The three predicates, narrowing left to right.
+ * The Artists/Albums divide, dragged and remembered.
  *
- * Each pane is filtered by everything above it and never by itself: the artist
- * pane has to keep listing every artist under the root while some of them are
- * selected, or selecting a second one would be impossible.
+ * The same `PaneResizer` the frame uses down the side of its sidebar, turned on
+ * its side — which is why that component takes an axis instead of being a
+ * sidebar splitter. Only the upper pane carries a size and the lower one takes
+ * what is left, so there is one number to store and no way for the two to add
+ * up to something other than the column.
  */
-const artistFilters = computed<LibraryBrowseFilters>(() => ({
-  ...(rootId.value === null ? {} : { rootId: rootId.value }),
-  ...(activeSearch.value === null ? {} : { searchText: activeSearch.value })
-}))
-const albumFilters = computed<LibraryBrowseFilters>(() => ({
-  ...artistFilters.value,
-  ...(artists.filterIds.value === undefined ? {} : { artistIds: artists.filterIds.value })
-}))
-const currentFilters = computed<LibraryBrowseFilters>(() => ({
-  ...albumFilters.value,
-  ...(albums.filterIds.value === undefined ? {} : { albumIds: albums.filterIds.value })
-}))
+const artistsHeight = shell.paneSize(SOURCES_ARTISTS_PANE)
 
 const rootItems = computed(() => [
   { label: 'All folders', value: 0 },
@@ -79,97 +61,93 @@ const rootItems = computed(() => [
     value: root.id
   }))
 ])
+
 /**
- * `0` is the sentinel for "All folders" in the select, and `null` is the absence
- * of a `rootId` in the filter. Changing it needs no validation of its own: the
- * two panes below are watching, and both prune whatever the narrower root no
- * longer contains.
+ * The facet row menus: the same verbs the song list offers, aimed a level up.
+ *
+ * Right-clicking an artist is the gesture the operator has been reaching for
+ * since there was a sidebar — "queue all of this", "put this album in Mix" —
+ * and it needed nothing new to mean it. `browse.facetTrackIds` turns the row
+ * into the tracks it stands for; from there the verbs are the ones the library
+ * list already has, imported rather than restated so the two menus cannot drift.
+ *
+ * One builder for both panes, because the difference between them is a
+ * dimension, a noun and where the name comes from. Two copies would be two
+ * places to forget that a right-click keeps an existing selection.
  */
-const rootValue = computed({
-  get: () => rootId.value ?? 0,
-  set: (value: number | undefined) => {
-    rootId.value = value === undefined || value === 0 ? null : value
+interface FacetMenuSpec<T extends { id: number }> {
+  model: FacetWindow<T>
+  dimension: FacetDimension
+  /** Plural, for the wording. `count` of one never uses it. */
+  unit: string
+  /** What to suggest as a new playlist's name for a single row. */
+  nameOf: (item: T) => string
+}
+
+function facetMenu<T extends { id: number }>(spec: FacetMenuSpec<T>) {
+  /**
+   * What the right-click is about: the selection when the row is in it, that row
+   * alone when it is not — the rule `FacetList` has just applied to the
+   * selection itself, read back here.
+   *
+   * `resolveSelection` rather than `selectedIds` for the reason the track list
+   * uses it: a set has no order, and the order the operator sees is the order
+   * these tracks should land in.
+   */
+  function targetFor(index: number): AddTarget | null {
+    const item = spec.model.rowAt(index)
+    if (!item) return null
+    const selected = spec.model.isSelectedAt(index)
+    const count = selected ? Math.max(1, spec.model.selectionCount.value) : 1
+    const facetIds = selected
+      ? (): Promise<readonly number[]> => spec.model.resolveSelection()
+      : (): Promise<readonly number[]> => Promise.resolve([item.id])
+
+    return {
+      count,
+      unit: spec.unit,
+      // Only a single row names itself. "Add 6 albums to a playlist called
+      // Rubber Soul" would be a suggestion that is actively wrong.
+      suggestedName: count === 1 ? spec.nameOf(item) : undefined,
+      trackIds: async () => browse.facetTrackIds(spec.dimension, await facetIds())
+    }
   }
-})
 
-/**
- * Narrowing a pane prunes the selections beneath it.
- *
- * The pruning is what makes a selection safe to keep across a narrowing rather
- * than something to clear defensively. Picking a second artist leaves the albums
- * of the first that they did not both record out of the pane entirely, and an
- * album still filtering the song list from outside the list it was chosen in is
- * a selection the user can neither see nor untick.
- *
- * Only downward. An artist selection is never pruned by an album selection,
- * because the album pane is downstream of it — that direction would let a click
- * in the lower pane silently rewrite the upper one.
- */
-watch(
-  artistFilters,
-  (filters) => {
-    artists.setFilters(filters)
-    void artists.pruneSelection()
-  },
-  { immediate: true }
-)
-watch(
-  albumFilters,
-  (filters) => {
-    albums.setFilters(filters)
-    void albums.pruneSelection()
-  },
-  { immediate: true }
-)
-watch(
-  currentFilters,
-  (filters) => {
-    trackList.setFilters({ ...filters })
-    performance.mark('fermata:library:browse-change')
-  },
-  { immediate: true }
-)
+  return (index: number): ContextMenuItem[] => {
+    const target = targetFor(index)
+    // A row whose page has not arrived has no id to act on. Saying so beats an
+    // empty menu, and beats verbs that would quietly do nothing.
+    if (target === null) return [{ label: 'Loading…', disabled: true }]
 
-/**
- * A finished scan has moved the rows underneath both panes. The counter says so;
- * what to do about it is each list's own business, and this is the facets'.
- */
-watch(
-  () => roots.version,
-  () => reloadFacets()
-)
-
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-
-function searchableText(value: string): string | null {
-  const trimmed = value.trim()
-  return trimmed.split(/\s+/u).some((term) => [...term].length >= MIN_SEARCH_LENGTH)
-    ? trimmed
-    : null
+    return [
+      {
+        label: queueCommandLabel('playNext', target.count, spec.unit),
+        icon: 'i-tabler-corner-right-down',
+        onSelect: () => void target.trackIds().then((ids) => queue.playNext(queueIds(ids)))
+      },
+      {
+        label: queueCommandLabel('addToQueue', target.count, spec.unit),
+        icon: 'i-tabler-list-numbers',
+        onSelect: () => void target.trackIds().then((ids) => queue.addToQueue(queueIds(ids)))
+      },
+      { type: 'separator' },
+      addToPlaylist.menuItem(target)
+    ]
+  }
 }
 
-watch(searchInput, () => {
-  searchPending.value = true
-  if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => {
-    activeSearch.value = searchableText(searchInput.value)
-    searchPending.value = false
-  }, SEARCH_DELAY_MS)
+const artistMenu = facetMenu<ArtistFacet>({
+  model: browse.artists,
+  dimension: 'artistIds',
+  unit: 'artists',
+  nameOf: (artist) => artist.name
 })
 
-const searchHelp = computed(() =>
-  searchInput.value.trim() && !searchableText(searchInput.value)
-    ? `Enter at least ${MIN_SEARCH_LENGTH} characters in one word to search.`
-    : undefined
-)
-
-function reloadFacets(): void {
-  artists.reload()
-  albums.reload()
-}
-
-onUnmounted(() => {
-  if (searchTimer) clearTimeout(searchTimer)
+const albumMenu = facetMenu<AlbumFacet>({
+  model: browse.albums,
+  dimension: 'albumIds',
+  unit: 'albums',
+  nameOf: (album) => album.title
 })
 </script>
 
@@ -193,7 +171,7 @@ onUnmounted(() => {
 
       <UFormField label="Library folder" :ui="{ label: 'sr-only' }">
         <USelect
-          v-model="rootValue"
+          v-model="browse.rootValue"
           value-key="value"
           :items="rootItems"
           class="w-full"
@@ -201,15 +179,17 @@ onUnmounted(() => {
         />
       </UFormField>
 
-      <UFormField label="Search library" :help="searchHelp" :ui="{ label: 'sr-only' }">
+      <UFormField label="Search library" :help="browse.searchHelp" :ui="{ label: 'sr-only' }">
         <UInput
-          v-model="searchInput"
+          v-model="browse.searchInput"
           type="search"
           icon="i-tabler-search"
           class="w-full"
           placeholder="Search title, artist, album"
           :maxlength="MAX_SEARCH_LENGTH"
-          :loading="searchPending || artists.loading.value || albums.loading.value"
+          :loading="
+            browse.searchPending || browse.artists.loading.value || browse.albums.loading.value
+          "
           aria-label="Search library"
         />
       </UFormField>
@@ -232,122 +212,149 @@ onUnmounted(() => {
       <p class="truncate text-xs text-muted">{{ roots.scan.currentFile ?? 'Reading folders…' }}</p>
     </div>
 
-    <section class="flex min-h-0 flex-1 basis-0 flex-col border-b border-default">
-      <div class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2">
-        <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Artists</h2>
-        <template v-if="artists.selectionCount.value > 0">
-          <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
-            {{ artists.selectionCount.value.toLocaleString() }} selected
-          </span>
-          <UButton
-            icon="i-tabler-x"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            aria-label="Clear artist selection"
-            @click="artists.clearSelection()"
-          />
-        </template>
-        <span
-          class="text-xs tabular-nums text-dimmed"
-          :class="{ 'ml-auto': artists.selectionCount.value === 0 }"
+    <!--
+      The split, and nothing above it. The handle measures its own parent to
+      know how much room there is to divide, so the header has to stay outside:
+      an alert or a scan bar appearing would otherwise change how tall the
+      resizer believes the column is, mid-drag.
+    -->
+    <div class="flex min-h-0 flex-1 flex-col">
+      <section
+        class="flex min-h-0 flex-col overflow-hidden"
+        :style="{ height: `${artistsHeight}px` }"
+      >
+        <div
+          class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2"
         >
-          {{ artists.total.value.toLocaleString() }}
-        </span>
-      </div>
-
-      <UAlert
-        v-if="artists.error.value"
-        color="warning"
-        variant="subtle"
-        icon="i-tabler-alert-triangle"
-        :description="artists.error.value"
-        class="rounded-none"
-      />
-
-      <FacetList :model="artists" :row-height="ARTIST_ROW_HEIGHT" label="Artists">
-        <template #row="{ item }">
-          <span class="truncate">{{ item?.name ?? 'Loading…' }}</span>
-          <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
-            {{ item?.trackCount ?? '' }}
-          </span>
-        </template>
-      </FacetList>
-
-      <UEmpty
-        v-if="artists.total.value === 0 && !artists.loading.value"
-        variant="naked"
-        size="sm"
-        icon="i-tabler-users"
-        title="No artists match"
-        class="min-h-0 flex-1"
-      />
-    </section>
-
-    <section class="flex min-h-0 flex-1 basis-0 flex-col">
-      <div class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2">
-        <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Albums</h2>
-        <template v-if="albums.selectionCount.value > 0">
-          <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
-            {{ albums.selectionCount.value.toLocaleString() }} selected
-          </span>
-          <UButton
-            icon="i-tabler-x"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            aria-label="Clear album selection"
-            @click="albums.clearSelection()"
-          />
-        </template>
-        <span
-          class="text-xs tabular-nums text-dimmed"
-          :class="{ 'ml-auto': albums.selectionCount.value === 0 }"
-        >
-          {{ albums.total.value.toLocaleString() }}
-        </span>
-      </div>
-
-      <UAlert
-        v-if="albums.error.value"
-        color="warning"
-        variant="subtle"
-        icon="i-tabler-alert-triangle"
-        :description="albums.error.value"
-        class="rounded-none"
-      />
-
-      <FacetList :model="albums" :row-height="ALBUM_ROW_HEIGHT" label="Albums">
-        <template #row="{ item }">
-          <UAvatar
-            :src="item?.artwork.small"
-            :icon="item ? undefined : 'i-tabler-vinyl'"
-            alt=""
-            size="md"
-            class="shrink-0 rounded"
-            :ui="{ image: 'rounded object-cover', icon: 'size-4 text-dimmed' }"
-            loading="lazy"
-          />
-          <span class="flex min-w-0 flex-col">
-            <span class="truncate">{{ item?.title ?? 'Loading…' }}</span>
-            <span class="truncate text-xs text-muted">
-              {{ item ? (item.albumArtist ?? 'Unknown artist') : '' }}
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Artists</h2>
+          <template v-if="browse.artists.selectionCount.value > 0">
+            <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
+              {{ browse.artists.selectionCount.value.toLocaleString() }} selected
             </span>
+            <UButton
+              icon="i-tabler-x"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              aria-label="Clear artist selection"
+              @click="browse.artists.clearSelection()"
+            />
+          </template>
+          <span
+            class="text-xs tabular-nums text-dimmed"
+            :class="{ 'ml-auto': browse.artists.selectionCount.value === 0 }"
+          >
+            {{ browse.artists.total.value.toLocaleString() }}
           </span>
-          <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
-            {{ item?.trackCount ?? '' }}
-          </span>
-        </template>
-      </FacetList>
+        </div>
 
-      <UEmpty
-        v-if="albums.total.value === 0 && !albums.loading.value"
-        variant="naked"
-        size="sm"
-        icon="i-tabler-vinyl"
-        title="No albums match"
-        class="min-h-0 flex-1"
-      />
-    </section>
+        <UAlert
+          v-if="browse.artists.error.value"
+          color="warning"
+          variant="subtle"
+          icon="i-tabler-alert-triangle"
+          :description="browse.artists.error.value"
+          class="rounded-none"
+        />
+
+        <FacetList
+          :model="browse.artists"
+          :row-height="ARTIST_ROW_HEIGHT"
+          label="Artists"
+          :menu="artistMenu"
+        >
+          <template #row="{ item }">
+            <span class="truncate">{{ item?.name ?? 'Loading…' }}</span>
+            <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
+              {{ item?.trackCount ?? '' }}
+            </span>
+          </template>
+        </FacetList>
+
+        <UEmpty
+          v-if="browse.artists.total.value === 0 && !browse.artists.loading.value"
+          variant="naked"
+          size="sm"
+          icon="i-tabler-users"
+          title="No artists match"
+          class="min-h-0 flex-1"
+        />
+      </section>
+
+      <PaneResizer v-model:size="artistsHeight" :pane="SOURCES_ARTISTS_PANE" />
+
+      <section class="flex min-h-44 flex-1 flex-col overflow-hidden">
+        <div
+          class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2"
+        >
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Albums</h2>
+          <template v-if="browse.albums.selectionCount.value > 0">
+            <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
+              {{ browse.albums.selectionCount.value.toLocaleString() }} selected
+            </span>
+            <UButton
+              icon="i-tabler-x"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              aria-label="Clear album selection"
+              @click="browse.albums.clearSelection()"
+            />
+          </template>
+          <span
+            class="text-xs tabular-nums text-dimmed"
+            :class="{ 'ml-auto': browse.albums.selectionCount.value === 0 }"
+          >
+            {{ browse.albums.total.value.toLocaleString() }}
+          </span>
+        </div>
+
+        <UAlert
+          v-if="browse.albums.error.value"
+          color="warning"
+          variant="subtle"
+          icon="i-tabler-alert-triangle"
+          :description="browse.albums.error.value"
+          class="rounded-none"
+        />
+
+        <FacetList
+          :model="browse.albums"
+          :row-height="ALBUM_ROW_HEIGHT"
+          label="Albums"
+          :menu="albumMenu"
+        >
+          <template #row="{ item }">
+            <UAvatar
+              :src="item?.artwork.small"
+              :icon="item ? undefined : 'i-tabler-vinyl'"
+              alt=""
+              size="md"
+              class="shrink-0 rounded"
+              :ui="{ image: 'rounded object-cover', icon: 'size-4 text-dimmed' }"
+              loading="lazy"
+            />
+            <span class="flex min-w-0 flex-col">
+              <span class="truncate">{{ item?.title ?? 'Loading…' }}</span>
+              <span class="truncate text-xs text-muted">
+                {{ item ? (item.albumArtist ?? 'Unknown artist') : '' }}
+              </span>
+            </span>
+            <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
+              {{ item?.trackCount ?? '' }}
+            </span>
+          </template>
+        </FacetList>
+
+        <UEmpty
+          v-if="browse.albums.total.value === 0 && !browse.albums.loading.value"
+          variant="naked"
+          size="sm"
+          icon="i-tabler-vinyl"
+          title="No albums match"
+          class="min-h-0 flex-1"
+        />
+      </section>
+    </div>
   </section>
 </template>

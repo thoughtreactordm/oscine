@@ -215,15 +215,19 @@ export class PlaybackScheduler {
   }
 
   /**
-   * Start a queue entry, inheriting the position it was taken from (§5 rule 1).
+   * Start a queue entry at the position rule 1 named for it.
    *
-   * `from` is what traversal resumes at once the queue drains, so it is the
-   * *interrupted* row rather than anything about the entry — a detour does not
-   * move the place it was taken from, however many entries play in a row.
+   * `at` is taken as given rather than rebuilt from the current row, because
+   * which position a queue entry carries is exactly what the two tiers disagree
+   * about: a user entry inherits the *interrupted* row, since a detour does not
+   * move the place it was taken from however many play in a row, while a
+   * session entry carries its own order index because it *is* that row.
+   * `chooseSuccessor` is the one place that fork lives; deriving it a second
+   * time here is how the two would drift.
    */
-  async goToQueued(entry: QueueEntry, from: SlotPosition): Promise<Track | null | undefined> {
+  async goToQueued(entry: QueueEntry, at: SlotPosition): Promise<Track | null | undefined> {
     this.#assertUsable()
-    return this.#goTo({ index: from.index, queueEntryId: entry.id }, entry.track)
+    return this.#goTo(at, entry.track)
   }
 
   async next(): Promise<Track | null | undefined> {
@@ -231,17 +235,20 @@ export class PlaybackScheduler {
     if (!from) return undefined
     const successor = await this.#successor(from, 'explicit')
     if (successor === null) return null
-    if (successor.kind === 'queue') return this.goToQueued(successor.entry, from)
+    if (successor.kind === 'queue') return this.goToQueued(successor.entry, successor.position)
     return this.#goTo(successor.position)
   }
 
   async previous(): Promise<Track | null | undefined> {
     const from = this.#active?.position
     if (!from) return undefined
-    // Backing out of a queue detour returns to the row it was taken from, not
+    // Backing out of a *user* detour returns to the row it was taken from, not
     // to the row before that: the interrupted row is what "previous" means to
-    // anyone who just watched the queue cut in front of it.
-    if (from.queueEntryId !== null) return this.#goTo(orderPosition(from.index))
+    // anyone who just watched the queue cut in front of it. A session entry is
+    // that row already, so it takes the ordinary step back instead.
+    if (from.queueEntryId !== null && from.queueOrigin !== 'session') {
+      return this.#goTo(orderPosition(from.index))
+    }
     const total = this.#repeatMode === 'off' ? null : await this.#total()
     const index = previousIndex(from.index, total, this.#repeatMode)
     // `undefined` rather than `null`: nothing was attempted, so nothing was
@@ -349,7 +356,13 @@ export class PlaybackScheduler {
     if (!active || active.position === null) return
     // Only the order position moves. A queue detour is not a row of the order
     // and so is not permuted by one being swapped underneath it (§5 rule 6).
-    const position: SlotPosition = { index, queueEntryId: active.position.queueEntryId }
+    // The tier travels with it: the playing entry is still whichever kind it
+    // was, and Previous still has to be able to tell.
+    const position: SlotPosition = {
+      index,
+      queueEntryId: active.position.queueEntryId,
+      ...(active.position.queueOrigin ? { queueOrigin: active.position.queueOrigin } : {})
+    }
     active.position = position
     if (active.track) this.#events.emit('trackchange', { track: active.track, position })
     this.#resolveSuccessorAgain({ force: true })
@@ -777,6 +790,28 @@ export class PlaybackScheduler {
       // discarding a ready boundary in either case would turn a button press
       // into an audible risk.
       if (!options.force && samePosition(successor?.position ?? null, this.#prefetchPosition())) {
+        return
+      }
+
+      // The same row under a new *identity*, which is what a session fill does
+      // to an armed boundary: the order row that was warmed becomes the queue
+      // head holding that very track. Re-label the decode instead of throwing
+      // it away — the session tier is installed on every play, so discarding
+      // here would make a visible queue cost a re-decode every time.
+      const prepared = this.#prefetched
+      if (
+        !options.force &&
+        successor?.kind === 'queue' &&
+        prepared !== null &&
+        prepared.track !== null &&
+        prepared.track.id === successor.entry.track.id
+      ) {
+        prepared.position = successor.position
+        this.#setPrefetch({
+          ...this.#prefetchState,
+          index: successor.position.index,
+          queueEntryId: successor.position.queueEntryId
+        })
         return
       }
 

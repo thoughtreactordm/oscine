@@ -12,7 +12,10 @@ import {
   type PlaybackStatus
 } from '../audio/AudioEngine'
 import type {
+  GetTracksByIdsQuery,
   LibraryBrowseFilters,
+  ListTrackIdsQuery,
+  ListTrackIdsResult,
   ListTracksQuery,
   ListTracksResult,
   SortDirection,
@@ -23,6 +26,12 @@ import type { ListPlaylistEntriesQuery, ListPlaylistEntriesResult } from '@share
 import type { MediaSessionBinding, MediaSessionState, MediaSessionTransport } from './mediaSession'
 import { createListPlayOrder, createPlaylistPlayOrder, type PlayOrder } from './playOrder'
 import { PlaybackScheduler, type PrefetchState, type PrefetchStatus } from './scheduler'
+import {
+  libraryScopeReader,
+  materializeSession,
+  playlistScopeReader,
+  type SessionRowReader
+} from './sessionScope'
 import { createShuffledPlayOrder, type ShuffledPlayOrder } from './shufflePlayOrder'
 import { cycleRepeatMode, previousIndex, type RepeatMode } from './traversal'
 import {
@@ -33,6 +42,23 @@ import {
   type SlotPosition,
   type Successor
 } from './upNextQueue'
+
+/**
+ * How many order rows a session fill materializes.
+ *
+ * Any realistic scope fits whole — a few artists, an album, a search all land
+ * far under it — so the cap is only reached by "play the whole library", where
+ * the truncation is invisible because nobody scrolls five thousand rows into a
+ * queue. Broad scopes truncate and the play order carries on correctly behind
+ * the truncation, because every session entry carries its own order position
+ * and a drained tier resumes after the last one materialized rather than at the
+ * anchor.
+ *
+ * Named rather than inlined because the number is a judgement about queue
+ * *depth*, not about a page size: raising it costs memory in the renderer and
+ * nothing at either end of the IPC.
+ */
+export const SESSION_QUEUE_CAP = 5000
 import {
   readTransportPreferences,
   writeTransportPreferences,
@@ -72,6 +98,17 @@ export interface PlaybackControllerDeps {
    */
   fetchPlaylistEntries: (query: ListPlaylistEntriesQuery) => Promise<ListPlaylistEntriesResult>
   /**
+   * The two library verbs the session tier is materialized through.
+   *
+   * Required, and for the reason `fetchPlaylistEntries` gives: an optional
+   * dependency here would turn "the up-next surface shows what is lined up"
+   * into a silent no-op, which is the exact defect this tier exists to fix — a
+   * scope that was genuinely queued and had nowhere to be seen. A playlist
+   * session needs neither, because `fetchPlaylistEntries` already serves it.
+   */
+  fetchTrackIds: (query: ListTrackIdsQuery) => Promise<ListTrackIdsResult>
+  fetchTracksByIds: (query: GetTracksByIdsQuery) => Promise<readonly Track[]>
+  /**
    * R2's boundary policy where nothing more specific applies — the library
    * order, and anything played before a playlist has been chosen. A playing
    * playlist's own `crossfadeMs` replaces it for as long as it is playing.
@@ -105,6 +142,15 @@ export interface PlaybackControllerDeps {
    * and on again reshuffles. Injected only so a test can assert a sequence.
    */
   createShuffleSeed?: () => number
+  /**
+   * How deep a session fill goes. Defaults to `SESSION_QUEUE_CAP`.
+   *
+   * Injected for the same reason `createShuffleSeed` is: the behaviour that
+   * only appears past the cap — a drained session resuming after the last row
+   * it materialized rather than at the anchor — is otherwise reachable only by
+   * driving five thousand advances.
+   */
+  sessionQueueCap?: number
 }
 
 export interface PlayFromListParams {
@@ -262,6 +308,16 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   let baseOrder: PlayOrder | null = null
   let shuffledOrder: ShuffledPlayOrder | null = null
 
+  /**
+   * How the playing scope's rows are read in bulk, for the session tier.
+   *
+   * Built by whichever entry point started the order, because only it knows
+   * what the scope *is* — the filters and sort for a library traversal, the
+   * playlist id for a playlist one. `startOrder` is the one seam both go
+   * through, so neither grows its own copy of the fill.
+   */
+  let sessionScope: SessionRowReader | null = null
+
   /** Guards the one place a shuffle toggle awaits before it mutates state. */
   let shuffleToken = 0
 
@@ -362,13 +418,22 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     const previous = position.value
     position.value = at
 
+    // Dropped *before* the move rather than after it: `goTo` arms the
+    // decode-ahead on its way out, and a tier that is about to be replaced
+    // would have it warm a row that is not going to play next. Refilled once
+    // the move has landed, when the anchor it describes is settled.
+    const stale = sessionIsStale(at)
+    if (stale) queue.clearSession()
+
     try {
       const track = queued ? await scheduler.goToQueued(queued, at) : await scheduler.goTo(at.index)
       if (token !== requestToken || track === undefined) return
       if (!track) {
         // Off the end of the order. The scheduler has paused the current track.
         position.value = previous
+        return
       }
+      if (stale) void fillSession(at.index)
     } catch {
       if (token === requestToken) {
         position.value = previous
@@ -399,8 +464,14 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    * playlist gets all three by handing one in — and there is no second copy of
    * this sequence to drift from the first when the queue lands in W5-5.
    */
-  async function startOrder(base: PlayOrder, at: number, track?: Track): Promise<void> {
+  async function startOrder(
+    base: PlayOrder,
+    at: number,
+    scope: SessionRowReader,
+    track?: Track
+  ): Promise<void> {
     baseOrder = base
+    sessionScope = scope
 
     // The chosen row is pinned to the front of the shuffle, so "shuffle is on"
     // never means "the row I clicked is not what plays". The pin resolves
@@ -419,13 +490,87 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     ++requestToken
     error.value = null
 
+    // §5 rule 3 as amended: the session tier describes the session that is
+    // ending, so it goes now rather than when its replacement arrives — an
+    // up-next surface showing the *previous* scope for the length of a fill
+    // would be worse than one showing nothing. The user tier survives, which is
+    // the whole of what the split protects.
+    queue.clearSession()
+
     // With the row already in hand there is nothing to look up, so skip
     // `goToPosition` and its round trip.
     if (track) {
       position.value = orderPosition(index)
       nowPlaying.value = track
     }
+    // Deliberately not awaited. `startAt` is the click path and the fill is
+    // five round trips behind it; making the audio wait on the queue being
+    // drawable would trade the thing the user asked for against a list.
+    void fillSession(index)
     await startAt(index, track)
+  }
+
+  /**
+   * Whether the session tier would stop describing the rows after the anchor if
+   * the position moved to `at`.
+   *
+   * The tier is a function of an order and a position, and consuming its head
+   * moves both together — take the entry at order row 3 and the new head is row
+   * 4 against an anchor of 3, which is exactly what this asks for. So ordinary
+   * traversal, a user detour and a jump all pass without a refill.
+   *
+   * Previous is what does not: stepping back to row 1 leaves a tier whose head
+   * is row 3, and the next advance would take that head and skip row 2
+   * outright. Written as the invariant rather than patched into Previous, so a
+   * later mover cannot quietly reintroduce it.
+   *
+   * A tier that has *drained* is not stale. That distinction is load-bearing:
+   * an empty tier is the capped session the amendment's anchor rule is about,
+   * and refilling it here would turn the cap into an unbounded queue.
+   */
+  function sessionIsStale(at: SlotPosition): boolean {
+    const head = queue.sessionEntries.value[0]
+    if (!head) return false
+    return head.orderIndex !== at.index + 1
+  }
+
+  /**
+   * Materializes the scope behind the anchor into the session tier.
+   *
+   * Guarded on the *order object* rather than on `requestToken`, which is the
+   * one place this file departs from its usual generation check and is worth
+   * the sentence: a session tier is a property of an order, and `requestToken`
+   * also moves on every Next. Guarding on the token would abandon a fill
+   * because the user skipped a track while it was in flight — leaving the queue
+   * empty for exactly the operator who is using it. Every way of getting a
+   * different session — either entry point, and a shuffle toggle — installs a
+   * new order object, so identity is both sufficient and more precise.
+   */
+  async function fillSession(anchor: number): Promise<void> {
+    const captured = order
+    const scope = sessionScope
+    if (!captured || !scope) return
+
+    const shuffled = shuffledOrder
+    try {
+      const rows = await materializeSession({
+        read: scope,
+        baseIndexAt: shuffled
+          ? (index) => shuffled.baseIndexAt(index)
+          : (index) => Promise.resolve(index),
+        from: anchor + 1,
+        limit: Math.max(0, deps.sessionQueueCap ?? SESSION_QUEUE_CAP)
+      })
+      // A newer order was started while this was in flight; its session is not
+      // this one's.
+      if (order !== captured) return
+      queue.fillSession(rows)
+    } catch {
+      // A scope that could not be read costs the operator a visible queue and
+      // nothing else — traversal still resolves each position on its own. Left
+      // silent rather than surfaced through `error`, which is the transport's
+      // channel for "the music stopped".
+    }
   }
 
   /**
@@ -447,6 +592,16 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
         filters: params.filters
       }),
       params.index,
+      // The same three facts the order was built from. That is the point of the
+      // session tier: the scope has always bounded traversal, and this is it
+      // read in bulk rather than one position at a time.
+      libraryScopeReader({
+        fetchTrackIds: deps.fetchTrackIds,
+        fetchTracksByIds: deps.fetchTracksByIds,
+        sort: params.sort,
+        direction: params.direction,
+        filters: params.filters
+      }),
       params.track
     )
   }
@@ -467,6 +622,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
         fetchEntries: deps.fetchPlaylistEntries
       }),
       params.index,
+      playlistScopeReader({
+        playlistId: params.playlistId,
+        fetchEntries: deps.fetchPlaylistEntries
+      }),
       params.track
     )
   }
@@ -525,20 +684,33 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   }
 
   /**
-   * Plays a queued entry now, out of turn.
+   * Plays a queued entry now, out of turn — and what that costs depends on the
+   * tier.
    *
-   * Only that entry leaves the queue. Dropping everything above it is the other
-   * plausible reading of a jump, and §5 does not choose — so this takes the one
-   * that destroys nothing, and W5-7's overlay can revisit it with a real user
-   * in front of it.
+   * A **user** entry keeps W5-5's decision: only that entry leaves the queue.
+   * Dropping everything above it is the other plausible reading of a jump and
+   * §5 does not choose, so this takes the one that destroys nothing.
+   *
+   * A **session** entry is an order row, and jumping to one moves the anchor to
+   * it. The session rows above it go with the jump, because they are behind the
+   * operator now — keeping them would replay the scope from where the jump
+   * started. The user tier is untouched either way: it sits above the session
+   * tier and is not behind anything.
    */
   async function playQueued(entryId: string): Promise<void> {
     const from = position.value
     const entry = queue.entry(entryId)
     if (!from || !entry) return
     // The same synchronous shift `next` performs, for the same reason.
-    queue.take(entry.id)
-    await goToPosition({ index: from.index, queueEntryId: entry.id }, entry)
+    queue.takeThrough(entry.id)
+    await goToPosition(
+      {
+        index: entry.orderIndex ?? from.index,
+        queueEntryId: entry.id,
+        queueOrigin: entry.origin
+      },
+      entry
+    )
   }
 
   async function previous(): Promise<void> {
@@ -547,10 +719,15 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     // the rest of the transport polish rather than smuggled in here.
     const from = position.value
     if (!from) return
-    // Backing out of a queue detour returns to the row it interrupted. The
+    // Backing out of a *user* detour returns to the row it interrupted. The
     // queue is forward-looking — the entry that just played has been shifted
-    // out of it — so there is nothing else Previous could mean here.
-    if (from.queueEntryId !== null) {
+    // out of it — so there is nothing else Previous could mean there.
+    //
+    // A session entry is not a detour: it *is* the order row at `from.index`,
+    // so returning to that row would replay what is playing. It falls through
+    // to the ordinary step back, which is why the tier is on the position at
+    // all — by now the entry itself is gone from the queue.
+    if (from.queueEntryId !== null && from.queueOrigin !== 'session') {
       await goToPosition(orderPosition(from.index))
       return
     }
@@ -615,14 +792,16 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     const at = position.value
     if (!base || !order || at === null || !scheduler) return
     const token = ++shuffleToken
-    // §5 rule 6: shuffle permutes the playing order, never the queue. What
-    // moves here is the anchor — a detour keeps its identity across a reshuffle
-    // of the rows it will come back to.
+    // §5 rule 6 as amended: shuffle permutes the playing order and never the
+    // *user* tier. What moves here is the anchor — a detour keeps its identity
+    // across a reshuffle of the rows it will come back to.
     const rebase = (index: number): SlotPosition => ({
       index,
-      queueEntryId: at.queueEntryId
+      queueEntryId: at.queueEntryId,
+      ...(at.queueOrigin ? { queueOrigin: at.queueOrigin } : {})
     })
 
+    let anchor: number
     if (enabled) {
       const shuffled = createShuffledPlayOrder(base, {
         seed: shuffleSeed(),
@@ -630,18 +809,26 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       })
       shuffledOrder = shuffled
       order = shuffled
-      position.value = rebase(0)
-      scheduler.retarget(shuffled, 0)
+      anchor = 0
+      position.value = rebase(anchor)
+      scheduler.retarget(shuffled, anchor)
     } else {
       const resumeAt = (await shuffledOrder?.baseIndexAt(at.index)) ?? at.index
       if (token !== shuffleToken) return
       shuffledOrder = null
       order = base
-      position.value = rebase(resumeAt)
-      scheduler.retarget(base, resumeAt)
+      anchor = resumeAt
+      position.value = rebase(anchor)
+      scheduler.retarget(base, anchor)
     }
 
     captureTotal()
+    // The other half of rule 6 as amended: the session tier is *refilled*,
+    // because it is the tier that claims to describe what is actually going to
+    // play. Leaving it would show an order that will not happen — which is the
+    // one thing a visible queue must never do.
+    queue.clearSession()
+    void fillSession(anchor)
   }
 
   async function toggleShuffle(): Promise<void> {
@@ -747,6 +934,11 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     // stopping is not a request to change one.
     baseOrder = null
     shuffledOrder = null
+    sessionScope = null
+    // The session tier describes a traversal that has just ended, so it ends
+    // with it. The user tier is not a property of any traversal and survives —
+    // rule 3 as amended, and the same asymmetry `startOrder` applies.
+    queue.clearSession()
     orderTotal.value = null
     position.value = null
     // Both go with the order rather than with the modes: which playlist is
@@ -782,6 +974,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     order = null
     baseOrder = null
     shuffledOrder = null
+    sessionScope = null
     orderTotal.value = null
     status.value = 'idle'
     applyPrefetch({
@@ -809,6 +1002,18 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     playingQueueEntryId,
     queuedEntries: queue.entries,
     queuedCount: queue.count,
+    /**
+     * The tiers, separately.
+     *
+     * The transport badge counts `queuedUserCount` and not `queuedCount`: a
+     * badge reading `312` after every click is noise, and the state it exists
+     * to make visible — "a non-empty queue changes what Next does" — is a
+     * statement about the tier the operator built by hand.
+     */
+    queuedUserEntries: queue.userEntries,
+    queuedUserCount: queue.userCount,
+    queuedSessionEntries: queue.sessionEntries,
+    queuedSessionCount: queue.sessionCount,
     repeatMode,
     shuffleEnabled,
     error,
@@ -828,6 +1033,8 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     enqueueNext: queue.enqueueNext,
     removeQueued: queue.remove,
     moveQueued: queue.move,
+    /** Clears the hand-queued rows, leaving the playing scope's standing. */
+    clearUserQueue: queue.clearUser,
     clearQueue: queue.clear,
     /** Plays a queued entry now, shifting it out of the queue (§5 rule 1). */
     playQueued,

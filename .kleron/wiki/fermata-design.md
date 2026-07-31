@@ -229,17 +229,30 @@ Two deliberate choices: `playlist_entries.id` is stable and separate from `track
 
 ## 5. Queue semantics (D5)
 
-State: `viewedPlaylistId` and `playingPlaylistId` are **separate** — browsing a different tab must not disturb playback. The up-next queue is an ordered list of track ids.
+State: `viewedPlaylistId` and `playingPlaylistId` are **separate** — browsing a different tab must not disturb playback. The up-next queue is an ordered list of track ids in two tiers: a **user tier**, put there by hand, and a **session tier**, materialized from the scope a play session started in. The user tier always sits above the session tier.
 
-1. Next track = shift from the up-next queue if non-empty; otherwise the next entry after the current one in the playing playlist.
-2. Queueing a track never changes `playingPlaylistId` or the current position.
-3. Playing a track from any playlist sets `playingPlaylistId` to that playlist. **The queue survives** — it is not cleared.
+1. Next track = shift from the up-next queue if non-empty; otherwise the next entry after the current one in the playing playlist. A user entry is a *detour* and leaves the resume position where it was; a session entry *is* an order row and carries the resume position to its own.
+2. Queueing a track never changes `playingPlaylistId` or the current position. Only the user tier is "queueing" — filling the session tier is part of starting playback, which moves both by definition.
+3. Playing a track from any playlist sets `playingPlaylistId` to that playlist. **The user tier survives** — it is not cleared. The session tier is replaced, because it describes the session that just ended.
 4. The queue holds track ids, so deleting a playlist that a queued track came from does not remove it from the queue. Deleting the *playing* playlist stops playback.
 5. The queue is transient in v1: not persisted across restarts. Playlists are persisted.
-6. Shuffle reorders traversal of the playing playlist only. It never reorders the queue.
+6. Shuffle reorders traversal of the playing playlist only. It never reorders the user tier. It *refills* the session tier, which is the whole of what it means for that tier to describe what is actually going to play.
 7. Repeat-one overrides everything. Repeat-all wraps the playing playlist; the queue still takes priority.
 
 Each of these seven rules gets a test. That is M4's exit criterion.
+
+### Amendment — 2026-07-31: the session tier
+
+Rules 1, 2, 3 and 6 were amended on the operator's decision, which is the revisit trigger D5 did not anticipate. The original text made the queue purely explicit: it held only what the operator put in it, and rule 3's "the queue survives" was unconditional.
+
+What that missed is that **a scope is already a queue and the operator cannot see it.** Selecting three artists and playing a song has always traversed only those three artists' tracks — `createListPlayOrder` carries the browse filters into every `at()` and into `count()` — but the traversal is lazy and query-backed, so nothing in the UI could show it. The up-next surface rendered an empty list while several hundred tracks were genuinely lined up behind the current one. "Prime the queue with what I have scoped in" is the request to make that visible, and materializing the scope is the reading chosen over projecting the order tail.
+
+Two consequences fall out and neither is optional:
+
+- **Two tiers, not one.** Wiping the queue on every play session would destroy exactly what rule 3 was written to protect: queue five tracks, click a library row, lose them. Splitting the tiers keeps rule 3's guarantee whole and narrows it to the tier it was ever about. It is also what keeps "Add to queue" meaningful — an append against a loaded 300-track session means "in four hours" unless the user tier sits above it.
+- **A session entry moves the anchor.** `SlotPosition.index` is the position traversal *resumes* at, and a queue entry inherits it unchanged, because a queued track is a detour from the row it interrupted. That is right for a user entry and wrong for a session entry: a session tier holding the scope's rows 1..N against an anchor still at 0 replays the scope from row 1 the moment it drains. Session entries therefore carry their own order index. This is what makes a capped session tier correct rather than merely truncated — draining the cap resumes at the row after the last one materialized.
+
+*Revisit when*: the session tier's cap is reached often enough to be noticed, or the Tunedeck's up-next pane (W7-2) wants to render the untruncated scope. Projecting the order tail through a paged `PlayOrder.slice()` is the alternative that was not taken and remains available; it needs no cap, because it materializes nothing.
 
 ## 6. Process architecture
 

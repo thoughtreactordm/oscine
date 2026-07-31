@@ -14,6 +14,12 @@ import type {
   PlaylistPathStyle
 } from '@shared/playlists'
 
+export interface CreatePlaylistOptions {
+  crossfadeMs?: number
+  /** Open it as a tab and view it. Defaults to true — see `create`. */
+  openTab?: boolean
+}
+
 /**
  * The playlists, which of them are *open* as tabs, and which one is being
  * *looked at*.
@@ -195,11 +201,26 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     openIds.value = next
   }
 
-  async function create(name: string, crossfadeMs?: number): Promise<Playlist | null> {
+  /**
+   * Makes a playlist, and by default opens it.
+   *
+   * `openTab` is a choice because there are now two ways to reach this and they
+   * want opposite things. The rail's plus button *is* a request to work on a new
+   * playlist, so it opens a tab and starts an inline rename on it. "New
+   * playlist…" from a context menu is not: the operator is browsing the library
+   * with a right-click menu open, and rearranging Curate's tab strip underneath
+   * them — moving the viewed tab to something they have not looked at — is
+   * exactly the interruption that gesture is supposed to avoid. The playlist
+   * still appears in the rail either way; only the tab is at stake.
+   */
+  async function create(
+    name: string,
+    options: CreatePlaylistOptions = {}
+  ): Promise<Playlist | null> {
     try {
-      const created = await playlists.create(name, crossfadeMs)
+      const created = await playlists.create(name, options.crossfadeMs)
       await refresh()
-      openTab(created.id)
+      if (options.openTab ?? true) openTab(created.id)
       return created
     } catch (cause) {
       report(cause, 'That playlist could not be created.')

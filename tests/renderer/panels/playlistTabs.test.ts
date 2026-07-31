@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { Playlist } from '@shared/playlists'
 import {
   createPlaylistTabs,
+  DISCOVER_TAB,
   type PlaylistTabCommands,
   type TabKeyEvent
 } from '../../../src/renderer/panels/playlistTabs'
@@ -98,6 +99,85 @@ describe('what the strip contains', () => {
     const h = bar([])
     expect(h.model.tabs.value).toHaveLength(0)
     expect(h.library.value).toHaveLength(4)
+  })
+})
+
+describe('the Discover fixture', () => {
+  it('is the left end of the strip, whatever else is open', () => {
+    expect(bar().model.stops.value).toEqual([DISCOVER_TAB, 1, 2, 3])
+    expect(bar([3, 1]).model.stops.value).toEqual([DISCOVER_TAB, 3, 1])
+  })
+
+  /**
+   * The reason the strip has no empty state any more. `tabs` is empty and the
+   * strip is not, because there is always somewhere to be.
+   */
+  it('is still there with nothing open', () => {
+    const h = bar([])
+    expect(h.model.tabs.value).toHaveLength(0)
+    expect(h.model.stops.value).toEqual([DISCOVER_TAB])
+    expect(h.model.discoverViewed.value).toBe(true)
+  })
+
+  it('is where the view lands when the last tab closes', () => {
+    const h = bar([1])
+    h.model.close(1)
+    expect(h.viewedId.value).toBe(DISCOVER_TAB)
+    expect(h.model.discoverViewed.value).toBe(true)
+  })
+
+  it('is not viewed while a playlist is, and no playlist is viewed while it is', () => {
+    const h = bar()
+    expect(h.model.discoverViewed.value).toBe(false)
+    expect(h.model.isViewed(1)).toBe(true)
+
+    h.model.select(DISCOVER_TAB)
+
+    expect(h.model.discoverViewed.value).toBe(true)
+    expect(h.model.isViewed(1)).toBe(false)
+    expect(h.named('view').at(-1)?.args).toEqual([DISCOVER_TAB])
+  })
+
+  /**
+   * Not a branch anyone wrote — `close` and `rename` need a playlist id, and the
+   * fixture has none. Asserted anyway because it is the property the whole
+   * `null` representation was chosen for, and a later refactor that gave
+   * Discover a synthetic id would break it silently.
+   */
+  it('cannot be closed or renamed from the keyboard', () => {
+    const h = bar()
+    h.model.select(DISCOVER_TAB)
+
+    expect(h.model.onKeydown(key({ key: 'Delete' }))).toBe('none')
+    expect(h.model.onKeydown(key({ key: 'F2' }))).toBe('none')
+
+    expect(h.openIds.value).toEqual([1, 2, 3])
+    expect(h.model.stops.value).toEqual([DISCOVER_TAB, 1, 2, 3])
+    expect(h.named('close')).toHaveLength(0)
+    expect(h.named('rename')).toHaveLength(0)
+    expect(h.model.renamingId.value).toBeNull()
+  })
+
+  it('cannot be displaced from the left end by a reorder', async () => {
+    const h = bar()
+    h.model.beginDrag(3)
+    h.model.dragOver(1, 'before')
+    await h.model.drop()
+
+    // `moveOpen` indexes the playlists, so index 0 is the tab beside Discover
+    // rather than Discover's own place.
+    expect(h.named('moveOpen')[0]?.args).toEqual([3, 0])
+    expect(h.model.stops.value).toEqual([DISCOVER_TAB, 3, 1, 2])
+  })
+
+  it('plays nothing, so the playing mark stays where the sound is', () => {
+    const h = bar()
+    h.playingId.value = 2
+    h.model.select(DISCOVER_TAB)
+
+    expect(h.model.discoverViewed.value).toBe(true)
+    expect(h.model.isPlaying(2)).toBe(true)
+    expect(h.playingId.value).toBe(2)
   })
 })
 
@@ -244,8 +324,13 @@ describe('switching tabs from the keyboard', () => {
     h.model.onKeydown(key({ key: 'ArrowLeft' }))
     expect(h.viewedId.value).toBe(2)
     h.model.onKeydown(key({ key: 'ArrowLeft' }))
-    h.model.onKeydown(key({ key: 'ArrowLeft' }))
     expect(h.viewedId.value).toBe(1)
+
+    // The left end is Discover, not the first playlist, and it is still an end.
+    h.model.onKeydown(key({ key: 'ArrowLeft' }))
+    expect(h.viewedId.value).toBe(DISCOVER_TAB)
+    h.model.onKeydown(key({ key: 'ArrowLeft' }))
+    expect(h.viewedId.value).toBe(DISCOVER_TAB)
   })
 
   it('jumps to the ends with Home and End', () => {
@@ -253,6 +338,8 @@ describe('switching tabs from the keyboard', () => {
     expect(h.model.onKeydown(key({ key: 'End' }))).toBe('navigate')
     expect(h.viewedId.value).toBe(3)
     h.model.onKeydown(key({ key: 'Home' }))
+    expect(h.viewedId.value).toBe(DISCOVER_TAB)
+    h.model.onKeydown(key({ key: 'ArrowRight' }))
     expect(h.viewedId.value).toBe(1)
   })
 
