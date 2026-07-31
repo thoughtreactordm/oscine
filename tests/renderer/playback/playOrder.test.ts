@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
-import { createListPlayOrder } from '../../../src/renderer/playback/playOrder'
+import {
+  createListPlayOrder,
+  createPlaylistPlayOrder
+} from '../../../src/renderer/playback/playOrder'
 import type { ListTracksQuery, ListTracksResult, Track } from '../../../src/shared/library'
+import type {
+  ListPlaylistEntriesQuery,
+  ListPlaylistEntriesResult
+} from '../../../src/shared/playlists'
 
 function track(id: number): Track {
   return {
@@ -200,5 +207,114 @@ describe('createListPlayOrder', () => {
 
     expect(createListPlayOrder(deps).id).toBe(createListPlayOrder(deps).id)
     expect(createListPlayOrder(deps).id).not.toBe(createListPlayOrder(other).id)
+  })
+})
+
+/**
+ * `total` entries, each holding a track whose id is `1000 + position`.
+ *
+ * D12 makes the same track legal twice in a playlist, so entry id and track id
+ * are deliberately different numbers here — a fixture where they coincided
+ * would let a confusion between the two pass unnoticed.
+ */
+function playlist(
+  total: number
+): (query: ListPlaylistEntriesQuery) => Promise<ListPlaylistEntriesResult> {
+  return async (query) => ({
+    entries: Array.from(
+      { length: Math.max(0, Math.min(query.limit, total - query.offset)) },
+      (_, i) => ({ id: query.offset + i + 1, track: track(1000 + query.offset + i) })
+    ),
+    total
+  })
+}
+
+describe('createPlaylistPlayOrder', () => {
+  it('resolves a position to the track of the entry at that position', async () => {
+    const order = createPlaylistPlayOrder({ playlistId: 7, fetchEntries: playlist(50) })
+
+    await expect(order.at(0)).resolves.toMatchObject({ id: 1000 })
+    await expect(order.at(17)).resolves.toMatchObject({ id: 1017 })
+  })
+
+  it('asks the named playlist for exactly one entry', async () => {
+    const fetchEntries = vi.fn(playlist(50))
+    const order = createPlaylistPlayOrder({ playlistId: 7, fetchEntries })
+
+    await order.at(9)
+
+    expect(fetchEntries).toHaveBeenCalledWith({ playlistId: 7, offset: 9, limit: 1 })
+  })
+
+  it('returns null past the last entry rather than throwing', async () => {
+    const order = createPlaylistPlayOrder({ playlistId: 7, fetchEntries: playlist(3) })
+
+    await expect(order.at(2)).resolves.toMatchObject({ id: 1002 })
+    await expect(order.at(3)).resolves.toBeNull()
+    await expect(order.at(9_999)).resolves.toBeNull()
+  })
+
+  it('returns null for a position that is not a row, without asking main', async () => {
+    const fetchEntries = vi.fn(playlist(10))
+    const order = createPlaylistPlayOrder({ playlistId: 7, fetchEntries })
+
+    await expect(order.at(-1)).resolves.toBeNull()
+    await expect(order.at(1.5)).resolves.toBeNull()
+    expect(fetchEntries).not.toHaveBeenCalled()
+  })
+
+  it('resolves an empty playlist to nothing at all', async () => {
+    // A tab with no entries is an ordinary state, not a fault: a playlist is
+    // created empty and then filled.
+    const order = createPlaylistPlayOrder({ playlistId: 7, fetchEntries: playlist(0) })
+
+    await expect(order.at(0)).resolves.toBeNull()
+    await expect(order.count()).resolves.toBe(0)
+  })
+
+  describe('count', () => {
+    it('reports the entries, ignoring offset and limit', async () => {
+      const fetchEntries = vi.fn(playlist(50))
+      const order = createPlaylistPlayOrder({ playlistId: 7, fetchEntries })
+
+      await expect(order.count()).resolves.toBe(50)
+      expect(fetchEntries).toHaveBeenCalledWith({ playlistId: 7, offset: 0, limit: 1 })
+    })
+
+    it('asks once however many callers want it', async () => {
+      const fetchEntries = vi.fn(playlist(50))
+      const order = createPlaylistPlayOrder({ playlistId: 7, fetchEntries })
+
+      await Promise.all([order.count(), order.count()])
+      await order.count()
+
+      expect(fetchEntries).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports null when it cannot be established, and tries again later', async () => {
+      const fetchEntries =
+        vi.fn<(query: ListPlaylistEntriesQuery) => Promise<ListPlaylistEntriesResult>>()
+      fetchEntries.mockRejectedValueOnce(new Error('main is busy'))
+      fetchEntries.mockImplementation(playlist(12))
+      const order = createPlaylistPlayOrder({ playlistId: 7, fetchEntries })
+
+      await expect(order.count()).resolves.toBeNull()
+      await expect(order.count()).resolves.toBe(12)
+    })
+  })
+
+  it('identifies orderings that traverse the same rows', () => {
+    const fetchEntries = playlist(1)
+
+    expect(createPlaylistPlayOrder({ playlistId: 7, fetchEntries }).id).toBe(
+      createPlaylistPlayOrder({ playlistId: 7, fetchEntries }).id
+    )
+    expect(createPlaylistPlayOrder({ playlistId: 7, fetchEntries }).id).not.toBe(
+      createPlaylistPlayOrder({ playlistId: 8, fetchEntries }).id
+    )
+    // And never collides with a library traversal.
+    expect(createPlaylistPlayOrder({ playlistId: 7, fetchEntries }).id).not.toBe(
+      createListPlayOrder({ fetchPage: library(1), sort: 'artist', direction: 'asc' }).id
+    )
   })
 })

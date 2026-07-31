@@ -8,15 +8,17 @@ import {
   type Track,
   type TrackSortColumn
 } from '@shared/library'
+import type { ListPlaylistEntriesQuery, ListPlaylistEntriesResult } from '@shared/playlists'
 
 /**
  * What "next track" means.
  *
  * This is the first appearance of play order, and it is deliberately an
- * interface rather than a peek at the track list's cache. W5 replaces the
- * implementation with playlists and the up-next queue (design §5) and nothing
- * above this line changes: `next` stays "whatever `at(index + 1)` returns", and
- * "there is no next" stays `null` rather than an error.
+ * interface rather than a peek at the track list's cache. W5 adds a second
+ * implementation over playlists and nothing above this line changes: `next`
+ * stays "whatever `at(index + 1)` returns", and "there is no next" stays `null`
+ * rather than an error. Shuffle and repeat compose with either without knowing
+ * which they were handed, which is the whole of what the interface bought.
  *
  * ## Why a snapshot and not a live view of the list
  *
@@ -67,6 +69,32 @@ export interface PlayOrder {
   count(): Promise<number | null>
 }
 
+/**
+ * Wraps a length query so one order asks main for its length at most once.
+ *
+ * Shared by both implementations because the retry rule is the subtle part, not
+ * the caching: a failure clears the memo instead of remembering `null`, so a
+ * count that lost once to a busy main process does not disable wrapping for the
+ * rest of the session. Held as the promise rather than the value so two callers
+ * arriving together share one round trip — the transport asks on every press
+ * and the boundary path asks on every track under repeat.
+ */
+function memoizedCount(resolveTotal: () => Promise<number>): () => Promise<number | null> {
+  let counted: Promise<number | null> | null = null
+
+  return () => {
+    counted ??= (async () => {
+      try {
+        return await resolveTotal()
+      } catch {
+        counted = null
+        return null
+      }
+    })()
+    return counted
+  }
+}
+
 export interface ListPlayOrderDeps {
   fetchPage: (query: ListTracksQuery) => Promise<ListTracksResult>
   sort: TrackSortColumn
@@ -93,34 +121,18 @@ export function createListPlayOrder(deps: ListPlayOrderDeps): PlayOrder {
   // would read as a changed queue under a playing track.
   const filterId = Object.keys(filters).length === 0 ? '' : `:${browseFilterKey(filters)}`
 
-  // Memoised, because the count is asked for on transport presses and on every
-  // boundary under repeat, and every one of them wants the same answer for the
-  // life of this order. Held as the promise rather than the value so that two
-  // callers arriving together share one round trip.
-  let counted: Promise<number | null> | null = null
+  const count = memoizedCount(async () => {
+    // `limit: 1` rather than zero: main rejects a non-positive limit, and the
+    // row that comes back is the cheapest possible one to discard. `total` is
+    // reported ignoring offset and limit, which is the number wanted here.
+    const result = await fetchPage({ ...filters, sort, direction, offset: 0, limit: 1 })
+    return result.total
+  })
 
   return {
     id: `list:${sort}:${direction}${filterId}`,
 
-    count(): Promise<number | null> {
-      counted ??= (async () => {
-        try {
-          // `limit: 1` rather than zero: main rejects a non-positive limit, and
-          // the row that comes back is the cheapest possible one to discard.
-          // `total` is reported ignoring offset and limit, which is the number
-          // wanted here.
-          const result = await fetchPage({ ...filters, sort, direction, offset: 0, limit: 1 })
-          return result.total
-        } catch {
-          // Cleared rather than remembered as `null`, so the next boundary can
-          // try again — a count that failed once because main was busy should
-          // not disable wrapping for the rest of the session.
-          counted = null
-          return null
-        }
-      })()
-      return counted
-    },
+    count,
 
     async at(index: number): Promise<Track | null> {
       // A negative or fractional offset is a caller bug, and main would reject
@@ -132,6 +144,70 @@ export function createListPlayOrder(deps: ListPlayOrderDeps): PlayOrder {
       // Past the last row SQLite returns no rows rather than failing, which is
       // exactly the clean stop the transport wants.
       return result.tracks[0] ?? null
+    }
+  }
+}
+
+export interface PlaylistPlayOrderDeps {
+  playlistId: number
+  fetchEntries: (query: ListPlaylistEntriesQuery) => Promise<ListPlaylistEntriesResult>
+}
+
+/**
+ * A play order over one playlist's entries, in position order — M4's second
+ * kind, and the one `PlayOrder` was written as an interface to admit.
+ *
+ * Structurally the same shape as the list order, and deliberately so: one
+ * indexed row per position, a memoised length, `null` off the end. Everything
+ * above it — shuffle, repeat, the scheduler's decode-ahead — is untouched by
+ * which of the two it was handed, which is what "shuffle and repeat compose
+ * with anything satisfying `PlayOrder`" has to mean in practice.
+ *
+ * ## What it deliberately does not carry
+ *
+ * `PlaylistEntry.id` is the identity of a row everywhere else in the playlist
+ * contract, because D12 makes the same track legal twice, and only the entry id
+ * can tell two such rows apart. It stops here. A `PlayOrder` names positions and
+ * resolves them to tracks; the position *is* the identity of a row in a
+ * traversal, and duplicates are not ambiguous under it — position 3 and
+ * position 40 are different positions whatever they hold. Adding an entry id to
+ * `at()` would put a playlist-shaped field on the interface the library order
+ * cannot fill.
+ *
+ * ## Ordering, not contents
+ *
+ * The same snapshot property the list order has, and with the same limit: what
+ * is captured is *how to traverse*, not *what was there*. Reordering a playlist
+ * under a playing traversal changes what the next position resolves to, exactly
+ * as a rescan does for the library. That is the intended behaviour — the
+ * alternative is a queue that silently disagrees with the tab the user is
+ * editing — and the up-next queue (§5) is where the transient, edit-proof
+ * ordering lives.
+ */
+export function createPlaylistPlayOrder(deps: PlaylistPlayOrderDeps): PlayOrder {
+  const { playlistId, fetchEntries } = deps
+
+  const count = memoizedCount(async () => {
+    // `limit: 1` for the same reason as the list order: main rejects a
+    // non-positive limit and `total` ignores the window anyway.
+    const result = await fetchEntries({ playlistId, offset: 0, limit: 1 })
+    return result.total
+  })
+
+  return {
+    // The playlist id alone. Two orders over the same playlist traverse the
+    // same rows in the same sequence, and nothing else about a playlist —
+    // its name, its crossfade, how many entries it had when this was built —
+    // changes that sequence.
+    id: `playlist:${playlistId}`,
+
+    count,
+
+    async at(index: number): Promise<Track | null> {
+      if (!Number.isInteger(index) || index < 0) return null
+
+      const result = await fetchEntries({ playlistId, offset: index, limit: 1 })
+      return result.entries[0]?.track ?? null
     }
   }
 }
