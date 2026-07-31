@@ -12,6 +12,7 @@ import type {
 } from '@shared/library'
 import type {
   AddTracksToPlaylistRequest,
+  ExportPlaylistRequest,
   ListPlaylistEntriesQuery,
   ListPlaylistEntryIdsQuery,
   MovePlaylistEntriesRequest,
@@ -88,7 +89,10 @@ export const playlists = {
   moveEntries: (payload: MovePlaylistEntriesRequest) =>
     unwrap(window.fermata.playlists.moveEntries(payload)),
   removeEntries: (payload: RemovePlaylistEntriesRequest) =>
-    unwrap(window.fermata.playlists.removeEntries(payload))
+    unwrap(window.fermata.playlists.removeEntries(payload)),
+  /** Resolves `null` when the operator dismisses the save dialog. */
+  exportM3u8: (payload: ExportPlaylistRequest) =>
+    unwrap(window.fermata.playlists.exportM3u8(payload))
 }
 
 export const windowControls = {

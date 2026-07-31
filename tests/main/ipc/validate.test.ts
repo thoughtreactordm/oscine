@@ -10,6 +10,7 @@ import {
   MAX_TRACK_PAGE
 } from '@shared/library'
 import {
+  assertExportPlaylistRequest,
   assertListFacetIdsQuery,
   assertListFacetsQuery,
   assertListTrackIdsQuery,
@@ -125,6 +126,28 @@ describe('library browse IPC validation', () => {
       }
     ]) {
       expect(() => assertOrderTrackIdsQuery(query)).toThrow(FermataError)
+    }
+  })
+
+  it('accepts either export path style and rejects anything else', () => {
+    expect(assertExportPlaylistRequest({ playlistId: 3, pathStyle: 'relative' })).toEqual({
+      playlistId: 3,
+      pathStyle: 'relative'
+    })
+    expect(assertExportPlaylistRequest({ playlistId: 3, pathStyle: 'absolute' })).toEqual({
+      playlistId: 3,
+      pathStyle: 'absolute'
+    })
+
+    for (const request of [
+      { playlistId: 3 },
+      { playlistId: 3, pathStyle: 'RELATIVE' },
+      { playlistId: 3, pathStyle: 'file://' },
+      { playlistId: 0, pathStyle: 'relative' },
+      // An unknown field is a caller that thinks it is configuring something.
+      { playlistId: 3, pathStyle: 'relative', destination: '/etc/passwd' }
+    ]) {
+      expect(() => assertExportPlaylistRequest(request)).toThrow(FermataError)
     }
   })
 

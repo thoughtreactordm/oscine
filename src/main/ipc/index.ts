@@ -7,6 +7,7 @@ import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertAddTracksRequest,
   assertCrossfadeMs,
+  assertExportPlaylistRequest,
   assertListFacetIdsQuery,
   assertListFacetsQuery,
   assertListPlaylistEntriesQuery,
@@ -174,6 +175,10 @@ export function registerIpcHandlers(library: LibraryService, playlists: Playlist
 
   handle('playlists.removeEntries', (request) =>
     playlists.removeEntries(assertRemoveEntriesRequest(request))
+  )
+
+  handle('playlists.exportM3u8', (request) =>
+    playlists.exportM3u8(assertExportPlaylistRequest(request))
   )
 
   assertEveryChannelHandled()

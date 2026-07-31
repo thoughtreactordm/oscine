@@ -21,12 +21,14 @@ import type {
 } from './library'
 import type {
   AddTracksToPlaylistRequest,
+  ExportPlaylistRequest,
   ListPlaylistEntriesQuery,
   ListPlaylistEntriesResult,
   ListPlaylistEntryIdsQuery,
   ListPlaylistEntryIdsResult,
   MovePlaylistEntriesRequest,
   Playlist,
+  PlaylistExportResult,
   RemovePlaylistEntriesRequest
 } from './playlists'
 
@@ -156,6 +158,16 @@ export interface IpcContract {
   'playlists.addTracks': { request: AddTracksToPlaylistRequest; response: Playlist }
   'playlists.moveEntries': { request: MovePlaylistEntriesRequest; response: Playlist }
   'playlists.removeEntries': { request: RemovePlaylistEntriesRequest; response: Playlist }
+  /**
+   * D12's interop escape hatch: writes the playlist to a `.m3u8` the operator
+   * names in a native save dialog. Resolves `null` when they cancel, following
+   * `library.addRoot` — dismissing a dialog is an ordinary outcome and not an
+   * error the renderer should have to catch.
+   */
+  'playlists.exportM3u8': {
+    request: ExportPlaylistRequest
+    response: PlaylistExportResult | null
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -220,7 +232,8 @@ export const IPC_CHANNELS = [
   'playlists.listEntryIds',
   'playlists.addTracks',
   'playlists.moveEntries',
-  'playlists.removeEntries'
+  'playlists.removeEntries',
+  'playlists.exportM3u8'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [

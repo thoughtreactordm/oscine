@@ -25,11 +25,14 @@ import {
   MAX_PLAYLIST_ENTRY_ID_PAGE,
   MAX_PLAYLIST_ENTRY_PAGE,
   MAX_PLAYLIST_NAME_LENGTH,
+  PLAYLIST_PATH_STYLES,
   type AddTracksToPlaylistRequest,
+  type ExportPlaylistRequest,
   type ListPlaylistEntriesQuery,
   type ListPlaylistEntryIdsQuery,
   type MovePlaylistEntriesRequest,
   type PlaylistInsertion,
+  type PlaylistPathStyle,
   type RemovePlaylistEntriesRequest
 } from '@shared/playlists'
 
@@ -363,6 +366,19 @@ export function assertRemoveEntriesRequest(value: unknown): RemovePlaylistEntrie
   return {
     playlistId: assertPositiveInt(raw.playlistId, 'playlistId'),
     entryIds: assertPlaylistIdBatch(raw.entryIds, 'entryIds')
+  }
+}
+
+export function assertExportPlaylistRequest(value: unknown): ExportPlaylistRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['playlistId', 'pathStyle'])
+  const pathStyle = raw.pathStyle
+  if (typeof pathStyle !== 'string' || !PLAYLIST_PATH_STYLES.includes(pathStyle as never)) {
+    invalid(`pathStyle must be one of: ${PLAYLIST_PATH_STYLES.join(', ')}.`)
+  }
+  return {
+    playlistId: assertPositiveInt(raw.playlistId, 'playlistId'),
+    pathStyle: pathStyle as PlaylistPathStyle
   }
 }
 

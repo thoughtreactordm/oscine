@@ -20,6 +20,7 @@ import type {
 } from '@shared/library'
 import type {
   AddTracksToPlaylistRequest,
+  ExportPlaylistRequest,
   ListPlaylistEntriesQuery,
   ListPlaylistEntryIdsQuery,
   MovePlaylistEntriesRequest,
@@ -131,7 +132,9 @@ const api = {
     addTracks: (payload: AddTracksToPlaylistRequest) => request('playlists.addTracks', payload),
     moveEntries: (payload: MovePlaylistEntriesRequest) => request('playlists.moveEntries', payload),
     removeEntries: (payload: RemovePlaylistEntriesRequest) =>
-      request('playlists.removeEntries', payload)
+      request('playlists.removeEntries', payload),
+    /** Opens a native save dialog in main. Resolves `null` if cancelled. */
+    exportM3u8: (payload: ExportPlaylistRequest) => request('playlists.exportM3u8', payload)
   }
 } as const
 

@@ -137,6 +137,45 @@ export interface RemovePlaylistEntriesRequest {
   entryIds: number[]
 }
 
+/**
+ * How an exported `.m3u8` addresses its tracks.
+ *
+ * Both are legitimate and neither is a default the other camp can be talked out
+ * of: `relative` is what lets a playlist be copied to a phone or a NAS beside
+ * the music it names, `absolute` is what lets it resolve from anywhere on the
+ * machine that wrote it. D12 makes export the interop escape hatch, so the
+ * operator picks per export rather than living with whichever one a setting
+ * happened to hold.
+ */
+export const PLAYLIST_PATH_STYLES = ['relative', 'absolute'] as const
+
+export type PlaylistPathStyle = (typeof PLAYLIST_PATH_STYLES)[number]
+
+export interface ExportPlaylistRequest {
+  playlistId: number
+  pathStyle: PlaylistPathStyle
+}
+
+/** What a completed export reports back. */
+export interface PlaylistExportResult {
+  /**
+   * The file's name, never its directory. `IpcErrorPayload` promises that
+   * nothing crossing this boundary carries an absolute path, and a success
+   * payload has no more business disclosing the filesystem layout than a
+   * failure does — the operator chose the folder and already knows it.
+   */
+  fileName: string
+  /** Entries written. */
+  entryCount: number
+  /**
+   * Entries left out because their file no longer resolves inside its root — an
+   * unmounted drive, or a root removed since the entry was added. Counted
+   * rather than silently dropped: a playlist that exports two tracks short is
+   * the kind of thing an operator discovers months later, somewhere else.
+   */
+  skippedCount: number
+}
+
 export const MAX_PLAYLIST_NAME_LENGTH = 200
 
 /** Mirrors `MAX_TRACK_PAGE`; the contents pane is the same kind of list. */

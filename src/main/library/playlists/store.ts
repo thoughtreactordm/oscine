@@ -9,6 +9,7 @@ import type {
   PlaylistEntry,
   PlaylistInsertion
 } from '@shared/playlists'
+import { toAbsPath } from '../../db/paths'
 import { TRACK_JOINS, TRACK_PROJECTION, toTrack, type TrackRow } from '../store'
 import { spread } from './positions'
 
@@ -34,6 +35,30 @@ interface PlaylistRow {
 
 interface EntryRow extends TrackRow {
   entryId: number
+}
+
+/** The stored halves of a path, plus the three fields a `#EXTINF` record needs. */
+interface ExportRow {
+  rootPath: string
+  relPath: string
+  durationMs: number | null
+  artist: string | null
+  title: string | null
+}
+
+/** One entry, rejoined against its root for this platform. */
+export interface PlaylistExportEntry {
+  /** Null when the stored `rel_path` no longer resolves inside its root. */
+  absPath: string | null
+  durationSec: number | null
+  artist: string | null
+  title: string
+}
+
+/** A whole playlist, ready to render. */
+export interface PlaylistExportSnapshot {
+  name: string
+  entries: PlaylistExportEntry[]
 }
 
 /** The projection every playlist read shares. Tab order is `position`. */
@@ -95,6 +120,34 @@ function prepareStatements(db: Database.Database) {
       WHERE e.playlist_id = @playlistId
       ORDER BY e.position ASC, e.id ASC
       LIMIT @limit OFFSET @offset
+    `),
+    /**
+     * The whole playlist, as paths rather than as display rows.
+     *
+     * Unpaged, unlike every other list in the codebase, and deliberately: an
+     * export is one file and a playlist half-written is worse than one not
+     * written at all, so there is no window here to get the arithmetic of
+     * wrong. The rows are three strings and a number each — a 20,000-entry
+     * playlist is a few megabytes held for the length of one write.
+     *
+     * `roots` is joined rather than assumed: an entry's root is the one its
+     * track was stored under, and D12 lets a playlist span several of them.
+     * Only the track's own artist is projected, because that is the name the
+     * contents pane shows and an export that disagreed with the list it came
+     * from would be a bug report nobody could reproduce.
+     */
+    listExportEntries: db.prepare(`
+      SELECT r.path        AS rootPath,
+             t.rel_path    AS relPath,
+             t.duration_ms AS durationMs,
+             ar.name       AS artist,
+             t.title       AS title
+      FROM playlist_entries e
+      JOIN tracks t ON t.id = e.track_id
+      JOIN roots  r ON r.id = t.root_id
+      LEFT JOIN artists ar ON ar.id = t.artist_id
+      WHERE e.playlist_id = @playlistId
+      ORDER BY e.position ASC, e.id ASC
     `),
     entryPosition: db.prepare(
       'SELECT position FROM playlist_entries WHERE id = ? AND playlist_id = ?'
@@ -289,6 +342,38 @@ export class PlaylistStore {
     }) as EntryRow[]
     const entries: PlaylistEntry[] = rows.map((row) => ({ id: row.entryId, track: toTrack(row) }))
     return { entries, total }
+  }
+
+  /**
+   * Everything an export needs, in one read.
+   *
+   * The name comes back with the entries because the save dialog opens on it,
+   * and asking twice would leave a window in which the playlist is renamed
+   * between the two calls. Unknown ids throw here rather than at the dialog, so
+   * exporting a tab someone deleted in another window fails before the operator
+   * has typed a filename.
+   *
+   * This is the one place outside `../store` that rejoins a stored path, and it
+   * uses the same helper for the same reason: `toAbsPath` is what makes a
+   * `rel_path` written on Windows resolve against a Linux root, and it is also
+   * the containment check that keeps a corrupted row from naming a file outside
+   * the library. A row that fails it comes back as `null` rather than as a
+   * guess.
+   */
+  readForExport(playlistId: number): PlaylistExportSnapshot {
+    const playlist = this.require(playlistId)
+    const rows = this.statements.listExportEntries.all({ playlistId }) as ExportRow[]
+    return {
+      name: playlist.name,
+      entries: rows.map((row) => ({
+        absPath: toAbsPath(row.rootPath, row.relPath),
+        // Milliseconds to seconds exactly as `toTrack` does it, so the number
+        // in the file is the number the list showed.
+        durationSec: row.durationMs === null ? null : row.durationMs / 1000,
+        artist: row.artist,
+        title: row.title ?? ''
+      }))
+    }
   }
 
   listEntryIds(query: ListPlaylistEntryIdsQuery): ListPlaylistEntryIdsResult {

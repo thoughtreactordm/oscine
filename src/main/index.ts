@@ -42,6 +42,33 @@ async function pickMusicFolder(): Promise<string | null> {
   return result.filePaths[0]
 }
 
+/**
+ * D12's export dialog, and the only file Fermata writes outside its own data
+ * directory.
+ *
+ * The extension is a filter rather than something enforced here: GTK will hand
+ * back whatever the operator typed, and `SqlitePlaylistService` is what puts
+ * `.m3u8` on a bare name, so the rule lives in one place instead of in every
+ * dialog implementation.
+ */
+async function pickPlaylistExportFile(suggestedName: string): Promise<string | null> {
+  const options: Electron.SaveDialogOptions = {
+    title: 'Export playlist',
+    buttonLabel: 'Export',
+    defaultPath: suggestedName,
+    filters: [{ name: 'M3U8 playlist', extensions: ['m3u8'] }],
+    properties: ['createDirectory', 'showOverwriteConfirmation', 'dontAddToRecent']
+  }
+
+  const result = mainWindow
+    ? await dialog.showSaveDialog(mainWindow, options)
+    : await dialog.showSaveDialog(options)
+
+  // Cancelling is an ordinary outcome, not an error — the contract says so.
+  if (result.canceled || result.filePath === undefined || result.filePath === '') return null
+  return result.filePath
+}
+
 function broadcastScanProgress(progress: ScanProgress): void {
   if (mainWindow) emit(mainWindow.webContents, 'library.scanProgress', progress)
 }
@@ -200,7 +227,7 @@ if (!app.requestSingleInstanceLock()) {
 
     // Its own service on the same connection: playlists own two tables the
     // library layer never touches, and the library owns the rest.
-    const playlists = new SqlitePlaylistService({ db })
+    const playlists = new SqlitePlaylistService({ db, pickExportFile: pickPlaylistExportFile })
 
     let readyToQuit = false
     let quitInProgress = false

@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { FermataError, playlists } from '@renderer/ipc'
 import { usePlaybackStore } from '@renderer/stores/playback'
-import type { Playlist } from '@shared/playlists'
+import type { Playlist, PlaylistExportResult, PlaylistPathStyle } from '@shared/playlists'
 
 /**
  * The playlists, and which one is being *looked at*.
@@ -114,6 +114,36 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     }
   }
 
+  /**
+   * D12's interop escape hatch. Returns what was written, or `null` if the
+   * operator dismissed the save dialog or the write failed.
+   *
+   * The result carries the file's name and not its folder, because nothing
+   * crossing the IPC boundary carries an absolute path — so a caller can say
+   * *what* was saved but never *where*, which is fine, since the operator just
+   * chose it.
+   */
+  async function exportM3u8(
+    playlistId: number,
+    pathStyle: PlaylistPathStyle
+  ): Promise<PlaylistExportResult | null> {
+    try {
+      const result = await playlists.exportM3u8({ playlistId, pathStyle })
+      // Entries whose files have gone missing are the one outcome an operator
+      // has to be told about: the file saved, and it is quietly shorter than
+      // the playlist they exported.
+      if (result !== null && result.skippedCount > 0) {
+        notice.value = `${result.fileName} left out ${result.skippedCount} ${
+          result.skippedCount === 1 ? 'track whose file' : 'tracks whose files'
+        } could not be found.`
+      }
+      return result
+    } catch (cause) {
+      report(cause, 'That playlist could not be exported.')
+      return null
+    }
+  }
+
   async function reorder(playlistId: number, toIndex: number): Promise<void> {
     try {
       // Returns the whole list rather than the moved playlist, so the tab bar
@@ -136,6 +166,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     rename,
     setCrossfade,
     remove,
-    reorder
+    reorder,
+    exportM3u8
   }
 })
