@@ -59,7 +59,7 @@
       "description": "Playlist tabs as the backbone plus the transient play-next queue layered on top (D5). Owns the seven queue-semantics rules in design section 5 and their tests, fractional-position reordering, and m3u8 export. The interaction between tabs and queue is the specified surface most likely to grow bugs.",
       "color": "sky",
       "order": 5,
-      "cardCounter": 9,
+      "cardCounter": 10,
       "dependsOn": [
         "W2",
         "W4"
