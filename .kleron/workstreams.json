@@ -76,6 +76,18 @@
         "W4",
         "W5"
       ]
+    },
+    {
+      "tag": "W8",
+      "name": "Settings",
+      "description": "The configuration substrate the rest of development builds on. A declarative registry in src/shared/settings.ts is the single source of truth: every key declares type, default, scope, version, validator, control hint, label, help text and search keywords, and the settings surface is generated from it — adding a setting is a one-line entry, not UI work. Two backing stores read the registry: a main-process SQLite `settings` table for `durable` keys (audio, library, theme, anything main must read before the window opens, anything that belongs in the D11 export) and a single localStorage backend for `view` keys (pane sizes, open tabs, column widths — machine-local session state that must not pay an IPC round-trip per drag). Absorbs the five independently hand-rolled localStorage modules that exist today. Values resolve through a cascade — global then per-entity override — formalizing what playlists.setCrossfade already does ad hoc. Writes apply immediately and broadcast across IPC; nothing is staged behind OK/Cancel. Per-key versioned migrations, and unknown keys are preserved rather than dropped, so branch-switching does not destroy an operator's settings. Owns theme selection and operator-authored token overrides (W4 owns the token layer itself), settings export/import, and first-run onboarding. Does NOT own the D14 network consent gate (W7) or a keyboard-shortcut subsystem — the latter is currently homeless and needs a home before remapping can be offered.",
+      "color": "orange",
+      "order": 7,
+      "cardCounter": 14,
+      "dependsOn": [
+        "W1",
+        "W4"
+      ]
     }
   ]
 }
