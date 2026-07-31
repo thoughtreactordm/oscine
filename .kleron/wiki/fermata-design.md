@@ -91,6 +91,24 @@ Real ordering semantics, stable per-entry ids, cheap dedup, and the same track m
 
 Every layer touched, none finished. Integration risk surfaces immediately; the specific audio risk is deliberately deferred to M2, which is why D2's implementation sits behind an interface from the start (§6).
 
+### D14 — External metadata: **opt-in, drawer-scoped, main-process only**
+
+The Tunedeck's artist nexus is the first outbound network request Fermata makes. Three rules bound it. Nothing is fetched until the operator opens the deck and accepts a one-time prompt naming the services. Fetching happens in the main process only — the renderer never opens a socket, for the same reason it never opens a file. And the deck is fully functional with networking declined: every local pane works, so offline is a tested state rather than an error path.
+
+Sources are MusicBrainz (artist identity, artist-to-artist relations, outbound link relations including Bandcamp) and Wikidata → Wikipedia (biography, images). Both are keyless, so no secret ships in the bundle. Resolved MBIDs land on the `artists` row via a migration; everything else lands in a `cache.db` beside the library — separate from it, carrying per-entity TTLs and negative entries, and excluded from D11's export bundle because it is derived data that is deletable without loss.
+
+*Rejected*: last.fm (best information per request, and the only source of taste-similarity, but its key must either ship extractably inside an asar or be pasted by every user); Discogs (same key problem, plus caching restrictions in its terms); Bandsintown and Songkick (partner approval is outside our control, so upcoming-show listings are not scoped at all).
+
+*Revisit when*: a keyless source stops serving biographies, or R5's correction rate stays high enough that similarity data would materially improve the related panes.
+
+**This does not reopen D1.** No audio ever arrives over the network. The library is still folders on disk.
+
+### D15 — Tunedeck: **panel island hosted in a drawer**
+
+An extended control and information surface opened from NowPlaying: up-next queue, format and signal readout, play history, related-in-library, and the D14 artist nexus. Its content is an ordinary D4 panel island and `UDrawer` is merely its first host. It opens from the right, is resizable, and pushes content rather than covering it — so it stays usable while browsing, which is the only thing that makes the related panes worth having, and so the eventual docking system promotes it to a pane instead of rebuilding it.
+
+*Rejected*: a bottom overlay (better for wide carousels, but it buries the track list and is a dead end for docking); a modal covering the content (simplest, and useless for browsing alongside).
+
 ## 3. Risks
 
 ### R1 — Decode memory ceiling *(high, architectural)*
@@ -110,6 +128,14 @@ A 100k-file library can exhaust the default user watch limit; the watcher fails 
 ### R4 — Nuxt UI standalone integration *(low, unverified)*
 
 D3 assumes current Nuxt UI supports plain Vue via its Vite plugin. **This is unverified against current docs** and is the first task in W1. If it does not hold cleanly, the fallback is Nuxt in SPA mode, which changes packaging but not architecture.
+
+### R5 — Artist identity resolution *(medium, correctness)*
+
+A tag string is not an identity. "Nirvana" matches eleven MusicBrainz artists; punctuation, non-Latin names, leading articles and featured-artist strings all break naive lookup. A wrong match renders a confident, wrong biography, which is worse than rendering nothing.
+
+**Mitigation**: search by name, accept only above a score threshold, and store the resolved MBID on the `artists` row so the match is made once per artist rather than once per play. Every deck header carries a visible "not this artist?" affordance opening a disambiguation picker; the operator's choice is authoritative and persists, exactly as D7 treats tag corrections. **Unresolved is a first-class state** — the deck's local panes are unaffected by it — and negative results are cached so an unmatchable artist is not re-queried forever.
+
+*Secondary*: MusicBrainz permits roughly one request per second and requires an identifying User-Agent. A shuffle-heavy session must not be able to saturate that. This is the second reason D14 scopes fetching to an open drawer, and the reason the cache carries negative entries rather than only successes.
 
 ## 4. Data model — schema v1
 
@@ -261,6 +287,7 @@ fermata/
 | W4 | UI — panel islands, virtualized list, sort/multiselect, tokens | W1 |
 | W5 | Playlists & Queue — tabs, play-next, m3u8 export | W2, W4 |
 | W6 | Packaging & Ops — builder, CI matrix, export/import | W1 |
+| W7 | Tunedeck — deck panes, artist nexus, metadata cache | W4, W5 |
 
 ## 9. Milestones
 
@@ -276,24 +303,28 @@ fermata/
 **M4 — "Playlists & queue"** · Tabs, play-next overlay, m3u8 export.
 *Exit*: all seven §5 rules have passing tests.
 
-**M5 — "Stylish"** · Token layer formalized, curated themes, accent picker, now-playing polish.
-*Exit*: swapping a theme touches zero component code.
+**M5 — "Stylish"** · Token layer formalized, curated themes, accent picker, now-playing polish, Tunedeck phase 1 — the local deck only (D15's drawer host, up-next editor, format and signal readout, play history, related-in-library). No network.
+*Exit*: swapping a theme touches zero component code; the deck ships without the app having made a single outbound request.
 
 **M6 — "Shippable"** · NSIS + AppImage/deb, CI matrix, library export/import bundle.
 *Exit*: install from artifact on clean Windows and clean Linux; both play music.
+
+**M7 — "Tunedeck"** *(first network milestone)* · D14's opt-in consent gate and main-process fetch layer, `cache.db`, MusicBrainz identity resolution with R5's correction UI, Wikipedia biography, artist relations intersected against the library, outbound links, artist images through the artwork cache.
+*Exit*: with networking declined the deck loses no local function; with it accepted, a cold artist resolves once and a warm one renders fully with the network unplugged.
 
 ## 10. Conventions and assumptions
 
 - **Build**: electron-vite for dev/HMR, electron-builder for packaging.
 - **Scale target**: 100k tracks. Every list virtualized from the first commit — never retrofitted.
 - **ReplayGain**: read existing `REPLAYGAIN_*` tags first; compute only when absent, via a background job with progress, cancel and resume.
-- **Artwork**: extracted on scan to a content-hashed thumbnail cache, with `folder.jpg` fallback.
+- **Artwork**: extracted on scan to a content-hashed thumbnail cache, with `folder.jpg` fallback. D14's artist images reuse it rather than adding a second blob store.
+- **External metadata**: a separate `cache.db` with per-entity TTLs and cached negative results. Never part of the D11 export bundle — deleting it costs nothing but a refetch.
 - **Testing**: Vitest for units (scheduling math, query building, scanner, path round-tripping); Playwright for Electron smoke tests.
 - **CI**: GitHub Actions matrix on `windows-latest` and `ubuntu-latest` — lint, test, build artifacts.
 - **Commits**: Conventional Commits, one logical change each.
 
 ## 11. Explicitly out of scope for v1
 
-Streaming-service integration · dockable/scriptable layouts · query language and smart playlists · tag write-back · EQ and DSP chain · noise reduction · visualizers · mobile or remote control · last.fm scrobbling.
+Streaming-service integration · dockable/scriptable layouts · query language and smart playlists · tag write-back · EQ and DSP chain · noise reduction · visualizers · mobile or remote control · last.fm scrobbling · the Tunedeck artist nexus, which is M7 · upcoming-show listings, which have no source we can obtain (D14).
 
-These are deferrals, not rejections. Query language, tag write-back and the EQ chain are the strongest v2 candidates.
+These are deferrals, not rejections — except upcoming shows, which is a rejection until a listings API exists that does not require partner approval. Query language, tag write-back and the EQ chain are the strongest v2 candidates.

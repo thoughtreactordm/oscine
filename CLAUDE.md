@@ -11,8 +11,8 @@ Current milestone: **M1 "It plays"** — thin end-to-end slice, every layer touc
 ## Design authority
 
 The design document is the Kleron wiki page `fermata-design` (`.kleron/wiki/fermata-design.md`),
-committed to this repo. It records thirteen settled decisions (D1–D13) with rationale and explicit
-"revisit when" triggers, four named risks (R1–R4), schema v1, and the seven queue-semantics rules.
+committed to this repo. It records fifteen settled decisions (D1–D15) with rationale and explicit
+"revisit when" triggers, five named risks (R1–R5), schema v1, and the seven queue-semantics rules.
 
 Read it before proposing architectural change. Do not reopen a D-number without checking that its
 revisit trigger has actually fired. `docs/DESIGN.md` is a pointer to it, not a second copy — keep it

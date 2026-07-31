@@ -10,8 +10,8 @@ It is the single canonical copy. It covers:
 | Section | Contents |
 |---|---|
 | 1 | What Fermata is, and the definition of "v1 is done" |
-| 2 | Decisions D1–D13, each with rationale, rejected alternatives and a revisit trigger |
-| 3 | Risks R1–R4, with mitigations |
+| 2 | Decisions D1–D15, each with rationale, rejected alternatives and a revisit trigger |
+| 3 | Risks R1–R5, with mitigations |
 | 4 | Data model — schema v1 |
 | 5 | Queue semantics — the seven rules |
 | 6 | Process architecture and the main/renderer boundary |
