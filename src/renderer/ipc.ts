@@ -10,6 +10,13 @@ import type {
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
+import type {
+  AddTracksToPlaylistRequest,
+  ListPlaylistEntriesQuery,
+  ListPlaylistEntryIdsQuery,
+  MovePlaylistEntriesRequest,
+  RemovePlaylistEntriesRequest
+} from '@shared/playlists'
 
 /**
  * The renderer's view of the IPC boundary.
@@ -59,6 +66,29 @@ export const library = {
     window.fermata.library.onNotice(listener),
   onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
     window.fermata.library.onReplayGainProgress(listener)
+}
+
+export const playlists = {
+  list: () => unwrap(window.fermata.playlists.list()),
+  create: (name: string, crossfadeMs?: number) =>
+    unwrap(window.fermata.playlists.create(name, crossfadeMs)),
+  rename: (playlistId: number, name: string) =>
+    unwrap(window.fermata.playlists.rename(playlistId, name)),
+  setCrossfade: (playlistId: number, crossfadeMs: number) =>
+    unwrap(window.fermata.playlists.setCrossfade(playlistId, crossfadeMs)),
+  delete: (playlistId: number) => unwrap(window.fermata.playlists.delete(playlistId)),
+  reorder: (playlistId: number, toIndex: number) =>
+    unwrap(window.fermata.playlists.reorder(playlistId, toIndex)),
+  listEntries: (query: ListPlaylistEntriesQuery) =>
+    unwrap(window.fermata.playlists.listEntries(query)),
+  listEntryIds: (query: ListPlaylistEntryIdsQuery) =>
+    unwrap(window.fermata.playlists.listEntryIds(query)),
+  addTracks: (payload: AddTracksToPlaylistRequest) =>
+    unwrap(window.fermata.playlists.addTracks(payload)),
+  moveEntries: (payload: MovePlaylistEntriesRequest) =>
+    unwrap(window.fermata.playlists.moveEntries(payload)),
+  removeEntries: (payload: RemovePlaylistEntriesRequest) =>
+    unwrap(window.fermata.playlists.removeEntries(payload))
 }
 
 export const windowControls = {
