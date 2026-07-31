@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import {
-  createPlaylistTabs,
-  PLAYLIST_NAME_MAX_LENGTH,
-  type DropSide
-} from '@renderer/panels/playlistTabs'
+import { nextTick, onMounted, ref, watch } from 'vue'
+import { createPlaylistTabs, PLAYLIST_NAME_MAX_LENGTH } from '@renderer/panels/playlistTabs'
+import type { DropSide } from '@renderer/panels/playlistReorder'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 
 /**
- * D5's backbone, made visible.
+ * D5's backbone, made visible: the playlists that are *open*.
+ *
+ * It used to draw every playlist, which made its close button a delete — there
+ * was nowhere for a closed playlist to go. `PlaylistRail` is that somewhere now,
+ * so this strip opens nothing, deletes nothing, and closing a tab is free.
  *
  * Two states are drawn, and they are drawn *differently* on purpose. The viewed
  * tab is the one whose surface lifts out of the strip; the playing tab is the
@@ -19,33 +20,32 @@ import { usePlaylistsStore } from '@renderer/stores/playlists'
  * shared highlight for both would have hidden the split in exactly the situation
  * that proves it exists.
  *
- * Not virtualized, and that is the one place this file departs from the
+ * Not virtualized, and that is where this file departs from the
  * every-list-is-virtualized invariant. The invariant's scale target is 100k
- * tracks; tabs are a handful of rows the operator typed by hand, and the main
- * process has already committed to that reading — `PlaylistStore.reorder`
- * renumbers every tab in the bar inside one transaction, which is a design that
- * only works because the bar is small. Virtualizing a horizontal strip whose
- * width is bounded by what a human named would buy nothing and would cost the
+ * tracks; the strip holds what one operator opened by hand, and the rail beside
+ * it — which *is* virtualized, because it holds every playlist — is where the
+ * unbounded list actually lives. Virtualizing a horizontal strip whose width is
+ * bounded by a person's attention would buy nothing and would cost the
  * scroll-into-view that keyboard navigation needs.
  *
- * D4 island rules: nothing below the strip is assumed. The contents pane (W5-6)
- * is a sibling, not a child, so docking either one elsewhere touches neither.
+ * D4 island rules: nothing below the strip is assumed, and the rail is a
+ * sibling in a different route slot that this file never imports. All three
+ * meet at the store.
  */
 
 const playlists = usePlaylistsStore()
 const playback = usePlaybackStore()
 
 const model = createPlaylistTabs({
-  tabs: () => playlists.list,
+  tabs: () => playlists.openTabs,
   viewedId: () => playlists.viewedPlaylistId,
   // The other half of the §5 split, read from the controller that owns it.
   playingId: () => playback.playingPlaylistId,
   commands: {
     view: (playlistId) => playlists.view(playlistId),
-    create: (name) => playlists.create(name),
     rename: (playlistId, name) => playlists.rename(playlistId, name),
-    remove: (playlistId) => playlists.remove(playlistId),
-    reorder: (playlistId, toIndex) => playlists.reorder(playlistId, toIndex)
+    close: (playlistId) => playlists.close(playlistId),
+    moveOpen: (playlistId, toIndex) => playlists.moveOpen(playlistId, toIndex)
   }
 })
 
@@ -82,7 +82,7 @@ function onKeydown(event: KeyboardEvent): void {
   const action = model.onKeydown(event)
   if (action === 'none') return
   event.preventDefault()
-  if (action === 'navigate') void focusViewed()
+  if (action === 'navigate' || action === 'close') void focusViewed()
 }
 
 /** Which side of the tab's midpoint the pointer fell on decides which edge it drops against. */
@@ -110,16 +110,6 @@ function onDragOver(event: DragEvent, playlistId: number): void {
   if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
 }
 
-const prompt = computed(() => model.deletePrompt.value)
-const promptOpen = computed({
-  get: () => prompt.value !== null,
-  // Dismissing the dialog any other way — Escape, the close button, a click
-  // outside — has to mean the same thing as pressing Keep.
-  set: (open: boolean) => {
-    if (!open) model.cancelDelete()
-  }
-})
-
 // The input is created by the render that follows `renamingId`, not by the click
 // that set it, so selecting its text waits a tick.
 watch(model.renamingId, async (id) => {
@@ -129,6 +119,8 @@ watch(model.renamingId, async (id) => {
   renameInput.value?.select()
 })
 
+// Asked for even though the rail asks too: an island may not assume its
+// neighbour is on screen. `refresh` coalesces, so mounting both is one query.
 onMounted(() => {
   void playlists.refresh()
 })
@@ -140,7 +132,7 @@ onMounted(() => {
       <div
         class="flex min-w-0 flex-1 items-stretch overflow-x-auto"
         role="tablist"
-        aria-label="Playlists"
+        aria-label="Open playlists"
         aria-orientation="horizontal"
         @keydown="onKeydown"
       >
@@ -160,6 +152,7 @@ onMounted(() => {
           "
           @click="model.select(tab.id)"
           @dblclick="model.beginRename(tab.id)"
+          @auxclick.middle.prevent="model.close(tab.id)"
           @dragstart="onDragStart($event, tab.id)"
           @dragover="onDragOver($event, tab.id)"
           @drop.prevent="model.drop()"
@@ -206,6 +199,8 @@ onMounted(() => {
             <span class="shrink-0 text-xs tabular-nums text-dimmed">{{ tab.trackCount }}</span>
           </template>
 
+          <!-- Closes the tab. It does not delete the playlist — that verb is in
+               the rail, on the row that actually is the playlist. -->
           <UButton
             icon="i-tabler-x"
             size="xs"
@@ -216,25 +211,14 @@ onMounted(() => {
             :aria-label="`Close ${tab.name}`"
             tabindex="-1"
             draggable="false"
-            @click.stop="model.requestDelete(tab.id)"
+            @click.stop="model.close(tab.id)"
           />
         </div>
       </div>
 
       <p v-if="model.tabs.value.length === 0" class="self-center px-2.5 text-xs text-muted">
-        No playlists yet.
+        No playlists open. Pick one from the rail.
       </p>
-
-      <!-- Outside the tablist: a tablist may only contain tabs. -->
-      <UButton
-        icon="i-tabler-plus"
-        size="xs"
-        color="neutral"
-        variant="ghost"
-        class="mx-1 shrink-0 self-center"
-        aria-label="New playlist"
-        @click="model.createTab()"
-      />
     </div>
 
     <UAlert
@@ -245,23 +229,5 @@ onMounted(() => {
       :description="playlists.notice"
       class="rounded-none"
     />
-
-    <UModal
-      v-model:open="promptOpen"
-      :title="prompt?.title ?? ''"
-      :description="prompt?.message ?? ''"
-      :ui="{ footer: 'justify-end' }"
-    >
-      <template #footer>
-        <UButton color="neutral" variant="ghost" @click="model.cancelDelete()">Keep</UButton>
-        <UButton
-          :color="prompt?.stopsPlayback ? 'error' : 'primary'"
-          icon="i-tabler-trash"
-          @click="model.confirmDelete()"
-        >
-          Delete
-        </UButton>
-      </template>
-    </UModal>
   </div>
 </template>

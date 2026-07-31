@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { Playlist } from '@shared/playlists'
 import {
   createPlaylistTabs,
-  destinationIndex,
-  NEW_PLAYLIST_NAME,
   type PlaylistTabCommands,
   type TabKeyEvent
 } from '../../../src/renderer/panels/playlistTabs'
@@ -26,83 +24,163 @@ function playlist(id: number, name: string, trackCount = 0): Playlist {
 }
 
 /**
- * A bar of three tabs with a recorder behind it.
+ * A bar of three open tabs, over a library of four, with a recorder behind it.
  *
- * `view` writes the viewed ref exactly like the store does, so a test can assert
- * on the selection rather than on the call, and `playingId` is a ref nothing in
- * the model can write — which is the §5 split expressed as a fixture.
+ * The fourth playlist is the point of the fixture: it exists and has no tab, so
+ * every assertion about the strip is also an assertion that the strip is a
+ * *subset*. `close` and `moveOpen` write `openIds` exactly like the store does,
+ * so a test can assert on the resulting strip rather than on the call, and
+ * `playingId` is a ref nothing in the model can write — which is the §5 split
+ * expressed as a fixture.
  */
-function bar(tabs: Playlist[] = [playlist(1, 'Alpha'), playlist(2, 'Beta'), playlist(3, 'Gamma')]) {
-  const list = ref<Playlist[]>(tabs)
-  const viewedId = ref<number | null>(tabs[0]?.id ?? null)
+function bar(open = [1, 2, 3]) {
+  const library = ref<Playlist[]>([
+    playlist(1, 'Alpha'),
+    playlist(2, 'Beta'),
+    playlist(3, 'Gamma'),
+    playlist(4, 'Delta, never opened')
+  ])
+  const openIds = ref<number[]>([...open])
+  const viewedId = ref<number | null>(openIds.value[0] ?? null)
   const playingId = ref<number | null>(null)
   const calls: Call[] = []
+
+  const tabs = computed(() =>
+    openIds.value
+      .map((id) => library.value.find((entry) => entry.id === id))
+      .filter((entry): entry is Playlist => entry !== undefined)
+  )
 
   const commands: PlaylistTabCommands = {
     view: (playlistId) => {
       calls.push({ name: 'view', args: [playlistId] })
-      viewedId.value = playlistId
-    },
-    create: async (name) => {
-      calls.push({ name: 'create', args: [name] })
-      const created = playlist(list.value.length + 1, name)
-      list.value = [...list.value, created]
-      viewedId.value = created.id
-      return created
+      if (playlistId === null || openIds.value.includes(playlistId)) viewedId.value = playlistId
     },
     rename: async (playlistId, name) => {
       calls.push({ name: 'rename', args: [playlistId, name] })
     },
-    remove: async (playlistId) => {
-      calls.push({ name: 'remove', args: [playlistId] })
-      list.value = list.value.filter((tab) => tab.id !== playlistId)
+    close: (playlistId) => {
+      calls.push({ name: 'close', args: [playlistId] })
+      const index = openIds.value.indexOf(playlistId)
+      if (index === -1) return
+      openIds.value = openIds.value.filter((id) => id !== playlistId)
+      if (viewedId.value !== playlistId) return
+      viewedId.value = openIds.value[Math.min(index, openIds.value.length - 1)] ?? null
     },
-    reorder: async (playlistId, toIndex) => {
-      calls.push({ name: 'reorder', args: [playlistId, toIndex] })
+    moveOpen: (playlistId, toIndex) => {
+      calls.push({ name: 'moveOpen', args: [playlistId, toIndex] })
+      const next = openIds.value.filter((id) => id !== playlistId)
+      next.splice(toIndex, 0, playlistId)
+      openIds.value = next
     }
   }
 
-  const model = createPlaylistTabs({ tabs: list, viewedId, playingId, commands })
+  const model = createPlaylistTabs({ tabs, viewedId, playingId, commands })
   const named = (name: keyof PlaylistTabCommands): Call[] => calls.filter((c) => c.name === name)
-  return { model, list, viewedId, playingId, calls, named }
+  return { model, library, openIds, viewedId, playingId, calls, named }
 }
 
 const key = (event: TabKeyEvent): TabKeyEvent => event
 
-describe('the reorder destination', () => {
-  const order = [1, 2, 3, 4]
-
-  it('is an index into the list with the dragged tab already removed', () => {
-    // Alpha (0) dropped after Delta (3): the visible insertion point is 4, but
-    // the main process splices Alpha out first, so the tab it should land after
-    // is at 2 by then.
-    expect(destinationIndex(order, 1, 4, 'after')).toBe(3)
-    expect(destinationIndex(order, 1, 3, 'after')).toBe(2)
-    expect(destinationIndex(order, 1, 3, 'before')).toBe(1)
+describe('what the strip contains', () => {
+  it('is the open playlists, not the library of them', () => {
+    const h = bar()
+    expect(h.model.tabs.value.map((tab) => tab.name)).toEqual(['Alpha', 'Beta', 'Gamma'])
+    expect(h.library.value).toHaveLength(4)
   })
 
-  it('does not shift a leftward drag, which removes from the right of the target', () => {
-    expect(destinationIndex(order, 4, 1, 'before')).toBe(0)
-    expect(destinationIndex(order, 4, 2, 'after')).toBe(2)
-    expect(destinationIndex(order, 3, 1, 'before')).toBe(0)
+  it('follows the open order rather than the library order', () => {
+    const h = bar([3, 1])
+    expect(h.model.tabs.value.map((tab) => tab.name)).toEqual(['Gamma', 'Alpha'])
   })
 
-  it('is null for the gestures that change nothing', () => {
-    expect(destinationIndex(order, 2, 2, 'before')).toBeNull()
-    expect(destinationIndex(order, 2, 2, 'after')).toBeNull()
-    // The gap after my left neighbour is the gap I am already in.
-    expect(destinationIndex(order, 2, 1, 'after')).toBeNull()
-    expect(destinationIndex(order, 2, 3, 'before')).toBeNull()
+  it('can have no tabs at all while playlists exist', () => {
+    const h = bar([])
+    expect(h.model.tabs.value).toHaveLength(0)
+    expect(h.library.value).toHaveLength(4)
+  })
+})
+
+describe('closing a tab', () => {
+  /**
+   * The regression this whole change exists for. `PlaylistTabCommands` has no
+   * `remove`, so this is checked at the type level too — but the call log is
+   * what a reader will look at, so it is asserted here in full.
+   */
+  it('takes the tab off the strip and leaves the playlist alone', () => {
+    const h = bar()
+    h.model.close(2)
+
+    expect(h.model.tabs.value.map((tab) => tab.name)).toEqual(['Alpha', 'Gamma'])
+    expect(h.library.value.map((entry) => entry.name)).toContain('Beta')
+    expect(h.calls.map((call) => call.name)).toEqual(['close'])
   })
 
-  it('is null when either tab is not in the bar', () => {
-    expect(destinationIndex(order, 9, 2, 'before')).toBeNull()
-    expect(destinationIndex(order, 2, 9, 'before')).toBeNull()
+  it('asks for no confirmation, however full or however audible the playlist', () => {
+    const h = bar()
+    h.library.value = [playlist(1, 'Alpha', 4_312), ...h.library.value.slice(1)]
+    h.playingId.value = 1
+
+    h.model.close(1)
+
+    expect(h.named('close')).toHaveLength(1)
+    expect(h.openIds.value).toEqual([2, 3])
+  })
+
+  it('hands the view to the tab that moved into its place', () => {
+    const h = bar()
+    h.model.select(2)
+    h.model.close(2)
+    expect(h.viewedId.value).toBe(3)
+  })
+
+  it('hands the view backwards when the last tab closes', () => {
+    const h = bar()
+    h.model.select(3)
+    h.model.close(3)
+    expect(h.viewedId.value).toBe(2)
+  })
+
+  it('leaves the viewed tab alone when a different one closes', () => {
+    const h = bar()
+    h.model.select(3)
+    h.model.close(1)
+    expect(h.viewedId.value).toBe(3)
+  })
+
+  it('empties the view when the last tab goes', () => {
+    const h = bar([1])
+    h.model.close(1)
+    expect(h.viewedId.value).toBeNull()
+    expect(h.model.tabs.value).toHaveLength(0)
+  })
+
+  it('does nothing for a playlist that has no tab', () => {
+    const h = bar()
+    h.model.close(4)
+    expect(h.named('close')).toHaveLength(0)
+  })
+
+  it('abandons a rename in progress rather than committing it', () => {
+    const h = bar()
+    h.model.beginRename(2)
+    h.model.draft.value = 'Renamed'
+    h.model.close(2)
+
+    expect(h.model.renamingId.value).toBeNull()
+    expect(h.named('rename')).toHaveLength(0)
+  })
+
+  it('never touches what is playing', () => {
+    const h = bar()
+    h.playingId.value = 2
+    h.model.close(2)
+    expect(h.playingId.value).toBe(2)
   })
 })
 
 describe('dragging a tab', () => {
-  it('reorders through the store and clears the indicator', async () => {
+  it('rearranges the open set and sends no library reorder', async () => {
     const h = bar()
     h.model.beginDrag(1)
     expect(h.model.dragOver(3, 'after')).toBe(true)
@@ -110,29 +188,18 @@ describe('dragging a tab', () => {
 
     await h.model.drop()
 
-    expect(h.named('reorder')[0]?.args).toEqual([1, 2])
+    expect(h.named('moveOpen')[0]?.args).toEqual([1, 2])
+    expect(h.openIds.value).toEqual([2, 3, 1])
+    // The rail owns `playlists.position`. Nothing here may write it.
+    expect(h.library.value.map((entry) => entry.id)).toEqual([1, 2, 3, 4])
     expect(h.model.dropIndicator(3)).toBeNull()
     expect(h.model.dragId.value).toBeNull()
-  })
-
-  it('shows no indicator over a gap the tab already occupies', () => {
-    const h = bar()
-    h.model.beginDrag(2)
-    expect(h.model.dragOver(1, 'after')).toBe(true)
-    expect(h.model.dropIndicator(1)).toBeNull()
   })
 
   it('declines a drag it did not start, so a track drop can fall through', () => {
     const h = bar()
     expect(h.model.dragOver(2, 'before')).toBe(false)
     expect(h.model.dropIndicator(2)).toBeNull()
-  })
-
-  it('sends nothing when a drag ends outside any drop point', async () => {
-    const h = bar()
-    h.model.beginDrag(1)
-    await h.model.drop()
-    expect(h.named('reorder')).toHaveLength(0)
   })
 })
 
@@ -160,7 +227,7 @@ describe('the viewed and the playing tab', () => {
     h.model.beginDrag(3)
     h.model.dragOver(1, 'before')
     await h.model.drop()
-    await h.model.requestDelete(1)
+    h.model.close(1)
     expect(h.playingId.value).toBe(2)
   })
 })
@@ -189,16 +256,16 @@ describe('switching tabs from the keyboard', () => {
     expect(h.viewedId.value).toBe(1)
   })
 
-  it('renames with F2 and closes with Delete', async () => {
-    const h = bar([playlist(1, 'Alpha'), playlist(2, 'Beta')])
+  it('renames with F2 and closes — never deletes — with Delete', () => {
+    const h = bar()
     expect(h.model.onKeydown(key({ key: 'F2' }))).toBe('rename')
     expect(h.model.renamingId.value).toBe(1)
     expect(h.model.draft.value).toBe('Alpha')
 
     h.model.cancelRename()
-    expect(h.model.onKeydown(key({ key: 'Delete' }))).toBe('delete')
-    await Promise.resolve()
-    expect(h.named('remove')[0]?.args).toEqual([1])
+    expect(h.model.onKeydown(key({ key: 'Delete' }))).toBe('close')
+    expect(h.openIds.value).toEqual([2, 3])
+    expect(h.library.value).toHaveLength(4)
   })
 
   it('is inert while renaming, so the arrows are a caret', () => {
@@ -251,84 +318,14 @@ describe('renaming a tab', () => {
     expect(h.named('rename')).toHaveLength(0)
   })
 
-  it('opens a new tab straight into its rename', async () => {
+  it('cannot begin on a playlist that has no tab', () => {
     const h = bar()
-    await h.model.createTab()
-    expect(h.named('create')[0]?.args).toEqual([NEW_PLAYLIST_NAME])
-    expect(h.model.renamingId.value).toBe(4)
-    expect(h.model.draft.value).toBe(NEW_PLAYLIST_NAME)
-  })
-})
-
-describe('deleting a tab', () => {
-  it('deletes an empty, silent tab without asking', async () => {
-    const h = bar()
-    await h.model.requestDelete(2)
-    expect(h.model.deletePrompt.value).toBeNull()
-    expect(h.named('remove')[0]?.args).toEqual([2])
-  })
-
-  it('confirms before deleting a tab with entries', async () => {
-    const h = bar([playlist(1, 'Alpha'), playlist(2, 'Beta', 12)])
-    await h.model.requestDelete(2)
-
-    expect(h.named('remove')).toHaveLength(0)
-    const prompt = h.model.deletePrompt.value
-    expect(prompt?.playlistId).toBe(2)
-    expect(prompt?.title).toContain('Beta')
-    expect(prompt?.message).toContain('12 entries')
-    expect(prompt?.stopsPlayback).toBe(false)
-
-    await h.model.confirmDelete()
-    expect(h.named('remove')[0]?.args).toEqual([2])
-    expect(h.model.deletePrompt.value).toBeNull()
-  })
-
-  it('warns that playback stops when the tab is the playing one', async () => {
-    const h = bar([playlist(1, 'Alpha'), playlist(2, 'Beta', 4)])
-    h.playingId.value = 2
-    await h.model.requestDelete(2)
-
-    const prompt = h.model.deletePrompt.value
-    expect(prompt?.stopsPlayback).toBe(true)
-    expect(prompt?.message).toContain('stops playback')
-  })
-
-  it('confirms an empty tab too when it is the playing one', async () => {
-    const h = bar()
-    h.playingId.value = 2
-    await h.model.requestDelete(2)
-    expect(h.named('remove')).toHaveLength(0)
-    expect(h.model.deletePrompt.value?.stopsPlayback).toBe(true)
-  })
-
-  it('deletes nothing when the prompt is dismissed', async () => {
-    const h = bar([playlist(1, 'Alpha'), playlist(2, 'Beta', 3)])
-    await h.model.requestDelete(2)
-    h.model.cancelDelete()
-    await h.model.confirmDelete()
-    expect(h.named('remove')).toHaveLength(0)
-    expect(h.model.deletePrompt.value).toBeNull()
-  })
-
-  it('counts one entry in the singular', async () => {
-    const h = bar([playlist(1, 'Alpha', 1)])
-    await h.model.requestDelete(1)
-    expect(h.model.deletePrompt.value?.message).toContain('1 entry')
-  })
-
-  it('abandons a rename in progress rather than committing it', async () => {
-    const h = bar([playlist(1, 'Alpha'), playlist(2, 'Beta', 3)])
-    h.model.beginRename(2)
-    h.model.draft.value = 'Renamed'
-    await h.model.requestDelete(2)
-
+    expect(h.model.beginRename(4)).toBe(false)
     expect(h.model.renamingId.value).toBeNull()
-    expect(h.named('rename')).toHaveLength(0)
   })
 })
 
-describe('an empty bar', () => {
+describe('an empty strip', () => {
   it('has nothing to select and nothing to rename', () => {
     const h = bar([])
     expect(h.model.onKeydown(key({ key: 'ArrowRight' }))).toBe('navigate')

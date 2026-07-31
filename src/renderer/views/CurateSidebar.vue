@@ -1,30 +1,24 @@
 <script setup lang="ts">
+import PlaylistRail from '@renderer/panels/PlaylistRail.vue'
+
 /**
- * Curate's sidebar.
+ * Curate's sidebar: the rail of every playlist.
  *
- * It scaffolded a playlist rail, which D5 has since made the wrong shape: the
- * backbone is the tab strip in `CurateView`, and a rail beside it would be a
- * second way to choose a playlist, disagreeing with the first the moment either
- * one gained a feature. What belongs here instead is what the *viewed* playlist
- * is — its crossfade, its counts, the smart-rule editor — and none of that has a
- * card yet, so it stays empty rather than guessing.
+ * This scaffolded a rail, then lost it — the reasoning being that D5 makes the
+ * tab strip the backbone, so a second list of playlists beside it would be two
+ * ways to choose one. That was wrong, and the tab strip's close button was the
+ * proof: with every playlist rendered as a tab, closing one had nowhere to put
+ * it, so `×` called `remove`. A rail is not a competing way to choose a
+ * playlist; it is the only place a *closed* playlist can be seen. The strip is
+ * still the backbone, and now it is a backbone with a closed state.
+ *
+ * The playlist's own settings — crossfade, the smart-rule editor — were the
+ * other thing pencilled in for this sidebar. They belong to the *viewed*
+ * playlist rather than to the library of them, so they will land under the
+ * contents pane's header when they get a card, not here.
  */
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 flex-col" aria-label="Curate">
-    <div class="flex items-center gap-2 border-b border-default bg-elevated/40 p-2">
-      <UIcon name="i-tabler-playlist" class="size-5 text-primary" />
-      <h1 class="font-semibold text-highlighted">Curate</h1>
-    </div>
-
-    <UEmpty
-      variant="naked"
-      size="sm"
-      icon="i-tabler-adjustments"
-      title="Nothing to adjust yet"
-      description="Playlists live in the tab strip. Their settings land here later."
-      class="min-h-0 flex-1"
-    />
-  </section>
+  <PlaylistRail />
 </template>

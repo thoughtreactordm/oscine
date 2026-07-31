@@ -225,8 +225,8 @@ function play(track: Track, index: number): void {
     v-else
     variant="naked"
     icon="i-tabler-playlist-add"
-    title="No playlist selected"
-    description="Make one with the plus button, or pick a tab."
+    title="No playlist open"
+    description="Click a playlist in the rail to open it, or double-click to play it."
     class="h-full"
   />
 </template>

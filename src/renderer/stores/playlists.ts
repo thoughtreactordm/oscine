@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { FermataError, playlists } from '@renderer/ipc'
+import {
+  browserPlaylistSessionStorage,
+  parsePlaylistSession,
+  serializePlaylistSession
+} from '@renderer/panels/playlistSession'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import type {
   Playlist,
@@ -10,7 +15,8 @@ import type {
 } from '@shared/playlists'
 
 /**
- * The playlists, and which one is being *looked at*.
+ * The playlists, which of them are *open* as tabs, and which one is being
+ * *looked at*.
  *
  * The §5 preamble makes `viewedPlaylistId` and `playingPlaylistId` separate
  * state, and this store owns exactly one of them. The other lives on the
@@ -24,8 +30,16 @@ import type {
  * deletion is an event this store performs and not a state the controller could
  * observe. One direction, one call site.
  *
+ * `list` is every playlist and is what the rail draws. `openIds` is the subset
+ * with a tab, in tab order, and it is a *third* piece of state rather than a
+ * property of a playlist: it is workspace, not library, so it lives in renderer
+ * storage and never crosses IPC. Keeping the two apart is what makes closing a
+ * tab mean closing a tab — before it existed, the strip drew `list` directly,
+ * and the only way to take a tab off the screen was to delete the playlist under
+ * it.
+ *
  * Thin, like every store here: it holds tabs and CRUD. W5-3 hangs the tab strip
- * off it and W5-6 the contents pane.
+ * off it, W5-6 the contents pane, W5-9 the rail.
  */
 export const usePlaylistsStore = defineStore('playlists', () => {
   const list = ref<Playlist[]>([])
@@ -33,8 +47,45 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   const notice = ref<string | null>(null)
   const loading = ref(false)
 
+  const session = browserPlaylistSessionStorage()
+  const restored = parsePlaylistSession(session.read())
+
+  /**
+   * Open tabs, in tab order — deliberately *not* `playlists.position` order.
+   *
+   * The rail owns the persisted order of the library's playlists; the strip owns
+   * the order of the few that are open. Two orders that are allowed to disagree,
+   * because the alternative — dropping a tab between two open tabs when unopened
+   * playlists sit between them in the rail — has no single honest answer.
+   */
+  const openIds = ref<number[]>(restored.openIds)
+  viewedPlaylistId.value = restored.viewedId
+
+  const byId = (playlistId: number): Playlist | null =>
+    list.value.find((playlist) => playlist.id === playlistId) ?? null
+
+  /**
+   * The tabs. Filtered rather than mapped-with-holes: an id whose playlist has
+   * not loaded yet draws no tab, and `refresh` is what finally prunes it.
+   */
+  const openTabs = computed<Playlist[]>(() =>
+    openIds.value.map(byId).filter((playlist): playlist is Playlist => playlist !== null)
+  )
+
+  const isOpen = (playlistId: number): boolean => openIds.value.includes(playlistId)
+
   const viewed = computed(
     () => list.value.find((playlist) => playlist.id === viewedPlaylistId.value) ?? null
+  )
+
+  watch(
+    [openIds, viewedPlaylistId],
+    () => {
+      session.write(
+        serializePlaylistSession({ openIds: openIds.value, viewedId: viewedPlaylistId.value })
+      )
+    },
+    { deep: true }
   )
 
   /**
@@ -58,14 +109,25 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     notice.value = cause instanceof FermataError ? cause.message : fallback
   }
 
+  /**
+   * Re-reads the list, and prunes the tab set against it.
+   *
+   * Guarded against a second concurrent read because the rail and the strip are
+   * islands that each ask for one on mount — neither may assume the other is on
+   * screen, so both call it, and Curate mounting both should still be one query.
+   */
   async function refresh(): Promise<void> {
+    if (loading.value) return
     loading.value = true
     try {
       list.value = await playlists.list()
-      // A tab that no longer exists cannot stay selected — it may have been
-      // deleted in another window, or by the `remove` below.
-      if (!list.value.some((playlist) => playlist.id === viewedPlaylistId.value)) {
-        viewedPlaylistId.value = list.value[0]?.id ?? null
+      // A tab whose playlist no longer exists cannot stay open — it may have
+      // been deleted in another window, by the `remove` below, or a restored
+      // session may name playlists from before a library was replaced.
+      const known = new Set(list.value.map((playlist) => playlist.id))
+      openIds.value = openIds.value.filter((playlistId) => known.has(playlistId))
+      if (viewedPlaylistId.value !== null && !isOpen(viewedPlaylistId.value)) {
+        viewedPlaylistId.value = openIds.value[0] ?? null
       }
     } catch (cause) {
       report(cause, 'Could not read playlists.')
@@ -78,16 +140,66 @@ export const usePlaylistsStore = defineStore('playlists', () => {
    * Selects the viewed tab. Writes one ref and touches nothing else — that is
    * the whole of the viewed half of the split, and it is meant to look this
    * small.
+   *
+   * Guarded to open tabs. The contents pane renders `viewed`, so a viewed
+   * playlist with no tab would be a pane the operator cannot navigate back to
+   * after clicking away. Opening one is `open`'s job, which says so in its name.
    */
   function view(playlistId: number | null): void {
+    if (playlistId === null || isOpen(playlistId)) viewedPlaylistId.value = playlistId
+  }
+
+  /**
+   * Opens a playlist as a tab and views it. Idempotent, so the rail can call it
+   * on every click without asking whether a tab is already there.
+   *
+   * New tabs land at the end rather than beside the viewed one: the strip is a
+   * sequence the operator arranges by dragging, and an insertion point that
+   * depends on which tab happened to be focused makes that arrangement drift
+   * under them.
+   */
+  function openTab(playlistId: number): void {
+    if (byId(playlistId) === null) return
+    if (!isOpen(playlistId)) openIds.value = [...openIds.value, playlistId]
     viewedPlaylistId.value = playlistId
+  }
+
+  /**
+   * Takes a tab off the strip. The playlist is untouched — that is the whole
+   * point of the rail existing, and `remove` below is the other verb.
+   *
+   * Closing the viewed tab views its neighbour, preferring the one that moved
+   * into its place, which is where the eye already is.
+   */
+  function close(playlistId: number): void {
+    const index = openIds.value.indexOf(playlistId)
+    if (index === -1) return
+    openIds.value = openIds.value.filter((id) => id !== playlistId)
+    if (viewedPlaylistId.value !== playlistId) return
+    viewedPlaylistId.value = openIds.value[Math.min(index, openIds.value.length - 1)] ?? null
+  }
+
+  /**
+   * Moves a tab within the open set.
+   *
+   * `toIndex` is an index into the list with the tab already spliced out, which
+   * is the same contract `playlists.reorder` has and what `destinationIndex`
+   * computes for both. Local only: nothing here reaches `playlists.position`,
+   * because the rail owns that order.
+   */
+  function moveOpen(playlistId: number, toIndex: number): void {
+    const from = openIds.value.indexOf(playlistId)
+    if (from === -1) return
+    const next = openIds.value.filter((id) => id !== playlistId)
+    next.splice(Math.max(0, Math.min(toIndex, next.length)), 0, playlistId)
+    openIds.value = next
   }
 
   async function create(name: string, crossfadeMs?: number): Promise<Playlist | null> {
     try {
       const created = await playlists.create(name, crossfadeMs)
       await refresh()
-      viewedPlaylistId.value = created.id
+      openTab(created.id)
       return created
     } catch (cause) {
       report(cause, 'That playlist could not be created.')
@@ -125,11 +237,16 @@ export const usePlaylistsStore = defineStore('playlists', () => {
    * Order matters: playback stops before the rows go, so the traversal is torn
    * down while its playlist still exists rather than resolving a position
    * against a table row that has just been cascaded away.
+   *
+   * Its tab goes too, and through `close` rather than through `refresh`'s
+   * pruning, so a deleted playlist hands the view to its neighbour like any
+   * other close instead of jumping to the first open tab.
    */
   async function remove(playlistId: number): Promise<void> {
     try {
       usePlaybackStore().playlistDeleted(playlistId)
       await playlists.delete(playlistId)
+      close(playlistId)
       await refresh()
     } catch (cause) {
       report(cause, 'That playlist could not be deleted.')
@@ -207,12 +324,18 @@ export const usePlaylistsStore = defineStore('playlists', () => {
 
   return {
     list,
+    openIds,
+    openTabs,
+    isOpen,
     viewedPlaylistId,
     viewed,
     notice,
     loading,
     refresh,
     view,
+    openTab,
+    close,
+    moveOpen,
     create,
     rename,
     setCrossfade,

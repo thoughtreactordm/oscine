@@ -12,7 +12,7 @@ dependsOn:
   - 01KYTWQWYQK7NG2VNSA4MTGT2K
 order: 2
 created: '2026-07-31T01:31:27.693Z'
-updated: '2026-07-31T02:26:27.947Z'
+updated: '2026-07-31T12:20:43.216Z'
 ---
 ## Scope
 
@@ -36,3 +36,19 @@ updated: '2026-07-31T02:26:27.947Z'
 
 **D4** island rules apply: the tab strip assumes nothing about the pane beneath it, so the
 contents pane can be swapped or docked elsewhere without touching this component.
+
+## Correction — superseded in part by W5-9
+
+This card read "playlist tabs as the backbone" as "the tab strip *is* the list of playlists"
+and drew `playlists.list` directly. The consequence went unwritten: with every playlist
+rendered as a tab there is no closed state, so `×` had to call `remove` — a control labelled
+`Close ${name}` that deleted the playlist.
+
+W5-9 adds the rail and the strip becomes the *open* playlists. What survives from here
+unchanged: the two indicators drawn differently, the keyboard map, the reorder arithmetic
+(moved to `panels/playlistReorder.ts`, now shared), the inline rename (moved to
+`panels/playlistRename.ts`, now shared), and the delete prompt with its rule-4 warning
+(moved to `panels/playlistRail.ts`, where the row is the playlist).
+
+The acceptance criteria above still hold — reordering still persists to `playlists.position`,
+it is now the rail's drag that writes it.
