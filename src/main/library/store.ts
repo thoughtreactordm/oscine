@@ -128,6 +128,52 @@ const SORT_KEYS: Record<TrackSortColumn, readonly SortKey[]> = {
   durationSec: [{ expr: 't.duration_ms' }]
 }
 
+/**
+ * The album-major ORDER BY, as SQL, without the `t.id` tiebreaker.
+ *
+ * Exported for `./playlists`, which orders entries by album so the contents
+ * pane can draw the same headers the song list does. Exported rather than
+ * restated for the reason `TRACK_PROJECTION` is: the runs `listTrackGroups`
+ * and `listEntryGroups` describe are contiguous *only* under this exact
+ * ordering, so a second copy that drifted by one key would put a header in the
+ * middle of an album and nothing would report an error.
+ *
+ * Ascending only. The pane offers no direction — there is no sortable header
+ * over a playlist, because position remains the truth underneath.
+ */
+export const ALBUM_MAJOR_ORDER = SORT_KEYS.album
+  .map((key) => orderByFragment(key, 'ASC'))
+  .join(', ')
+
+/**
+ * The ORDER BY for a *run* query, which needs only the keys it groups on.
+ *
+ * The first two keys of `SORT_KEYS.album` and no more: the remaining two order
+ * rows *within* an album, and a GROUP BY has collapsed those away. Taken from
+ * the same array as `ALBUM_MAJOR_ORDER` so that the runs and the rows they
+ * describe cannot disagree about which album comes first.
+ */
+export function albumRunOrder(direction: 'ASC' | 'DESC'): string {
+  return SORT_KEYS.album
+    .slice(0, 2)
+    .map((key) => orderByFragment(key, direction))
+    .join(', ')
+}
+
+/**
+ * The album-run GROUP BY key, and its projection.
+ *
+ * The two queries that draw headers share these so that "one row per run"
+ * cannot come to mean different things in the library and in a playlist.
+ */
+export const ALBUM_GROUP_PROJECTION = `
+  t.album_id      AS albumId,
+  al.title        AS title,
+  aa.name         AS albumArtist,
+  al.year         AS year,
+  al.artwork_hash AS artworkHash
+`
+
 interface JoinedSort {
   /** Table holding the displayed value, scanned in its indexed order. */
   readonly table: 'artists' | 'albums'
@@ -884,25 +930,17 @@ export class LibraryStore {
     }
     const direction = query.direction === 'desc' ? 'DESC' : 'ASC'
     const filter = buildFilter(query)
-    const albumOrder = SORT_KEYS.album
-      .slice(0, 2)
-      .map((key) => orderByFragment(key, direction))
-      .join(', ')
 
     const rows = this.db
       .prepare(
-        `SELECT t.album_id AS albumId,
-                al.title AS title,
-                aa.name AS albumArtist,
-                al.year AS year,
-                al.artwork_hash AS artworkHash,
+        `SELECT ${ALBUM_GROUP_PROJECTION},
                 count(*) AS trackCount
          FROM tracks t
          ${filter.ftsJoin}
          ${TRACK_JOINS}
          ${filter.where}
          GROUP BY t.album_id
-         ORDER BY ${albumOrder}`
+         ORDER BY ${albumRunOrder(direction)}`
       )
       .all(filter.params) as Array<Omit<TrackGroup, 'artwork'> & { artworkHash: string | null }>
 
@@ -1269,7 +1307,8 @@ export function toTrack(row: TrackRow): Track {
   }
 }
 
-function artworkUrls(hash: string | null): Track['artwork'] {
+/** Exported alongside `ALBUM_GROUP_PROJECTION`, which selects the hash it takes. */
+export function artworkUrls(hash: string | null): Track['artwork'] {
   return {
     small: artworkUrl(hash, 'small'),
     large: artworkUrl(hash, 'large')

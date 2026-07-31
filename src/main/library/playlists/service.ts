@@ -7,6 +7,8 @@ import type {
   ExportPlaylistRequest,
   ListPlaylistEntriesQuery,
   ListPlaylistEntriesResult,
+  ListPlaylistEntryGroupsQuery,
+  ListPlaylistEntryGroupsResult,
   ListPlaylistEntryIdsQuery,
   ListPlaylistEntryIdsResult,
   MovePlaylistEntriesRequest,
@@ -35,6 +37,7 @@ export interface PlaylistService {
   reorder(playlistId: number, toIndex: number): Promise<Playlist[]>
   listEntries(query: ListPlaylistEntriesQuery): Promise<ListPlaylistEntriesResult>
   listEntryIds(query: ListPlaylistEntryIdsQuery): Promise<ListPlaylistEntryIdsResult>
+  listEntryGroups(query: ListPlaylistEntryGroupsQuery): Promise<ListPlaylistEntryGroupsResult>
   addTracks(request: AddTracksToPlaylistRequest): Promise<Playlist>
   moveEntries(request: MovePlaylistEntriesRequest): Promise<Playlist>
   removeEntries(request: RemovePlaylistEntriesRequest): Promise<Playlist>
@@ -99,6 +102,12 @@ export class SqlitePlaylistService implements PlaylistService {
 
   async listEntryIds(query: ListPlaylistEntryIdsQuery): Promise<ListPlaylistEntryIdsResult> {
     return this.store.listEntryIds(query)
+  }
+
+  async listEntryGroups(
+    query: ListPlaylistEntryGroupsQuery
+  ): Promise<ListPlaylistEntryGroupsResult> {
+    return this.store.listEntryGroups(query)
   }
 
   async addTracks(request: AddTracksToPlaylistRequest): Promise<Playlist> {

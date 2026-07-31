@@ -30,7 +30,9 @@ import {
   type AddTracksToPlaylistRequest,
   type ExportPlaylistRequest,
   type ListPlaylistEntriesQuery,
+  type ListPlaylistEntryGroupsQuery,
   type ListPlaylistEntryIdsQuery,
+  type PlaylistEntryOrder,
   type MovePlaylistEntriesRequest,
   type PlaylistInsertion,
   type PlaylistPathStyle,
@@ -348,13 +350,36 @@ function assertPlaylistIdBatch(value: unknown, field: string): number[] {
   return value.map((id) => assertPositiveInt(id, `${field} entries`))
 }
 
+/**
+ * Absent means `position`, which is what the field defaults to and what every
+ * caller meant before there was a choice. Rejected rather than coerced when it
+ * is present and unknown: a typo'd order silently serving the stored sequence
+ * is a bug that looks like the feature not working.
+ */
+function assertEntryOrder(value: unknown): PlaylistEntryOrder | undefined {
+  if (value === undefined) return undefined
+  if (value !== 'position' && value !== 'album') {
+    invalid("order must be 'position' or 'album'.")
+  }
+  return value
+}
+
 function assertEntriesQuery(value: unknown, maxPage: number): ListPlaylistEntriesQuery {
   const raw = assertRecord(value, 'query')
-  assertOnlyKeys(raw, ['playlistId', 'offset', 'limit'])
+  assertOnlyKeys(raw, ['playlistId', 'offset', 'limit', 'order'])
+  const order = assertEntryOrder(raw.order)
   return {
     playlistId: assertPositiveInt(raw.playlistId, 'playlistId'),
-    ...assertWindow(raw, maxPage)
+    ...assertWindow(raw, maxPage),
+    ...(order === undefined ? {} : { order })
   }
+}
+
+/** Carries no window and no ordering — see the note on the query type. */
+export function assertListPlaylistEntryGroupsQuery(value: unknown): ListPlaylistEntryGroupsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['playlistId'])
+  return { playlistId: assertPositiveInt(raw.playlistId, 'playlistId') }
 }
 
 export function assertListPlaylistEntriesQuery(value: unknown): ListPlaylistEntriesQuery {

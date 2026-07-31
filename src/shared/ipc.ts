@@ -26,6 +26,8 @@ import type {
   ExportPlaylistRequest,
   ListPlaylistEntriesQuery,
   ListPlaylistEntriesResult,
+  ListPlaylistEntryGroupsQuery,
+  ListPlaylistEntryGroupsResult,
   ListPlaylistEntryIdsQuery,
   ListPlaylistEntryIdsResult,
   MovePlaylistEntriesRequest,
@@ -163,6 +165,14 @@ export interface IpcContract {
     response: ListPlaylistEntryIdsResult
   }
   /**
+   * The album runs of a playlist under album-major ordering — the playlist
+   * counterpart of `library.listTrackGroups`, and unpaged for the same reason.
+   */
+  'playlists.listEntryGroups': {
+    request: ListPlaylistEntryGroupsQuery
+    response: ListPlaylistEntryGroupsResult
+  }
+  /**
    * The four mutating entry operations, each returning the playlist so the tab
    * badge and `updatedAt` never need a second round trip to stay honest.
    */
@@ -242,6 +252,7 @@ export const IPC_CHANNELS = [
   'playlists.reorder',
   'playlists.listEntries',
   'playlists.listEntryIds',
+  'playlists.listEntryGroups',
   'playlists.addTracks',
   'playlists.moveEntries',
   'playlists.removeEntries',

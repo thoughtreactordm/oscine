@@ -489,3 +489,153 @@ function countingDatabase(target: Database.Database): () => number {
   }
   return () => runs
 }
+
+/**
+ * Tracks laid out across albums, deliberately inserted out of album order.
+ *
+ * `albums` is unique on (title, album_artist), which is the case that makes the
+ * album id matter: two artists with a "Greatest Hits" share a title, and an
+ * ordering that stopped at the title would interleave their tracks and leave
+ * `listEntryGroups` describing runs that are not contiguous.
+ */
+function seedAlbums(): { trackIds: number[]; albumIds: Record<string, number> } {
+  const artist = Number(
+    db.prepare('INSERT INTO artists (name) VALUES (?)').run('Artist').lastInsertRowid
+  )
+  const other = Number(
+    db.prepare('INSERT INTO artists (name) VALUES (?)').run('Other').lastInsertRowid
+  )
+  const album = db.prepare('INSERT INTO albums (title, album_artist_id, year) VALUES (?, ?, ?)')
+  const albumIds = {
+    // Two "Hits", one per artist — same title, different rows.
+    hitsA: Number(album.run('Hits', artist, 1990).lastInsertRowid),
+    hitsB: Number(album.run('Hits', other, 1991).lastInsertRowid),
+    zebra: Number(album.run('Zebra', artist, 2000).lastInsertRowid)
+  }
+
+  const insert = db.prepare(
+    `INSERT INTO tracks (root_id, rel_path, mtime, size, title, artist_id, album_id, disc_no, track_no)
+     VALUES (?, ?, 1, 100, ?, ?, ?, ?, ?)`
+  )
+  // Inserted zebra-first and with track numbers shuffled, so nothing below can
+  // pass by accident on insertion order.
+  const rows: Array<[number, number | null, number | null, number | null]> = [
+    [albumIds.zebra, 1, 2, null],
+    [albumIds.hitsB, 1, 1, null],
+    [albumIds.hitsA, 2, 1, null],
+    [albumIds.hitsA, 1, 3, null],
+    [albumIds.zebra, 1, 1, null],
+    [albumIds.hitsA, 1, 1, null]
+  ]
+  const trackIds = rows.map(([albumId, discNo, trackNo], index) =>
+    Number(
+      insert.run(rootId, `a${index}.flac`, `Song ${index}`, artist, albumId, discNo, trackNo)
+        .lastInsertRowid
+    )
+  )
+  return { trackIds, albumIds }
+}
+
+describe('album-major playlist entries', () => {
+  it('leaves the stored order alone and serves a different one on request', () => {
+    const { trackIds } = seedAlbums()
+    const playlistId = newPlaylist()
+    store.addTracks(playlistId, trackIds, { at: 'end' }, tick())
+
+    // The playlist is what it was authored as, whatever the pane is showing.
+    expect(trackOrder(playlistId)).toEqual(trackIds)
+
+    const byAlbum = store
+      .listEntries({ playlistId, offset: 0, limit: 100, order: 'album' })
+      .entries.map((entry) => entry.track.id)
+    expect(byAlbum).not.toEqual(trackIds)
+    expect([...byAlbum].sort()).toEqual([...trackIds].sort())
+    expect(positions(playlistId).map((row) => row.id)).toEqual(entryIds(playlistId))
+  })
+
+  it('orders by album, then disc, then track — the library ordering exactly', () => {
+    const { trackIds, albumIds } = seedAlbums()
+    const playlistId = newPlaylist()
+    store.addTracks(playlistId, trackIds, { at: 'end' }, tick())
+
+    const rows = store.listEntries({ playlistId, offset: 0, limit: 100, order: 'album' }).entries
+    const shape = rows.map((entry) => [entry.track.album, entry.track.discNo, entry.track.trackNo])
+
+    // Both "Hits" albums come before "Zebra", each one contiguous, and within
+    // each the discs run before the tracks do.
+    expect(shape).toEqual([
+      ['Hits', 1, 1],
+      ['Hits', 1, 3],
+      ['Hits', 2, 1],
+      ['Hits', 1, 1],
+      ['Zebra', 1, 1],
+      ['Zebra', 1, 2]
+    ])
+    expect(albumIds.hitsA).not.toBe(albumIds.hitsB)
+  })
+
+  it('describes runs that account for every entry, duplicates included', () => {
+    const { trackIds } = seedAlbums()
+    const playlistId = newPlaylist()
+    // The first track twice: D12 makes that legal, and a run has to count both.
+    store.addTracks(playlistId, [...trackIds, trackIds[0]!], { at: 'end' }, tick())
+
+    const { groups, total } = store.listEntryGroups({ playlistId })
+    expect(total).toBe(7)
+    expect(groups.reduce((sum, group) => sum + group.trackCount, 0)).toBe(total)
+    expect(groups.map((group) => [group.title, group.trackCount])).toEqual([
+      ['Hits', 3],
+      ['Hits', 1],
+      ['Zebra', 3]
+    ])
+  })
+
+  it('lines the runs up with the rows they head', () => {
+    const { trackIds } = seedAlbums()
+    const playlistId = newPlaylist()
+    store.addTracks(playlistId, trackIds, { at: 'end' }, tick())
+
+    const rows = store.listEntries({ playlistId, offset: 0, limit: 100, order: 'album' }).entries
+    const { groups } = store.listEntryGroups({ playlistId })
+
+    // Walk the runs over the rows: each run's slice must be one album, which is
+    // the whole contract the header layer's prefix sums rest on.
+    let offset = 0
+    for (const group of groups) {
+      const slice = rows.slice(offset, offset + group.trackCount)
+      expect(slice).toHaveLength(group.trackCount)
+      expect(new Set(slice.map((entry) => entry.track.album))).toEqual(new Set([group.title]))
+      offset += group.trackCount
+    }
+    expect(offset).toBe(rows.length)
+  })
+
+  it('pages the album view consistently, ids and rows alike', () => {
+    const { trackIds } = seedAlbums()
+    const playlistId = newPlaylist()
+    store.addTracks(playlistId, trackIds, { at: 'end' }, tick())
+
+    const whole = store.listEntries({ playlistId, offset: 0, limit: 100, order: 'album' }).entries
+    const pageOne = store.listEntries({ playlistId, offset: 0, limit: 3, order: 'album' }).entries
+    const pageTwo = store.listEntries({ playlistId, offset: 3, limit: 3, order: 'album' }).entries
+    expect([...pageOne, ...pageTwo].map((entry) => entry.id)).toEqual(
+      whole.map((entry) => entry.id)
+    )
+
+    // A Shift-range resolves through the ids, so they must be the same sequence
+    // or the selection is of rows the operator is not looking at.
+    const ids = store.listEntryIds({ playlistId, offset: 0, limit: 100, order: 'album' }).ids
+    expect(ids).toEqual(whole.map((entry) => entry.id))
+  })
+
+  it('defaults to stored position when no order is asked for', () => {
+    const { trackIds } = seedAlbums()
+    const playlistId = newPlaylist()
+    store.addTracks(playlistId, trackIds, { at: 'end' }, tick())
+
+    expect(trackOrder(playlistId)).toEqual(trackIds)
+    expect(store.listEntryIds({ playlistId, offset: 0, limit: 100 }).ids).toEqual(
+      positions(playlistId).map((row) => row.id)
+    )
+  })
+})

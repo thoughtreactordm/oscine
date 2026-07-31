@@ -23,6 +23,7 @@ import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
   ListPlaylistEntriesQuery,
+  ListPlaylistEntryGroupsQuery,
   ListPlaylistEntryIdsQuery,
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
@@ -131,6 +132,9 @@ const api = {
     listEntries: (query: ListPlaylistEntriesQuery) => request('playlists.listEntries', query),
     /** The same window, ids only — for range selection in the contents pane. */
     listEntryIds: (query: ListPlaylistEntryIdsQuery) => request('playlists.listEntryIds', query),
+    /** The album runs of a playlist, for the contents pane's headers. */
+    listEntryGroups: (query: ListPlaylistEntryGroupsQuery) =>
+      request('playlists.listEntryGroups', query),
     /** A whole multi-selection in one call, however large. */
     addTracks: (payload: AddTracksToPlaylistRequest) => request('playlists.addTracks', payload),
     moveEntries: (payload: MovePlaylistEntriesRequest) => request('playlists.moveEntries', payload),

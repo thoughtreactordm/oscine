@@ -1,4 +1,4 @@
-import type { Track } from './library'
+import type { Track, TrackGroup } from './library'
 
 /**
  * The playlist half of the main/renderer contract.
@@ -74,11 +74,29 @@ export type PlaylistInsertion =
   | { at: 'before'; entryId: number }
   | { at: 'after'; entryId: number }
 
-/** A window into one playlist's entries, ordered by position. */
+/**
+ * How a playlist's entries are presented.
+ *
+ * `position` is the stored fractional order and the only one a reorder drag can
+ * be interpreted against — it is what the playlist *is*.
+ *
+ * `album` is a view over the same entries, ordered exactly as the library's
+ * album-major sort orders tracks, so the contents pane can draw the same album
+ * headers. It changes nothing stored: the positions are untouched and switching
+ * back shows the authored sequence again. What it does cost is the reorder
+ * drag, which the pane disables while it is on — a drop between two rows has no
+ * meaning when the rows the operator sees are not the rows the order is made
+ * of.
+ */
+export type PlaylistEntryOrder = 'position' | 'album'
+
+/** A window into one playlist's entries. */
 export interface ListPlaylistEntriesQuery {
   playlistId: number
   offset: number
   limit: number
+  /** Defaults to `position`, which is what every caller wanted before there was a choice. */
+  order?: PlaylistEntryOrder
 }
 
 export interface ListPlaylistEntriesResult {
@@ -99,6 +117,28 @@ export type ListPlaylistEntryIdsQuery = ListPlaylistEntriesQuery
 
 export interface ListPlaylistEntryIdsResult {
   ids: number[]
+  total: number
+}
+
+/**
+ * The album runs of a playlist, under `album` ordering.
+ *
+ * Carries no ordering of its own, because there is only one it could describe:
+ * runs are contiguous only under the album-major sort, exactly as
+ * `library.listTrackGroups` requires. Asking for these against `position` order
+ * would be asking which albums a shuffled list happens to have adjacent, which
+ * is a different question and not one the pane asks.
+ *
+ * Unpaged, for the reason the library's is: the answer is bounded by how many
+ * albums a playlist draws from rather than by how many entries it has.
+ */
+export interface ListPlaylistEntryGroupsQuery {
+  playlistId: number
+}
+
+export interface ListPlaylistEntryGroupsResult {
+  groups: TrackGroup[]
+  /** Entries across every run — the same number `listEntries` reports. */
   total: number
 }
 

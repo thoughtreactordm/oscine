@@ -15,6 +15,7 @@ import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
   ListPlaylistEntriesQuery,
+  ListPlaylistEntryGroupsQuery,
   ListPlaylistEntryIdsQuery,
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
@@ -87,6 +88,8 @@ export const playlists = {
     unwrap(window.fermata.playlists.listEntries(query)),
   listEntryIds: (query: ListPlaylistEntryIdsQuery) =>
     unwrap(window.fermata.playlists.listEntryIds(query)),
+  listEntryGroups: (query: ListPlaylistEntryGroupsQuery) =>
+    unwrap(window.fermata.playlists.listEntryGroups(query)),
   addTracks: (payload: AddTracksToPlaylistRequest) =>
     unwrap(window.fermata.playlists.addTracks(payload)),
   moveEntries: (payload: MovePlaylistEntriesRequest) =>

@@ -11,6 +11,7 @@ import {
   assertListFacetIdsQuery,
   assertListFacetsQuery,
   assertListPlaylistEntriesQuery,
+  assertListPlaylistEntryGroupsQuery,
   assertListPlaylistEntryIdsQuery,
   assertListTrackGroupsQuery,
   assertListTrackIdsQuery,
@@ -170,6 +171,10 @@ export function registerIpcHandlers(library: LibraryService, playlists: Playlist
 
   handle('playlists.listEntryIds', (request) =>
     playlists.listEntryIds(assertListPlaylistEntryIdsQuery(request))
+  )
+
+  handle('playlists.listEntryGroups', (request) =>
+    playlists.listEntryGroups(assertListPlaylistEntryGroupsQuery(request))
   )
 
   handle('playlists.addTracks', (request) => playlists.addTracks(assertAddTracksRequest(request)))

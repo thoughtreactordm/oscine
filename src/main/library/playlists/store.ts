@@ -1,8 +1,11 @@
 import type Database from 'better-sqlite3'
 import { FermataError } from '@shared/errors'
+import type { TrackGroup } from '@shared/library'
 import type {
   ListPlaylistEntriesQuery,
   ListPlaylistEntriesResult,
+  ListPlaylistEntryGroupsQuery,
+  ListPlaylistEntryGroupsResult,
   ListPlaylistEntryIdsQuery,
   ListPlaylistEntryIdsResult,
   Playlist,
@@ -10,7 +13,16 @@ import type {
   PlaylistInsertion
 } from '@shared/playlists'
 import { toAbsPath } from '../../db/paths'
-import { TRACK_JOINS, TRACK_PROJECTION, toTrack, type TrackRow } from '../store'
+import {
+  ALBUM_GROUP_PROJECTION,
+  ALBUM_MAJOR_ORDER,
+  albumRunOrder,
+  artworkUrls,
+  TRACK_JOINS,
+  TRACK_PROJECTION,
+  toTrack,
+  type TrackRow
+} from '../store'
 import { spread } from './positions'
 
 /**
@@ -120,6 +132,57 @@ function prepareStatements(db: Database.Database) {
       WHERE e.playlist_id = @playlistId
       ORDER BY e.position ASC, e.id ASC
       LIMIT @limit OFFSET @offset
+    `),
+    /**
+     * The same two windows, album-major.
+     *
+     * Separate prepared statements rather than an interpolated ORDER BY: the
+     * order is one of two fixed shapes, and building SQL from a request field
+     * is the habit this file does not want even where the field is validated.
+     *
+     * Both join `tracks`, including the ids query, which the position-ordered
+     * one does not have to — the ordering lives across the join. That is the
+     * cost of the view and it is paid only while it is on.
+     *
+     * `e.id` is the tiebreaker, never `t.id`: D12 makes the same track legal
+     * twice in one playlist, so two entries can tie on every album key and on
+     * the track id too. Without a total order they swap between pages and the
+     * pane shows one row twice while skipping another.
+     */
+    listEntryIdsByAlbum: db.prepare(`
+      SELECT e.id AS id
+      FROM playlist_entries e
+      JOIN tracks t ON t.id = e.track_id
+      ${TRACK_JOINS}
+      WHERE e.playlist_id = @playlistId
+      ORDER BY ${ALBUM_MAJOR_ORDER}, e.id ASC
+      LIMIT @limit OFFSET @offset
+    `),
+    listEntriesByAlbum: db.prepare(`
+      SELECT e.id AS entryId, ${TRACK_PROJECTION}
+      FROM playlist_entries e
+      JOIN tracks t ON t.id = e.track_id
+      ${TRACK_JOINS}
+      WHERE e.playlist_id = @playlistId
+      ORDER BY ${ALBUM_MAJOR_ORDER}, e.id ASC
+      LIMIT @limit OFFSET @offset
+    `),
+    /**
+     * One row per album run, in the same order the rows above come out in.
+     *
+     * `count(*)` counts *entries*, not distinct tracks — a playlist holding a
+     * record twice has a run two long, and a header claiming one would leave
+     * the layout's prefix sums one short of the list they index into.
+     */
+    listEntryGroups: db.prepare(`
+      SELECT ${ALBUM_GROUP_PROJECTION},
+             count(*) AS trackCount
+      FROM playlist_entries e
+      JOIN tracks t ON t.id = e.track_id
+      ${TRACK_JOINS}
+      WHERE e.playlist_id = @playlistId
+      GROUP BY t.album_id
+      ORDER BY ${albumRunOrder('ASC')}
     `),
     /**
      * The whole playlist, as paths rather than as display rows.
@@ -335,13 +398,36 @@ export class PlaylistStore {
 
   listEntries(query: ListPlaylistEntriesQuery): ListPlaylistEntriesResult {
     const total = this.countEntries(query.playlistId)
-    const rows = this.statements.listEntries.all({
+    const statement =
+      query.order === 'album' ? this.statements.listEntriesByAlbum : this.statements.listEntries
+    const rows = statement.all({
       playlistId: query.playlistId,
       limit: query.limit,
       offset: query.offset
     }) as EntryRow[]
     const entries: PlaylistEntry[] = rows.map((row) => ({ id: row.entryId, track: toTrack(row) }))
     return { entries, total }
+  }
+
+  /**
+   * The album runs of a playlist, and the entries they account for.
+   *
+   * `total` comes from the same `countEntries` the row query reports rather
+   * than from summing the runs, so the renderer can compare the two and fall
+   * back to an ungrouped list when they disagree — which is exactly what
+   * happens for the moment between an edit and the reload that follows it.
+   */
+  listEntryGroups(query: ListPlaylistEntryGroupsQuery): ListPlaylistEntryGroupsResult {
+    const rows = this.statements.listEntryGroups.all({
+      playlistId: query.playlistId
+    }) as Array<Omit<TrackGroup, 'artwork'> & { artworkHash: string | null }>
+    return {
+      groups: rows.map(({ artworkHash, ...group }) => ({
+        ...group,
+        artwork: artworkUrls(artworkHash)
+      })),
+      total: this.countEntries(query.playlistId)
+    }
   }
 
   /**
@@ -378,7 +464,12 @@ export class PlaylistStore {
 
   listEntryIds(query: ListPlaylistEntryIdsQuery): ListPlaylistEntryIdsResult {
     const total = this.countEntries(query.playlistId)
-    const rows = this.statements.listEntryIds.all({
+    // The same branch `listEntries` makes, and it has to be the same: a
+    // Shift-range resolves through here against index positions the operator
+    // read off the rows, so the two must describe one list.
+    const statement =
+      query.order === 'album' ? this.statements.listEntryIdsByAlbum : this.statements.listEntryIds
+    const rows = statement.all({
       playlistId: query.playlistId,
       limit: query.limit,
       offset: query.offset
