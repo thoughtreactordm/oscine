@@ -160,13 +160,19 @@ export default defineConfig({
         // api.iconify.design on demand: icons vanish offline and the app makes
         // an unsolicited third-party request on cold start. Also verified in R4.
         //
-        // `scan` picks up icons used directly in .vue templates.  Icons that
+        // `scan` picks up icons used directly in components.  Icons that
         // only live in the ui.icons config (consumed at runtime via appConfig)
         // must be listed explicitly — Nuxt UI's extraIcons filter trusts only
         // its own default collection (lucide), silently dropping tabler names.
         icon: {
           clientBundle: {
-            scan: true,
+            // The default glob is `.vue` and friends, which does not include
+            // plain `.ts` — and the shell's tab table names its icons in
+            // `shell/routes.ts`. A name only found there resolved to an empty
+            // <svg> in the packaged build and to nothing visible on screen,
+            // with no build warning, so the glob is widened rather than the
+            // table split in two to suit the scanner.
+            scan: { globInclude: ['**/*.{vue,ts,jsx,tsx,md,mdc,mdx,yml,yaml}'] },
             icons: [
               'i-tabler-arrow-down',
               'i-tabler-arrow-left',
