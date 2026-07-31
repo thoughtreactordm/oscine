@@ -592,19 +592,20 @@ describe('createPlaybackController', () => {
     })
   })
 
-  describe('remembering the modes', () => {
-    function storage(): PlaybackControllerDeps['storage'] & { value: string | null } {
-      return {
-        value: null,
-        read() {
-          return this.value
-        },
-        write(next: string) {
-          this.value = next
-        }
+  /** A `TransportStorage` that remembers what was written to it. */
+  function storage(): PlaybackControllerDeps['storage'] & { value: string | null } {
+    return {
+      value: null,
+      read() {
+        return this.value
+      },
+      write(next: string) {
+        this.value = next
       }
     }
+  }
 
+  describe('remembering the modes', () => {
     it('restores shuffle and repeat from a previous session', async () => {
       const store = storage()
       const before = harness({ storage: store })
@@ -1245,6 +1246,280 @@ describe('createPlaybackController', () => {
         h.controller.playlistCrossfadeChanged(7, 0)
         expect(h.controller.schedulerCrossfadeMs()).toBe(0)
       })
+    })
+  })
+  /**
+   * The same seven numbers as `upNextQueue.test.ts`, carried through the
+   * transport.
+   *
+   * The rules are *proved* against the headless model; these are the checks
+   * that the wiring actually consults it — that decode-ahead warms the queue
+   * head rather than the playing playlist's next entry, and that nothing in the
+   * controller quietly clears a queue the rules say survives.
+   */
+  describe('the up-next queue (§5)', () => {
+    const queuedIds = (controller: ReturnType<typeof harness>['controller']): number[] =>
+      controller.queuedEntries.value.map((entry) => entry.trackId)
+
+    it('rule 1: decode-ahead warms the queue head, not the playing playlist next entry', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await settle()
+      // Nothing queued yet, so the playlist's second entry is the successor.
+      expect(h.engines[1].loaded).toEqual([PLAYLIST_TRACK_BASE + 1])
+
+      h.controller.enqueue([track(42)])
+      await settle()
+
+      // The boundary that was already armed is re-decided rather than left
+      // pointing at the row the queue has just displaced. Warming the wrong
+      // track is not merely a wrong answer — it spends R1's budget to get it.
+      expect(h.engines[1].loaded).toEqual([PLAYLIST_TRACK_BASE + 1, 42])
+      expect(h.controller.prefetchedTrackId.value).toBe(42)
+      expect(h.controller.prefetchStatus.value).toBe('ready')
+    })
+
+    it('rule 1: an add behind a queued row leaves the armed boundary alone', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      h.controller.enqueue([track(42)])
+      await settle()
+      expect(h.engines[1].loaded).toEqual([PLAYLIST_TRACK_BASE + 1, 42])
+
+      h.controller.enqueue([track(43)])
+      await settle()
+
+      // The head did not move, so the decode that is ready stays ready.
+      // Discarding it would turn an "add to queue" into an audible risk.
+      expect(h.engines[1].loaded).toEqual([PLAYLIST_TRACK_BASE + 1, 42])
+      expect(h.controller.prefetchedTrackId.value).toBe(42)
+    })
+
+    it('rule 1: the queue head plays next, is shifted out, and traversal resumes after the row it interrupted', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      h.controller.enqueue([track(42)])
+      await settle()
+
+      await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe(42)
+      expect(h.controller.queuedCount.value).toBe(0)
+      // §5 rule 2's other half: the detour did not move the position.
+      expect(h.controller.orderIndex.value).toBe(0)
+      expect(h.controller.playingQueueEntryId.value).not.toBeNull()
+
+      await h.controller.next()
+      // Entry 1, not entry 2: the queue is a detour, and traversal resumes
+      // after the row it was taken from rather than after itself.
+      expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 1)
+      expect(h.controller.orderIndex.value).toBe(1)
+      expect(h.controller.playingQueueEntryId.value).toBeNull()
+    })
+
+    it('rule 1: two fast presses take two entries rather than the same one twice', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      h.controller.enqueue([track(42), track(43)])
+      await settle()
+
+      // The shift is synchronous for exactly this: the decode the second press
+      // adopts is chosen inside an await the first press has not left yet.
+      await Promise.all([h.controller.next(), h.controller.next()])
+
+      expect(h.controller.queuedCount.value).toBe(0)
+      expect(h.controller.nowPlaying.value?.id).toBe(43)
+    })
+
+    it('rule 1: the shift also happens when a boundary promotes the queued track', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      h.controller.enqueue([track(42)])
+      await settle()
+
+      // The one advance the controller is not party to.
+      h.engine.emit('ended', { trackId: PLAYLIST_TRACK_BASE })
+      await settle()
+
+      expect(h.controller.nowPlaying.value?.id).toBe(42)
+      expect(h.controller.queuedCount.value).toBe(0)
+      expect(h.controller.orderIndex.value).toBe(0)
+    })
+
+    it('rule 1: Previous backs out of a queue detour to the row it interrupted', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+      h.controller.enqueue([track(42)])
+      await settle()
+      await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe(42)
+
+      await h.controller.previous()
+
+      // Entry 2, not entry 1. The queued row has already been shifted out, so
+      // the interrupted row is the only thing Previous could mean.
+      expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 2)
+      expect(h.controller.orderIndex.value).toBe(2)
+      expect(h.controller.playingQueueEntryId.value).toBeNull()
+    })
+
+    it('rule 2: queueing changes neither playingPlaylistId nor the current position', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+      await settle()
+      const playing = h.controller.nowPlaying.value
+
+      h.controller.enqueue([track(42)])
+      h.controller.enqueueNext([track(43)])
+      h.controller.moveQueued(h.controller.queuedEntries.value[0]?.id ?? '', 1)
+      h.controller.removeQueued(h.controller.queuedEntries.value[0]?.id ?? '')
+      await settle()
+
+      expect(h.controller.playingPlaylistId.value).toBe(7)
+      expect(h.controller.orderIndex.value).toBe(2)
+      expect(h.controller.nowPlaying.value).toBe(playing)
+      // Nor did any of it reach the audio graph: no re-decode, no new engine.
+      expect(h.engine.loaded).toEqual([PLAYLIST_TRACK_BASE + 2])
+    })
+
+    it('rule 3: playing a track from another playlist leaves the queue standing', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      h.controller.enqueue([track(42), track(43)])
+      await settle()
+
+      await h.controller.playFromPlaylist({ playlistId: 9, index: 1, crossfadeMs: 0 })
+      expect(h.controller.playingPlaylistId.value).toBe(9)
+      expect(queuedIds(h.controller)).toEqual([42, 43])
+
+      // Nor does going back to the library, nor stopping outright.
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      expect(queuedIds(h.controller)).toEqual([42, 43])
+      h.controller.stop()
+      expect(queuedIds(h.controller)).toEqual([42, 43])
+    })
+
+    it('rule 4: deleting the playlist a queued track came from leaves the queue intact', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      // Queued from playlist 9, which is about to be deleted. The queue holds
+      // track ids, so there is nothing on these rows for the deletion to reach.
+      h.controller.enqueue([track(42), track(43)])
+      await settle()
+
+      h.controller.playlistDeleted(9)
+      expect(queuedIds(h.controller)).toEqual([42, 43])
+      // A deletion of any other playlist is not playback's business.
+      expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE)
+
+      // And the second half: deleting the *playing* playlist stops playback —
+      // which still does not touch the queue.
+      h.controller.playlistDeleted(7)
+      expect(h.controller.nowPlaying.value).toBeNull()
+      expect(queuedIds(h.controller)).toEqual([42, 43])
+    })
+
+    it('rule 5: the queue is transient — nothing about it is persisted', async () => {
+      const store = storage()
+      const before = harness({ storage: store })
+      await before.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      before.controller.enqueue([track(42), track(43)])
+      before.controller.setRepeatMode('all')
+      await settle()
+      expect(before.controller.queuedCount.value).toBe(2)
+
+      // Shuffle and repeat are settings and do survive; the queue is a
+      // statement about the next few minutes and deliberately does not.
+      expect(store.value).toBe(JSON.stringify({ repeat: 'all', shuffle: false }))
+
+      const after = harness({ storage: store })
+      expect(after.controller.repeatMode.value).toBe('all')
+      expect(after.controller.queuedCount.value).toBe(0)
+      expect(after.controller.queuedEntries.value).toEqual([])
+    })
+
+    it('rule 6: shuffle reorders the playing playlist and never the queue', async () => {
+      const h = harness({ playlistTotal: 6 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      h.controller.enqueue([track(42), track(43), track(44)])
+      await settle()
+      const entries = h.controller.queuedEntries.value
+
+      await h.controller.setShuffle(true)
+      await settle()
+
+      // The order was permuted — and the queue was not so much as touched.
+      expect(h.controller.orderId()).toBe('shuffle:1234:0:playlist:7')
+      expect(h.controller.queuedEntries.value).toEqual(entries)
+      expect(queuedIds(h.controller)).toEqual([42, 43, 44])
+      // The head is still what plays next, whatever the permutation says.
+      expect(h.controller.prefetchedTrackId.value).toBe(42)
+
+      await h.controller.setShuffle(false)
+      expect(queuedIds(h.controller)).toEqual([42, 43, 44])
+    })
+
+    it('rule 7: repeat-one overrides the queue at a boundary, and repeat-all wraps while the queue still wins', async () => {
+      const h = harness({ playlistTotal: 3 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      h.controller.enqueue([track(42)])
+      h.controller.setRepeatMode('one')
+      await settle()
+
+      // "Repeat-one overrides everything", including a non-empty queue — and
+      // without consuming it, or the queue would drain while it looped.
+      expect(h.controller.prefetchedTrackId.value).toBe(PLAYLIST_TRACK_BASE)
+      h.engine.emit('ended', { trackId: PLAYLIST_TRACK_BASE })
+      await settle()
+      expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE)
+      expect(queuedIds(h.controller)).toEqual([42])
+
+      // Pressing Next under repeat-one moves on, and moving on means the queue.
+      await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe(42)
+      expect(h.controller.queuedCount.value).toBe(0)
+
+      // Repeat-all wraps the playing playlist at its last row — but the queue
+      // takes priority over the wrap for as long as it has anything to say.
+      const wrap = harness({ playlistTotal: 3 })
+      await wrap.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+      wrap.controller.setRepeatMode('all')
+      wrap.controller.enqueue([track(42)])
+      await settle()
+      expect(wrap.controller.prefetchedTrackId.value).toBe(42)
+
+      await wrap.controller.next()
+      expect(wrap.controller.nowPlaying.value?.id).toBe(42)
+      await wrap.controller.next()
+      expect(wrap.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE)
+    })
+
+    it('plays a queued entry out of turn without disturbing the rest', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      const [, second] = h.controller.enqueue([track(42), track(43), track(44)])
+      await settle()
+
+      await h.controller.playQueued(second?.id ?? '')
+
+      expect(h.controller.nowPlaying.value?.id).toBe(43)
+      // Only the row that was played leaves. §5 does not choose between this
+      // and dropping everything above it, so this destroys nothing.
+      expect(queuedIds(h.controller)).toEqual([42, 44])
+      expect(h.controller.orderIndex.value).toBe(0)
+    })
+
+    it('clears on request, and re-decides the boundary when it does', async () => {
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      h.controller.enqueue([track(42)])
+      await settle()
+      expect(h.controller.prefetchedTrackId.value).toBe(42)
+
+      h.controller.clearQueue()
+      await settle()
+
+      expect(h.controller.queuedCount.value).toBe(0)
+      expect(h.controller.prefetchedTrackId.value).toBe(PLAYLIST_TRACK_BASE + 1)
     })
   })
 })

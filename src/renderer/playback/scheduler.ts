@@ -11,26 +11,33 @@ import {
 } from '../audio/AudioEngine'
 import { Emitter } from '../audio/emitter'
 import type { PlayOrder } from './playOrder'
+import { previousIndex, type AdvanceReason, type RepeatMode } from './traversal'
 import {
-  needsTotal,
-  nextIndex,
-  previousIndex,
-  type AdvanceReason,
-  type RepeatMode
-} from './traversal'
+  chooseSuccessor,
+  orderPosition,
+  samePosition,
+  successorNeedsTotal,
+  type QueueEntry,
+  type SlotPosition,
+  type Successor,
+  type SuccessorQueue
+} from './upNextQueue'
 
 export type PrefetchStatus = 'idle' | 'resolving' | 'loading' | 'ready' | 'failed'
 
 export interface PrefetchState {
   status: PrefetchStatus
+  /** The successor's order position — its anchor when it came from the queue. */
   index: number | null
+  /** The queue entry being warmed, or `null` when the successor is an order row. */
+  queueEntryId: string | null
   trackId: number | null
   transitionPolicy: AudioTransitionPolicy | null
   error: AudioEngineError | null
 }
 
 export interface PlaybackSchedulerEventMap extends AudioEngineEventMap {
-  trackchange: { track: Track; index: number }
+  trackchange: { track: Track; position: SlotPosition }
   prefetchchange: PrefetchState
 }
 
@@ -49,6 +56,15 @@ export interface PlaybackSchedulerDeps {
    * gapless boundary never saw.
    */
   repeatMode?: RepeatMode
+  /**
+   * The up-next queue, consulted before the order on every advance (§5 rule 1).
+   *
+   * Injected rather than owned because the queue is the renderer's — the UI
+   * edits it, the controller holds it, and this only ever peeks at its head and
+   * performs the shift when an advance commits. Omitting it is supported and
+   * means traversal alone decides the successor, which is exactly M1 through M3.
+   */
+  queue?: SuccessorQueue
   onCrossfadeAdjusted?: (adjustment: CrossfadeAdjustment) => void
 }
 
@@ -61,7 +77,7 @@ export interface CrossfadeAdjustment {
 interface Slot {
   engine: AudioEngine
   track: Track | null
-  index: number | null
+  position: SlotPosition | null
   load: Promise<void> | null
   unsubscribes: Array<() => void>
 }
@@ -69,6 +85,7 @@ interface Slot {
 const idlePrefetch = (): PrefetchState => ({
   status: 'idle',
   index: null,
+  queueEntryId: null,
   trackId: null,
   transitionPolicy: null,
   error: null
@@ -87,6 +104,7 @@ export class PlaybackScheduler {
   readonly #events = new Emitter<PlaybackSchedulerEventMap>()
   readonly #createEngine: () => AudioEngine
   readonly #onCrossfadeAdjusted: (adjustment: CrossfadeAdjustment) => void
+  readonly #queue: SuccessorQueue | null
 
   #crossfadeMs: number
   #normalizationMode: NormalizationMode
@@ -118,6 +136,7 @@ export class PlaybackScheduler {
     this.#crossfadeMs = this.#normalizeCrossfadeMs(deps.crossfadeMs ?? 0)
     this.#normalizationMode = deps.normalizationMode ?? 'track'
     this.#repeatMode = deps.repeatMode ?? 'off'
+    this.#queue = deps.queue ?? null
     this.#onCrossfadeAdjusted =
       deps.onCrossfadeAdjusted ??
       ((adjustment) => {
@@ -186,32 +205,49 @@ export class PlaybackScheduler {
   ): Promise<Track | null | undefined> {
     this.#assertUsable()
     this.#order = order
-    return this.#goTo(index, knownTrack)
+    return this.#goTo(orderPosition(index), knownTrack)
   }
 
   /** Move inside the captured order. `undefined` means a newer command won. */
   async goTo(index: number): Promise<Track | null | undefined> {
     this.#assertUsable()
-    return this.#goTo(index)
+    return this.#goTo(orderPosition(index))
+  }
+
+  /**
+   * Start a queue entry, inheriting the position it was taken from (§5 rule 1).
+   *
+   * `from` is what traversal resumes at once the queue drains, so it is the
+   * *interrupted* row rather than anything about the entry — a detour does not
+   * move the place it was taken from, however many entries play in a row.
+   */
+  async goToQueued(entry: QueueEntry, from: SlotPosition): Promise<Track | null | undefined> {
+    this.#assertUsable()
+    return this.#goTo({ index: from.index, queueEntryId: entry.id }, entry.track)
   }
 
   async next(): Promise<Track | null | undefined> {
-    const from = this.#active?.index
-    if (from === null || from === undefined) return undefined
-    const index = await this.#successorIndex(from, 'explicit')
-    if (index === null) return null
-    return this.goTo(index)
+    const from = this.#active?.position
+    if (!from) return undefined
+    const successor = await this.#successor(from, 'explicit')
+    if (successor === null) return null
+    if (successor.kind === 'queue') return this.goToQueued(successor.entry, from)
+    return this.#goTo(successor.position)
   }
 
   async previous(): Promise<Track | null | undefined> {
-    const from = this.#active?.index
-    if (from === null || from === undefined) return undefined
+    const from = this.#active?.position
+    if (!from) return undefined
+    // Backing out of a queue detour returns to the row it was taken from, not
+    // to the row before that: the interrupted row is what "previous" means to
+    // anyone who just watched the queue cut in front of it.
+    if (from.queueEntryId !== null) return this.#goTo(orderPosition(from.index))
     const total = this.#repeatMode === 'off' ? null : await this.#total()
-    const index = previousIndex(from, total, this.#repeatMode)
+    const index = previousIndex(from.index, total, this.#repeatMode)
     // `undefined` rather than `null`: nothing was attempted, so nothing was
     // superseded and nothing ran off the end either.
     if (index === null) return undefined
-    return this.goTo(index)
+    return this.#goTo(orderPosition(index))
   }
 
   async play(): Promise<void> {
@@ -282,6 +318,20 @@ export class PlaybackScheduler {
   }
 
   /**
+   * Re-decide the successor after the queue was edited.
+   *
+   * An "add to queue" onto a non-empty queue changes nothing that is already
+   * decoding, and `#resolveSuccessorAgain` keeps that decode rather than
+   * discarding it. A "play next", or removing the head, does change it — and
+   * has to reach the boundary that is already armed, or the queue would only
+   * take effect from the track after the one the user was looking at.
+   */
+  queueChanged(): void {
+    this.#assertUsable()
+    this.#resolveSuccessorAgain()
+  }
+
+  /**
    * Swap the play order under the playing track without restarting it.
    *
    * Turning shuffle on mid-album must not interrupt anything: the row that is
@@ -296,9 +346,12 @@ export class PlaybackScheduler {
     this.#order = order
 
     const active = this.#active
-    if (!active || active.index === null) return
-    active.index = index
-    if (active.track) this.#events.emit('trackchange', { track: active.track, index })
+    if (!active || active.position === null) return
+    // Only the order position moves. A queue detour is not a row of the order
+    // and so is not permuted by one being swapped underneath it (§5 rule 6).
+    const position: SlotPosition = { index, queueEntryId: active.position.queueEntryId }
+    active.position = position
+    if (active.track) this.#events.emit('trackchange', { track: active.track, position })
     this.#resolveSuccessorAgain({ force: true })
   }
 
@@ -332,7 +385,7 @@ export class PlaybackScheduler {
     this.#events.clear()
   }
 
-  async #goTo(index: number, knownTrack?: Track): Promise<Track | null | undefined> {
+  async #goTo(position: SlotPosition, knownTrack?: Track): Promise<Track | null | undefined> {
     const order = this.#order
     if (!order) return undefined
 
@@ -341,9 +394,11 @@ export class PlaybackScheduler {
     this.#cancelPlannedBoundary()
     this.#setPrefetch(idlePrefetch())
     let track = knownTrack
-    if (!track) {
+    // A queue entry carries its own row, so there is nothing to look up and no
+    // failure to report. Only an order position needs asking about.
+    if (!track && position.queueEntryId === null) {
       try {
-        track = (await order.at(index)) ?? undefined
+        track = (await order.at(position.index)) ?? undefined
       } catch {
         if (generation !== this.#generation) return undefined
         const failure = new AudioEngineError('io-error', 'Could not read the next track.')
@@ -359,7 +414,9 @@ export class PlaybackScheduler {
     }
 
     const prepared =
-      this.#prefetched?.index === index && this.#prefetched.track?.id === track.id
+      this.#prefetched &&
+      samePosition(this.#prefetched.position, position) &&
+      this.#prefetched.track?.id === track.id
         ? this.#prefetched
         : null
     const previous = this.#active
@@ -369,8 +426,11 @@ export class PlaybackScheduler {
     this.#active = target
     this.#prefetched = null
     target.track = track
-    target.index = index
-    this.#events.emit('trackchange', { track, index })
+    target.position = position
+    // §5 rule 1's shift, at the moment this advance actually committed. An
+    // explicit Next has usually consumed the row already — see `take`.
+    if (position.queueEntryId !== null) this.#queue?.take(position.queueEntryId)
+    this.#events.emit('trackchange', { track, position })
 
     try {
       if (prepared?.load) await prepared.load
@@ -399,9 +459,9 @@ export class PlaybackScheduler {
   async #beginPrefetch(generation: number): Promise<void> {
     const active = this.#active
     const order = this.#order
-    if (!active || !order || active.index === null) return
+    if (!active || !order || active.position === null) return
 
-    const from = active.index
+    const from = active.position
     const token = ++this.#prefetchToken
     // Announced before the successor is even named, and that matters: the
     // natural-end handler reads `resolving` as "work is in flight, fail
@@ -411,44 +471,62 @@ export class PlaybackScheduler {
     this.#setPrefetch({
       status: 'resolving',
       index: null,
+      queueEntryId: null,
       trackId: null,
       transitionPolicy: null,
       error: null
     })
 
     const task = (async () => {
-      const index = await this.#successorIndex(from, 'boundary')
+      const successor = await this.#successor(from, 'boundary')
       if (!this.#isPrefetchCurrent(generation, active, token)) return
-      if (index === null) {
-        // Traversal stops here — the last row without repeat. Idle is what the
-        // boundary handler reads as "nothing follows", which is the existing
-        // clean stop.
+      if (successor === null) {
+        // Traversal stops here — the last row without repeat, and an empty
+        // queue. Idle is what the boundary handler reads as "nothing follows",
+        // which is the existing clean stop.
         this.#prefetched = null
         this.#setPrefetch(idlePrefetch())
         return
       }
+      const { index, queueEntryId } = successor.position
       this.#setPrefetch({
         status: 'resolving',
         index,
+        queueEntryId,
         trackId: null,
         transitionPolicy: null,
         error: null
       })
 
+      // The card's "decode-ahead must prefetch the queue head": each arm of
+      // rule 1 resolves its row from a different place, and only the order arm
+      // is a round trip that can fail. A queue entry carries its own row and
+      // `again` is already audible, so both are free and neither can warm the
+      // wrong track by consulting the playing playlist's next entry.
       let track: Track | null
-      try {
-        track = await order.at(index)
-      } catch {
-        if (!this.#isPrefetchCurrent(generation, active, token)) return
-        const failure = new AudioEngineError('io-error', 'Could not resolve the prefetched track.')
-        this.#setPrefetch({
-          status: 'failed',
-          index,
-          trackId: null,
-          transitionPolicy: null,
-          error: failure
-        })
-        return
+      if (successor.kind === 'queue') {
+        track = successor.entry.track
+      } else if (successor.kind === 'again') {
+        track = active.track
+      } else {
+        try {
+          track = await order.at(index)
+        } catch {
+          if (!this.#isPrefetchCurrent(generation, active, token)) return
+          const failure = new AudioEngineError(
+            'io-error',
+            'Could not resolve the prefetched track.'
+          )
+          this.#setPrefetch({
+            status: 'failed',
+            index,
+            queueEntryId,
+            trackId: null,
+            transitionPolicy: null,
+            error: failure
+          })
+          return
+        }
       }
       if (!this.#isPrefetchCurrent(generation, active, token)) return
       if (!track) {
@@ -459,7 +537,7 @@ export class PlaybackScheduler {
 
       const slot = this.#spareSlot()
       slot.track = track
-      slot.index = index
+      slot.position = successor.position
       this.#prefetched = slot
 
       // Navigating backwards commonly makes the just-paused former current
@@ -478,6 +556,7 @@ export class PlaybackScheduler {
         this.#setPrefetch({
           status: 'ready',
           index,
+          queueEntryId,
           trackId: track.id,
           transitionPolicy: slot.engine.transitionPolicy,
           error: null
@@ -489,6 +568,7 @@ export class PlaybackScheduler {
       this.#setPrefetch({
         status: 'loading',
         index,
+        queueEntryId,
         trackId: track.id,
         transitionPolicy: null,
         error: null
@@ -501,6 +581,7 @@ export class PlaybackScheduler {
         this.#setPrefetch({
           status: 'ready',
           index,
+          queueEntryId,
           trackId: track.id,
           transitionPolicy: slot.engine.transitionPolicy,
           error: null
@@ -516,6 +597,7 @@ export class PlaybackScheduler {
         this.#setPrefetch({
           status: 'failed',
           index,
+          queueEntryId,
           trackId: track.id,
           transitionPolicy: null,
           error: failure
@@ -545,6 +627,7 @@ export class PlaybackScheduler {
       this.#setPrefetch({
         status: 'failed',
         index: this.#prefetchState.index,
+        queueEntryId: this.#prefetchState.queueEntryId,
         trackId: null,
         transitionPolicy: null,
         error: failure
@@ -568,13 +651,16 @@ export class PlaybackScheduler {
     }
     const next = this.#prefetched
     if (!next || this.#prefetchState.status === 'idle') return
-    if (this.#prefetchState.status !== 'ready' || !next.track || next.index === null) return
+    if (this.#prefetchState.status !== 'ready' || !next.track || next.position === null) return
 
     const generation = ++this.#generation
     this.#boundaryGeneration += 1
     this.#active = next
     this.#prefetched = null
-    this.#events.emit('trackchange', { track: next.track, index: next.index })
+    // §5 rule 1's shift. The boundary is the one moment the advance is certain,
+    // and it is the only advance the controller is not party to.
+    if (next.position.queueEntryId !== null) this.#queue?.take(next.position.queueEntryId)
+    this.#events.emit('trackchange', { track: next.track, position: next.position })
     const adoptedScheduled = next.engine.adoptScheduledStart()
     if (!adoptedScheduled) {
       this.#events.emit('statuschange', next.engine.status)
@@ -594,7 +680,7 @@ export class PlaybackScheduler {
       const slot: Slot = {
         engine: this.#createEngine(),
         track: null,
-        index: null,
+        position: null,
         load: null,
         unsubscribes: []
       }
@@ -641,11 +727,24 @@ export class PlaybackScheduler {
     return token === this.#prefetchToken && this.#isCurrent(generation, active)
   }
 
-  /** The successor under the current repeat mode, or `null` to stop there. */
-  async #successorIndex(from: number, reason: AdvanceReason): Promise<number | null> {
+  /**
+   * §5 rule 1's seam, with the length query it may not need.
+   *
+   * The decision itself is `chooseSuccessor`; all this adds is the round trip,
+   * which `successorNeedsTotal` skips whenever the queue or repeat-one has
+   * already settled the answer.
+   */
+  async #successor(from: SlotPosition, reason: AdvanceReason): Promise<Successor | null> {
     const repeat = this.#repeatMode
-    const total = needsTotal(repeat, reason) ? await this.#total() : null
-    return nextIndex(from, total, repeat, reason)
+    const head = this.#queue?.head() ?? null
+    const total = successorNeedsTotal(head, repeat, reason) ? await this.#total() : null
+    return chooseSuccessor({ from, head, total, repeat, reason })
+  }
+
+  /** The position being warmed, for comparison against a freshly decided one. */
+  #prefetchPosition(): SlotPosition | null {
+    const { index, queueEntryId } = this.#prefetchState
+    return index === null ? null : { index, queueEntryId }
   }
 
   async #total(): Promise<number | null> {
@@ -664,22 +763,25 @@ export class PlaybackScheduler {
    */
   #resolveSuccessorAgain(options: { force?: boolean } = {}): void {
     const active = this.#active
-    if (!active || active.index === null) return
+    if (!active || active.position === null) return
 
     const generation = this.#generation
-    const from = active.index
+    const from = active.position
 
     void (async () => {
-      const index = await this.#successorIndex(from, 'boundary')
-      if (!this.#isCurrent(generation, active) || active.index !== from) return
-      // A mode change that leaves the same row next keeps the decode that is
-      // already prepared. Repeat-all differs from repeat-off only at the last
-      // row, and discarding a ready boundary everywhere else would turn a
-      // button press into an audible risk.
-      if (!options.force && index === this.#prefetchState.index) return
+      const successor = await this.#successor(from, 'boundary')
+      if (!this.#isCurrent(generation, active) || !samePosition(active.position, from)) return
+      // A change that leaves the same row next keeps the decode that is already
+      // prepared. Repeat-all differs from repeat-off only at the last row, and
+      // an "add to queue" behind a queued row changes nothing at all;
+      // discarding a ready boundary in either case would turn a button press
+      // into an audible risk.
+      if (!options.force && samePosition(successor?.position ?? null, this.#prefetchPosition())) {
+        return
+      }
 
       this.#discardPrefetch()
-      if (index !== null) void this.#beginPrefetch(generation)
+      if (successor !== null) void this.#beginPrefetch(generation)
     })()
   }
 

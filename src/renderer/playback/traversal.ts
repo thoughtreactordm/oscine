@@ -12,9 +12,10 @@
  * position follows this one* and so lives here.
  *
  * Design §5 rules 6 and 7 are the target shape. Rule 7 gives the up-next queue
- * priority over both — the queue does not exist until W5, and when it does it
- * is resolved *before* these functions are consulted rather than inside them,
- * which is why they take a bare index and know nothing about track ids.
+ * priority over both, and `upNextQueue.ts` resolves it *before* these functions
+ * are consulted rather than inside them — which is why they take a bare index
+ * and know nothing about track ids. `chooseSuccessor` is the only caller that
+ * has to hold both in its head.
  */
 
 export const REPEAT_MODES = ['off', 'all', 'one'] as const

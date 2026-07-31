@@ -417,8 +417,8 @@ describe('PlaybackScheduler', () => {
     it('republishes the playing track at its new position', async () => {
       const h = harness()
       const changes: Array<{ id: number; index: number }> = []
-      h.scheduler.on('trackchange', ({ track: next, index }) =>
-        changes.push({ id: next.id, index })
+      h.scheduler.on('trackchange', ({ track: next, position }) =>
+        changes.push({ id: next.id, index: position.index })
       )
 
       await h.scheduler.start(h.order, 1, track(1))

@@ -24,7 +24,15 @@ import type { MediaSessionBinding, MediaSessionState, MediaSessionTransport } fr
 import { createListPlayOrder, createPlaylistPlayOrder, type PlayOrder } from './playOrder'
 import { PlaybackScheduler, type PrefetchState, type PrefetchStatus } from './scheduler'
 import { createShuffledPlayOrder, type ShuffledPlayOrder } from './shufflePlayOrder'
-import { cycleRepeatMode, nextIndex, previousIndex, type RepeatMode } from './traversal'
+import { cycleRepeatMode, previousIndex, type RepeatMode } from './traversal'
+import {
+  chooseSuccessor,
+  createUpNextQueue,
+  orderPosition,
+  type QueueEntry,
+  type SlotPosition,
+  type Successor
+} from './upNextQueue'
 import {
   readTransportPreferences,
   writeTransportPreferences,
@@ -158,8 +166,40 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   const prefetchedTrackId = ref<number | null>(null)
   const prefetchError = ref<string | null>(null)
 
-  /** Position of the playing track within `order`, or `null` when idle. */
-  const orderIndex = ref<number | null>(null)
+  /**
+   * Where the playing track sits: its position in `order`, and whether it is
+   * that row or a queue detour taken from it. `null` when idle.
+   */
+  const position = ref<SlotPosition | null>(null)
+
+  /**
+   * Position of the playing track within `order`, or `null` when idle.
+   *
+   * Under a queue track this is the row the queue interrupted rather than
+   * anything about the queued track — §5 rule 2 says queueing never moves the
+   * current position, and rule 1's second arm resumes from here once the queue
+   * drains. Pair it with `playingQueueEntryId` before highlighting a row.
+   */
+  const orderIndex = computed(() => position.value?.index ?? null)
+
+  /** The queue entry being played, or `null` when the order is being traversed. */
+  const playingQueueEntryId = computed(() => position.value?.queueEntryId ?? null)
+
+  /**
+   * The transient up-next queue (§5). Owned here rather than in a store for the
+   * same reason the rest of playback is: the seven rules are decidable without
+   * Pinia, IPC or an `AudioEngine`, and a store that owned it would make them
+   * testable only through one.
+   *
+   * Every edit re-decides the successor, because a boundary is usually armed
+   * against a decoded track already — "play next" that only took effect from
+   * the track after the one you were looking at would not be play-next.
+   */
+  const queue = createUpNextQueue({
+    onChange: () => {
+      scheduler?.queueChanged()
+    }
+  })
 
   /**
    * The playlist being traversed, or `null` when the order came from the
@@ -258,6 +298,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
 
     const created = new PlaybackScheduler({
       createEngine: deps.createEngine,
+      queue,
       crossfadeMs: crossfadeMs.value,
       normalizationMode: normalizationMode.value,
       repeatMode: repeatMode.value
@@ -273,9 +314,9 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       created.on('error', (err) => {
         error.value = err.message
       }),
-      created.on('trackchange', ({ track, index }) => {
+      created.on('trackchange', ({ track, position: at }) => {
         nowPlaying.value = track
-        orderIndex.value = index
+        position.value = at
       }),
       created.on('prefetchchange', applyPrefetch)
     ]
@@ -308,32 +349,46 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   }
 
   /**
-   * Moves to a position in the current order and plays what is there.
+   * Moves to a place in the traversal and plays what is there.
    *
-   * `orderIndex` is written *before* the lookup is awaited so that two fast
-   * presses of Next advance two rows. Reading it after the await would have
-   * both presses compute the same target.
+   * `position` is written *before* the lookup is awaited so that two fast
+   * presses of Next advance two rows — and, with a queue, consume two entries.
+   * Reading it after the await would have both presses compute the same target.
    */
-  async function goTo(index: number): Promise<void> {
+  async function goToPosition(at: SlotPosition, queued?: QueueEntry): Promise<void> {
     if (!order || !scheduler) return
 
     const token = ++requestToken
-    const previousIndex = orderIndex.value
-    orderIndex.value = index
+    const previous = position.value
+    position.value = at
 
     try {
-      const track = await scheduler.goTo(index)
+      const track = queued ? await scheduler.goToQueued(queued, at) : await scheduler.goTo(at.index)
       if (token !== requestToken || track === undefined) return
       if (!track) {
         // Off the end of the order. The scheduler has paused the current track.
-        orderIndex.value = previousIndex
+        position.value = previous
       }
     } catch {
       if (token === requestToken) {
-        orderIndex.value = previousIndex
+        position.value = previous
         if (!error.value) error.value = 'Could not read the next track.'
       }
     }
+  }
+
+  /** Dispatches whichever arm of §5 rule 1 named this successor. */
+  async function goToSuccessor(successor: Successor): Promise<void> {
+    if (successor.kind === 'queue') {
+      // §5 rule 1's shift, and it is synchronous on purpose: the decode the
+      // scheduler adopts is chosen inside an await, so a second Next arriving
+      // before that resolves must find the head already gone or both presses
+      // play the same row.
+      queue.take(successor.entry.id)
+      await goToPosition(successor.position, successor.entry)
+      return
+    }
+    await goToPosition(successor.position)
   }
 
   /**
@@ -364,10 +419,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     ++requestToken
     error.value = null
 
-    // With the row already in hand there is nothing to look up, so skip `goTo`
-    // and its round trip.
+    // With the row already in hand there is nothing to look up, so skip
+    // `goToPosition` and its round trip.
     if (track) {
-      orderIndex.value = index
+      position.value = orderPosition(index)
       nowPlaying.value = track
     }
     await startAt(index, track)
@@ -445,30 +500,63 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   }
 
   async function next(): Promise<void> {
-    const from = orderIndex.value
-    if (from === null) return
-    // Repeat-one is deliberately not honoured here: pressing Next under it
-    // moves on, as it does in every player anyone has used. See `traversal.ts`.
-    const index = nextIndex(from, orderTotal.value, repeatMode.value, 'explicit')
-    if (index === null) {
-      // The end of the order with nothing to wrap to. Pausing is what `goTo`
-      // does on finding no row there, and doing it here as well keeps the
-      // clean stop from depending on whether the length happened to be known.
+    const from = position.value
+    if (!from) return
+    // Decided from the cached length rather than a fresh count, and entirely
+    // synchronously, for the reason `goToPosition` gives. Repeat-one is
+    // deliberately not honoured here: pressing Next under it moves on, as it
+    // does in every player anyone has used. See `traversal.ts`.
+    const successor = chooseSuccessor({
+      from,
+      head: queue.head(),
+      total: orderTotal.value,
+      repeat: repeatMode.value,
+      reason: 'explicit'
+    })
+    if (successor === null) {
+      // The end of the order with nothing to wrap to and nothing queued.
+      // Pausing is what `goToPosition` does on finding no row there, and doing
+      // it here as well keeps the clean stop from depending on whether the
+      // length happened to be known.
       pause()
       return
     }
-    await goTo(index)
+    await goToSuccessor(successor)
+  }
+
+  /**
+   * Plays a queued entry now, out of turn.
+   *
+   * Only that entry leaves the queue. Dropping everything above it is the other
+   * plausible reading of a jump, and §5 does not choose — so this takes the one
+   * that destroys nothing, and W5-7's overlay can revisit it with a real user
+   * in front of it.
+   */
+  async function playQueued(entryId: string): Promise<void> {
+    const from = position.value
+    const entry = queue.entry(entryId)
+    if (!from || !entry) return
+    // The same synchronous shift `next` performs, for the same reason.
+    queue.take(entry.id)
+    await goToPosition({ index: from.index, queueEntryId: entry.id }, entry)
   }
 
   async function previous(): Promise<void> {
     // At the first row there is nowhere to go without repeat. Restarting the
     // current track instead is a convention worth having, but it belongs with
     // the rest of the transport polish rather than smuggled in here.
-    const from = orderIndex.value
-    if (from === null) return
-    const index = previousIndex(from, orderTotal.value, repeatMode.value)
+    const from = position.value
+    if (!from) return
+    // Backing out of a queue detour returns to the row it interrupted. The
+    // queue is forward-looking — the entry that just played has been shifted
+    // out of it — so there is nothing else Previous could mean here.
+    if (from.queueEntryId !== null) {
+      await goToPosition(orderPosition(from.index))
+      return
+    }
+    const index = previousIndex(from.index, orderTotal.value, repeatMode.value)
     if (index === null) return
-    await goTo(index)
+    await goToPosition(orderPosition(index))
   }
 
   function shuffleSeed(): number {
@@ -524,25 +612,32 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     persistPreferences()
 
     const base = baseOrder
-    const current = orderIndex.value
-    if (!base || !order || current === null || !scheduler) return
+    const at = position.value
+    if (!base || !order || at === null || !scheduler) return
     const token = ++shuffleToken
+    // §5 rule 6: shuffle permutes the playing order, never the queue. What
+    // moves here is the anchor — a detour keeps its identity across a reshuffle
+    // of the rows it will come back to.
+    const rebase = (index: number): SlotPosition => ({
+      index,
+      queueEntryId: at.queueEntryId
+    })
 
     if (enabled) {
       const shuffled = createShuffledPlayOrder(base, {
         seed: shuffleSeed(),
-        pinnedBaseIndex: current
+        pinnedBaseIndex: at.index
       })
       shuffledOrder = shuffled
       order = shuffled
-      orderIndex.value = 0
+      position.value = rebase(0)
       scheduler.retarget(shuffled, 0)
     } else {
-      const resumeAt = (await shuffledOrder?.baseIndexAt(current)) ?? current
+      const resumeAt = (await shuffledOrder?.baseIndexAt(at.index)) ?? at.index
       if (token !== shuffleToken) return
       shuffledOrder = null
       order = base
-      orderIndex.value = resumeAt
+      position.value = rebase(resumeAt)
       scheduler.retarget(base, resumeAt)
     }
 
@@ -653,7 +748,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     baseOrder = null
     shuffledOrder = null
     orderTotal.value = null
-    orderIndex.value = null
+    position.value = null
     // Both go with the order rather than with the modes: which playlist is
     // playing, and whose crossfade applies, are facts about the traversal that
     // has just ended.
@@ -692,6 +787,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     applyPrefetch({
       status: 'idle',
       index: null,
+      queueEntryId: null,
       trackId: null,
       transitionPolicy: null,
       error: null
@@ -710,6 +806,9 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     orderIndex,
     orderTotal,
     playingPlaylistId,
+    playingQueueEntryId,
+    queuedEntries: queue.entries,
+    queuedCount: queue.count,
     repeatMode,
     shuffleEnabled,
     error,
@@ -725,6 +824,13 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     playFromPlaylist,
     playlistDeleted,
     playlistCrossfadeChanged,
+    enqueue: queue.enqueue,
+    enqueueNext: queue.enqueueNext,
+    removeQueued: queue.remove,
+    moveQueued: queue.move,
+    clearQueue: queue.clear,
+    /** Plays a queued entry now, shifting it out of the queue (§5 rule 1). */
+    playQueued,
     next,
     previous,
     resume,
