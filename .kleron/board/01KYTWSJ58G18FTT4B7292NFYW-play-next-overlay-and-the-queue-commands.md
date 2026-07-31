@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTWSJ58G18FTT4B7292NFYW
 title: Play-next overlay and the queue commands
-status: in-review
+status: done
 priority: high
 labels:
   - M4
@@ -10,9 +10,9 @@ workstream: W5
 workstreamId: W5-7
 dependsOn:
   - 01KYTWS0VXNMWQFQE9PC4X31CR
-order: 26
+order: 9
 created: '2026-07-31T01:32:04.646Z'
-updated: '2026-07-31T03:45:10.960Z'
+updated: '2026-07-31T19:17:34.396Z'
 ---
 ## Scope
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KYW6Q1F7HZ80SYG5XHDXXMMY
 title: Session-primed queue — the scope materialized as the up-next tier
-status: todo
+status: done
 priority: high
 labels:
   - M4
@@ -12,9 +12,9 @@ workstreamId: W5-10
 dependsOn:
   - 01KYTWS0VXNMWQFQE9PC4X31CR
   - 01KYTWSJ58G18FTT4B7292NFYW
-order: 28
+order: 3
 created: '2026-07-31T13:44:42.213Z'
-updated: '2026-07-31T13:44:42.213Z'
+updated: '2026-07-31T19:17:34.295Z'
 ---
 ## Why
 

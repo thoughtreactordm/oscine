@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTWRE2E1YTC09T38F48NH3S
 title: Playlist tab bar
-status: in-review
+status: done
 priority: high
 labels:
   - M4
@@ -10,9 +10,9 @@ workstream: W5
 workstreamId: W5-3
 dependsOn:
   - 01KYTWQWYQK7NG2VNSA4MTGT2K
-order: 2
+order: 1
 created: '2026-07-31T01:31:27.693Z'
-updated: '2026-07-31T12:20:43.216Z'
+updated: '2026-07-31T19:17:34.258Z'
 ---
 ## Scope
 

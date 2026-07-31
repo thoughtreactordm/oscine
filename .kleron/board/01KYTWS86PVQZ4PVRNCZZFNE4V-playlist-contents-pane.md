@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTWS86PVQZ4PVRNCZZFNE4V
 title: Playlist contents pane
-status: in-review
+status: done
 priority: high
 labels:
   - M4
@@ -11,9 +11,9 @@ workstreamId: W5-6
 dependsOn:
   - 01KYTWRE2E1YTC09T38F48NH3S
   - 01KYTWR7KRXJZ4SD5GKW1J1AKA
-order: 25
+order: 8
 created: '2026-07-31T01:31:54.453Z'
-updated: '2026-07-31T03:33:32.203Z'
+updated: '2026-07-31T19:17:34.379Z'
 ---
 ## Scope
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTWS0VXNMWQFQE9PC4X31CR
 title: Up-next queue and the seven queue-semantics rules
-status: in-review
+status: done
 priority: urgent
 labels:
   - M4
@@ -11,9 +11,9 @@ workstream: W5
 workstreamId: W5-5
 dependsOn:
   - 01KYTWR7KRXJZ4SD5GKW1J1AKA
-order: 24
+order: 7
 created: '2026-07-31T01:31:46.940Z'
-updated: '2026-07-31T02:58:05.369Z'
+updated: '2026-07-31T19:17:34.362Z'
 ---
 ## Scope
 

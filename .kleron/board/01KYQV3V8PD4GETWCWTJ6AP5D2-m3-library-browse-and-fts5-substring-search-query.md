@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQV3V8PD4GETWCWTJ6AP5D2
 title: M3 library browse and FTS5 substring-search query surface
-status: in-review
+status: done
 priority: high
 labels:
   - M3
@@ -16,7 +16,7 @@ dependsOn:
 effort: high
 order: 0
 created: '2026-07-29T21:05:01.205Z'
-updated: '2026-07-29T21:16:03.133Z'
+updated: '2026-07-31T19:17:34.237Z'
 ---
 Build the main-process query surface that M3's Artist/Album/Song browser and instant search consume. This is an M3 implementation card and is deliberately not blocked by W6-4's outstanding Windows exit evidence for M2.
 

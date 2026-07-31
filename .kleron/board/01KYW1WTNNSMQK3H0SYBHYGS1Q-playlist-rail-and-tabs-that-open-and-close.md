@@ -1,7 +1,7 @@
 ---
 taskId: 01KYW1WTNNSMQK3H0SYBHYGS1Q
 title: 'Playlist rail, and tabs that open and close'
-status: in-review
+status: done
 priority: high
 labels:
   - M4
@@ -11,9 +11,9 @@ workstreamId: W5-9
 dependsOn:
   - 01KYTWRE2E1YTC09T38F48NH3S
   - 01KYTWS86PVQZ4PVRNCZZFNE4V
-order: 27
+order: 10
 created: '2026-07-31T12:20:28.979Z'
-updated: '2026-07-31T12:20:28.979Z'
+updated: '2026-07-31T19:17:34.414Z'
 ---
 ## Why
 

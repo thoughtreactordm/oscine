@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTWQWYQK7NG2VNSA4MTGT2K
 title: 'Playlist store: CRUD, fractional positions, IPC contract'
-status: in-review
+status: done
 priority: high
 labels:
   - M4
@@ -9,9 +9,9 @@ labels:
   - db
 workstream: W5
 workstreamId: W5-1
-order: 7
+order: 5
 created: '2026-07-31T01:31:10.166Z'
-updated: '2026-07-31T01:55:36.980Z'
+updated: '2026-07-31T19:17:34.326Z'
 ---
 ## Scope
 

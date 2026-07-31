@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTWRN9JPP4M8S15ZRAW94DP
 title: m3u8 export
-status: in-review
+status: done
 priority: medium
 labels:
   - M4
@@ -11,9 +11,9 @@ workstream: W5
 workstreamId: W5-4
 dependsOn:
   - 01KYTWQWYQK7NG2VNSA4MTGT2K
-order: 23
+order: 6
 created: '2026-07-31T01:31:35.088Z'
-updated: '2026-07-31T02:41:43.310Z'
+updated: '2026-07-31T19:17:34.345Z'
 ---
 ## Scope
 

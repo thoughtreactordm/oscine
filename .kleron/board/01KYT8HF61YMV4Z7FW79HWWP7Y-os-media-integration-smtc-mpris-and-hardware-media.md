@@ -1,7 +1,7 @@
 ---
 taskId: 01KYT8HF61YMV4Z7FW79HWWP7Y
 title: 'OS media integration: SMTC, MPRIS and hardware media keys'
-status: in-review
+status: done
 priority: medium
 labels:
   - M5
@@ -12,9 +12,9 @@ labels:
 workstream: W3
 workstreamId: W3-10
 effort: high
-order: 6
+order: 4
 created: '2026-07-30T19:38:07.936Z'
-updated: '2026-07-30T21:51:45.279Z'
+updated: '2026-07-31T19:17:34.313Z'
 ---
 Make the OS recognise Fermata as the machine's music player: the Windows SMTC now-playing card, the Linux MPRIS client that GNOME/KDE surface in their media widgets, and hardware media keys reaching the transport in both places.
 
