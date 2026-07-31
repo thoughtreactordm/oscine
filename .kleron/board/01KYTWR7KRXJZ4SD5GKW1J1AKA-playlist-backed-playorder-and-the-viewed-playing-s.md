@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTWR7KRXJZ4SD5GKW1J1AKA
 title: Playlist-backed PlayOrder and the viewed/playing split
-status: in-progress
+status: in-review
 priority: high
 labels:
   - M4
@@ -11,9 +11,9 @@ workstream: W5
 workstreamId: W5-2
 dependsOn:
   - 01KYTWQWYQK7NG2VNSA4MTGT2K
-order: 1
+order: 3
 created: '2026-07-31T01:31:21.079Z'
-updated: '2026-07-31T01:57:06.613Z'
+updated: '2026-07-31T02:11:56.876Z'
 ---
 ## Scope
 
