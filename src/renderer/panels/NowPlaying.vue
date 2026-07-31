@@ -67,7 +67,7 @@ function onSeekInput(value: number | undefined): void {
       root: 'group relative -mt-1 backdrop-blur-lg',
       track: 'rounded-none h-1',
       range: 'rounded-none h-1',
-      thumb: 'opacity-0 cursor-pointer group-hover:opacity-100 w-2 h-2 z-20'
+      thumb: 'opacity-0 cursor-pointer group-hover:opacity-100 w-2 h-2 z-20 transition-transform'
     }"
     @pointerdown="playback.beginScrub()"
     @update:model-value="onSeekInput"
@@ -144,8 +144,8 @@ function onSeekInput(value: number | undefined): void {
 
       <div class="flex gap-3">
         <div class="flex justify-between tabular-nums text-xs font-medium text-muted">
-          <span>{{ formatTime(playback.currentTime) }}</span
-          >&nbsp;/&nbsp;
+          <span>{{ formatTime(playback.currentTime) }}</span>
+          <span>&nbsp;/&nbsp;</span>
           <span>{{ formatTime(playback.duration) }}</span>
         </div>
       </div>
@@ -229,7 +229,7 @@ function onSeekInput(value: number | undefined): void {
 
     <div class="flex shrink-0 items-center gap-3">
       <section class="w-44 flex items-center gap-2">
-        <UIcon name="i-tabler-volume" class="size-4 shrink-0 text-muted" />
+        <UIcon name="i-tabler-volume" class="size-5 shrink-0 text-muted" />
         <USlider
           :model-value="playback.volume"
           class="min-w-0 flex-1"
@@ -238,7 +238,11 @@ function onSeekInput(value: number | undefined): void {
           :max="1"
           :step="0.01"
           :ui="{
-            thumb: 'opacity-0 cursor-pointer hover:opacity-100 w-3 h-3 -ml-0.5'
+            root: 'group',
+            track: 'h-1.5',
+            range: 'h-1.5',
+            thumb:
+              'opacity-0 cursor-pointer group-hover:opacity-100 w-3 h-3 -ml-0.5 transition-opacity'
           }"
           @update:model-value="(value) => value !== undefined && playback.setVolume(value)"
         />
