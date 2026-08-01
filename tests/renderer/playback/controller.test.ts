@@ -3,7 +3,7 @@ import {
   createPlaybackController,
   type PlaybackControllerDeps
 } from '../../../src/renderer/playback/controller'
-import { AUDIO_CROSSFADE_MS_KEY } from '../../../src/shared/settings'
+import { AUDIO_CROSSFADE_MS, AUDIO_CROSSFADE_MS_KEY } from '../../../src/shared/settings'
 import { TRANSPORT_REPEAT_KEY } from '../../../src/renderer/playback/transportPreferences'
 import { settingsStoreFixture, storedValue } from '../settings/fixture'
 // The contract, not the barrel: these tests compile under the node config,
@@ -1072,7 +1072,7 @@ describe('createPlaybackController', () => {
   describe('playing a playlist', () => {
     it('traverses the playlist it was handed rather than the library', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 1, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 1 })
 
       expect(h.controller.orderId()).toBe('playlist:7')
       expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 1)
@@ -1086,7 +1086,6 @@ describe('createPlaybackController', () => {
       await h.controller.playFromPlaylist({
         playlistId: 7,
         index: 3,
-        crossfadeMs: 0,
         track: track(PLAYLIST_TRACK_BASE + 3)
       })
 
@@ -1106,7 +1105,7 @@ describe('createPlaybackController', () => {
 
     it('advances through the playlist entries', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       await h.controller.next()
 
       expect(h.controller.orderIndex.value).toBe(1)
@@ -1119,7 +1118,7 @@ describe('createPlaybackController', () => {
       const h = harness()
       expect(h.controller.playingPlaylistId.value).toBeNull()
 
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       expect(h.controller.playingPlaylistId.value).toBe(7)
 
       await h.controller.playFromList({
@@ -1134,7 +1133,7 @@ describe('createPlaybackController', () => {
 
     it('stops cleanly at the playlist end rather than running into the library', async () => {
       const h = harness({ total: 50, playlistTotal: 3 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2 })
       await h.controller.next()
 
       // Position 3 exists in the library fixture and not in the playlist, so a
@@ -1146,7 +1145,7 @@ describe('createPlaybackController', () => {
     it('wraps at the playlist end under repeat-all, not the library end', async () => {
       const h = harness({ total: 50, playlistTotal: 3 })
       h.controller.setRepeatMode('all')
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2 })
       await settle()
 
       expect(h.controller.orderTotal.value).toBe(3)
@@ -1160,7 +1159,7 @@ describe('createPlaybackController', () => {
       it('permutes the playing playlist entries and nothing else', async () => {
         const h = harness({ total: 50, playlistTotal: 5 })
         await h.controller.setShuffle(true)
-        await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 2 })
         await settle()
 
         // The shuffle is layered over the playlist order, which is the whole of
@@ -1187,7 +1186,7 @@ describe('createPlaybackController', () => {
       it('keeps the unshuffled playlist order alongside the shuffled one', async () => {
         const h = harness({ playlistTotal: 5 })
         await h.controller.setShuffle(true)
-        await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 2 })
         await settle()
 
         await h.controller.setShuffle(false)
@@ -1215,7 +1214,7 @@ describe('createPlaybackController', () => {
        */
       it('leaves playback untouched while another playlist is browsed', async () => {
         const h = harness({ playlistTotal: 6 })
-        await h.controller.playFromPlaylist({ playlistId: 7, index: 1, crossfadeMs: 0 })
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 1 })
         await settle()
 
         const before = {
@@ -1261,7 +1260,7 @@ describe('createPlaybackController', () => {
     describe('deletion', () => {
       it('stops playback when the playing playlist is deleted', async () => {
         const h = harness()
-        await h.controller.playFromPlaylist({ playlistId: 7, index: 1, crossfadeMs: 0 })
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 1 })
         expect(h.engine.playCount).toBe(1)
 
         h.controller.playlistDeleted(7)
@@ -1277,7 +1276,7 @@ describe('createPlaybackController', () => {
 
       it('leaves playback alone when any other playlist is deleted', async () => {
         const h = harness()
-        await h.controller.playFromPlaylist({ playlistId: 7, index: 1, crossfadeMs: 0 })
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 1 })
 
         h.controller.playlistDeleted(9)
 
@@ -1303,18 +1302,53 @@ describe('createPlaybackController', () => {
       })
     })
 
+    /**
+     * R2's boundary policy, now resolved through W8-5's cascade rather than
+     * handed in at play time.
+     *
+     * The controller holds no crossfade of its own for a playlist: it holds a
+     * playlist *id*, and `audio.crossfadeMs` resolved at that id is the answer.
+     * Everything below is a consequence of that one change of shape, which is
+     * why "an edit while it is playing reaches the scheduler" no longer needs a
+     * method to tell the controller about it.
+     */
     describe('the boundary policy', () => {
-      it('gives the scheduler the playing playlist crossfade', async () => {
-        const h = harness({ crossfadeMs: 250 })
-        await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 1500 })
+      /** A settings surface with the playlist already overriding the global. */
+      async function overriding(globalMs: number, playlistMs: number) {
+        const store = settingsStoreFixture({ stored: { [AUDIO_CROSSFADE_MS_KEY]: globalMs } })
+        store.bridge.seedOverride({ kind: 'playlist', id: 7 }, AUDIO_CROSSFADE_MS_KEY, playlistMs)
+        await store.settings.ready
+        return store
+      }
+
+      it('gives the scheduler the playing playlist’s override', async () => {
+        const store = await overriding(250, 1500)
+        const h = harness({ settings: store.settings })
+
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
+        await settle()
 
         expect(h.controller.crossfadeMs.value).toBe(1500)
         expect(h.controller.schedulerCrossfadeMs()).toBe(1500)
       })
 
+      it('inherits the global for a playlist with no override', async () => {
+        const store = await overriding(250, 1500)
+        const h = harness({ settings: store.settings })
+
+        // Playlist 9 has no row of its own, so it plays the way the library does.
+        await h.controller.playFromPlaylist({ playlistId: 9, index: 0 })
+        await settle()
+
+        expect(h.controller.schedulerCrossfadeMs()).toBe(250)
+      })
+
       it('gives the global setting back when the library plays again', async () => {
-        const h = harness({ crossfadeMs: 250 })
-        await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 1500 })
+        const store = await overriding(250, 1500)
+        const h = harness({ settings: store.settings })
+
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
+        await settle()
         await h.controller.playFromList({
           sort: 'artist',
           direction: 'asc',
@@ -1325,25 +1359,52 @@ describe('createPlaybackController', () => {
         expect(h.controller.schedulerCrossfadeMs()).toBe(250)
       })
 
-      it('keeps the playlist value while the global setting is changed under it', async () => {
-        const h = harness({ crossfadeMs: 250 })
-        await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 1500 })
+      it('keeps the override while the global setting is changed under it', async () => {
+        const store = await overriding(250, 1500)
+        const h = harness({ settings: store.settings })
 
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
+        await settle()
         h.controller.setCrossfadeMs(800)
+        await settle()
 
         expect(h.controller.defaultCrossfadeMs.value).toBe(800)
         expect(h.controller.schedulerCrossfadeMs()).toBe(1500)
       })
 
-      it('follows an edit to the playing playlist', async () => {
-        const h = harness()
-        await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 1500 })
+      /**
+       * The rule the retired `playlistCrossfadeChanged` existed to enforce, now
+       * a consequence of reading the cascade rather than a snapshot of it.
+       */
+      it('follows an edit to the playing playlist, and ignores one to another', async () => {
+        const store = await overriding(250, 1500)
+        const h = harness({ settings: store.settings })
 
-        h.controller.playlistCrossfadeChanged(9, 4000)
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
+        await settle()
+
+        await store.settings.setOverride(AUDIO_CROSSFADE_MS, { kind: 'playlist', id: 9 }, 4000)
+        await settle()
         expect(h.controller.schedulerCrossfadeMs()).toBe(1500)
 
-        h.controller.playlistCrossfadeChanged(7, 0)
+        await store.settings.setOverride(AUDIO_CROSSFADE_MS, { kind: 'playlist', id: 7 }, 0)
+        await settle()
         expect(h.controller.schedulerCrossfadeMs()).toBe(0)
+      })
+
+      /** Reverting the override is what gives a playlist the library's answer. */
+      it('falls back to the global when the override is reverted mid-playback', async () => {
+        const store = await overriding(250, 1500)
+        const h = harness({ settings: store.settings })
+
+        await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
+        await settle()
+        expect(h.controller.schedulerCrossfadeMs()).toBe(1500)
+
+        await store.settings.clearOverride(AUDIO_CROSSFADE_MS, { kind: 'playlist', id: 7 })
+        await settle()
+
+        expect(h.controller.schedulerCrossfadeMs()).toBe(250)
       })
     })
   })
@@ -1376,7 +1437,7 @@ describe('createPlaybackController', () => {
 
     it('rule 1: decode-ahead warms the queue head, not the playing playlist next entry', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       await settle()
       // Nothing hand-queued yet. The successor is the playlist's second entry
       // either way — since the amendment it arrives as the session tier's head
@@ -1397,7 +1458,7 @@ describe('createPlaybackController', () => {
 
     it('rule 1: an add behind a queued row leaves the armed boundary alone', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       h.controller.enqueue([track(42)])
       await settle()
       expect(h.engines[1].loaded).toEqual([PLAYLIST_TRACK_BASE + 1, 42])
@@ -1413,7 +1474,7 @@ describe('createPlaybackController', () => {
 
     it('rule 1: the queue head plays next, is shifted out, and traversal resumes after the row it interrupted', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       h.controller.enqueue([track(42)])
       await settle()
 
@@ -1436,7 +1497,7 @@ describe('createPlaybackController', () => {
 
     it('rule 1: two fast presses take two entries rather than the same one twice', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       h.controller.enqueue([track(42), track(43)])
       await settle()
 
@@ -1450,7 +1511,7 @@ describe('createPlaybackController', () => {
 
     it('rule 1: the shift also happens when a boundary promotes the queued track', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       h.controller.enqueue([track(42)])
       await settle()
 
@@ -1465,7 +1526,7 @@ describe('createPlaybackController', () => {
 
     it('rule 1: Previous backs out of a queue detour to the row it interrupted', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2 })
       h.controller.enqueue([track(42)])
       await settle()
       await h.controller.next()
@@ -1482,7 +1543,7 @@ describe('createPlaybackController', () => {
 
     it('rule 2: queueing changes neither playingPlaylistId nor the current position', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2 })
       await settle()
       const playing = h.controller.nowPlaying.value
 
@@ -1501,11 +1562,11 @@ describe('createPlaybackController', () => {
 
     it('rule 3: playing a track from another playlist leaves the queue standing', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       h.controller.enqueue([track(42), track(43)])
       await settle()
 
-      await h.controller.playFromPlaylist({ playlistId: 9, index: 1, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 9, index: 1 })
       expect(h.controller.playingPlaylistId.value).toBe(9)
       // The *user* tier, which is what rule 3 narrowed to in the amendment.
       // The session tier is replaced by a new session rather than surviving it.
@@ -1523,7 +1584,7 @@ describe('createPlaybackController', () => {
 
     it('rule 4: deleting the playlist a queued track came from leaves the queue intact', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       // Queued from playlist 9, which is about to be deleted. The queue holds
       // track ids, so there is nothing on these rows for the deletion to reach.
       h.controller.enqueue([track(42), track(43)])
@@ -1544,7 +1605,7 @@ describe('createPlaybackController', () => {
     it('rule 5: the queue is transient — nothing about it is persisted', async () => {
       const store = viewStore()
       const before = harness({ settings: store.settings })
-      await before.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await before.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       before.controller.enqueue([track(42), track(43)])
       before.controller.setRepeatMode('all')
       await settle()
@@ -1563,7 +1624,7 @@ describe('createPlaybackController', () => {
 
     it('rule 6: shuffle reorders the playing playlist and never the user tier', async () => {
       const h = harness({ playlistTotal: 6 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       h.controller.enqueue([track(42), track(43), track(44)])
       await settle()
       const entries = [...h.controller.queuedUserEntries.value]
@@ -1596,7 +1657,7 @@ describe('createPlaybackController', () => {
 
     it('rule 7: repeat-one overrides the queue at a boundary, and repeat-all wraps while the queue still wins', async () => {
       const h = harness({ playlistTotal: 3 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       h.controller.enqueue([track(42)])
       h.controller.setRepeatMode('one')
       await settle()
@@ -1617,7 +1678,7 @@ describe('createPlaybackController', () => {
       // Repeat-all wraps the playing playlist at its last row — but the queue
       // takes priority over the wrap for as long as it has anything to say.
       const wrap = harness({ playlistTotal: 3 })
-      await wrap.controller.playFromPlaylist({ playlistId: 7, index: 2, crossfadeMs: 0 })
+      await wrap.controller.playFromPlaylist({ playlistId: 7, index: 2 })
       wrap.controller.setRepeatMode('all')
       wrap.controller.enqueue([track(42)])
       await settle()
@@ -1631,7 +1692,7 @@ describe('createPlaybackController', () => {
 
     it('plays a queued entry out of turn without disturbing the rest', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       const [, second] = h.controller.enqueue([track(42), track(43), track(44)])
       await settle()
 
@@ -1648,7 +1709,7 @@ describe('createPlaybackController', () => {
 
     it('clears on request, and re-decides the boundary when it does', async () => {
       const h = harness({ playlistTotal: 4 })
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       h.controller.enqueue([track(42)])
       await settle()
       expect(h.controller.prefetchedTrackId.value).toBe(42)
@@ -1753,7 +1814,7 @@ describe('createPlaybackController', () => {
       const hand = h.controller.enqueue([track(90), track(91), track(92), track(93), track(94)])
       await settle()
 
-      await h.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
       await settle()
 
       expect(h.controller.queuedUserEntries.value).toEqual(hand)

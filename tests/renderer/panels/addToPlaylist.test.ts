@@ -14,7 +14,6 @@ function playlist(id: number, name: string): Playlist {
   return {
     id,
     name,
-    crossfadeMs: 0,
     trackCount: 0,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z'

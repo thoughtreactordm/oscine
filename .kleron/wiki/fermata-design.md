@@ -135,7 +135,9 @@ Episodes are downloaded to a machine-local podcasts directory and played from di
 
 ### R2 — Gapless and crossfade are mutually exclusive *(medium, spec)*
 
-They cannot both apply to one track boundary. **Policy**: `crossfade_ms` is a per-playlist setting defaulting to 0; zero means gapless (next source scheduled at exactly `startTime + duration`), non-zero means crossfade (scheduled at `end − crossfade_ms` with equal-power ramps on both sources). Tracks in R1's streaming fallback get a hard transition regardless.
+They cannot both apply to one track boundary. **Policy**: a boundary reads exactly one crossfade duration, defaulting to 0; zero means gapless (next source scheduled at exactly `startTime + duration`), non-zero means crossfade (scheduled at `end − crossfade` with equal-power ramps on both sources). Tracks in R1's streaming fallback get a hard transition regardless.
+
+*Amended 2026-08-01 (W8-5)*: the duration was `playlists.crossfade_ms`, a column on the playlist row. It is now `audio.crossfadeMs` in the settings registry, resolved through W8's cascade — descriptor default, then the global row, then a per-entity override on the album or playlist. Only the mechanism moved; the exclusivity rule is unchanged and is now structural rather than checked. There is one number per boundary and the scheduler branches on whether it is zero, so no combination of levels can express "both", which is what a second column beside a global setting always could.
 
 ### R3 — inotify watch limits on Linux *(medium, platform)*
 
@@ -223,7 +225,7 @@ CREATE TABLE playlists (
   id           INTEGER PRIMARY KEY,
   name         TEXT    NOT NULL,
   position     INTEGER NOT NULL,         -- tab order
-  crossfade_ms INTEGER NOT NULL DEFAULT 0,  -- R2 policy
+  crossfade_ms INTEGER NOT NULL DEFAULT 0,  -- R2 policy; dropped in migration 007
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
 );
@@ -242,6 +244,31 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 ```
 
 Two deliberate choices: `playlist_entries.id` is stable and separate from `track_id` because the same track may appear twice in a playlist; `position` is a REAL so inserting between two entries never rewrites the rest of the list.
+
+### Settings and the cascade (migrations 006–007, W8)
+
+One row per key per scope. `value` is JSON because the registry decides what a key holds; `version` is the descriptor version it was *written* under, which is what lets a read run the upgrade chain rather than guess.
+
+```sql
+CREATE TABLE settings (
+  key         TEXT    NOT NULL,
+  scope_kind  TEXT    NOT NULL,          -- 'global' | track | album | artist | playlist | podcast
+  scope_id    INTEGER,                   -- NULL exactly when scope_kind is 'global'
+  value       TEXT    NOT NULL,          -- JSON
+  version     INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  PRIMARY KEY (key, scope_kind, scope_id)
+);
+
+CREATE UNIQUE INDEX settings_identity ON settings(key, scope_kind, COALESCE(scope_id, -1));
+CREATE INDEX settings_scope ON settings(scope_kind, scope_id);
+```
+
+The extra unique index is not redundant. SQLite does not imply NOT NULL on PRIMARY KEY columns of a rowid table and a unique index treats two NULLs as distinct, so the declared key permits two global rows for the same value; folding the null into a sentinel is what makes the constraint real.
+
+`scope_kind`/`scope_id` are the cascade. Resolution walks most-specific-first — entity row, then global row, then the descriptor default — and returns the value **with the level that supplied it**, because a control cannot draw the inherited/overridden distinction without knowing. A level this build cannot read falls through to the next rather than to the default: a damaged per-playlist value should leave the playlist on the global, not reset it past a perfectly good row. An override equal to what it would inherit stays an override, since it was set precisely so a later change to the global would not move it.
+
+**Migration 007 dropped `playlists.crossfade_ms`**, carrying its non-zero values across as `audio.crossfadeMs` rows at `playlist` scope. Zeros did not move: the column was `NOT NULL DEFAULT 0`, so a zero in it cannot be told from a playlist nobody ever touched, and writing overrides for all of them would pin every playlist in the library against a later change to the global. No table outside `settings` carries a settings column.
 
 ### Podcasts (migration 005, D16)
 

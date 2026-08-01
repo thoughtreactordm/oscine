@@ -257,7 +257,6 @@ function play(track: Track, index: number): void {
   void playback.playFromPlaylist({
     playlistId: playlist.id,
     index,
-    crossfadeMs: playlist.crossfadeMs,
     track
   })
 }

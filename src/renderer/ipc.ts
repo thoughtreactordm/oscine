@@ -88,12 +88,9 @@ export const library = {
 
 export const playlists = {
   list: () => unwrap(window.fermata.playlists.list()),
-  create: (name: string, crossfadeMs?: number) =>
-    unwrap(window.fermata.playlists.create(name, crossfadeMs)),
+  create: (name: string) => unwrap(window.fermata.playlists.create(name)),
   rename: (playlistId: number, name: string) =>
     unwrap(window.fermata.playlists.rename(playlistId, name)),
-  setCrossfade: (playlistId: number, crossfadeMs: number) =>
-    unwrap(window.fermata.playlists.setCrossfade(playlistId, crossfadeMs)),
   delete: (playlistId: number) => unwrap(window.fermata.playlists.delete(playlistId)),
   reorder: (playlistId: number, toIndex: number) =>
     unwrap(window.fermata.playlists.reorder(playlistId, toIndex)),

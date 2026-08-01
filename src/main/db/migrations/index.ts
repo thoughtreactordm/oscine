@@ -5,6 +5,7 @@ import { replayGainJobs } from './003-replaygain-jobs'
 import { trigramSearch } from './004-trigram-search'
 import { podcasts } from './005-podcasts'
 import { settings } from './006-settings'
+import { crossfadeCascade } from './007-crossfade-cascade'
 
 /**
  * Every migration, in order.
@@ -21,5 +22,6 @@ export const MIGRATIONS: readonly Migration[] = [
   replayGainJobs,
   trigramSearch,
   podcasts,
-  settings
+  settings,
+  crossfadeCascade
 ]

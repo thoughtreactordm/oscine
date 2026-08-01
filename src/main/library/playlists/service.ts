@@ -30,9 +30,8 @@ import { PlaylistStore } from './store'
  */
 export interface PlaylistService {
   list(): Promise<Playlist[]>
-  create(name: string, crossfadeMs: number): Promise<Playlist>
+  create(name: string): Promise<Playlist>
   rename(playlistId: number, name: string): Promise<Playlist>
-  setCrossfade(playlistId: number, crossfadeMs: number): Promise<Playlist>
   delete(playlistId: number): Promise<void>
   reorder(playlistId: number, toIndex: number): Promise<Playlist[]>
   listEntries(query: ListPlaylistEntriesQuery): Promise<ListPlaylistEntriesResult>
@@ -76,16 +75,12 @@ export class SqlitePlaylistService implements PlaylistService {
     return this.store.list()
   }
 
-  async create(name: string, crossfadeMs: number): Promise<Playlist> {
-    return this.store.create(name, crossfadeMs, this.now())
+  async create(name: string): Promise<Playlist> {
+    return this.store.create(name, this.now())
   }
 
   async rename(playlistId: number, name: string): Promise<Playlist> {
     return this.store.rename(playlistId, name, this.now())
-  }
-
-  async setCrossfade(playlistId: number, crossfadeMs: number): Promise<Playlist> {
-    return this.store.setCrossfade(playlistId, crossfadeMs, this.now())
   }
 
   async delete(playlistId: number): Promise<void> {

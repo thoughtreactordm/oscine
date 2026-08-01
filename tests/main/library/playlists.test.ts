@@ -73,36 +73,32 @@ function trackOrder(playlistId: number): number[] {
 }
 
 function newPlaylist(name = 'Mix'): number {
-  return store.create(name, 0, tick()).id
+  return store.create(name, tick()).id
 }
 
 describe('playlist tab CRUD', () => {
   it('creates playlists in tab order and returns them that way', () => {
-    const first = store.create('Alpha', 0, tick())
-    const second = store.create('Beta', 4000, tick())
+    const first = store.create('Alpha', tick())
+    store.create('Beta', tick())
 
     expect(store.list().map((playlist) => playlist.name)).toEqual(['Alpha', 'Beta'])
     expect(first.trackCount).toBe(0)
-    // R2's carrier round-trips untouched; nothing here interprets it.
-    expect(second.crossfadeMs).toBe(4000)
     expect(first.createdAt).toBe(first.updatedAt)
   })
 
-  it('renames and re-crossfades without disturbing the other tabs', () => {
-    const alpha = store.create('Alpha', 0, tick())
-    const beta = store.create('Beta', 0, tick())
+  it('renames without disturbing the other tabs', () => {
+    const alpha = store.create('Alpha', tick())
+    store.create('Beta', tick())
 
     const renamed = store.rename(alpha.id, 'Aleph', tick())
-    const faded = store.setCrossfade(beta.id, 2500, tick())
 
     expect(renamed.name).toBe('Aleph')
     expect(renamed.updatedAt).not.toBe(alpha.updatedAt)
-    expect(faded.crossfadeMs).toBe(2500)
     expect(store.list().map((playlist) => playlist.name)).toEqual(['Aleph', 'Beta'])
   })
 
   it('reorders tabs and clamps a destination past the end', () => {
-    const ids = ['A', 'B', 'C'].map((name) => store.create(name, 0, tick()).id)
+    const ids = ['A', 'B', 'C'].map((name) => store.create(name, tick()).id)
 
     expect(store.reorder(ids[2], 0, tick()).map((playlist) => playlist.name)).toEqual([
       'C',
@@ -120,7 +116,6 @@ describe('playlist tab CRUD', () => {
     const missing = 4242
     for (const act of [
       () => store.rename(missing, 'x', tick()),
-      () => store.setCrossfade(missing, 0, tick()),
       () => store.delete(missing),
       () => store.reorder(missing, 0, tick())
     ]) {

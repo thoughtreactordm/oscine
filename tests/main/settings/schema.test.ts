@@ -35,7 +35,12 @@ describe('the settings migration', () => {
     const earlier = MIGRATIONS.filter((migration) => migration.version < 6)
 
     migrate(db, earlier)
-    const result = migrate(db, MIGRATIONS)
+    // Stopped at 6 rather than run to HEAD: this is about the step that creates
+    // the table, and later steps have their own tests.
+    const result = migrate(
+      db,
+      MIGRATIONS.filter((migration) => migration.version <= 6)
+    )
 
     expect(result).toMatchObject({ from: 5, to: 6 })
     expect(result.applied.map((migration) => migration.name)).toEqual(['settings'])

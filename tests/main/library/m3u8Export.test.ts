@@ -307,7 +307,7 @@ describe('exporting a playlist', () => {
   it('rejoins every entry against its own root and reports what it wrote', async () => {
     const otherRootId = addRoot(join(dir, 'archive'), 'Archive')
     const bjork = addArtist('Björk')
-    const playlistId = store.create('Mix', 0, tick()).id
+    const playlistId = store.create('Mix', tick()).id
     const first = addTrack({
       relPath: 'Homogenic/01 Hunter.flac',
       title: 'Hunter',
@@ -348,7 +348,7 @@ describe('exporting a playlist', () => {
   })
 
   it('addresses tracks relative to the destination file, not to their root', async () => {
-    const playlistId = store.create('Mix', 0, tick()).id
+    const playlistId = store.create('Mix', tick()).id
     const trackId = addTrack({ relPath: 'Rock/a.flac', title: 'A', durationMs: 1000 })
     store.addTracks(playlistId, [trackId], { at: 'end' }, tick())
 
@@ -366,7 +366,7 @@ describe('exporting a playlist', () => {
    * is `join`'s and never the raw `rel_path`.
    */
   it('never emits the stored POSIX separator on a platform that does not use it', async () => {
-    const playlistId = store.create('Mix', 0, tick()).id
+    const playlistId = store.create('Mix', tick()).id
     const trackId = addTrack({ relPath: 'Rock/Live/a.flac', title: 'A' })
     store.addTracks(playlistId, [trackId], { at: 'end' }, tick())
 
@@ -380,7 +380,7 @@ describe('exporting a playlist', () => {
   })
 
   it('leaves out an entry whose file no longer resolves, and counts it', async () => {
-    const playlistId = store.create('Mix', 0, tick()).id
+    const playlistId = store.create('Mix', tick()).id
     const good = addTrack({ relPath: 'Rock/a.flac', title: 'A' })
     // `..` in a stored path is the shape a corrupted row takes; `toAbsPath`
     // refuses it, and the export must not guess at what was meant.
@@ -396,7 +396,7 @@ describe('exporting a playlist', () => {
   })
 
   it('writes nothing and resolves null when the operator cancels', async () => {
-    const playlistId = store.create('Mix', 0, tick()).id
+    const playlistId = store.create('Mix', tick()).id
     const { service } = serviceSaving(null)
 
     await expect(service.exportM3u8({ playlistId, pathStyle: 'relative' })).resolves.toBeNull()
@@ -404,7 +404,7 @@ describe('exporting a playlist', () => {
   })
 
   it('appends the extension to a name the dialog handed back bare', async () => {
-    const playlistId = store.create('Mix', 0, tick()).id
+    const playlistId = store.create('Mix', tick()).id
     const { service } = serviceSaving(join(dir, 'Road trip'))
 
     const result = await service.exportM3u8({ playlistId, pathStyle: 'relative' })
@@ -414,7 +414,7 @@ describe('exporting a playlist', () => {
   })
 
   it('suggests a filename the platform will accept, from the playlist name', async () => {
-    const playlistId = store.create('AC/DC B-sides', 0, tick()).id
+    const playlistId = store.create('AC/DC B-sides', tick()).id
     const { service, pickExportFile } = serviceSaving(join(dir, 'out.m3u8'))
 
     await service.exportM3u8({ playlistId, pathStyle: 'relative' })
@@ -434,7 +434,7 @@ describe('exporting a playlist', () => {
   })
 
   it('reports an unwritable destination as an io error carrying no path', async () => {
-    const playlistId = store.create('Mix', 0, tick()).id
+    const playlistId = store.create('Mix', tick()).id
     // A directory that does not exist: the write fails, the message must not
     // say where.
     const { service } = serviceSaving(join(dir, 'nope', 'Mix.m3u8'))

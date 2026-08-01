@@ -24,12 +24,6 @@ import type { Track, TrackGroup } from './library'
 export interface Playlist {
   id: number
   name: string
-  /**
-   * R2's per-boundary policy carrier: zero means gapless, non-zero means
-   * crossfade. Persisted and returned here; W3 is what consumes it. Nothing in
-   * this module interprets the value beyond bounds-checking it.
-   */
-  crossfadeMs: number
   /** Entries, not distinct tracks — D12 makes duplicates legal. */
   trackCount: number
   /** ISO 8601, like `LibraryRoot.addedAt`. */
@@ -231,11 +225,3 @@ export const MAX_PLAYLIST_ENTRY_ID_PAGE = 10_000
  * any selection the user can actually make is addable in a single call.
  */
 export const MAX_PLAYLIST_BATCH = 50_000
-
-/**
- * Sanity ceiling on `crossfadeMs`, not a design decision — R2 fixes the
- * semantics of the value and says nothing about its range. It exists so a unit
- * mix-up (seconds where milliseconds were meant) fails at the seam instead of
- * scheduling a two-hour ramp.
- */
-export const MAX_CROSSFADE_MS = 30_000

@@ -59,8 +59,7 @@ const model = createPlaylistRail({
 function play(playlist: Playlist): void {
   void playback.playFromPlaylist({
     playlistId: playlist.id,
-    index: 0,
-    crossfadeMs: playlist.crossfadeMs
+    index: 0
   })
 }
 

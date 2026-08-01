@@ -39,7 +39,6 @@ import { spread } from './positions'
 interface PlaylistRow {
   id: number
   name: string
-  crossfadeMs: number
   trackCount: number
   createdAt: number
   updatedAt: number
@@ -77,7 +76,6 @@ export interface PlaylistExportSnapshot {
 const PLAYLIST_PROJECTION = `
   p.id           AS id,
   p.name         AS name,
-  p.crossfade_ms AS crossfadeMs,
   p.created_at   AS createdAt,
   p.updated_at   AS updatedAt,
   (SELECT count(*) FROM playlist_entries e WHERE e.playlist_id = p.id) AS trackCount
@@ -99,12 +97,11 @@ function prepareStatements(db: Database.Database) {
       'SELECT COALESCE(max(position), -1) + 1 AS position FROM playlists'
     ),
     insert: db.prepare(`
-      INSERT INTO playlists (name, position, crossfade_ms, created_at, updated_at)
-      VALUES (@name, @position, @crossfadeMs, @now, @now)
+      INSERT INTO playlists (name, position, created_at, updated_at)
+      VALUES (@name, @position, @now, @now)
       RETURNING id
     `),
     rename: db.prepare('UPDATE playlists SET name = ?, updated_at = ? WHERE id = ?'),
-    setCrossfade: db.prepare('UPDATE playlists SET crossfade_ms = ?, updated_at = ? WHERE id = ?'),
     delete: db.prepare('DELETE FROM playlists WHERE id = ?'),
     setTabPosition: db.prepare('UPDATE playlists SET position = ? WHERE id = ?'),
     listTabIds: db.prepare('SELECT id FROM playlists ORDER BY position ASC, id ASC'),
@@ -306,7 +303,6 @@ function toPlaylist(row: PlaylistRow): Playlist {
   return {
     id: row.id,
     name: row.name,
-    crossfadeMs: row.crossfadeMs,
     trackCount: row.trackCount,
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString()
@@ -343,9 +339,9 @@ export class PlaylistStore {
     return this.get(playlistId) ?? notFound()
   }
 
-  create(name: string, crossfadeMs: number, now: number): Playlist {
+  create(name: string, now: number): Playlist {
     const { position } = this.statements.nextTabPosition.get() as { position: number }
-    const { id } = this.statements.insert.get({ name, position, crossfadeMs, now }) as {
+    const { id } = this.statements.insert.get({ name, position, now }) as {
       id: number
     }
     return this.require(id)
@@ -353,11 +349,6 @@ export class PlaylistStore {
 
   rename(playlistId: number, name: string, now: number): Playlist {
     if (this.statements.rename.run(name, now, playlistId).changes === 0) notFound()
-    return this.require(playlistId)
-  }
-
-  setCrossfade(playlistId: number, crossfadeMs: number, now: number): Playlist {
-    if (this.statements.setCrossfade.run(crossfadeMs, now, playlistId).changes === 0) notFound()
     return this.require(playlistId)
   }
 

@@ -30,7 +30,6 @@ import {
   type TrackSortColumn
 } from '@shared/library'
 import {
-  MAX_CROSSFADE_MS,
   MAX_PLAYLIST_BATCH,
   MAX_PLAYLIST_ENTRY_ID_PAGE,
   MAX_PLAYLIST_ENTRY_PAGE,
@@ -308,15 +307,6 @@ export function assertPlaylistName(value: unknown): string {
     invalid(`name must not exceed ${MAX_PLAYLIST_NAME_LENGTH} characters.`)
   }
   return name
-}
-
-/** R2's per-playlist policy. Zero is meaningful — it is what "gapless" means. */
-export function assertCrossfadeMs(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    invalid('crossfadeMs must be a non-negative integer.')
-  }
-  if (value > MAX_CROSSFADE_MS) invalid(`crossfadeMs must not exceed ${MAX_CROSSFADE_MS}.`)
-  return value
 }
 
 /**

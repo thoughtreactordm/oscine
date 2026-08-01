@@ -132,12 +132,8 @@ const api = {
   playlists: {
     /** Every playlist, in tab order. */
     list: () => request('playlists.list', null),
-    /** `crossfadeMs` omitted means gapless — R2's zero. */
-    create: (name: string, crossfadeMs?: number) =>
-      request('playlists.create', { name, crossfadeMs }),
+    create: (name: string) => request('playlists.create', { name }),
     rename: (playlistId: number, name: string) => request('playlists.rename', { playlistId, name }),
-    setCrossfade: (playlistId: number, crossfadeMs: number) =>
-      request('playlists.setCrossfade', { playlistId, crossfadeMs }),
     /** Cascades to the playlist's entries. The tracks themselves are untouched. */
     delete: (playlistId: number) => request('playlists.delete', { playlistId }),
     reorder: (playlistId: number, toIndex: number) =>

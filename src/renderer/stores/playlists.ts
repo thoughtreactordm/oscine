@@ -24,7 +24,6 @@ import type {
 export const PLAYLIST_TABS_KEY = 'view.playlistTabs'
 
 export interface CreatePlaylistOptions {
-  crossfadeMs?: number
   /** Open it as a tab and view it. Defaults to true — see `create`. */
   openTab?: boolean
 }
@@ -228,7 +227,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     options: CreatePlaylistOptions = {}
   ): Promise<Playlist | null> {
     try {
-      const created = await playlists.create(name, options.crossfadeMs)
+      const created = await playlists.create(name)
       await refresh()
       if (options.openTab ?? true) openTab(created.id)
       return created
@@ -244,21 +243,6 @@ export const usePlaylistsStore = defineStore('playlists', () => {
       await refresh()
     } catch (cause) {
       report(cause, 'That playlist could not be renamed.')
-    }
-  }
-
-  /**
-   * §5 rule 4: the crossfade a playing playlist is heard through has to follow
-   * an edit made while it is playing, so the controller is told rather than left
-   * with the value it captured at `playFromPlaylist`.
-   */
-  async function setCrossfade(playlistId: number, crossfadeMs: number): Promise<void> {
-    try {
-      await playlists.setCrossfade(playlistId, crossfadeMs)
-      usePlaybackStore().playlistCrossfadeChanged(playlistId, crossfadeMs)
-      await refresh()
-    } catch (cause) {
-      report(cause, 'That crossfade could not be saved.')
     }
   }
 
@@ -369,7 +353,6 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     moveOpen,
     create,
     rename,
-    setCrossfade,
     remove,
     addTracks,
     entriesEdited,

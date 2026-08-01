@@ -8,7 +8,6 @@ import type { SettingsService } from '../settings/service'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertAddTracksRequest,
-  assertCrossfadeMs,
   assertExportPlaylistRequest,
   assertFeedUrl,
   assertBrowsePodcastCategoryQuery,
@@ -149,25 +148,13 @@ export function registerIpcHandlers(
   handle('playlists.list', () => playlists.list())
 
   handle('playlists.create', (request) => {
-    const { name, crossfadeMs } = assertRecord(request, 'request')
-    // Omitted means gapless, which is the schema default and R2's zero.
-    return playlists.create(
-      assertPlaylistName(name),
-      crossfadeMs === undefined ? 0 : assertCrossfadeMs(crossfadeMs)
-    )
+    const { name } = assertRecord(request, 'request')
+    return playlists.create(assertPlaylistName(name))
   })
 
   handle('playlists.rename', (request) => {
     const { playlistId, name } = assertRecord(request, 'request')
     return playlists.rename(assertPositiveInt(playlistId, 'playlistId'), assertPlaylistName(name))
-  })
-
-  handle('playlists.setCrossfade', (request) => {
-    const { playlistId, crossfadeMs } = assertRecord(request, 'request')
-    return playlists.setCrossfade(
-      assertPositiveInt(playlistId, 'playlistId'),
-      assertCrossfadeMs(crossfadeMs)
-    )
   })
 
   handle('playlists.delete', async (request) => {

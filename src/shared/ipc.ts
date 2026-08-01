@@ -157,16 +157,8 @@ export interface IpcContract {
    * made a thousand of them has a different problem than pagination solves.
    */
   'playlists.list': { request: null; response: Playlist[] }
-  'playlists.create': {
-    request: { name: string; crossfadeMs?: number }
-    response: Playlist
-  }
+  'playlists.create': { request: { name: string }; response: Playlist }
   'playlists.rename': { request: { playlistId: number; name: string }; response: Playlist }
-  /** R2's per-playlist policy. Persisted here; W3 reads it. */
-  'playlists.setCrossfade': {
-    request: { playlistId: number; crossfadeMs: number }
-    response: Playlist
-  }
   /** Cascades to the playlist's entries. The tracks themselves are untouched. */
   'playlists.delete': { request: { playlistId: number }; response: null }
   /**
@@ -353,7 +345,6 @@ export const IPC_CHANNELS = [
   'playlists.list',
   'playlists.create',
   'playlists.rename',
-  'playlists.setCrossfade',
   'playlists.delete',
   'playlists.reorder',
   'playlists.listEntries',

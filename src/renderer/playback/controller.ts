@@ -23,7 +23,7 @@ import type {
   TrackSortColumn
 } from '@shared/library'
 import type { ListPlaylistEntriesQuery, ListPlaylistEntriesResult } from '@shared/playlists'
-import { AUDIO_CROSSFADE_MS_KEY } from '@shared/settings'
+import { AUDIO_CROSSFADE_MS, AUDIO_CROSSFADE_MS_KEY } from '@shared/settings'
 import type { MediaSessionBinding, MediaSessionState, MediaSessionTransport } from './mediaSession'
 import {
   createFixedPlayOrder,
@@ -65,7 +65,7 @@ import {
  * nothing at either end of the IPC.
  */
 export const SESSION_QUEUE_CAP = 5000
-import type { SettingsReader } from '../settings/reader'
+import type { CascadingSettingsReader, SettingsReader } from '../settings/reader'
 import { bindTransportPreferences } from './transportPreferences'
 
 /**
@@ -113,12 +113,12 @@ export interface PlaybackControllerDeps {
   fetchTracksByIds: (query: GetTracksByIdsQuery) => Promise<readonly Track[]>
   /**
    * R2's boundary policy where nothing more specific applies — the library
-   * order, and anything played before a playlist has been chosen. A playing
-   * playlist's own `crossfadeMs` replaces it for as long as it is playing.
+   * order, and anything played before a playlist has been chosen.
    *
    * The fallback for a controller with no `settings`. With one, `audio.crossfadeMs`
-   * is the value and this is ignored — a controller that snapshotted the setting
-   * here would be one where changing the crossfade did nothing until relaunch.
+   * is the value — resolved at the playing playlist when there is one — and this
+   * is ignored: a controller that snapshotted the setting here would be one where
+   * changing the crossfade did nothing until relaunch.
    */
   crossfadeMs?: number
   /** ReplayGain policy; track normalization is the M2 default. */
@@ -140,14 +140,20 @@ export interface PlaybackControllerDeps {
     transport: MediaSessionTransport
   }) => MediaSessionBinding
   /**
-   * The reactive settings surface — shuffle, repeat and the global crossfade.
+   * The reactive settings surface — shuffle, repeat and the crossfade cascade.
    *
    * Read through rather than copied out: a change made in the settings view has
    * to reach the transport that is already playing, which is the whole of W8-4.
    * Omitting it is supported and means the modes last for the session and the
    * crossfade is whatever `crossfadeMs` said, which is what the tests want.
+   *
+   * Cascading rather than plain, because W8-5 made the playing playlist's
+   * crossfade an override on `audio.crossfadeMs` rather than a number handed in
+   * at play time. A reader that could not resolve one would leave this the last
+   * place in the app carrying its own answer to "does this playlist play
+   * differently?".
    */
-  settings?: SettingsReader
+  settings?: CascadingSettingsReader
   /**
    * The seed for a shuffle, drawn each time shuffle is switched on so that off
    * and on again reshuffles. Injected only so a test can assert a sequence.
@@ -180,16 +186,6 @@ export interface PlayFromListParams {
 export interface PlayFromPlaylistParams {
   playlistId: number
   index: number
-  /**
-   * The playlist's R2 boundary policy — zero gapless, non-zero crossfade.
-   *
-   * Passed in rather than fetched here for the same reason `track` is: whatever
-   * offered the user the row already holds the `Playlist` record it came from,
-   * and the play path is the one path that deliberately reaches main for
-   * nothing it was already handed. Required, so that starting a playlist can
-   * never quietly fall back to the global setting.
-   */
-  crossfadeMs: number
   /** As with `PlayFromListParams.track`: the row the user actually clicked. */
   track?: Track
 }
@@ -235,16 +231,29 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     ? bindCrossfadeMs(deps.settings)
     : ref(normalizeCrossfadeMs(deps.crossfadeMs))
   /**
-   * The playing playlist's boundary policy, or `null` when none is playing.
+   * What the scheduler actually gets: `audio.crossfadeMs` resolved at the
+   * playing playlist, or the global value when nothing playlist-shaped is
+   * playing.
    *
-   * Kept beside the default rather than overwriting it, because the two answer
-   * different questions and the user set only one of them. Starting a playlist
-   * with a two-second crossfade and then going back to the library must give
-   * the library back its own setting, not the last playlist's.
+   * Derived from `playingPlaylistId` rather than held beside it, and resolved
+   * through the cascade rather than handed in at play time. Both follow from
+   * W8-5: there is one row that says how this playlist plays, and one function
+   * that reads it. The two questions the old pair answered — "what does the
+   * library use" and "what does this playlist use" — are the cascade's two
+   * levels, and reverting the override is what gives the playlist the library's
+   * answer back.
+   *
+   * A playlist whose overrides have not arrived yet resolves to the inherited
+   * value and re-resolves when they do; the watch below pushes the change to a
+   * boundary already scheduled.
    */
-  const playlistCrossfadeMs = ref<number | null>(null)
-  /** What the scheduler actually gets. See `playlistCrossfadeMs`. */
-  const crossfadeMs = computed(() => playlistCrossfadeMs.value ?? defaultCrossfadeMs.value)
+  const crossfadeMs = computed(() => {
+    const playlistId = playingPlaylistId.value
+    if (playlistId === null || !deps.settings) return defaultCrossfadeMs.value
+    return normalizeCrossfadeMs(
+      deps.settings.cascade(AUDIO_CROSSFADE_MS, { kind: 'playlist', id: playlistId }).value
+    )
+  })
   const normalizationMode = ref<NormalizationMode>(deps.normalizationMode ?? 'track')
   const nowPlaying = ref<Track | null>(null)
   const error = ref<string | null>(null)
@@ -618,11 +627,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    * play order. See the note in `playOrder.ts` on why it is a snapshot.
    */
   async function playFromList(params: PlayFromListParams): Promise<void> {
-    // The library order is not a playlist, so both playlist-shaped facts go
-    // back to their defaults — including the crossfade, which reverts to the
+    // The library order is not a playlist, so the crossfade reverts to the
     // global setting rather than keeping whatever the last playlist wanted.
+    // Clearing the id is the whole of that now: `crossfadeMs` derives from it.
     playingPlaylistId.value = null
-    playlistCrossfadeMs.value = null
 
     await startOrder(
       createListPlayOrder({
@@ -654,7 +662,11 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    */
   async function playFromPlaylist(params: PlayFromPlaylistParams): Promise<void> {
     playingPlaylistId.value = params.playlistId
-    playlistCrossfadeMs.value = normalizeCrossfadeMs(params.crossfadeMs)
+    // Started rather than awaited: a playlist should not wait on a settings read
+    // to begin playing, and until it lands `crossfadeMs` resolves to what the
+    // playlist inherits — which is the right answer if it has no override, and
+    // replaced reactively the moment the rows arrive if it has.
+    void deps.settings?.loadOverrides({ kind: 'playlist', id: params.playlistId })
 
     await startOrder(
       createPlaylistPlayOrder({
@@ -684,7 +696,6 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     if (!track) return
 
     playingPlaylistId.value = null
-    playlistCrossfadeMs.value = null
 
     const orderTracks = [...params.tracks]
     await startOrder(
@@ -714,20 +725,6 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   function playlistDeleted(playlistId: number): void {
     if (playingPlaylistId.value !== playlistId) return
     stop()
-  }
-
-  /**
-   * Re-reads the playing playlist's boundary policy after the user changed it.
-   *
-   * The card's "the playing playlist's `crossfade_ms` is what the scheduler
-   * reads" has to survive an edit made while it is playing, or the setting is
-   * only the source of truth until someone touches it. Ignores every other
-   * playlist: their value applies when they start, not before.
-   */
-  function playlistCrossfadeChanged(playlistId: number, milliseconds: number): void {
-    if (playingPlaylistId.value !== playlistId) return
-    playlistCrossfadeMs.value = normalizeCrossfadeMs(milliseconds)
-    applyCrossfade()
   }
 
   async function next(): Promise<void> {
@@ -1017,11 +1014,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     queue.clearSession()
     orderTotal.value = null
     position.value = null
-    // Both go with the order rather than with the modes: which playlist is
-    // playing, and whose crossfade applies, are facts about the traversal that
-    // has just ended.
+    // Goes with the order rather than with the modes: which playlist is
+    // playing — and so whose crossfade applies — is a fact about the traversal
+    // that has just ended.
     playingPlaylistId.value = null
-    playlistCrossfadeMs.value = null
     nowPlaying.value = null
     error.value = null
     currentTime.value = 0
@@ -1106,7 +1102,6 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     playFromPlaylist,
     playTracks,
     playlistDeleted,
-    playlistCrossfadeChanged,
     enqueue: queue.enqueue,
     enqueueNext: queue.enqueueNext,
     removeQueued: queue.remove,

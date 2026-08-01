@@ -1,4 +1,11 @@
 import type { WritableComputedRef } from 'vue'
+import type {
+  CascadeScopeRef,
+  SettingCascade,
+  SettingDescriptor,
+  SettingEntityKind,
+  SettingScopeRef
+} from '@shared/settings'
 
 /**
  * The narrowest thing a consumer of settings needs.
@@ -21,4 +28,32 @@ export interface SettingsReader {
   get<T>(key: string): T
   /** One two-way binding, for `v-model` and for a `computed` over it. */
   value<T>(key: string): WritableComputedRef<T>
+}
+
+/**
+ * The same, for a consumer that reads a key *at an entity*.
+ *
+ * Split from `SettingsReader` rather than folded into it because `ViewSettings`
+ * satisfies that one and must not satisfy this: a view key is about this machine
+ * and there is no entity for it to cascade to. A consumer asking for this is
+ * asking for the durable half, and saying so in its dependency type is how it
+ * gets told at compile time rather than at first playback.
+ *
+ * `cascade` is reactive in the same way `get` is — it reads the same refs — so a
+ * caller wraps it in `computed` and a change to the global, or to the entity's
+ * own row, reaches it.
+ */
+export interface CascadingSettingsReader extends SettingsReader {
+  /**
+   * Fetch an entity's override rows. Idempotent, and safe to leave unawaited.
+   *
+   * Until it resolves, `cascade` reports what the entity inherits. That is the
+   * right thing to show — and the wrong thing to write, which is why nothing
+   * does.
+   */
+  loadOverrides(scope: SettingScopeRef): Promise<void>
+  cascade<T, C extends readonly SettingEntityKind[]>(
+    descriptor: SettingDescriptor<T, C>,
+    scope: CascadeScopeRef<C>
+  ): SettingCascade<T>
 }
