@@ -58,7 +58,7 @@ const TABS: ShellTab[] = [
     name: 'curate',
     path: 'curate',
     label: 'Curate',
-    icon: 'i-tabler-sparkles',
+    icon: 'i-tabler-playlist',
     view: CurateView,
     sidebar: CurateSidebar
   },
