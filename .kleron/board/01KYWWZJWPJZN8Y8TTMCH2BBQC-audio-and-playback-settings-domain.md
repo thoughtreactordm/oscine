@@ -1,7 +1,7 @@
 ---
 taskId: 01KYWWZJWPJZN8Y8TTMCH2BBQC
 title: Audio and playback settings domain
-status: todo
+status: in-review
 priority: medium
 labels: []
 workstream: W8
@@ -11,7 +11,7 @@ dependsOn:
   - 01KYWWXGZJQTETFDRY6VGTRA3H
 order: 36
 created: '2026-07-31T20:13:50.868Z'
-updated: '2026-07-31T20:13:50.868Z'
+updated: '2026-08-01T16:30:16.724Z'
 ---
 The domain with the most knobs already implemented — as constants, as function arguments, as values with no UI. This card turns them into descriptors.
 

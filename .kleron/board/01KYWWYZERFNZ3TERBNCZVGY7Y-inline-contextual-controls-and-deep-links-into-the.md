@@ -1,16 +1,16 @@
 ---
 taskId: 01KYWWYZERFNZ3TERBNCZVGY7Y
 title: Inline contextual controls and deep links into the settings view
-status: todo
+status: in-review
 priority: medium
 labels: []
 workstream: W8
 workstreamId: W8-8
 dependsOn:
   - 01KYWWY6TM6XQA3NB7YHQWZZG4
-order: 35
+order: 3
 created: '2026-07-31T20:13:30.966Z'
-updated: '2026-07-31T20:13:30.966Z'
+updated: '2026-08-01T06:05:30.467Z'
 ---
 The half of the UX decision that keeps the settings view from becoming the only way to change anything.
 

@@ -8,9 +8,9 @@ workstream: W8
 workstreamId: W8-7
 dependsOn:
   - 01KYWWY6TM6XQA3NB7YHQWZZG4
-order: 34
+order: 35
 created: '2026-07-31T20:13:19.835Z'
-updated: '2026-07-31T20:13:19.835Z'
+updated: '2026-08-01T05:38:49.177Z'
 ---
 The pair that makes a large settings surface diagnosable, and the reason "apply immediately with no Cancel" is safe.
 
