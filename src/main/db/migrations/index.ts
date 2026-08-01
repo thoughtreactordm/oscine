@@ -6,6 +6,7 @@ import { trigramSearch } from './004-trigram-search'
 import { podcasts } from './005-podcasts'
 import { settings } from './006-settings'
 import { crossfadeCascade } from './007-crossfade-cascade'
+import { themeKeys } from './008-theme-keys'
 
 /**
  * Every migration, in order.
@@ -23,5 +24,6 @@ export const MIGRATIONS: readonly Migration[] = [
   trigramSearch,
   podcasts,
   settings,
-  crossfadeCascade
+  crossfadeCascade,
+  themeKeys
 ]

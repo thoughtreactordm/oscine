@@ -576,6 +576,6 @@ describe('SqliteSettingsService', () => {
     const settings = new SqliteSettingsService({ db })
 
     expect(settings.get('audio.crossfadeMs')).toBe(2500)
-    expect(typeof settings.get('interface.theme')).toBe('string')
+    expect(typeof settings.get('theme.mode')).toBe('string')
   })
 })

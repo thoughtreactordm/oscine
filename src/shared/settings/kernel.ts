@@ -44,6 +44,7 @@ export const SETTING_CATEGORIES = [
   { id: 'playback', label: 'Playback', icon: 'i-tabler-player-play', order: 20 },
   { id: 'library', label: 'Library', icon: 'i-tabler-library', order: 30 },
   { id: 'interface', label: 'Interface', icon: 'i-tabler-layout-2', order: 40 },
+  { id: 'theme', label: 'Theme', icon: 'i-tabler-palette', order: 45 },
   { id: 'podcasts', label: 'Podcasts', icon: 'i-tabler-microphone', order: 50 },
   { id: 'network', label: 'Network', icon: 'i-tabler-world', order: 60 }
 ] as const

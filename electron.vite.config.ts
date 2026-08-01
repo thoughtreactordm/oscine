@@ -233,6 +233,7 @@ export default defineConfig({
               'i-tabler-player-play',
               'i-tabler-library',
               'i-tabler-layout-2',
+              'i-tabler-palette',
               'i-tabler-microphone',
               'i-tabler-world'
             ]

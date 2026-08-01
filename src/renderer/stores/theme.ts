@@ -1,7 +1,13 @@
 import { useColorMode } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed, ref, watch, watchEffect } from 'vue'
-import { THEME_KEY, type ThemeMode as ThemeModeSetting } from '@shared/settings'
+import {
+  THEME_MODE_KEY,
+  THEME_NAME_KEY,
+  THEME_OVERRIDES_KEY,
+  type ThemeModePreference
+} from '@shared/settings'
+import type { ThemeOverrides } from '@shared/theme'
 import { useSettings } from '@renderer/settings'
 import { currentTheme, onThemeChange, updateTheme } from '@renderer/theme'
 import type { ThemeState } from '@renderer/theme'
@@ -39,14 +45,14 @@ export const useThemeStore = defineStore('theme', () => {
   })
 
   /** Nuxt UI spells "follow the system" `auto`; everything else here says `system`. */
-  const preference = computed<ThemeModeSetting>(() =>
+  const preference = computed<ThemeModePreference>(() =>
     colorMode.store.value === 'auto' ? 'system' : colorMode.store.value
   )
 
   // The durable setting is the source of truth on the way in: it is what was
   // restored from SQLite, and localStorage is only a cache of it.
   watch(
-    () => settings.get<ThemeModeSetting>(THEME_KEY),
+    () => settings.get<ThemeModePreference>(THEME_MODE_KEY),
     (durable) => {
       if (durable !== preference.value) {
         colorMode.store.value = durable === 'system' ? 'auto' : durable
@@ -58,17 +64,23 @@ export const useThemeStore = defineStore('theme', () => {
   // ...and the mirror, so the switch persists. Without this the operator flips
   // the switch, it works, and the choice is gone on the next machine.
   watch(preference, (next) => {
-    if (settings.get<ThemeModeSetting>(THEME_KEY) !== next) {
-      void settings.set(THEME_KEY, next)
+    if (settings.get<ThemeModePreference>(THEME_MODE_KEY) !== next) {
+      void settings.set(THEME_MODE_KEY, next)
     }
   })
 
   // The token layer takes the preference and the system answer from the same
   // place the class comes from, so the variant and the class cannot disagree.
+  // The theme and its overrides come straight from the durable store, and
+  // because `settings.get` is reactive this is also the live-preview path: an
+  // override written by the editor repaints on the next tick, with no apply
+  // button and no preview mode.
   watchEffect(() => {
     updateTheme({
       mode: preference.value,
-      systemDark: colorMode.system.value === 'dark'
+      systemDark: colorMode.system.value === 'dark',
+      themeId: settings.get<string>(THEME_NAME_KEY),
+      overrides: settings.get<ThemeOverrides>(THEME_OVERRIDES_KEY)
     })
   })
 
@@ -78,7 +90,11 @@ export const useThemeStore = defineStore('theme', () => {
     mode: computed(() => state.value.mode),
     /** The operator's preference, which may be `system`. */
     preference,
+    /** The theme actually rendering, which is the default if the chosen one is gone. */
     themeId: computed(() => state.value.themeId),
-    themeMissing: computed(() => state.value.themeMissing)
+    /** The operator's choice, kept even when this build cannot render it. */
+    themeName: settings.value<string>(THEME_NAME_KEY),
+    themeMissing: computed(() => state.value.themeMissing),
+    overrides: settings.value<ThemeOverrides>(THEME_OVERRIDES_KEY)
   }
 })

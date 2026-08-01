@@ -25,8 +25,13 @@ import { VIEW_STORAGE_PREFIX } from '../../../src/renderer/settings/viewStore'
  */
 
 const CROSSFADE = AUDIO_CROSSFADE_MS.key
-const THEME = 'interface.theme'
-/** A view key sharing Interface with `THEME`, so a sweep has both halves to hit. */
+/*
+ * A *durable* key in Interface. It used to be `interface.theme`, which moved to
+ * `theme.mode` in its own category — and the point of this fixture is a
+ * category holding one key from each half, so it has to be one that stayed.
+ */
+const ACTIVATION = 'interface.trackActivation'
+/** A view key sharing Interface with `ACTIVATION`, so a sweep has both halves to hit. */
 const GROUPING = 'view.trackGroupingEnabled'
 const REPEAT = 'playback.repeat'
 /** A row from a branch this build has never heard of. Nothing may delete it. */
@@ -59,7 +64,7 @@ describe('the changed-from-default delta', () => {
     expect(changed.has(REPEAT)).toBe(true)
     // Never written, and never written *to its default* either — the surface
     // holds the descriptor's value in both cases and neither is a change.
-    expect(changed.has(THEME)).toBe(false)
+    expect(changed.has(ACTIVATION)).toBe(false)
     expect(changed.has(GROUPING)).toBe(false)
   })
 
@@ -161,16 +166,16 @@ describe('reverting one setting', () => {
 describe('reverting a section', () => {
   it('sweeps both halves of the category and leaves the others alone', async () => {
     const { settings, storage, bridge } = settingsStoreFixture({
-      stored: { [THEME]: 'dark', [CROSSFADE]: 3000 },
+      stored: { [ACTIVATION]: 'queue', [CROSSFADE]: 3000 },
       seed: { [GROUPING]: false, [REPEAT]: 'all' }
     })
     await settings.ready
 
     await settings.resetCategory('interface')
 
-    expect(bridge.rows.has(THEME)).toBe(false)
+    expect(bridge.rows.has(ACTIVATION)).toBe(false)
     expect(storage.read(VIEW_STORAGE_PREFIX + GROUPING)).toBeNull()
-    expect(settings.get<string>(THEME)).toBe('system')
+    expect(settings.get<string>(ACTIVATION)).toBe('play')
     expect(settings.get<boolean>(GROUPING)).toBe(true)
 
     // Audio and Playback were not asked about and did not move.
@@ -181,7 +186,7 @@ describe('reverting a section', () => {
   it('asks main once for the whole category rather than once per key', async () => {
     // N round trips and N broadcasts for one operator action would be the cost
     // of a loop here, and main already takes a category.
-    const { settings, bridge } = settingsStoreFixture({ stored: { [THEME]: 'dark' } })
+    const { settings, bridge } = settingsStoreFixture({ stored: { [ACTIVATION]: 'queue' } })
     await settings.ready
 
     await settings.resetCategory('interface')
@@ -200,7 +205,7 @@ describe('reverting a section', () => {
 describe('resetting everything', () => {
   it('clears every stored value in both halves', async () => {
     const { settings, storage, bridge } = settingsStoreFixture({
-      stored: { [THEME]: 'dark', [CROSSFADE]: 3000 },
+      stored: { [ACTIVATION]: 'queue', [CROSSFADE]: 3000 },
       seed: { [GROUPING]: false, [REPEAT]: 'all' }
     })
     await settings.ready
@@ -230,7 +235,7 @@ describe('resetting everything', () => {
   })
 
   it('is one request, not one per key', async () => {
-    const { settings, bridge } = settingsStoreFixture({ stored: { [THEME]: 'dark' } })
+    const { settings, bridge } = settingsStoreFixture({ stored: { [ACTIVATION]: 'queue' } })
     await settings.ready
 
     await settings.resetAll()

@@ -34,7 +34,6 @@
 
 import { booleanValue, defineSetting, enumValue, type SettingDescriptor } from './kernel'
 
-export type ThemeMode = 'system' | 'light' | 'dark'
 export type AlbumArtSize = 'small' | 'medium' | 'large'
 
 /** Row height tier for the song list. The pixels live in the renderer. */
@@ -57,7 +56,6 @@ export type FileSizeFormat = 'binary' | 'decimal'
 /** What double-clicking a track — or pressing Enter on it — does. */
 export type TrackActivation = 'play' | 'playNext' | 'queue' | 'addToViewedPlaylist'
 
-export const THEME_KEY = 'interface.theme'
 export const TRACK_DENSITY_KEY = 'view.trackListDensity'
 export const RESTORE_SESSION_KEY = 'view.restoreSession'
 export const DURATION_FORMAT_KEY = 'interface.durationFormat'
@@ -68,25 +66,12 @@ export const CONFIRM_PLAYLIST_DELETE_KEY = 'interface.confirmPlaylistDelete'
 export const CONFIRM_ENTRY_REMOVAL_KEY = 'interface.confirmEntryRemoval'
 
 export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
-  defineSetting<ThemeMode>({
-    key: THEME_KEY,
-    scope: 'durable',
-    default: 'system',
-    validate: enumValue<ThemeMode>(['system', 'light', 'dark']),
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'system', label: 'Match system' },
-        { value: 'light', label: 'Light' },
-        { value: 'dark', label: 'Dark' }
-      ]
-    },
-    category: 'interface',
-    label: 'Theme',
-    help: 'Follow the desktop setting, or pin one.',
-    keywords: ['dark mode', 'light mode', 'appearance'],
-    order: 10
-  }),
+  /*
+   * `interface.theme` used to be the first entry here. It is now `theme.mode`
+   * in its own category — see `./theme.ts` and migration `008-theme-keys`. The
+   * token editor made Theme a section rather than a row, and the one setting
+   * most obviously about theming should not be the one outside it.
+   */
 
   defineSetting<TrackActivation>({
     key: TRACK_ACTIVATION_KEY,

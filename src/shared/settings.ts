@@ -15,6 +15,7 @@
 import { AUDIO_SETTINGS } from './settings/audio'
 import { INTERFACE_SETTINGS } from './settings/interface'
 import { LIBRARY_SETTINGS } from './settings/library'
+import { THEME_SETTINGS } from './settings/theme'
 import { VIEW_SETTINGS } from './settings/view'
 import {
   migrateValue,
@@ -37,7 +38,6 @@ export {
   DURATION_FORMAT_KEY,
   FILE_SIZE_FORMAT_KEY,
   RESTORE_SESSION_KEY,
-  THEME_KEY,
   TRACK_ACTIVATION_KEY,
   TRACK_DENSITY_KEY
 } from './settings/interface'
@@ -46,7 +46,6 @@ export type {
   DateFormat,
   DurationFormat,
   FileSizeFormat,
-  ThemeMode,
   TrackActivation,
   TrackDensity
 } from './settings/interface'
@@ -69,6 +68,13 @@ export {
   clampSetting
 } from './settings/audio'
 export type { BoundaryPolicy, RepeatMode, ReplayGainMode } from './settings/audio'
+export {
+  THEME_MODE_KEY,
+  THEME_NAME_KEY,
+  THEME_OVERRIDES_KEY,
+  THEME_SETTINGS
+} from './settings/theme'
+export type { ThemeModePreference } from './settings/theme'
 export type { StoredColumnLayout, TabSession } from './settings/view'
 
 /**
@@ -83,6 +89,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = Object.freeze([
   ...AUDIO_SETTINGS,
   ...LIBRARY_SETTINGS,
   ...INTERFACE_SETTINGS,
+  ...THEME_SETTINGS,
   ...VIEW_SETTINGS
 ])
 
