@@ -107,7 +107,10 @@ export type SettingControl<T> =
 export type SettingUpgrade = (oldValue: unknown, oldVersion: number) => unknown
 
 /** What a domain module hands to `defineSetting`. */
-export interface SettingDefinition<T> {
+export interface SettingDefinition<
+  T,
+  C extends readonly SettingEntityKind[] = readonly SettingEntityKind[]
+> {
   /** Dotted and namespaced by domain: `audio.crossfadeMs`. */
   key: string
   scope: SettingScope
@@ -118,7 +121,7 @@ export interface SettingDefinition<T> {
   upgrade?: SettingUpgrade
   validate: SettingValidator<T>
   /** Entity kinds this key accepts per-entity overrides on. Durable keys only. */
-  cascade?: readonly SettingEntityKind[]
+  cascade?: C
   /** Required unless `internal`. */
   control?: SettingControl<T>
   category: SettingCategoryId
@@ -147,15 +150,28 @@ export interface SettingDefinition<T> {
   requiresRestart?: boolean
 }
 
-/** A definition with every optional field resolved. */
-export interface SettingDescriptor<T = unknown> {
+/**
+ * A definition with every optional field resolved.
+ *
+ * `C` is the cascade's entity kinds, carried in the type so that W8-5's
+ * `resolveCascade` can refuse a scope the key does not accept at compile time
+ * rather than at runtime. It only survives on a descriptor imported directly —
+ * `SETTINGS_REGISTRY` is a list of the erased form, and a caller that reached a
+ * descriptor through the registry gets the runtime check instead. That is the
+ * trade the registry has always made: one list of heterogeneous keys cannot also
+ * be a list of their individual types.
+ */
+export interface SettingDescriptor<
+  T = unknown,
+  C extends readonly SettingEntityKind[] = readonly SettingEntityKind[]
+> {
   readonly key: string
   readonly scope: SettingScope
   readonly default: T
   readonly version: number
   readonly upgrade: SettingUpgrade | null
   readonly validate: SettingValidator<T>
-  readonly cascade: readonly SettingEntityKind[]
+  readonly cascade: C
   /** Null exactly when `internal`. */
   readonly control: SettingControl<T> | null
   readonly category: SettingCategoryId
@@ -179,15 +195,24 @@ const KEY_PATTERN = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
  * *stored* value that fails validation falls back quietly with a notice,
  * because the user's disk is not the developer's to crash on. A *default* that
  * fails validation is a bug in this repo and gets the loud treatment.
+ *
+ * `C` is inferred `const`, so a definition that writes `cascade: ['album',
+ * 'playlist']` produces a descriptor whose type says exactly that. Supplying `T`
+ * explicitly opts out — TypeScript infers all type arguments or none — which is
+ * why the keys that want the narrowing let `T` be inferred from their `default`
+ * and `validate` instead of naming it.
  */
-export function defineSetting<T>(definition: SettingDefinition<T>): SettingDescriptor<T> {
+export function defineSetting<
+  T,
+  const C extends readonly SettingEntityKind[] = readonly SettingEntityKind[]
+>(definition: SettingDefinition<T, C>): SettingDescriptor<T, C> {
   const {
     key,
     scope,
     version = 1,
     upgrade,
     validate,
-    cascade = [],
+    cascade = [] as unknown as C,
     control,
     category,
     label,
@@ -249,7 +274,7 @@ export function defineSetting<T>(definition: SettingDefinition<T>): SettingDescr
     version,
     upgrade: upgrade ?? null,
     validate,
-    cascade: Object.freeze([...cascade]),
+    cascade: Object.freeze([...cascade]) as unknown as C,
     control: control ?? null,
     category,
     label,

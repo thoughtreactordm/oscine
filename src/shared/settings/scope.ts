@@ -8,7 +8,7 @@
  * the meantime.
  */
 
-import { SETTING_ENTITY_KINDS, type SettingNotice } from './kernel'
+import { SETTING_ENTITY_KINDS, type SettingEntityKind, type SettingNotice } from './kernel'
 
 /**
  * The `scope_kind` column's domain.
@@ -27,7 +27,32 @@ export interface SettingScopeRef {
   id: number | null
 }
 
-export const GLOBAL_SCOPE: SettingScopeRef = Object.freeze({ kind: 'global', id: null })
+/**
+ * A scope a *particular* key accepts, in the type rather than at runtime.
+ *
+ * The card's "asking for an override on a non-cascading key is a type error":
+ * given a descriptor whose `cascade` is `['album', 'playlist']`, this resolves to
+ * the global scope or an album or playlist one, and `{ kind: 'track', id: 7 }`
+ * fails to compile. The narrowing only reaches callers holding a directly
+ * imported descriptor; through `SETTINGS_REGISTRY` the kinds are erased and
+ * `assertCascadeScope` is what catches the same mistake.
+ *
+ * `id` is non-null for an entity and null for global, which is the same rule
+ * `SettingScopeRef` states in prose — here it is checked.
+ */
+export type CascadeScopeRef<C extends readonly SettingEntityKind[] = readonly SettingEntityKind[]> =
+  { readonly kind: 'global'; readonly id: null } | { readonly kind: C[number]; readonly id: number }
+
+/**
+ * Typed as the literal global scope rather than as a `SettingScopeRef`, so that
+ * it satisfies `CascadeScopeRef<C>` for every `C`. Widening it to the erased
+ * shape would make the base of every cascade the one layer a caller could not
+ * write down without a cast.
+ */
+export const GLOBAL_SCOPE: { readonly kind: 'global'; readonly id: null } = Object.freeze({
+  kind: 'global',
+  id: null
+})
 
 export function isGlobalScope(scope: SettingScopeRef): boolean {
   return scope.kind === 'global'
