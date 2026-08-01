@@ -219,7 +219,22 @@ export default defineConfig({
               'i-tabler-device-desktop',
               'i-tabler-bulb',
               'i-tabler-upload',
-              'i-tabler-alert-triangle'
+              'i-tabler-alert-triangle',
+              // The settings category rail, from `SETTING_CATEGORIES` in
+              // `src/shared/settings/kernel.ts`. Same failure as the tab table
+              // above and one the widened glob cannot fix: the scan is rooted at
+              // the renderer, and the category table is a cross-process contract
+              // that lives in `src/shared` because main reads it too. Four of the
+              // six happened to resolve anyway, because a component elsewhere
+              // names the same icon — which is worse than none of them, since it
+              // makes the gap look like a bad icon name rather than a missing
+              // scan root.
+              'i-tabler-wave-sine',
+              'i-tabler-player-play',
+              'i-tabler-library',
+              'i-tabler-layout-2',
+              'i-tabler-microphone',
+              'i-tabler-world'
             ]
           }
         }

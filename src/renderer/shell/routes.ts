@@ -1,12 +1,14 @@
 import type { Component } from 'vue'
-import type { RouteRecordRaw } from 'vue-router'
+import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router'
 import AppShell from '@renderer/shell/AppShell.vue'
+import SettingsRail from '@renderer/panels/settings/SettingsRail.vue'
 import Sources from '@renderer/panels/Sources.vue'
 import CurateSidebar from '@renderer/views/CurateSidebar.vue'
 import CurateView from '@renderer/views/CurateView.vue'
 import LibraryView from '@renderer/views/LibraryView.vue'
 import PodcastsSidebar from '@renderer/views/PodcastsSidebar.vue'
 import PodcastsView from '@renderer/views/PodcastsView.vue'
+import SettingsView from '@renderer/views/SettingsView.vue'
 import StageView from '@renderer/views/StageView.vue'
 
 declare module 'vue-router' {
@@ -74,8 +76,29 @@ const TABS: ShellTab[] = [
     label: 'Now Playing',
     icon: 'i-tabler-disc',
     view: StageView
+  },
+  {
+    name: 'settings',
+    path: 'settings',
+    label: 'Settings',
+    icon: 'i-tabler-settings',
+    view: SettingsView,
+    sidebar: SettingsRail
   }
 ]
+
+/**
+ * Where a link to one setting goes.
+ *
+ * The deep-link addressing, in the one file that already knows what a route is
+ * called. W8-8's inline controls each carry a way through to the full view, and
+ * the alternative — every panel with a gear on it hand-building `{ name:
+ * 'settings', query: { key } }` — is the same route name written down a dozen
+ * times, which is how a rename becomes a hunt.
+ */
+export function settingsRouteFor(key: string): RouteLocationRaw {
+  return { name: 'settings', query: { key } }
+}
 
 /** What the tab row needs, without handing it the components. */
 export const shellTabs = TABS.map(({ name, label, icon }) => ({ name, label, icon }))
