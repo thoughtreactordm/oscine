@@ -57,6 +57,7 @@ export type FileSizeFormat = 'binary' | 'decimal'
 /** What double-clicking a track — or pressing Enter on it — does. */
 export type TrackActivation = 'play' | 'playNext' | 'queue' | 'addToViewedPlaylist'
 
+export const THEME_KEY = 'interface.theme'
 export const TRACK_DENSITY_KEY = 'view.trackListDensity'
 export const RESTORE_SESSION_KEY = 'view.restoreSession'
 export const DURATION_FORMAT_KEY = 'interface.durationFormat'
@@ -68,7 +69,7 @@ export const CONFIRM_ENTRY_REMOVAL_KEY = 'interface.confirmEntryRemoval'
 
 export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
   defineSetting<ThemeMode>({
-    key: 'interface.theme',
+    key: THEME_KEY,
     scope: 'durable',
     default: 'system',
     validate: enumValue<ThemeMode>(['system', 'light', 'dark']),

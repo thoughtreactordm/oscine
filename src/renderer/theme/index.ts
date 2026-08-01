@@ -22,6 +22,7 @@ let state: ThemeState = computeTheme(inputs)
 const listeners = new Set<(state: ThemeState) => void>()
 
 const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'
+const DARK_SCHEME = '(prefers-color-scheme: dark)'
 
 function render(): void {
   state = computeTheme(inputs)
@@ -41,9 +42,22 @@ function prefersReducedMotion(): boolean {
 export function installTheme(): void {
   inputs = {
     ...inputs,
+    systemDark: window.matchMedia(DARK_SCHEME).matches,
     systemReducedMotion: prefersReducedMotion()
   }
   render()
+
+  /*
+   * Chromium maps the OS colour preference onto this query on both platforms,
+   * which is what makes `system` work at all. The main process takes over as
+   * the authority in the next commit — it has to, because it is what sets the
+   * window background before the renderer exists — but this stays as the
+   * renderer's own answer rather than being ripped out, so the theme is never
+   * waiting on IPC to know what to paint.
+   */
+  window.matchMedia(DARK_SCHEME).addEventListener('change', (event) => {
+    updateTheme({ systemDark: event.matches })
+  })
 
   window.matchMedia(REDUCED_MOTION).addEventListener('change', (event) => {
     updateTheme({ systemReducedMotion: event.matches })

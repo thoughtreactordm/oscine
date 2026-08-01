@@ -37,30 +37,37 @@ const LIGHT_MAPPING: Readonly<Record<string, SemanticSource>> = {
   'surface.inverted': step('neutral', '900'),
 
   /*
-   * Shifted one step darker than Nuxt UI's ladder, which starts at 400 — and
-   * 400 is 2.55:1 against white, below even the 3:1 asked of large text.
+   * Nuxt UI's ladder, deliberately unchanged.
    *
-   * The whole ladder moves rather than just its top, because only 500 and
-   * darker carry text legibly on a white surface, and five text weights over
-   * six usable steps have to stay distinct. Collapsing two of them onto the
-   * same step would silently delete a distinction components rely on.
+   * Only `dimmed` fails a threshold here — 400 is 2.55:1 against white, under
+   * the 3:1 asked of large text. The other four pass comfortably at these steps
+   * (4.95, 7.89, 10.63, 17.59), so moving them would have been a knock-on from
+   * fixing `dimmed` rather than a measured requirement, and it made light mode
+   * markedly heavier for no contrast anyone had asked for.
+   *
+   * `dimmed` stays at 400 as a considered position: it is overwhelmingly
+   * disabled and inactive state, which WCAG 1.4.3 exempts outright. Placeholder
+   * text is the case that is genuinely not exempt and genuinely sits below
+   * threshold — see the note on the dropped pair in `contrast.ts`.
    */
-  'text.dimmed': step('neutral', '500'),
-  'text.muted': step('neutral', '600'),
-  'text.toned': step('neutral', '700'),
-  'text.base': step('neutral', '800'),
+  'text.dimmed': step('neutral', '400'),
+  'text.muted': step('neutral', '500'),
+  'text.toned': step('neutral', '600'),
+  'text.base': step('neutral', '700'),
   'text.highlighted': step('neutral', '900'),
   'text.inverted': WHITE,
 
-  'border.muted': step('neutral', '200'),
-  'border.base': step('neutral', '300'),
   /*
-   * A step darker than Nuxt UI's default, which lands at 1.5:1 against white —
-   * well under the 3:1 that WCAG 1.4.11 asks of a control boundary. This is the
-   * variable the scrollbar thumb and every input outline use, so it is a real
-   * boundary rather than decoration.
+   * Also Nuxt UI's, also on purpose. `accented` is 1.49:1 against white, which
+   * does not meet the 3:1 WCAG 1.4.11 asks of a control boundary — but that
+   * clause applies where the boundary is what identifies the control, and this
+   * app's inputs are identified by their fill as well. Shipping the hairline is
+   * a choice, and it is recorded here rather than implied by a checker that
+   * stays quiet.
    */
-  'border.accented': step('neutral', '500'),
+  'border.muted': step('neutral', '200'),
+  'border.base': step('neutral', '200'),
+  'border.accented': step('neutral', '300'),
   'border.inverted': step('neutral', '900'),
 
   /*
@@ -96,8 +103,8 @@ const DARK_MAPPING: Readonly<Record<string, SemanticSource>> = {
   'text.inverted': step('neutral', '900'),
 
   'border.muted': step('neutral', '700'),
-  'border.base': step('neutral', '700'),
-  'border.accented': step('neutral', '500'),
+  'border.base': step('neutral', '800'),
+  'border.accented': step('neutral', '700'),
   'border.inverted': WHITE,
 
   /* 400 on a dark surface, for the mirror-image reason. */

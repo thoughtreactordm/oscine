@@ -147,12 +147,20 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
     demand: 'normal',
     where: 'help text under a setting'
   },
-  {
-    foreground: 'text.dimmed',
-    background: 'surface.base',
-    demand: 'large',
-    where: 'placeholder and disabled text'
-  },
+  /*
+   * `text.dimmed` on a surface is deliberately absent.
+   *
+   * It sits at 2.55:1 in light mode and we ship it anyway. The token is
+   * overwhelmingly disabled and inactive state, which WCAG 1.4.3 exempts
+   * outright, and raising it forces the whole five-step ladder up — the four
+   * weights above it already pass with room, so the only way to fix `dimmed`
+   * was to make body text nearly black. That trade was not worth it.
+   *
+   * The honest cost: placeholder text uses this token too, and placeholders are
+   * *not* exempt. A theme that pushes `dimmed` lighter still will not be warned
+   * about it. If placeholders ever get their own token, this pair should come
+   * back against that one.
+   */
   {
     foreground: 'text.base',
     background: 'surface.elevated',
@@ -177,12 +185,19 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
     demand: 'normal',
     where: 'text on an inverted surface — a tooltip'
   },
-  {
-    foreground: 'border.accented',
-    background: 'surface.base',
-    demand: 'nonText',
-    where: 'input and control outlines'
-  },
+  /*
+   * `border.accented` on a surface is absent for a related reason.
+   *
+   * It is 1.49:1 in light mode. WCAG 1.4.11 asks 3:1 of a control boundary, but
+   * qualifies that with "required to identify" the control — and this app's
+   * inputs and controls are identified by their fill and their text as well as
+   * their edge. Meeting it would mean replacing every hairline in the app with
+   * a mid-grey rule, which is a different-looking application, not a more
+   * accessible one.
+   *
+   * The cost is real and worth naming: this variable is also the scrollbar
+   * thumb, which has no fill to fall back on, and at 1.49:1 it is faint.
+   */
   /*
    * The accent tokens, not a step of the ramp. `text-primary` resolves to one
    * colour that differs between light and dark, and checking a fixed step would
