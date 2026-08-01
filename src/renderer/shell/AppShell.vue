@@ -9,11 +9,14 @@ import { shellTabs } from '@renderer/shell/routes'
 import { SIDEBAR_PANE } from '@renderer/shell/shellLayout'
 import ShellSidebar from '@renderer/shell/ShellSidebar.vue'
 import ShellTabs from '@renderer/shell/ShellTabs.vue'
+import Tunedeck from '@renderer/panels/Tunedeck.vue'
+import { TUNEDECK_PANE } from '@renderer/panels/tunedeck/tunedeckPanes'
 import { useBrowseStore } from '@renderer/stores/browse'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { useShellStore } from '@renderer/stores/shell'
+import { useTunedeckStore } from '@renderer/stores/tunedeck'
 
 /**
  * The frame.
@@ -41,6 +44,7 @@ const roots = useLibraryRootsStore()
 const playback = usePlaybackStore()
 const playlists = usePlaylistsStore()
 const shell = useShellStore()
+const tunedeck = useTunedeckStore()
 
 /**
  * Instantiated here, not in `Sources`.
@@ -65,6 +69,9 @@ const sidebarWidth = shell.paneSize(SIDEBAR_PANE)
  * settled at the right number, a fifth of a second after the pointer stopped.
  */
 const resizing = ref(false)
+
+/** The same exemption for the deck's own collapse. */
+const deckResizing = ref(false)
 
 /**
  * Tabs that want the whole width say so in the route table. The sidebar is
@@ -125,48 +132,91 @@ onUnmounted(() => {
     <ShellTabs />
 
     <div class="flex min-h-0 min-w-0 overflow-hidden">
-      <div
-        class="shell-sidebar min-h-0 overflow-hidden bg-default"
-        :style="{ width: hasSidebar ? `${sidebarWidth}px` : '0px' }"
-        :data-resizing="resizing || undefined"
-        :inert="hasSidebar ? undefined : true"
-      >
-        <!--
-          The inner width is the full one whatever the outer is animating
-          towards. Without it the sidebar's contents would reflow through every
-          frame of the collapse — a virtualized facet list re-measuring itself
-          320 times on the way to zero — instead of being clipped by a container
-          that is closing over them.
-        -->
-        <div class="h-full min-h-0" :style="{ width: `${sidebarWidth}px` }">
-          <ShellSidebar>
-            <RouterView v-slot="{ Component }" name="sidebar">
-              <Transition name="tab-fade" mode="out-in">
-                <component :is="Component" v-if="Component" :key="shell.activeTab" />
-              </Transition>
-            </RouterView>
-          </ShellSidebar>
+      <!--
+        Sidebar and body are nested one level in so that the deck is outside
+        them. That is not tidiness: `PaneResizer` measures its own parent, so
+        the sidebar's handle now measures a row the deck has already been taken
+        out of, and `SIDEBAR_PANE.reserve` stays exactly the body's `min-w-120`
+        instead of having to grow and shrink with a pane it knows nothing about.
+        A static reserve that had to account for the deck would be wrong in one
+        of the two states whichever number it held.
+      -->
+      <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div
+          class="shell-sidebar min-h-0 overflow-hidden bg-default"
+          :style="{ width: hasSidebar ? `${sidebarWidth}px` : '0px' }"
+          :data-resizing="resizing || undefined"
+          :inert="hasSidebar ? undefined : true"
+        >
+          <!--
+            The inner width is the full one whatever the outer is animating
+            towards. Without it the sidebar's contents would reflow through every
+            frame of the collapse — a virtualized facet list re-measuring itself
+            320 times on the way to zero — instead of being clipped by a container
+            that is closing over them.
+          -->
+          <div class="h-full min-h-0" :style="{ width: `${sidebarWidth}px` }">
+            <ShellSidebar>
+              <RouterView v-slot="{ Component }" name="sidebar">
+                <Transition name="tab-fade" mode="out-in">
+                  <component :is="Component" v-if="Component" :key="shell.activeTab" />
+                </Transition>
+              </RouterView>
+            </ShellSidebar>
+          </div>
+        </div>
+
+        <PaneResizer
+          v-if="hasSidebar"
+          v-model:size="sidebarWidth"
+          :pane="SIDEBAR_PANE"
+          @dragging="resizing = $event"
+        />
+
+        <div class="relative min-h-0 min-w-120 flex-1 overflow-hidden bg-default">
+          <RouterView v-slot="{ Component }">
+            <Transition :name="bodyTransition">
+              <component
+                :is="Component"
+                v-if="Component"
+                :key="shell.activeTab"
+                class="absolute inset-0"
+              />
+            </Transition>
+          </RouterView>
         </div>
       </div>
 
+      <!--
+        The deck, in flow rather than over it (D15).
+
+        `UDrawer` would have been the shorter route and it cannot do this job:
+        its content is `fixed` and portalled to the body, so it necessarily
+        covers the track list — which is the arrangement D15 considered and
+        rejected, on the grounds that a deck you cannot browse alongside is not
+        worth the panes it holds. A sibling in the row displaces instead, and
+        gets a real resize handle rather than vaul's drag-to-dismiss for free.
+
+        Collapsed to zero width rather than dropped, for the two reasons the
+        sidebar is: at zero there is no handle to catch, and animating a width
+        is the only way the pane can leave without the body jumping.
+      -->
       <PaneResizer
-        v-if="hasSidebar"
-        v-model:size="sidebarWidth"
-        :pane="SIDEBAR_PANE"
-        @dragging="resizing = $event"
+        v-if="tunedeck.open"
+        v-model:size="tunedeck.width"
+        :pane="TUNEDECK_PANE"
+        @dragging="deckResizing = $event"
       />
 
-      <div class="relative min-h-0 min-w-120 flex-1 overflow-hidden bg-default">
-        <RouterView v-slot="{ Component }">
-          <Transition :name="bodyTransition">
-            <component
-              :is="Component"
-              v-if="Component"
-              :key="shell.activeTab"
-              class="absolute inset-0"
-            />
-          </Transition>
-        </RouterView>
+      <div
+        class="shell-tunedeck min-h-0 shrink-0 overflow-hidden bg-default"
+        :style="{ width: tunedeck.open ? `${tunedeck.width}px` : '0px' }"
+        :data-resizing="deckResizing || undefined"
+        :inert="tunedeck.open ? undefined : true"
+      >
+        <div class="h-full min-h-0" :style="{ width: `${tunedeck.width}px` }">
+          <Tunedeck />
+        </div>
       </div>
     </div>
 
@@ -193,11 +243,13 @@ onUnmounted(() => {
  * the drag lasts. `data-resizing` is the handle saying it has the width for
  * now.
  */
-.shell-sidebar {
+.shell-sidebar,
+.shell-tunedeck {
   transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.shell-sidebar[data-resizing] {
+.shell-sidebar[data-resizing],
+.shell-tunedeck[data-resizing] {
   transition: none;
 }
 
@@ -257,6 +309,7 @@ onUnmounted(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .shell-sidebar,
+  .shell-tunedeck,
   .tab-forward-enter-active,
   .tab-forward-leave-active,
   .tab-back-enter-active,

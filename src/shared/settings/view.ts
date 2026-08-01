@@ -18,6 +18,7 @@
 
 import {
   acceptValue,
+  booleanValue,
   defineSetting,
   recordValue,
   rejectValue,
@@ -165,6 +166,30 @@ export const VIEW_SETTINGS: readonly SettingDescriptor[] = [
     category: 'interface',
     label: 'Pane sizes',
     help: 'Widths and heights the frame has been dragged to on this machine.',
+    internal: true
+  }),
+
+  /**
+   * Whether the Tunedeck is showing.
+   *
+   * Persisted, unlike the sidebar's cover pane, which starts closed every
+   * session. The distinction is the one `stores/shell.ts` already draws: an
+   * expanded cover is a glance, and the deck is a layout the operator built —
+   * it displaces the body, so finding it closed after a restart would be the
+   * frame quietly undoing a decision.
+   *
+   * Its width is not here. That is one entry in `view.shellPaneSizes`, keyed
+   * `tunedeck.deck`, because a pane's size is a pane's size wherever the pane
+   * happens to be hosted.
+   */
+  defineSetting<boolean>({
+    key: 'view.tunedeckOpen',
+    scope: 'view',
+    default: false,
+    validate: booleanValue(),
+    category: 'interface',
+    label: 'Tunedeck open',
+    help: 'Whether the Tunedeck is showing beside the library on this machine.',
     internal: true
   }),
 

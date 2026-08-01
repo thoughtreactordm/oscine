@@ -227,3 +227,26 @@ describe('view.podcastTabs', () => {
     expect('focusEpisodeId' in stored).toBe(false)
   })
 })
+
+describe('view.tunedeckOpen', () => {
+  const KEY = 'view.tunedeckOpen'
+
+  it('starts closed', () => {
+    // A fresh profile has never asked for the deck, and a frame that opened one
+    // unprompted would be displacing the library to show an empty pane.
+    expect(resolveDefault(descriptor(KEY))).toBe(false)
+  })
+
+  it('restores an open deck', () => {
+    expect(resolved<boolean>(KEY, true)).toBe(true)
+  })
+
+  it('falls back rather than coercing a value that is merely truthy', () => {
+    // `'false'` is the one that matters: it is what a hand edit or a storage
+    // layer that stringifies would leave behind, and coercing it would open the
+    // deck to say the deck is closed.
+    expect(fallsBack(KEY, 'false')).toBe(true)
+    expect(resolved<boolean>(KEY, 'false')).toBe(false)
+    expect(fallsBack(KEY, 1)).toBe(true)
+  })
+})

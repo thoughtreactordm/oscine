@@ -6,6 +6,7 @@ import UpNextOverlay from '@renderer/panels/UpNextOverlay.vue'
 import { hasArtwork } from '@shared/ipc'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
+import { useTunedeckStore } from '@renderer/stores/tunedeck'
 
 /**
  * The transport island.
@@ -45,6 +46,9 @@ const queueLabel = computed(() => {
  * both. This panel never learns whether anything is listening.
  */
 const shell = useShellStore()
+
+/** The deck's toggle, for the same reason and by the same route. */
+const tunedeck = useTunedeckStore()
 
 /**
  * The cover to bleed behind the bar, or null when there is nothing worth
@@ -350,8 +354,22 @@ function onSeekInput(value: number | undefined): void {
       -->
       <PanelSettingsPopover :surface="playbackSettings" />
 
-      <UTooltip text="Open Tunedeck">
-        <UButton variant="ghost" size="lg" icon="i-tabler-device-audio-tape" />
+      <!--
+        A mode, like shuffle above it, so it announces a state rather than only
+        an action. The store is the entire coupling: this panel does not import
+        the deck and the deck does not import this panel, which is what lets
+        either be docked elsewhere later (D4, D15).
+      -->
+      <UTooltip :text="tunedeck.open ? 'Close Tunedeck' : 'Open Tunedeck'">
+        <UButton
+          variant="ghost"
+          size="lg"
+          icon="i-tabler-device-audio-tape"
+          :color="tunedeck.open ? 'primary' : 'neutral'"
+          :aria-pressed="tunedeck.open"
+          aria-label="Tunedeck"
+          @click="tunedeck.toggle()"
+        />
       </UTooltip>
     </div>
   </UCard>
