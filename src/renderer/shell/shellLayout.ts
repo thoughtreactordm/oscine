@@ -1,4 +1,5 @@
-import { computed, ref, type WritableComputedRef } from 'vue'
+import { computed, type WritableComputedRef } from 'vue'
+import type { ViewSettings } from '../settings/viewStore'
 import { clampPaneSize, type PaneSpec } from './paneResizer'
 
 /**
@@ -13,14 +14,24 @@ import { clampPaneSize, type PaneSpec } from './paneResizer'
  * showing through the UI.
  *
  * Split the way `columnLayout` is split: all of the behaviour is here, free of
- * Pinia and of `localStorage`, and `stores/shell.ts` is the one place the real
- * storage is bolted on. That is what lets the rules be tested without a DOM.
+ * Pinia and of storage, and `stores/shell.ts` is the one place the real view
+ * store is bolted on. That is what lets the rules be tested without a DOM.
  *
  * Persisted, unlike the cover pane's flag. A dragged sidebar is a layout the
  * user built and expects to find again; an expanded cover is a glance.
  */
 
-export const SHELL_LAYOUT_STORAGE_KEY = 'fermata.shellLayout.v1'
+/**
+ * One record of pane key to size, held by the view store.
+ *
+ * The record shape survived W8-3 rather than becoming a key per pane, because
+ * a pane's default, minimum and neighbour reserve are already stated once in
+ * its `PaneSpec` and a scalar descriptor would restate two of them. It is also
+ * what keeps a pane this build has never heard of: a pane an older binary does
+ * not know is a pane a newer one owns, and running the old one once should not
+ * discard the size the new one stored.
+ */
+export const SHELL_PANE_SIZES_KEY = 'view.shellPaneSizes'
 
 /**
  * The frame's sidebar.
@@ -58,115 +69,39 @@ export const SOURCES_ARTISTS_PANE: PaneSpec = {
   reserve: 176
 }
 
-export interface ShellLayoutStorage {
-  read(): string | null
-  write(value: string): void
-}
-
-/**
- * `localStorage`, guarded.
- *
- * A deliberate near-copy of `browserLayoutStorage` rather than an import of it,
- * for the reason `browserPlaylistSessionStorage` gives — and here with a second
- * one: this module is unit-tested, so it stays clear of the `@renderer` alias
- * that `tests/`' tsconfig does not map. Storage can fail on quota or with site
- * data disabled, and a pane width is not worth taking the frame down for.
- */
-export function browserShellLayoutStorage(
-  key: string = SHELL_LAYOUT_STORAGE_KEY
-): ShellLayoutStorage {
-  return {
-    read: () => {
-      try {
-        return globalThis.localStorage?.getItem(key) ?? null
-      } catch {
-        return null
-      }
-    },
-    write: (value) => {
-      try {
-        globalThis.localStorage?.setItem(key, value)
-      } catch {
-        // Nothing useful to do: the layout stays correct for this session.
-      }
-    }
-  }
-}
-
-export interface ShellLayoutState {
-  /** Pane sizes in CSS pixels, keyed by `PaneSpec.key`. */
-  paneSizes: Record<string, number>
-}
-
-export function defaultShellLayout(): ShellLayoutState {
-  return { paneSizes: {} }
-}
-
-/**
- * A stored layout, made safe to use.
- *
- * Unrecognised keys are kept rather than dropped. A pane this build has never
- * heard of is a pane a neighbouring build owns — running an older binary once
- * should not silently discard the sizes the newer one stored.
- *
- * Sizes are not clamped here. The bounds depend on the container, which is not
- * measured at the moment a layout is read; `sizeOf` clamps at the point of use,
- * where the measurement exists.
- */
-export function normalizeShellLayout(raw: unknown): ShellLayoutState {
-  const layout = defaultShellLayout()
-  if (typeof raw !== 'object' || raw === null) return layout
-
-  const sizes = (raw as { paneSizes?: unknown }).paneSizes
-  if (typeof sizes !== 'object' || sizes === null) return layout
-
-  for (const [key, value] of Object.entries(sizes)) {
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-      layout.paneSizes[key] = Math.round(value)
-    }
-  }
-  return layout
-}
-
 export interface ShellLayoutDeps {
-  storage?: ShellLayoutStorage
+  settings: ViewSettings
 }
 
-export function createShellLayout(deps: ShellLayoutDeps = {}) {
-  const storage = deps.storage
-  const state = ref<ShellLayoutState>(normalizeShellLayout(readStored()))
+export function createShellLayout(deps: ShellLayoutDeps) {
+  const settings = deps.settings
+  const paneSizes = settings.value<Record<string, number>>(SHELL_PANE_SIZES_KEY)
 
-  function readStored(): unknown {
-    const raw = storage?.read()
-    if (raw === null || raw === undefined) return null
-    try {
-      return JSON.parse(raw)
-    } catch {
-      return null
-    }
-  }
-
-  function persist(): void {
-    storage?.write(JSON.stringify(state.value))
-  }
-
-  /** The pane's size, or its default, held inside its bounds either way. */
+  /**
+   * The pane's size, or its default, held inside its bounds either way.
+   *
+   * Sizes are not clamped on the way out of storage. The bounds depend on the
+   * container, which is not measured at the moment a layout is read, so the
+   * descriptor validates that a size *is* a positive whole number of pixels and
+   * this clamps it to what will fit — at the point of use, where the
+   * measurement exists.
+   */
   function sizeOf(spec: PaneSpec, containerPx?: number): number {
-    return clampPaneSize(spec, state.value.paneSizes[spec.key] ?? spec.defaultSize, containerPx)
+    return clampPaneSize(spec, paneSizes.value[spec.key] ?? spec.defaultSize, containerPx)
   }
 
   function setSize(spec: PaneSpec, px: number, containerPx?: number): void {
     const next = clampPaneSize(spec, px, containerPx)
-    if (state.value.paneSizes[spec.key] === next) return
-    state.value.paneSizes[spec.key] = next
-    persist()
+    if (paneSizes.value[spec.key] === next) return
+    paneSizes.value = { ...paneSizes.value, [spec.key]: next }
   }
 
   /** Back to the default, and stop storing a size for it. */
   function resetSize(spec: PaneSpec): void {
-    if (!(spec.key in state.value.paneSizes)) return
-    delete state.value.paneSizes[spec.key]
-    persist()
+    if (!(spec.key in paneSizes.value)) return
+    const next = { ...paneSizes.value }
+    delete next[spec.key]
+    paneSizes.value = next
   }
 
   /**
@@ -185,7 +120,7 @@ export function createShellLayout(deps: ShellLayoutDeps = {}) {
     })
   }
 
-  return { paneSizes: state, sizeOf, setSize, resetSize, paneSize }
+  return { paneSizes, sizeOf, setSize, resetSize, paneSize }
 }
 
 export type ShellLayout = ReturnType<typeof createShellLayout>

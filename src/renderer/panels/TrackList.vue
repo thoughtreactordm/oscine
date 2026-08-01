@@ -673,10 +673,9 @@ function onGripDown(key: TrackColumnKey, event: PointerEvent): void {
 function onGripMove(event: PointerEvent): void {
   const state = resizing.value
   if (!state) return
-  // Not persisted per move — the layout is written once, on release.
-  columns.setWidth(state.key, state.startWidth + (event.clientX - state.startX), {
-    persist: false
-  })
+  // Written on every move; the view store's debounce is what keeps that off the
+  // per-frame path. `onGripUp` flushes so the release lands immediately.
+  columns.setWidth(state.key, state.startWidth + (event.clientX - state.startX))
 }
 
 function onGripUp(): void {

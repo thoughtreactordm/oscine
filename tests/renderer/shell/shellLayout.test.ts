@@ -1,95 +1,72 @@
 import { describe, expect, it } from 'vitest'
+import { createViewSettings, VIEW_STORAGE_PREFIX } from '../../../src/renderer/settings/viewStore'
 import {
   createScrollMemory,
   createShellLayout,
-  defaultShellLayout,
-  normalizeShellLayout,
   tabDirection,
   MAX_REMEMBERED_SCROLLS,
+  SHELL_PANE_SIZES_KEY,
   SIDEBAR_PANE,
-  SOURCES_ARTISTS_PANE,
-  type ShellLayoutStorage
+  SOURCES_ARTISTS_PANE
 } from '../../../src/renderer/shell/shellLayout'
+import { viewSettingsFixture } from '../settings/fixture'
 
-function memoryStorage(
-  initial: string | null = null
-): ShellLayoutStorage & { value: string | null; writes: number } {
-  return {
-    value: initial,
-    writes: 0,
-    read() {
-      return this.value
-    },
-    write(value: string) {
-      this.value = value
-      this.writes += 1
-    }
-  }
+/**
+ * The layout is one record in the view store now, so these build a real store
+ * over a memory area rather than a bespoke wrapper. What the store validates —
+ * that a size is a positive whole number of pixels, that an unknown pane key
+ * survives — is tested against the descriptor in `tests/shared/viewSettings`;
+ * what is left here is the part only a pane spec can answer.
+ */
+function shellLayout(paneSizes?: Record<string, unknown>) {
+  const fixture = viewSettingsFixture(
+    paneSizes === undefined ? {} : { [SHELL_PANE_SIZES_KEY]: paneSizes }
+  )
+  return { ...fixture, layout: createShellLayout({ settings: fixture.settings }) }
+}
+
+function storedSizes(storage: { read(key: string): string | null }): unknown {
+  const raw = storage.read(VIEW_STORAGE_PREFIX + SHELL_PANE_SIZES_KEY)
+  return raw === null ? null : (JSON.parse(raw) as { value: unknown }).value
 }
 
 describe('reading a stored layout', () => {
   it('starts from the defaults when there is nothing stored', () => {
-    const layout = createShellLayout({ storage: memoryStorage() })
-    expect(layout.sizeOf(SIDEBAR_PANE)).toBe(SIDEBAR_PANE.defaultSize)
+    expect(shellLayout().layout.sizeOf(SIDEBAR_PANE)).toBe(SIDEBAR_PANE.defaultSize)
   })
 
-  it('starts from the defaults when what is stored is not JSON', () => {
-    const layout = createShellLayout({ storage: memoryStorage('{ not json') })
+  it('starts from the defaults when what is stored is not an entry at all', () => {
+    const fixture = viewSettingsFixture()
+    fixture.storage.write(VIEW_STORAGE_PREFIX + SHELL_PANE_SIZES_KEY, '{ not json')
+    const layout = createShellLayout({ settings: fixture.settings })
     expect(layout.sizeOf(SIDEBAR_PANE)).toBe(320)
   })
 
   it('restores a size a previous session dragged', () => {
-    const layout = createShellLayout({
-      storage: memoryStorage(JSON.stringify({ paneSizes: { 'shell.sidebar': 412 } }))
-    })
-    expect(layout.sizeOf(SIDEBAR_PANE)).toBe(412)
+    expect(shellLayout({ 'shell.sidebar': 412 }).layout.sizeOf(SIDEBAR_PANE)).toBe(412)
   })
 
   it('holds a stored size inside the pane s bounds at the point of use', () => {
     // Bounds are not applied on read, because the container is not measured
     // then. A layout written by a build with a wider ceiling must still be safe.
-    const layout = createShellLayout({
-      storage: memoryStorage(JSON.stringify({ paneSizes: { 'shell.sidebar': 900 } }))
-    })
+    const { layout } = shellLayout({ 'shell.sidebar': 900 })
     expect(layout.sizeOf(SIDEBAR_PANE)).toBe(480)
     expect(layout.sizeOf(SIDEBAR_PANE, 940)).toBe(460)
-  })
-
-  it('drops sizes that are not usable numbers', () => {
-    const layout = normalizeShellLayout({
-      paneSizes: { a: 'wide', b: Number.NaN, c: -20, d: 0, e: 300 }
-    })
-    expect(layout.paneSizes).toEqual({ e: 300 })
-  })
-
-  it('keeps a pane it has never heard of', () => {
-    // A pane a newer build owns. Running the older binary once should not
-    // silently discard the size the newer one stored.
-    const layout = normalizeShellLayout({ paneSizes: { 'deck.queue': 260 } })
-    expect(layout.paneSizes['deck.queue']).toBe(260)
-  })
-
-  it('survives a stored value of the wrong shape entirely', () => {
-    expect(normalizeShellLayout(null)).toEqual(defaultShellLayout())
-    expect(normalizeShellLayout([1, 2, 3])).toEqual(defaultShellLayout())
-    expect(normalizeShellLayout({ paneSizes: 'wide' })).toEqual(defaultShellLayout())
   })
 })
 
 describe('writing a layout', () => {
   it('persists a clamped size', () => {
-    const storage = memoryStorage()
-    const layout = createShellLayout({ storage })
+    const { layout, storage } = shellLayout()
     layout.setSize(SIDEBAR_PANE, 9000)
     expect(layout.sizeOf(SIDEBAR_PANE)).toBe(480)
-    expect(JSON.parse(storage.value ?? '{}')).toEqual({ paneSizes: { 'shell.sidebar': 480 } })
+    expect(storedSizes(storage)).toEqual({ 'shell.sidebar': 480 })
   })
 
   it('does not write when the clamped size has not changed', () => {
     // A drag emits on every pointermove, and the last several of one that ran
     // past the ceiling all resolve to the same number.
-    const storage = memoryStorage()
-    const layout = createShellLayout({ storage })
+    const { layout, storage } = shellLayout()
     layout.setSize(SIDEBAR_PANE, 700)
     layout.setSize(SIDEBAR_PANE, 800)
     layout.setSize(SIDEBAR_PANE, 900)
@@ -97,16 +74,15 @@ describe('writing a layout', () => {
   })
 
   it('forgets a size on reset rather than storing the default', () => {
-    const storage = memoryStorage()
-    const layout = createShellLayout({ storage })
+    const { layout, storage } = shellLayout()
     layout.setSize(SIDEBAR_PANE, 400)
     layout.resetSize(SIDEBAR_PANE)
     expect(layout.sizeOf(SIDEBAR_PANE)).toBe(320)
-    expect(JSON.parse(storage.value ?? '{}')).toEqual({ paneSizes: {} })
+    expect(storedSizes(storage)).toEqual({})
   })
 
   it('keeps panes apart', () => {
-    const layout = createShellLayout({ storage: memoryStorage() })
+    const { layout } = shellLayout()
     layout.setSize(SIDEBAR_PANE, 400)
     layout.setSize(SOURCES_ARTISTS_PANE, 200)
     expect(layout.sizeOf(SIDEBAR_PANE)).toBe(400)
@@ -114,7 +90,7 @@ describe('writing a layout', () => {
   })
 
   it('reads and writes through one binding', () => {
-    const layout = createShellLayout({ storage: memoryStorage() })
+    const { layout } = shellLayout()
     const size = layout.paneSize(SIDEBAR_PANE)
     expect(size.value).toBe(320)
     size.value = 420
@@ -124,8 +100,8 @@ describe('writing a layout', () => {
 
   it('works with no storage at all', () => {
     // Which is what a docked pane in a test harness gets, and what the layout
-    // degrades to when `browserShellLayoutStorage` finds storage unavailable.
-    const layout = createShellLayout()
+    // degrades to when `browserViewStorage` finds storage unavailable.
+    const layout = createShellLayout({ settings: createViewSettings({ debounceMs: 0 }) })
     layout.setSize(SIDEBAR_PANE, 400)
     expect(layout.sizeOf(SIDEBAR_PANE)).toBe(400)
   })

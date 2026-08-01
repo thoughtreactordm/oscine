@@ -1,16 +1,16 @@
 ---
 taskId: 01KYWWWA83W72X3CAT388JY932
 title: 'Durable store — settings table, per-key migration, the settings.* IPC surface'
-status: todo
+status: in-review
 priority: high
 labels: []
 workstream: W8
 workstreamId: W8-2
 dependsOn:
   - 01KYWWVQQB80JQ6KK80HX96KYN
-order: 29
+order: 1
 created: '2026-07-31T20:12:03.713Z'
-updated: '2026-07-31T20:12:03.713Z'
+updated: '2026-08-01T03:23:24.315Z'
 ---
 The main-process half of the split: durable settings in SQLite, read by main before the window opens, exposed to the renderer over a typed channel.
 

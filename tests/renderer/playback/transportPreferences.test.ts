@@ -3,66 +3,74 @@ import {
   defaultTransportPreferences,
   readTransportPreferences,
   writeTransportPreferences,
-  type TransportStorage
+  TRANSPORT_REPEAT_KEY,
+  TRANSPORT_SHUFFLE_KEY
 } from '../../../src/renderer/playback/transportPreferences'
+import { storedValue, viewSettingsFixture } from '../settings/fixture'
 
-function storage(initial: string | null = null): TransportStorage & { value: string | null } {
-  return {
-    value: initial,
-    read() {
-      return this.value
-    },
-    write(next: string) {
-      this.value = next
-    }
-  }
-}
-
+/**
+ * Shuffle and repeat are two view-scoped keys now rather than one blob, so the
+ * degrading this file used to prove field by field is proved by the descriptors
+ * instead — see `tests/shared/settings`. What remains is the shape the
+ * controller wants them in, and the promise that a shuffle *sequence* is not
+ * among them.
+ */
 describe('transport preferences', () => {
   it('survives a round trip', () => {
-    const store = storage()
-    writeTransportPreferences(store, { repeat: 'one', shuffle: true })
-    expect(readTransportPreferences(store)).toEqual({ repeat: 'one', shuffle: true })
+    const { settings } = viewSettingsFixture()
+    writeTransportPreferences(settings, { repeat: 'one', shuffle: true })
+    expect(readTransportPreferences(settings)).toEqual({ repeat: 'one', shuffle: true })
   })
 
   it('defaults to off with nothing stored', () => {
-    expect(readTransportPreferences(storage())).toEqual({ repeat: 'off', shuffle: false })
+    const { settings } = viewSettingsFixture()
+    expect(readTransportPreferences(settings)).toEqual({ repeat: 'off', shuffle: false })
     expect(readTransportPreferences(undefined)).toEqual(defaultTransportPreferences())
+  })
+
+  /** Not a copy of the two defaults — the registry is where they are stated. */
+  it('takes its defaults from the registry', () => {
+    const { settings } = viewSettingsFixture()
+    expect(readTransportPreferences(settings)).toEqual(defaultTransportPreferences())
   })
 
   it('records no shuffle sequence', () => {
     // Design §5 rule 5 keeps traversal transient: switching shuffle on after a
     // restart reshuffles rather than resurrecting a sequence over a library
     // that may have been rescanned since.
-    const store = storage()
-    writeTransportPreferences(store, { repeat: 'all', shuffle: true })
-    expect(store.value).toBe('{"repeat":"all","shuffle":true}')
+    const { settings, storage } = viewSettingsFixture()
+    writeTransportPreferences(settings, { repeat: 'all', shuffle: true })
+    expect(storedValue(storage, TRANSPORT_REPEAT_KEY)).toBe('all')
+    expect(storedValue(storage, TRANSPORT_SHUFFLE_KEY)).toBe(true)
+    expect(storage.entries.size).toBe(2)
   })
 
+  /**
+   * Two keys rather than one blob is what makes this structural: the rejected
+   * repeat cannot take the good shuffle with it, because they were never in the
+   * same value.
+   */
   it('degrades field by field rather than discarding the lot', () => {
-    expect(readTransportPreferences(storage('{"repeat":"sideways","shuffle":true}'))).toEqual({
-      repeat: 'off',
-      shuffle: true
+    const { settings } = viewSettingsFixture({
+      [TRANSPORT_REPEAT_KEY]: 'sideways',
+      [TRANSPORT_SHUFFLE_KEY]: true
     })
-    expect(readTransportPreferences(storage('{"repeat":"one"}'))).toEqual({
-      repeat: 'one',
-      shuffle: false
-    })
-    expect(readTransportPreferences(storage('{"shuffle":"yes"}'))).toEqual({
-      repeat: 'off',
-      shuffle: false
-    })
+    expect(readTransportPreferences(settings)).toEqual({ repeat: 'off', shuffle: true })
   })
 
   it('survives storage that is not preferences at all', () => {
-    for (const stored of ['not json', 'null', '42', '[]', '"off"']) {
-      expect(readTransportPreferences(storage(stored))).toEqual(defaultTransportPreferences())
+    for (const stored of [null, 42, [], 'off', { repeat: 'one' }]) {
+      const { settings } = viewSettingsFixture({
+        [TRANSPORT_REPEAT_KEY]: stored,
+        [TRANSPORT_SHUFFLE_KEY]: stored
+      })
+      expect(readTransportPreferences(settings)).toEqual(defaultTransportPreferences())
     }
   })
 
   it('runs unbound', () => {
-    // Omitting storage is a supported configuration, not a degraded one — the
-    // modes simply last for the session.
+    // Omitting the view store is a supported configuration, not a degraded one
+    // — the modes simply last for the session.
     expect(() =>
       writeTransportPreferences(undefined, { repeat: 'all', shuffle: true })
     ).not.toThrow()

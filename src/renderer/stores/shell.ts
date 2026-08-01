@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { useViewSettings } from '@renderer/settings'
 import {
-  browserShellLayoutStorage,
   createScrollMemory,
   createShellLayout,
   tabDirection,
@@ -24,11 +24,11 @@ import {
  * mounting lifecycle can reach them.
  *
  * Thin on purpose. The behaviour is in `shell/shellLayout.ts`, which knows
- * nothing of Pinia or `localStorage`; this is the one place the real storage is
+ * nothing of Pinia or of storage; this is the one place the real view store is
  * bolted on, exactly as `trackColumns` does it.
  */
 export const useShellStore = defineStore('shell', () => {
-  const layout = createShellLayout({ storage: browserShellLayoutStorage() })
+  const layout = createShellLayout({ settings: useViewSettings() })
   const scroll = createScrollMemory()
 
   /**

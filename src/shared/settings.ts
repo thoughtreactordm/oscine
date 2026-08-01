@@ -15,6 +15,7 @@
 import { AUDIO_SETTINGS } from './settings/audio'
 import { INTERFACE_SETTINGS } from './settings/interface'
 import { LIBRARY_SETTINGS } from './settings/library'
+import { VIEW_SETTINGS } from './settings/view'
 import {
   migrateValue,
   resolveDefault,
@@ -30,6 +31,7 @@ export * from './settings/kernel'
 export * from './settings/scope'
 export type { AlbumArtSize, ThemeMode } from './settings/interface'
 export type { RepeatMode, ReplayGainMode } from './settings/audio'
+export type { StoredColumnLayout, TabSession } from './settings/view'
 
 /**
  * Every known key, in one list.
@@ -42,7 +44,8 @@ export type { RepeatMode, ReplayGainMode } from './settings/audio'
 export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = Object.freeze([
   ...AUDIO_SETTINGS,
   ...LIBRARY_SETTINGS,
-  ...INTERFACE_SETTINGS
+  ...INTERFACE_SETTINGS,
+  ...VIEW_SETTINGS
 ])
 
 function indexByKey(
@@ -61,11 +64,30 @@ export function settingsInScope(scope: SettingScope): readonly SettingDescriptor
   return SETTINGS_REGISTRY.filter((descriptor) => descriptor.scope === scope)
 }
 
-/** Descriptors for one category rail entry, in display order. */
+/**
+ * One key's default, for code that needs it without a store.
+ *
+ * Throws on an unknown key rather than returning undefined: the caller is
+ * naming a key it believes in, and a typo that silently produced `undefined`
+ * would surface as a broken control three layers away.
+ */
+export function settingDefault<T>(key: string): T {
+  const descriptor = getSetting(key)
+  if (!descriptor) throw new RangeError(`unknown setting: ${key}`)
+  return resolveDefault(descriptor) as T
+}
+
+/**
+ * Descriptors for one category rail entry, in display order.
+ *
+ * Internal keys are not among them. They carry a category so that a reset by
+ * category reaches them — closing every tab is part of resetting Interface —
+ * but they have no control and so no row to place.
+ */
 export function settingsInCategory(category: SettingCategoryId): readonly SettingDescriptor[] {
-  return SETTINGS_REGISTRY.filter((descriptor) => descriptor.category === category).sort(
-    (a, b) => a.order - b.order
-  )
+  return SETTINGS_REGISTRY.filter(
+    (descriptor) => descriptor.category === category && !descriptor.internal
+  ).sort((a, b) => a.order - b.order)
 }
 
 /** Every key's default, optionally narrowed to one scope. */
@@ -100,7 +122,7 @@ export interface SettingsResolution {
  * Resolve a whole store in one pass.
  *
  * `scope` narrows which descriptors participate — main resolves `durable` from
- * SQLite, the renderer resolves `view` from localStorage — but a stored key
+ * SQLite, the renderer resolves `view` from its own view store — but a stored key
  * belonging to the *other* scope is still not "unknown", so it lands in neither
  * `values` nor `unknown` and is left for the store that owns it.
  *
@@ -161,12 +183,16 @@ export function auditRegistry(
     if (seen.has(descriptor.key)) problems.push(`duplicate key: ${descriptor.key}`)
     seen.add(descriptor.key)
 
-    const slot = `${descriptor.category}#${descriptor.order}`
-    const holder = slots.get(slot)
-    if (holder) {
-      problems.push(`${descriptor.key} and ${holder} both sit at ${slot}`)
-    } else {
-      slots.set(slot, descriptor.key)
+    // Internal keys have no row, so two of them sharing an order is not a
+    // collision — there is nothing to collide.
+    if (!descriptor.internal) {
+      const slot = `${descriptor.category}#${descriptor.order}`
+      const holder = slots.get(slot)
+      if (holder) {
+        problems.push(`${descriptor.key} and ${holder} both sit at ${slot}`)
+      } else {
+        slots.set(slot, descriptor.key)
+      }
     }
 
     if (!SETTING_CATEGORIES.some((c) => c.id === descriptor.category)) {

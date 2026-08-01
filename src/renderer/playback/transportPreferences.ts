@@ -1,4 +1,6 @@
-import { isRepeatMode, type RepeatMode } from './traversal'
+import { settingDefault } from '@shared/settings'
+import type { ViewSettings } from '../settings/viewStore'
+import type { RepeatMode } from './traversal'
 
 /**
  * The two transport settings that outlive a session.
@@ -10,77 +12,45 @@ import { isRepeatMode, type RepeatMode } from './traversal'
  * than resurrecting last week's sequence, which is also the only honest thing
  * to do when the library may have been rescanned in between.
  *
- * Renderer-local storage rather than the library database, matching the column
- * layout: this is interface state, and it has no business in a file that is
- * meant to survive being copied between machines.
+ * View-scoped rather than durable: which order you left the transport in is a
+ * fact about this window on this machine, and it has no business in a file that
+ * is meant to survive being copied between machines.
+ *
+ * What is left of this module is two key names and the shape the controller
+ * wants them in. The guard, the JSON and the field-by-field degrading are gone
+ * — W8-3 moved the first two into the view store and the third into the two
+ * descriptors, which is why `{"repeat":"sideways","shuffle":true}` still yields
+ * a kept shuffle and a reset repeat: they are separate keys now, and one being
+ * rejected cannot take the other with it.
  */
+
+export const TRANSPORT_REPEAT_KEY = 'playback.repeat'
+export const TRANSPORT_SHUFFLE_KEY = 'playback.shuffle'
 
 export interface TransportPreferences {
   repeat: RepeatMode
   shuffle: boolean
 }
 
-export interface TransportStorage {
-  read(): string | null
-  write(value: string): void
-}
-
-export const TRANSPORT_PREFERENCES_KEY = 'fermata.transport'
-
 export function defaultTransportPreferences(): TransportPreferences {
-  return { repeat: 'off', shuffle: false }
-}
-
-/**
- * `localStorage`, guarded.
- *
- * A deliberate near-copy of `browserLayoutStorage` rather than an import of
- * it: panels are islands, and playback reaching into `panels/` for a helper
- * would be the first thread of exactly the coupling D4 exists to prevent. The
- * failure behaviour is the same and for the same reason — storage can fail on
- * quota or with site data disabled, and a repeat mode is not worth taking the
- * transport down for.
- */
-export function browserTransportStorage(key = TRANSPORT_PREFERENCES_KEY): TransportStorage {
   return {
-    read: () => {
-      try {
-        return globalThis.localStorage?.getItem(key) ?? null
-      } catch {
-        return null
-      }
-    },
-    write: (value) => {
-      try {
-        globalThis.localStorage?.setItem(key, value)
-      } catch {
-        // Nothing useful to do: the modes stay correct for this session.
-      }
-    }
+    repeat: settingDefault<RepeatMode>(TRANSPORT_REPEAT_KEY),
+    shuffle: settingDefault<boolean>(TRANSPORT_SHUFFLE_KEY)
   }
 }
 
-/** Anything unrecognised degrades to the default, field by field. */
-export function readTransportPreferences(storage?: TransportStorage): TransportPreferences {
-  const stored = storage?.read()
-  if (stored === null || stored === undefined) return defaultTransportPreferences()
-
-  try {
-    const parsed: unknown = JSON.parse(stored)
-    if (typeof parsed !== 'object' || parsed === null) return defaultTransportPreferences()
-    const candidate = parsed as Partial<Record<keyof TransportPreferences, unknown>>
-    return {
-      repeat: isRepeatMode(candidate.repeat) ? candidate.repeat : 'off',
-      shuffle: candidate.shuffle === true
-    }
-  } catch {
-    return defaultTransportPreferences()
+export function readTransportPreferences(settings?: ViewSettings): TransportPreferences {
+  if (!settings) return defaultTransportPreferences()
+  return {
+    repeat: settings.get<RepeatMode>(TRANSPORT_REPEAT_KEY),
+    shuffle: settings.get<boolean>(TRANSPORT_SHUFFLE_KEY)
   }
 }
 
 export function writeTransportPreferences(
-  storage: TransportStorage | undefined,
+  settings: ViewSettings | undefined,
   preferences: TransportPreferences
 ): void {
-  storage?.write(JSON.stringify(preferences))
+  settings?.set(TRANSPORT_REPEAT_KEY, preferences.repeat)
+  settings?.set(TRANSPORT_SHUFFLE_KEY, preferences.shuffle)
 }

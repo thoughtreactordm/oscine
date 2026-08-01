@@ -4,7 +4,7 @@ import { library, playlists } from '@renderer/ipc'
 import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMediaSession'
 import { createPlaybackController } from '@renderer/playback/controller'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
-import { browserTransportStorage } from '@renderer/playback/transportPreferences'
+import { useViewSettings } from '@renderer/settings'
 
 /**
  * Playback state for the whole app: what is loaded, where it has reached, and
@@ -38,7 +38,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     fetchTrackIds: (query) => library.listTrackIds(query),
     fetchTracksByIds: (query) => library.getTracksByIds(query),
     // Shuffle and repeat survive a restart; the shuffle sequence does not.
-    storage: browserTransportStorage(),
+    settings: useViewSettings(),
     ...(mediaSessionPlatform
       ? {
           createMediaSession: ({ state, transport }) =>

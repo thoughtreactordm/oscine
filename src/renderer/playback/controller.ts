@@ -64,11 +64,8 @@ import {
  * nothing at either end of the IPC.
  */
 export const SESSION_QUEUE_CAP = 5000
-import {
-  readTransportPreferences,
-  writeTransportPreferences,
-  type TransportStorage
-} from './transportPreferences'
+import type { ViewSettings } from '../settings/viewStore'
+import { readTransportPreferences, writeTransportPreferences } from './transportPreferences'
 
 /**
  * The bridge between the `AudioEngine` and the UI.
@@ -138,10 +135,11 @@ export interface PlaybackControllerDeps {
     transport: MediaSessionTransport
   }) => MediaSessionBinding
   /**
-   * Where shuffle and repeat are remembered. Omitting it is supported and
-   * means the modes last for the session, which is what the tests want.
+   * Where shuffle and repeat are remembered — the renderer's view store.
+   * Omitting it is supported and means the modes last for the session, which
+   * is what the tests want.
    */
-  storage?: TransportStorage
+  settings?: ViewSettings
   /**
    * The seed for a shuffle, drawn each time shuffle is switched on so that off
    * and on again reshuffles. Injected only so a test can assert a sequence.
@@ -265,7 +263,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    */
   const playingPlaylistId = ref<number | null>(null)
 
-  const preferences = readTransportPreferences(deps.storage)
+  const preferences = readTransportPreferences(deps.settings)
   const repeatMode = ref<RepeatMode>(preferences.repeat)
   const shuffleEnabled = ref(preferences.shuffle)
 
@@ -873,7 +871,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   }
 
   function persistPreferences(): void {
-    writeTransportPreferences(deps.storage, {
+    writeTransportPreferences(deps.settings, {
       repeat: repeatMode.value,
       shuffle: shuffleEnabled.value
     })

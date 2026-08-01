@@ -16,7 +16,8 @@
  *
  * `durable` means the SQLite settings table: main can read it before the window
  * exists, and W8-8's export bundle carries it between machines. `view` means
- * localStorage: window geometry, pane widths, the shuffle toggle — state that
+ * the renderer's own local storage: window geometry, pane widths, the shuffle
+ * toggle — state that
  * is *about this machine* and would be actively wrong to sync.
  */
 export type SettingScope = 'durable' | 'view'
@@ -118,14 +119,29 @@ export interface SettingDefinition<T> {
   validate: SettingValidator<T>
   /** Entity kinds this key accepts per-entity overrides on. Durable keys only. */
   cascade?: readonly SettingEntityKind[]
-  control: SettingControl<T>
+  /** Required unless `internal`. */
+  control?: SettingControl<T>
   category: SettingCategoryId
   label: string
   help: string
   /** Extra search terms for W8-4 beyond the key, label and help. */
   keywords?: readonly string[]
-  /** Position within the category. */
-  order: number
+  /** Position within the category. Required unless `internal`. */
+  order?: number
+  /**
+   * State the registry owns but nobody sets by hand.
+   *
+   * Column widths, open tabs, dragged pane sizes: values with a default, a
+   * shape and a validator — everything a descriptor is for — but no row on the
+   * settings view, because the control that edits them is the table header and
+   * the tab strip. W8-3 absorbed them so that "what a stored blob may contain"
+   * is answered in one place rather than five, not so they could grow a second
+   * editor. W8-6 renders `settingsInCategory` minus these.
+   *
+   * An internal key needs no `control` and no `order`, and is exempt from the
+   * one-key-per-category-slot audit that only exists to keep the rail tidy.
+   */
+  internal?: boolean
   /** Presentation flags. Neither changes what the key does. */
   advanced?: boolean
   requiresRestart?: boolean
@@ -140,12 +156,14 @@ export interface SettingDescriptor<T = unknown> {
   readonly upgrade: SettingUpgrade | null
   readonly validate: SettingValidator<T>
   readonly cascade: readonly SettingEntityKind[]
-  readonly control: SettingControl<T>
+  /** Null exactly when `internal`. */
+  readonly control: SettingControl<T> | null
   readonly category: SettingCategoryId
   readonly label: string
   readonly help: string
   readonly keywords: readonly string[]
   readonly order: number
+  readonly internal: boolean
   readonly advanced: boolean
   readonly requiresRestart: boolean
 }
@@ -175,7 +193,8 @@ export function defineSetting<T>(definition: SettingDefinition<T>): SettingDescr
     label,
     help,
     keywords = [],
-    order,
+    order = 0,
+    internal = false,
     advanced = false,
     requiresRestart = false
   } = definition
@@ -194,6 +213,10 @@ export function defineSetting<T>(definition: SettingDefinition<T>): SettingDescr
   if (cascade.length && scope !== 'durable') fail('cascade requires durable scope')
   if (new Set(cascade).size !== cascade.length) fail('cascade lists an entity kind twice')
   if (!SETTING_CATEGORIES.some((c) => c.id === category)) fail(`unknown category "${category}"`)
+  if (!internal && !control) fail('control is required unless the key is internal')
+  if (!internal && definition.order === undefined)
+    fail('order is required unless the key is internal')
+  if (internal && control) fail('an internal key has no row to render, so it takes no control')
 
   let checked: SettingValidation<T>
   try {
@@ -209,13 +232,13 @@ export function defineSetting<T>(definition: SettingDefinition<T>): SettingDescr
     fail(`default is repaired by its own validate to ${JSON.stringify(checked.value)}`)
   }
 
-  if (control.kind === 'select') {
+  if (control?.kind === 'select') {
     if (!control.options.length) fail('a select control needs at least one option')
     if (!control.options.some((o) => sameValue(o.value, definition.default))) {
       fail('the default is not one of the select options')
     }
   }
-  if (control.kind === 'custom' && !control.component.trim()) {
+  if (control?.kind === 'custom' && !control.component.trim()) {
     fail('a custom control must name a component')
   }
 
@@ -227,12 +250,13 @@ export function defineSetting<T>(definition: SettingDefinition<T>): SettingDescr
     upgrade: upgrade ?? null,
     validate,
     cascade: Object.freeze([...cascade]),
-    control,
+    control: control ?? null,
     category,
     label,
     help,
     keywords: Object.freeze([...keywords]),
     order,
+    internal,
     advanced,
     requiresRestart
   })

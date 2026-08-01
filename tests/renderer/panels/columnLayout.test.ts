@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import type { StoredColumnLayout } from '@shared/settings'
 import {
   createColumnLayout,
   defaultColumnLayout,
   isSortableColumn,
   normalizeColumnLayout,
   TRACK_COLUMNS,
-  type LayoutStorage,
+  TRACK_COLUMNS_KEY,
   type TrackColumnKey
 } from '../../../src/renderer/panels/columnLayout'
+import { createViewSettings } from '../../../src/renderer/settings/viewStore'
+import { viewSettingsFixture } from '../settings/fixture'
 import { TRACK_SORT_COLUMNS } from '../../../src/shared/library'
 
 /**
@@ -16,19 +19,20 @@ import { TRACK_SORT_COLUMNS } from '../../../src/shared/library'
  *
  * The interesting cases are all about coming *back*: what a stale, truncated or
  * hand-edited blob does to a table that has no other way to get its columns
- * back. So the storage here is a plain object, and several tests deliberately
- * feed it nonsense.
+ * back. Which of those a stored blob even *is* — three lists of strings and
+ * numbers — is now the descriptor's answer and is tested in
+ * `tests/shared/viewSettings`; what stays here is every rule that needs the
+ * catalogue below it.
  */
-function fakeStorage(initial: string | null = null): LayoutStorage & { value: string | null } {
-  return {
-    value: initial,
-    read() {
-      return this.value
-    },
-    write(next: string) {
-      this.value = next
-    }
-  }
+function stored(layout: Partial<StoredColumnLayout>): StoredColumnLayout {
+  return { order: [], hidden: [], widths: {}, ...layout }
+}
+
+function columnLayout(seed?: Partial<StoredColumnLayout>) {
+  const fixture = viewSettingsFixture(
+    seed === undefined ? {} : { [TRACK_COLUMNS_KEY]: stored(seed) }
+  )
+  return { ...fixture, layout: createColumnLayout({ settings: fixture.settings }) }
 }
 
 function visibleKeys(layout: ReturnType<typeof createColumnLayout>): TrackColumnKey[] {
@@ -46,8 +50,7 @@ describe('column catalogue', () => {
   })
 
   it('starts with the five columns W4-1 shipped', () => {
-    const layout = createColumnLayout()
-    expect(visibleKeys(layout)).toEqual(DEFAULT_VISIBLE)
+    expect(visibleKeys(columnLayout().layout)).toEqual(DEFAULT_VISIBLE)
   })
 
   it('gives every column a width no smaller than its minimum', () => {
@@ -58,18 +61,18 @@ describe('column catalogue', () => {
 })
 
 describe('normalizeColumnLayout', () => {
-  it('falls back to the defaults for anything that is not a layout', () => {
-    for (const raw of [null, undefined, 42, 'columns', [], { order: 'title' }]) {
-      expect(normalizeColumnLayout(raw)).toEqual(defaultColumnLayout())
-    }
+  it('is the default set for a profile that has never configured its columns', () => {
+    expect(normalizeColumnLayout(null)).toEqual(defaultColumnLayout())
   })
 
   it('drops keys it does not recognise and duplicates', () => {
-    const layout = normalizeColumnLayout({
-      order: ['title', 'bitrate', 'title', 'artist'],
-      hidden: ['album', 'lyrics'],
-      widths: { title: 400, mood: 100 }
-    })
+    const layout = normalizeColumnLayout(
+      stored({
+        order: ['title', 'bitrate', 'title', 'artist'],
+        hidden: ['album', 'lyrics'],
+        widths: { title: 400, mood: 100 }
+      })
+    )
 
     expect(layout.order.slice(0, 2)).toEqual(['title', 'artist'])
     expect(layout.order).not.toContain('bitrate')
@@ -80,64 +83,61 @@ describe('normalizeColumnLayout', () => {
 
   it('appends columns a newer build added rather than losing them', () => {
     // A layout written before `codec` existed.
-    const layout = normalizeColumnLayout({ order: ['title', 'artist'] })
+    const layout = normalizeColumnLayout(stored({ order: ['title', 'artist'] }))
     expect(layout.order).toHaveLength(TRACK_COLUMNS.length)
     expect(layout.order.slice(0, 2)).toEqual(['title', 'artist'])
     expect(layout.order).toContain('codec')
   })
 
   it('refuses a layout that would hide every column', () => {
-    const layout = normalizeColumnLayout({
-      hidden: TRACK_COLUMNS.map((column) => column.key)
-    })
+    const layout = normalizeColumnLayout(
+      stored({ hidden: TRACK_COLUMNS.map((column) => column.key) })
+    )
     expect(layout.hidden).toEqual(defaultColumnLayout().hidden)
   })
 
   it('clamps a stored width to the column minimum', () => {
-    const layout = normalizeColumnLayout({ widths: { title: 4, artist: 100_000 } })
+    const layout = normalizeColumnLayout(stored({ widths: { title: 4, artist: 100_000 } }))
     const title = TRACK_COLUMNS.find((column) => column.key === 'title')!
     expect(layout.widths.title).toBe(title.minWidth)
     expect(layout.widths.artist).toBe(800)
   })
 
-  it('ignores a width that is not a finite number', () => {
-    const layout = normalizeColumnLayout({ widths: { title: 'wide', artist: null } })
+  it('ignores a width for a column it does not have', () => {
+    const layout = normalizeColumnLayout(stored({ widths: { mood: 120 } }))
     expect(layout.widths).toEqual({})
   })
 })
 
 describe('createColumnLayout', () => {
   it('survives a restart', () => {
-    const storage = fakeStorage()
-    const first = createColumnLayout({ storage })
+    const { storage, settings, layout: first } = columnLayout()
 
     first.toggleVisible('year')
     first.toggleVisible('album')
     first.setWidth('title', 420)
     first.move('artist', -1)
+    settings.flush()
     const expected = visibleKeys(first)
 
-    // A second instance is what the next launch of the app gets.
-    const second = createColumnLayout({ storage })
+    // A second instance over the same storage is what the next launch gets.
+    const second = createColumnLayout({
+      settings: createViewSettings({ storage, debounceMs: 0 })
+    })
     expect(visibleKeys(second)).toEqual(expected)
     expect(second.widthOf('title')).toBe(420)
     expect(second.isVisible('year')).toBe(true)
     expect(second.isVisible('album')).toBe(false)
   })
 
-  it('starts from the defaults when storage holds something unparseable', () => {
-    const layout = createColumnLayout({ storage: fakeStorage('{not json') })
-    expect(visibleKeys(layout)).toEqual(DEFAULT_VISIBLE)
-  })
-
   it('works with no storage at all', () => {
-    const layout = createColumnLayout()
+    const layout = createColumnLayout({ settings: createViewSettings({ debounceMs: 0 }) })
     layout.toggleVisible('year')
     expect(layout.isVisible('year')).toBe(true)
   })
 
   it('refuses to hide the last visible column', () => {
-    const layout = createColumnLayout({ storage: fakeStorage() })
+    const { layout } = columnLayout()
     for (const key of DEFAULT_VISIBLE.slice(0, 4)) expect(layout.toggleVisible(key)).toBe(true)
     expect(visibleKeys(layout)).toEqual(['durationSec'])
 
@@ -146,8 +146,7 @@ describe('createColumnLayout', () => {
   })
 
   it('steps a column past its visible neighbour, not its hidden one', () => {
-    const storage = fakeStorage()
-    const layout = createColumnLayout({ storage })
+    const { layout } = columnLayout()
 
     // `albumArtist` sits between `durationSec` and the rest in the default order
     // but is hidden, so one step must move `durationSec` past `album`.
@@ -156,7 +155,7 @@ describe('createColumnLayout', () => {
   })
 
   it('will not move a column off either end, or a hidden one at all', () => {
-    const layout = createColumnLayout({ storage: fakeStorage() })
+    const { layout } = columnLayout()
 
     expect(layout.move('trackNo', -1)).toBe(false)
     expect(layout.move('durationSec', 1)).toBe(false)
@@ -165,7 +164,7 @@ describe('createColumnLayout', () => {
   })
 
   it('drops a column before or after the one it was dropped on', () => {
-    const layout = createColumnLayout({ storage: fakeStorage() })
+    const { layout } = columnLayout()
 
     expect(layout.moveBefore('title', 'durationSec', true)).toBe(true)
     expect(visibleKeys(layout)).toEqual(['trackNo', 'artist', 'album', 'durationSec', 'title'])
@@ -176,22 +175,28 @@ describe('createColumnLayout', () => {
     expect(layout.moveBefore('title', 'title', true)).toBe(false)
   })
 
-  it('holds a width steady while a drag is in progress, then commits it', () => {
-    const storage = fakeStorage()
-    const layout = createColumnLayout({ storage })
+  /**
+   * A drag used to be held out of storage by a `persist: false` flag. The view
+   * store debounces instead, so every caller says the same thing and the
+   * coalescing happens once, below — see `tests/renderer/settings/viewStore`.
+   */
+  it('commits a dragged width on release', () => {
+    const { storage, layout } = columnLayout()
 
-    layout.setWidth('title', 300, { persist: false })
-    layout.setWidth('title', 340, { persist: false })
+    layout.setWidth('title', 300)
+    layout.setWidth('title', 340)
     expect(layout.widthOf('title')).toBe(340)
-    // Nothing written yet: a drag is not a decision until the pointer is released.
-    expect(storage.value).toBeNull()
 
     layout.persist()
-    expect(createColumnLayout({ storage }).widthOf('title')).toBe(340)
+    expect(
+      createColumnLayout({ settings: createViewSettings({ storage, debounceMs: 0 }) }).widthOf(
+        'title'
+      )
+    ).toBe(340)
   })
 
   it('reports the total width of the visible columns only', () => {
-    const layout = createColumnLayout({ storage: fakeStorage() })
+    const { layout } = columnLayout()
     const expected = DEFAULT_VISIBLE.reduce((sum, key) => sum + layout.widthOf(key), 0)
     expect(layout.totalWidth.value).toBe(expected)
 
@@ -200,8 +205,7 @@ describe('createColumnLayout', () => {
   })
 
   it('restores the documented default set on reset', () => {
-    const storage = fakeStorage()
-    const layout = createColumnLayout({ storage })
+    const { storage, layout } = columnLayout()
 
     layout.toggleVisible('album')
     layout.toggleVisible('codec')
@@ -213,12 +217,16 @@ describe('createColumnLayout', () => {
     expect(layout.widthOf('title')).toBe(
       TRACK_COLUMNS.find((column) => column.key === 'title')!.defaultWidth
     )
-    // The reset is persisted, so it is still the default after a restart.
-    expect(visibleKeys(createColumnLayout({ storage }))).toEqual(DEFAULT_VISIBLE)
+    // The stored layout is forgotten rather than replaced with today's
+    // defaults, so a build that adds a column reaches a table that was reset
+    // before it existed — and it is still the default after a restart.
+    expect(
+      visibleKeys(createColumnLayout({ settings: createViewSettings({ storage, debounceMs: 0 }) }))
+    ).toEqual(DEFAULT_VISIBLE)
   })
 
   it('keeps the sort usable when its column is hidden', () => {
-    const layout = createColumnLayout({ storage: fakeStorage() })
+    const { layout } = columnLayout()
 
     // Hiding the sorted column changes nothing about the layout's knowledge of
     // it — the panel keeps sorting, and the chooser can still name and change it.

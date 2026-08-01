@@ -1,107 +1,85 @@
 import { describe, expect, it } from 'vitest'
-import type { LayoutStorage } from '../../../src/renderer/panels/columnLayout'
+import { settingDefault } from '@shared/settings'
 import {
   ALBUM_ART_SIZES,
   ALBUM_ART_SIZE_KEYS,
   createGroupingPreference,
-  defaultGroupingPreference,
-  normalizeGroupingPreference
+  GROUPING_ART_SIZE_KEY,
+  GROUPING_ENABLED_KEY
 } from '../../../src/renderer/panels/groupingLayout'
+import { createViewSettings, VIEW_STORAGE_PREFIX } from '../../../src/renderer/settings/viewStore'
+import { storedValue, viewSettingsFixture } from '../settings/fixture'
 
-/** Records what was written, so persistence is checked rather than assumed. */
-function memoryStorage(initial: string | null = null): LayoutStorage & { value: string | null } {
-  return {
-    value: initial,
-    read(): string | null {
-      return this.value
-    },
-    write(next: string): void {
-      this.value = next
-    }
-  }
+/**
+ * The two settings are two keys now, so what used to be one
+ * `normalizeGroupingPreference` over a `{enabled, artSize}` blob is two
+ * descriptors — which is what makes "one bad field does not discard a good one"
+ * structural rather than something this module has to remember to do. The
+ * degrading itself is tested against the descriptors in `tests/shared/settings`.
+ *
+ * What is left here is the geometry, which is the only part of grouping that is
+ * a renderer concern at all.
+ */
+function grouping(seed: Readonly<Record<string, unknown>> = {}) {
+  const fixture = viewSettingsFixture(seed)
+  return { ...fixture, grouping: createGroupingPreference({ settings: fixture.settings }) }
 }
 
-describe('normalizeGroupingPreference', () => {
-  it('defaults to grouped with small sleeves', () => {
-    expect(defaultGroupingPreference()).toEqual({ enabled: true, artSize: 'small' })
-  })
-
-  it('keeps a valid stored preference', () => {
-    expect(normalizeGroupingPreference({ enabled: false, artSize: 'large' })).toEqual({
-      enabled: false,
-      artSize: 'large'
-    })
-  })
-
-  it.each([null, undefined, 42, 'large', [], true])('falls back for %p', (value) => {
-    expect(normalizeGroupingPreference(value)).toEqual(defaultGroupingPreference())
-  })
-
-  /**
-   * Field by field, so a blob from a version that adds a third setting still
-   * yields the two this version knows — and one bad field does not discard a
-   * good one beside it.
-   */
-  it('repairs a field without discarding the others', () => {
-    expect(normalizeGroupingPreference({ enabled: false, artSize: 'enormous' })).toEqual({
-      enabled: false,
-      artSize: 'small'
-    })
-    expect(normalizeGroupingPreference({ enabled: 'yes', artSize: 'medium' })).toEqual({
-      enabled: true,
-      artSize: 'medium'
-    })
-    expect(normalizeGroupingPreference({ artSize: 'large', future: 'ignored' })).toEqual({
-      enabled: true,
-      artSize: 'large'
-    })
-  })
-})
-
 describe('createGroupingPreference', () => {
-  it('starts from the defaults with no stored value', () => {
-    const grouping = createGroupingPreference()
-    expect(grouping.enabled.value).toBe(true)
-    expect(grouping.artSize.value).toBe('small')
-    expect(grouping.artPx.value).toBe(ALBUM_ART_SIZES.small.art)
-    expect(grouping.rowPx.value).toBe(ALBUM_ART_SIZES.small.row)
+  it('starts from the registry s defaults with no stored value', () => {
+    const { grouping: preference } = grouping()
+    expect(preference.enabled.value).toBe(settingDefault(GROUPING_ENABLED_KEY))
+    expect(preference.artSize.value).toBe(settingDefault(GROUPING_ART_SIZE_KEY))
+    expect(preference.artPx.value).toBe(ALBUM_ART_SIZES.small.art)
+    expect(preference.rowPx.value).toBe(ALBUM_ART_SIZES.small.row)
   })
 
   it('restores what was stored', () => {
-    const storage = memoryStorage(JSON.stringify({ enabled: false, artSize: 'large' }))
-    const grouping = createGroupingPreference({ storage })
-    expect(grouping.enabled.value).toBe(false)
-    expect(grouping.artSize.value).toBe('large')
-    expect(grouping.rowPx.value).toBe(ALBUM_ART_SIZES.large.row)
+    const { grouping: preference } = grouping({
+      [GROUPING_ENABLED_KEY]: false,
+      [GROUPING_ART_SIZE_KEY]: 'large'
+    })
+    expect(preference.enabled.value).toBe(false)
+    expect(preference.artSize.value).toBe('large')
+    expect(preference.rowPx.value).toBe(ALBUM_ART_SIZES.large.row)
   })
 
-  it('survives a blob that is not JSON at all', () => {
-    const grouping = createGroupingPreference({ storage: memoryStorage('{ not json') })
-    expect(grouping.enabled.value).toBe(true)
-    expect(grouping.artSize.value).toBe('small')
+  it('survives an entry that is not JSON at all', () => {
+    const fixture = viewSettingsFixture()
+    fixture.storage.write(VIEW_STORAGE_PREFIX + GROUPING_ART_SIZE_KEY, '{ not json')
+    const preference = createGroupingPreference({
+      settings: createViewSettings({ storage: fixture.storage, debounceMs: 0 })
+    })
+    expect(preference.enabled.value).toBe(true)
+    expect(preference.artSize.value).toBe('small')
   })
 
   it('persists a toggle', () => {
-    const storage = memoryStorage()
-    const grouping = createGroupingPreference({ storage })
+    const { grouping: preference, storage } = grouping()
 
-    grouping.toggleEnabled()
-    expect(grouping.enabled.value).toBe(false)
-    expect(JSON.parse(storage.value!)).toEqual({ enabled: false, artSize: 'small' })
+    preference.toggleEnabled()
+    expect(preference.enabled.value).toBe(false)
+    expect(storedValue(storage, GROUPING_ENABLED_KEY)).toBe(false)
 
-    grouping.toggleEnabled()
-    expect(grouping.enabled.value).toBe(true)
+    preference.toggleEnabled()
+    expect(preference.enabled.value).toBe(true)
   })
 
   it.each(ALBUM_ART_SIZE_KEYS)('persists the %s sleeve size and its geometry', (size) => {
-    const storage = memoryStorage()
-    const grouping = createGroupingPreference({ storage })
+    const { grouping: preference, storage } = grouping()
 
-    grouping.setArtSize(size)
-    expect(grouping.artSize.value).toBe(size)
-    expect(grouping.artPx.value).toBe(ALBUM_ART_SIZES[size].art)
-    expect(grouping.rowPx.value).toBe(ALBUM_ART_SIZES[size].row)
-    expect(JSON.parse(storage.value!).artSize).toBe(size)
+    preference.setArtSize(size)
+    expect(preference.artSize.value).toBe(size)
+    expect(preference.artPx.value).toBe(ALBUM_ART_SIZES[size].art)
+    expect(preference.rowPx.value).toBe(ALBUM_ART_SIZES[size].row)
+
+    // Asserted through a second store rather than against the stored entry:
+    // choosing the size that is already the default writes nothing, which is
+    // the point of forgetting an unoverridden key rather than storing it.
+    const next = createGroupingPreference({
+      settings: createViewSettings({ storage, debounceMs: 0 })
+    })
+    expect(next.artSize.value).toBe(size)
   })
 
   /**
@@ -110,38 +88,40 @@ describe('createGroupingPreference', () => {
    * later.
    */
   it('turns grouping on when a size is chosen', () => {
-    const grouping = createGroupingPreference({ storage: memoryStorage() })
-    grouping.setEnabled(false)
+    const { grouping: preference } = grouping()
+    preference.setEnabled(false)
 
-    grouping.setArtSize('medium')
+    preference.setArtSize('medium')
 
-    expect(grouping.enabled.value).toBe(true)
-    expect(grouping.artSize.value).toBe('medium')
+    expect(preference.enabled.value).toBe(true)
+    expect(preference.artSize.value).toBe('medium')
   })
 
   it('ignores a size it does not know', () => {
-    const grouping = createGroupingPreference({ storage: memoryStorage() })
-    grouping.setArtSize('enormous' as never)
-    expect(grouping.artSize.value).toBe('small')
+    const { grouping: preference } = grouping()
+    preference.setArtSize('enormous' as never)
+    expect(preference.artSize.value).toBe('small')
   })
 
-  it('resets to the defaults', () => {
-    const storage = memoryStorage()
-    const grouping = createGroupingPreference({ storage })
-    grouping.setArtSize('large')
-    grouping.setEnabled(false)
+  it('forgets both keys on reset rather than storing today s defaults', () => {
+    const { grouping: preference, storage } = grouping()
+    preference.setArtSize('large')
+    preference.setEnabled(false)
 
-    grouping.reset()
+    preference.reset()
 
-    expect(grouping.enabled.value).toBe(true)
-    expect(grouping.artSize.value).toBe('small')
-    expect(JSON.parse(storage.value!)).toEqual(defaultGroupingPreference())
+    expect(preference.enabled.value).toBe(true)
+    expect(preference.artSize.value).toBe('small')
+    expect(storedValue(storage, GROUPING_ENABLED_KEY)).toBeNull()
+    expect(storedValue(storage, GROUPING_ART_SIZE_KEY)).toBeNull()
   })
 
   it('works without storage at all', () => {
-    const grouping = createGroupingPreference()
-    expect(() => grouping.setArtSize('large')).not.toThrow()
-    expect(grouping.artSize.value).toBe('large')
+    const preference = createGroupingPreference({
+      settings: createViewSettings({ debounceMs: 0 })
+    })
+    expect(() => preference.setArtSize('large')).not.toThrow()
+    expect(preference.artSize.value).toBe('large')
   })
 
   /** Every header must be tall enough to hold its sleeve and some padding. */

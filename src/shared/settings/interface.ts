@@ -1,21 +1,16 @@
 /**
- * Interface and behaviour keys — the seed set for W8-7.
+ * Interface and behaviour keys — the seed set for W8-11.
  *
- * Mostly view-scoped. The card's example key was `view.shell.paneSizes`, one
- * record of pane id to width; this file spends two keys instead, because a
- * record's per-pane fallbacks would have to live back in the pane specs and the
- * rule this registry exists to enforce is that a default lives in exactly one
- * place. When docking lands and pane identity stops being fixed, a record key
- * with a `custom` control is the shape to revisit.
+ * Mostly view-scoped. This file first spent a key per pane — `shellSidebarWidthPx`,
+ * `sourcesArtistsWidthPx` — on the argument that a record's per-pane fallbacks
+ * would have to live back in the pane specs. W8-3 reversed that: the fallbacks
+ * were *already* in the pane specs, alongside the minimum and the neighbour
+ * reserve that only the resizer can enforce, so the scalar keys were a second
+ * copy of a default rather than the only one. `view.shellPaneSizes` in
+ * `./view.ts` is the record that replaced them.
  */
 
-import {
-  booleanValue,
-  defineSetting,
-  enumValue,
-  integerValue,
-  type SettingDescriptor
-} from './kernel'
+import { booleanValue, defineSetting, enumValue, type SettingDescriptor } from './kernel'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type AlbumArtSize = 'small' | 'medium' | 'large'
@@ -39,34 +34,6 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'Follow the desktop setting, or pin one.',
     keywords: ['dark mode', 'light mode', 'appearance'],
     order: 10
-  }),
-
-  defineSetting<number>({
-    key: 'view.shellSidebarWidthPx',
-    scope: 'view',
-    default: 320,
-    validate: integerValue({ min: 200, max: 640 }),
-    control: { kind: 'number', min: 200, max: 640, step: 8, unit: 'px' },
-    category: 'interface',
-    label: 'Sidebar width',
-    help: 'Width of the navigation rail. Dragging the divider writes this.',
-    keywords: ['pane', 'layout', 'sidebar'],
-    order: 20,
-    advanced: true
-  }),
-
-  defineSetting<number>({
-    key: 'view.sourcesArtistsWidthPx',
-    scope: 'view',
-    default: 280,
-    validate: integerValue({ min: 180, max: 640 }),
-    control: { kind: 'number', min: 180, max: 640, step: 8, unit: 'px' },
-    category: 'interface',
-    label: 'Artists pane width',
-    help: 'Width of the artists column in the Sources view.',
-    keywords: ['pane', 'layout', 'artists'],
-    order: 30,
-    advanced: true
   }),
 
   defineSetting<boolean>({

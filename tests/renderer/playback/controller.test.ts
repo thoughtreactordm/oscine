@@ -3,6 +3,8 @@ import {
   createPlaybackController,
   type PlaybackControllerDeps
 } from '../../../src/renderer/playback/controller'
+import { TRANSPORT_REPEAT_KEY } from '../../../src/renderer/playback/transportPreferences'
+import { storedValue, viewSettingsFixture } from '../settings/fixture'
 // The contract, not the barrel: these tests compile under the node config,
 // which has no DOM, and the barrel reaches the Web Audio implementation.
 import {
@@ -174,7 +176,7 @@ function harness(
     playlistTotal?: number
     manualLoad?: boolean
     createMediaSession?: PlaybackControllerDeps['createMediaSession']
-    storage?: PlaybackControllerDeps['storage']
+    settings?: PlaybackControllerDeps['settings']
     createShuffleSeed?: PlaybackControllerDeps['createShuffleSeed']
     crossfadeMs?: number
     /** Shrinks the session fill so the past-the-cap behaviour is reachable. */
@@ -249,7 +251,7 @@ function harness(
     fetchTrackIds,
     fetchTracksByIds,
     ...(options.createMediaSession ? { createMediaSession: options.createMediaSession } : {}),
-    ...(options.storage ? { storage: options.storage } : {}),
+    ...(options.settings ? { settings: options.settings } : {}),
     ...(options.crossfadeMs === undefined ? {} : { crossfadeMs: options.crossfadeMs }),
     ...(options.sessionCap === undefined ? {} : { sessionQueueCap: options.sessionCap }),
     // Fixed by default, so a shuffled traversal is something a test can name.
@@ -640,35 +642,27 @@ describe('createPlaybackController', () => {
     })
   })
 
-  /** A `TransportStorage` that remembers what was written to it. */
-  function storage(): PlaybackControllerDeps['storage'] & { value: string | null } {
-    return {
-      value: null,
-      read() {
-        return this.value
-      },
-      write(next: string) {
-        this.value = next
-      }
-    }
+  /** A real view store over a memory area, which is what the app hands it. */
+  function viewStore() {
+    return viewSettingsFixture()
   }
 
   describe('remembering the modes', () => {
     it('restores shuffle and repeat from a previous session', async () => {
-      const store = storage()
-      const before = harness({ storage: store })
+      const store = viewStore()
+      const before = harness({ settings: store.settings })
       before.controller.setRepeatMode('one')
       await before.controller.setShuffle(true)
 
-      const after = harness({ storage: store })
+      const after = harness({ settings: store.settings })
 
       expect(after.controller.repeatMode.value).toBe('one')
       expect(after.controller.shuffleEnabled.value).toBe(true)
     })
 
     it('runs unbound', () => {
-      // Omitting storage is a supported configuration: the modes last for the
-      // session, which is what every other test here wants.
+      // Omitting the view store is a supported configuration: the modes last
+      // for the session, which is what every other test here wants.
       const h = harness()
       expect(() => h.controller.setRepeatMode('all')).not.toThrow()
       expect(h.controller.repeatMode.value).toBe('all')
@@ -1503,8 +1497,8 @@ describe('createPlaybackController', () => {
     })
 
     it('rule 5: the queue is transient — nothing about it is persisted', async () => {
-      const store = storage()
-      const before = harness({ storage: store })
+      const store = viewStore()
+      const before = harness({ settings: store.settings })
       await before.controller.playFromPlaylist({ playlistId: 7, index: 0, crossfadeMs: 0 })
       before.controller.enqueue([track(42), track(43)])
       before.controller.setRepeatMode('all')
@@ -1513,9 +1507,10 @@ describe('createPlaybackController', () => {
 
       // Shuffle and repeat are settings and do survive; the queue is a
       // statement about the next few minutes and deliberately does not.
-      expect(store.value).toBe(JSON.stringify({ repeat: 'all', shuffle: false }))
+      expect(storedValue(store.storage, TRANSPORT_REPEAT_KEY)).toBe('all')
+      expect(store.storage.entries.size).toBe(1)
 
-      const after = harness({ storage: store })
+      const after = harness({ settings: store.settings })
       expect(after.controller.repeatMode.value).toBe('all')
       expect(after.controller.queuedCount.value).toBe(0)
       expect(after.controller.queuedEntries.value).toEqual([])

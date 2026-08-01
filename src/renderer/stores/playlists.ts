@@ -1,18 +1,27 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { FermataError, playlists } from '@renderer/ipc'
-import {
-  browserPlaylistSessionStorage,
-  parsePlaylistSession,
-  serializePlaylistSession
-} from '@renderer/panels/playlistSession'
+import { useViewSettings } from '@renderer/settings'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import type { TabSession } from '@shared/settings'
 import type {
   Playlist,
   PlaylistExportResult,
   PlaylistInsertion,
   PlaylistPathStyle
 } from '@shared/playlists'
+
+/**
+ * Which playlists are open as tabs, across restarts.
+ *
+ * §5 rule 5 is not in tension with this. The rule makes the up-next *queue*
+ * transient — a queue is a statement about the next few minutes. Which tabs are
+ * open is a statement about the workspace, which is the same kind of fact as
+ * the column layout and the transport modes, and it is view-scoped for the same
+ * reason: ids are library-local, so a database copied to another machine would
+ * restore tabs that mean something else.
+ */
+export const PLAYLIST_TABS_KEY = 'view.playlistTabs'
 
 export interface CreatePlaylistOptions {
   crossfadeMs?: number
@@ -53,8 +62,8 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   const notice = ref<string | null>(null)
   const loading = ref(false)
 
-  const session = browserPlaylistSessionStorage()
-  const restored = parsePlaylistSession(session.read())
+  const settings = useViewSettings()
+  const restored = settings.get<TabSession>(PLAYLIST_TABS_KEY)
 
   /**
    * Open tabs, in tab order — deliberately *not* `playlists.position` order.
@@ -87,9 +96,10 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   watch(
     [openIds, viewedPlaylistId],
     () => {
-      session.write(
-        serializePlaylistSession({ openIds: openIds.value, viewedId: viewedPlaylistId.value })
-      )
+      settings.set<TabSession>(PLAYLIST_TABS_KEY, {
+        openIds: openIds.value,
+        viewedId: viewedPlaylistId.value
+      })
     },
     { deep: true }
   )

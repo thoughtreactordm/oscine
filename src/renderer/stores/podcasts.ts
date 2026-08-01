@@ -1,12 +1,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { FermataError, podcasts as podcastsApi } from '@renderer/ipc'
-import {
-  browserPodcastSessionStorage,
-  parsePodcastSession,
-  serializePodcastSession
-} from '@renderer/panels/podcastSession'
 import { episodeAsTrack } from '@renderer/playback/episodeTrack'
+import { useViewSettings } from '@renderer/settings'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import {
   episodeIdFromPlaybackTrackId,
@@ -17,9 +13,21 @@ import {
   type PodcastCatalogHit,
   type PodcastRecommendShelf
 } from '@shared/podcasts'
+import type { TabSession } from '@shared/settings'
 
 /** Fixture tab at the left of the strip — Discover pods. */
 export const PODCAST_DISCOVER_TAB = null
+
+/**
+ * Open show tabs — workspace state, like the playlist strip.
+ *
+ * Closing a show tab does not unsubscribe; the subscription rail is where
+ * closed shows live. A scroll target is never restored, which is why
+ * `focusEpisodeId` is a plain ref here and not part of the stored shape: it is
+ * a one-shot instruction to the show pane, and restoring one would yank the
+ * list on launch.
+ */
+export const PODCAST_TABS_KEY = 'view.podcastTabs'
 
 /**
  * Subscriptions, open show tabs, and the recent episode feed.
@@ -51,8 +59,8 @@ export const usePodcastsStore = defineStore('podcasts', () => {
   let categoryGeneration = 0
   const downloadProgress = ref<Map<number, EpisodeDownloadProgress>>(new Map())
 
-  const session = browserPodcastSessionStorage()
-  const restored = parsePodcastSession(session.read())
+  const settings = useViewSettings()
+  const restored = settings.get<TabSession>(PODCAST_TABS_KEY)
   const openIds = ref<number[]>(restored.openIds)
   viewedPodcastId.value = restored.viewedId
 
@@ -70,13 +78,10 @@ export const usePodcastsStore = defineStore('podcasts', () => {
   watch(
     [openIds, viewedPodcastId],
     () => {
-      session.write(
-        serializePodcastSession({
-          openIds: openIds.value,
-          viewedId: viewedPodcastId.value,
-          focusEpisodeId: null
-        })
-      )
+      settings.set<TabSession>(PODCAST_TABS_KEY, {
+        openIds: openIds.value,
+        viewedId: viewedPodcastId.value
+      })
     },
     { deep: true }
   )

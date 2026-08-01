@@ -1,21 +1,26 @@
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { TRACK_SORT_COLUMNS, type Track, type TrackSortColumn } from '@shared/library'
+import type { StoredColumnLayout } from '@shared/settings'
+import type { ViewSettings } from '../settings/viewStore'
 
 /**
  * The track list's column layout: which columns, in what order, how wide.
  *
  * Two things make this its own module rather than component state. It has to
- * survive a restart, so it needs a shape that can be validated coming back from
- * storage rather than trusted — a stale or hand-edited blob must degrade to the
- * defaults, not to a table with no columns. And the rules are worth testing
+ * survive a restart, so what comes back from storage is reconciled against the
+ * catalogue rather than trusted — a stale or hand-edited blob must degrade to
+ * the defaults, not to a table with no columns. And the rules are worth testing
  * without a DOM: that the last visible column cannot be hidden, that an unknown
  * key from a future version is dropped rather than rendered, that a reset
  * restores exactly the documented set.
  *
- * Storage is injected. Today it is `localStorage`, which is the renderer's own
- * per-user store and involves no filesystem access — see `browserLayoutStorage`.
- * If a later milestone wants layouts in the D11 export bundle, the seam is here
- * and nothing above it moves.
+ * The view store is injected. W8-3 took the storage wrapper and the JSON
+ * `try`/`catch` that used to live here; what stayed is `normalizeColumnLayout`,
+ * because every rule in it is a question about *the catalogue below* — is this
+ * a real column, is that width above its minimum, would this hide the last one
+ * — and the catalogue is renderer presentation data. The descriptor validates
+ * that a stored layout is three fields of strings and numbers; this decides
+ * what those strings mean. It is the split `clampPaneSize` already made.
  */
 
 export type TrackColumnKey = TrackSortColumn | DisplayColumnKey
@@ -192,14 +197,7 @@ export interface TrackColumnLayout {
   widths: Partial<Record<TrackColumnKey, number>>
 }
 
-/**
- * Versioned in the key rather than in the payload.
- *
- * A layout is cheap to rebuild and worthless to migrate: bumping the suffix
- * retires an incompatible shape without a migration path and without the
- * previous version's blob shadowing the new one.
- */
-export const COLUMN_LAYOUT_STORAGE_KEY = 'fermata.trackColumns.v1'
+export const TRACK_COLUMNS_KEY = 'view.trackColumns'
 
 /** The maximum a column can be dragged to. Wide enough for a long path-like title. */
 const MAX_COLUMN_WIDTH = 800
@@ -221,101 +219,69 @@ function clampWidth(spec: TrackColumnSpec, width: number): number {
 }
 
 /**
- * Rebuilds a usable layout from whatever storage actually held.
+ * Reconciles a stored layout with the catalogue this build ships.
  *
  * Every field is treated as a suggestion. Unknown keys are dropped so a layout
  * saved by a newer build does not render a phantom column; known keys missing
  * from `order` are appended so a *newer* build's added column appears rather
  * than vanishing; and a layout that would hide everything falls back to the
  * default visible set, because a table with no columns has no way back.
+ *
+ * `null` is a profile that has never configured its columns, which is not the
+ * same as one that has unhidden everything — an empty `hidden` is a real state
+ * and must not be read as a fresh start.
  */
-export function normalizeColumnLayout(raw: unknown): TrackColumnLayout {
+export function normalizeColumnLayout(stored: StoredColumnLayout | null): TrackColumnLayout {
   const layout = defaultColumnLayout()
-  if (typeof raw !== 'object' || raw === null) return layout
-  const candidate = raw as Partial<Record<keyof TrackColumnLayout, unknown>>
+  if (stored === null) return layout
 
-  if (Array.isArray(candidate.order)) {
-    const seen = new Set<TrackColumnKey>()
-    const order: TrackColumnKey[] = []
-    for (const key of candidate.order) {
-      if (!isColumnKey(key) || seen.has(key)) continue
-      seen.add(key)
-      order.push(key)
-    }
-    // Columns this build knows about but the stored layout did not.
-    for (const column of TRACK_COLUMNS) if (!seen.has(column.key)) order.push(column.key)
-    layout.order = order
+  const seen = new Set<TrackColumnKey>()
+  const order: TrackColumnKey[] = []
+  for (const key of stored.order) {
+    if (!isColumnKey(key) || seen.has(key)) continue
+    seen.add(key)
+    order.push(key)
   }
+  // Columns this build knows about but the stored layout did not.
+  for (const column of TRACK_COLUMNS) if (!seen.has(column.key)) order.push(column.key)
+  layout.order = order
 
-  if (Array.isArray(candidate.hidden)) {
-    const hidden = candidate.hidden.filter(isColumnKey)
-    layout.hidden = hidden.length < layout.order.length ? [...new Set(hidden)] : layout.hidden
-  }
+  const hidden = [...new Set(stored.hidden.filter(isColumnKey))]
+  if (hidden.length < layout.order.length) layout.hidden = hidden
 
-  if (typeof candidate.widths === 'object' && candidate.widths !== null) {
-    const widths: Partial<Record<TrackColumnKey, number>> = {}
-    for (const [key, width] of Object.entries(candidate.widths)) {
-      if (!isColumnKey(key) || typeof width !== 'number' || !Number.isFinite(width)) continue
-      widths[key] = clampWidth(COLUMNS_BY_KEY.get(key)!, width)
-    }
-    layout.widths = widths
+  const widths: Partial<Record<TrackColumnKey, number>> = {}
+  for (const [key, width] of Object.entries(stored.widths)) {
+    if (!isColumnKey(key)) continue
+    widths[key] = clampWidth(COLUMNS_BY_KEY.get(key)!, width)
   }
+  layout.widths = widths
 
   return layout
 }
 
-export interface LayoutStorage {
-  read(): string | null
-  write(value: string): void
-}
-
-/**
- * `localStorage`, guarded.
- *
- * Reads and writes are wrapped because storage can genuinely fail — a quota
- * error, or a Chromium build launched with site data disabled — and a column
- * layout is not worth taking the panel down for. A failure degrades to the
- * defaults for the session.
- */
-export function browserLayoutStorage(key: string): LayoutStorage {
-  return {
-    read: () => {
-      try {
-        return globalThis.localStorage?.getItem(key) ?? null
-      } catch {
-        return null
-      }
-    },
-    write: (value) => {
-      try {
-        globalThis.localStorage?.setItem(key, value)
-      } catch {
-        // Nothing useful to do: the layout stays correct for this session.
-      }
-    }
-  }
-}
-
 export interface ColumnLayoutDeps {
-  storage?: LayoutStorage
+  settings: ViewSettings
 }
 
-export function createColumnLayout(deps: ColumnLayoutDeps = {}) {
-  const storage = deps.storage
-  const layout = ref<TrackColumnLayout>(read())
+export function createColumnLayout(deps: ColumnLayoutDeps) {
+  const settings = deps.settings
+  const stored = settings.value<StoredColumnLayout | null>(TRACK_COLUMNS_KEY)
+  const layout = computed<TrackColumnLayout>(() => normalizeColumnLayout(stored.value))
 
-  function read(): TrackColumnLayout {
-    const stored = storage?.read()
-    if (stored === null || stored === undefined) return defaultColumnLayout()
-    try {
-      return normalizeColumnLayout(JSON.parse(stored))
-    } catch {
-      return defaultColumnLayout()
+  /**
+   * Stores the layout as three lists of plain strings.
+   *
+   * The reconciled form is what the panel reads; the stored form is what the
+   * descriptor validates. They are written apart so that a column dropped from
+   * a future catalogue is dropped on *read* rather than erased on the next
+   * write — the same reason unknown pane keys survive.
+   */
+  function write(next: TrackColumnLayout): void {
+    const widths: Record<string, number> = {}
+    for (const [key, width] of Object.entries(next.widths)) {
+      if (typeof width === 'number') widths[key] = width
     }
-  }
-
-  function persist(): void {
-    storage?.write(JSON.stringify(layout.value))
+    stored.value = { order: [...next.order], hidden: [...next.hidden], widths }
   }
 
   const hidden = computed(() => new Set(layout.value.hidden))
@@ -363,8 +329,7 @@ export function createColumnLayout(deps: ColumnLayoutDeps = {}) {
     else if (visibleColumns.value.length > 1) next.add(key)
     else return false
 
-    layout.value = { ...layout.value, hidden: [...next] }
-    persist()
+    write({ ...layout.value, hidden: [...next] })
     return true
   }
 
@@ -395,27 +360,24 @@ export function createColumnLayout(deps: ColumnLayoutDeps = {}) {
     const at = order.indexOf(target)
     if (at < 0) return false
     order.splice(after ? at + 1 : at, 0, key)
-    layout.value = { ...layout.value, order }
-    persist()
+    write({ ...layout.value, order })
     return true
   }
 
   /**
    * Sets a column's width, clamped to its minimum.
    *
-   * `persist: false` is for a pointer drag in progress: a resize fires on every
-   * pointer move, and writing the layout to storage sixty times a second to
-   * record intermediate widths nobody asked for is the kind of thing that shows
-   * up later as jank. The caller commits once on release.
+   * This used to take a `persist: false` for a drag in progress, because a
+   * resize fires on every pointer move and writing to storage sixty times a
+   * second is the kind of thing that shows up later as jank. The view store
+   * debounces its writes now, so every caller says the same thing and the
+   * coalescing happens once, below, for panes and columns alike. `persist()`
+   * survives as the flush a caller does on release.
    */
-  function setWidth(key: TrackColumnKey, width: number, options: { persist?: boolean } = {}): void {
+  function setWidth(key: TrackColumnKey, width: number): void {
     const spec = COLUMNS_BY_KEY.get(key)
     if (!spec || !Number.isFinite(width)) return
-    layout.value = {
-      ...layout.value,
-      widths: { ...layout.value.widths, [key]: clampWidth(spec, width) }
-    }
-    if (options.persist !== false) persist()
+    write({ ...layout.value, widths: { ...layout.value.widths, [key]: clampWidth(spec, width) } })
   }
 
   function nudgeWidth(key: TrackColumnKey, delta: number): void {
@@ -426,10 +388,19 @@ export function createColumnLayout(deps: ColumnLayoutDeps = {}) {
     return COLUMNS_BY_KEY.get(key)
   }
 
-  /** Restores the documented default set: order, visibility and widths together. */
+  /**
+   * Restores the documented default set: order, visibility and widths together.
+   *
+   * Forgets the stored layout rather than storing today's defaults, so a build
+   * that adds a column reaches a table that was reset before it existed.
+   */
   function reset(): void {
-    layout.value = defaultColumnLayout()
-    persist()
+    settings.reset(TRACK_COLUMNS_KEY)
+  }
+
+  /** Writes anything the debounce is still holding — a caller's drag release. */
+  function persist(): void {
+    settings.flush()
   }
 
   return {
