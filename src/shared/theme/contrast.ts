@@ -228,3 +228,27 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
     where: 'the accent on a raised panel'
   }
 ]
+
+/**
+ * The two pairs the shipped defaults deliberately do not meet.
+ *
+ * Kept as data rather than deleted, because a dropped check that leaves no
+ * trace is indistinguishable from a check nobody thought of. The High Contrast
+ * theme is measured against these as well, which is what stops
+ * `CONTRAST_PAIRS` being *lenient* from decaying into `CONTRAST_PAIRS` being
+ * *wrong* — if the checker itself breaks, the strict run notices.
+ */
+export const STRICT_CONTRAST_PAIRS: readonly ContrastPair[] = [
+  {
+    foreground: 'text.dimmed',
+    background: 'surface.base',
+    demand: 'large',
+    where: 'placeholder and disabled text'
+  },
+  {
+    foreground: 'border.accented',
+    background: 'surface.base',
+    demand: 'nonText',
+    where: 'input outlines and the scrollbar thumb'
+  }
+]

@@ -3,7 +3,9 @@ import {
   BUILT_IN_THEMES,
   CONTRAST_PAIRS,
   DEFAULT_THEME_ID,
+  HIGH_CONTRAST_THEME_ID,
   PUBLIC_TOKENS,
+  STRICT_CONTRAST_PAIRS,
   RAMP_STEPS,
   TAILWIND_PALETTES,
   TOKENS,
@@ -96,8 +98,8 @@ describe('resolveTheme', () => {
   })
 
   it('lets a variant move a semantic token to a different step of its own ramp', () => {
-    const slate = resolve('slate', 'light').tokens
-    expect(slate.get('text.highlighted')).toBe(slate.get('color.neutral-950'))
+    const strict = resolve(HIGH_CONTRAST_THEME_ID, 'light').tokens
+    expect(strict.get('text.highlighted')).toBe(strict.get('color.neutral-950'))
     // ...where the shared mapping would have put it at 900.
     const fermata = resolve(DEFAULT_THEME_ID, 'light').tokens
     expect(fermata.get('text.highlighted')).toBe(fermata.get('color.neutral-900'))
@@ -299,6 +301,29 @@ describe('every built-in theme is legible', () => {
         expect(detail).toEqual([])
       })
     }
+  }
+
+  for (const mode of MODES) {
+    it(`high-contrast / ${mode} also passes the pairs the defaults skip`, () => {
+      // The defaults deliberately do not meet these two. This theme exists so
+      // that "lenient" cannot quietly decay into "broken" — if the checker
+      // itself stops working, this run is what notices.
+      const { tokens } = resolve(HIGH_CONTRAST_THEME_ID, mode)
+      const failures = findContrastFailures(tokens, [...CONTRAST_PAIRS, ...STRICT_CONTRAST_PAIRS])
+      expect(failures.map((f) => `${f.pair.where}: ${f.ratio.toFixed(2)} < ${f.required}`)).toEqual(
+        []
+      )
+    })
+
+    it(`the default theme is measurably gentler than high-contrast in ${mode}`, () => {
+      // The claim the two themes exist to make: the default is tuned for how
+      // the app should look, and this one for legibility winning every
+      // argument. If they ever converge, one of them has lost its reason to be.
+      const soft = resolve(DEFAULT_THEME_ID, mode).tokens
+      const strict = resolve(HIGH_CONTRAST_THEME_ID, mode).tokens
+      expect(soft.get('text.base')).not.toBe(soft.get('text.highlighted'))
+      expect(strict.get('text.dimmed')).not.toBe(soft.get('text.dimmed'))
+    })
   }
 
   it('actually reports a failure when one is authored', () => {

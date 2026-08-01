@@ -266,18 +266,29 @@ const NOCTURNE: BuiltInTheme = {
 }
 
 /**
- * A high-contrast theme.
+ * High Contrast.
  *
- * Not an accessibility mode — the app has no such setting and pretending one
- * token set is "the accessible one" would be worse than not shipping it. It is
- * a theme for bright rooms and cheap panels, and it doubles as the case that
- * keeps the contrast checker honest: if this theme ever reports a failure, the
- * checker and the mapping disagree and one of them is wrong.
+ * The shared mapping is tuned so the app looks the way it should; this theme
+ * is what happens when legibility is allowed to win every argument instead.
+ * Text moves a full step further from its background at every weight, borders
+ * stop being hairlines, and titles go to the darkest step the ramp has.
+ *
+ * That trade is the point of it being a theme rather than the default. Pushed
+ * into the defaults it made light mode heavy and muddy for contrast nobody had
+ * asked for — the four weights above `dimmed` already passed with room. Offered
+ * as a choice, the same ladder is exactly what someone on a bright screen or a
+ * cheap panel wants, and it is the standard shape of a high-contrast mode:
+ * arbitrarily widen the gap between every shape and its background.
+ *
+ * It also keeps the checker honest. This is the one theme measured against the
+ * strict pair set — including the two pairs the defaults deliberately do not
+ * meet — so `CONTRAST_PAIRS` being lenient can never quietly become
+ * `CONTRAST_PAIRS` being wrong.
  */
-const SLATE: BuiltInTheme = {
-  id: 'slate',
-  label: 'Slate',
-  description: 'Neutral blue-grey, pushed for contrast. For bright rooms.',
+const HIGH_CONTRAST: BuiltInTheme = {
+  id: 'high-contrast',
+  label: 'High Contrast',
+  description: 'Neutral blue-grey with every weight pushed apart. For bright rooms.',
   light: {
     ramps: {
       primary: palette('blue'),
@@ -286,12 +297,19 @@ const SLATE: BuiltInTheme = {
       ...STATUS_RAMPS
     },
     values: {
-      // Titles pushed to the darkest step the ramp has, which is the whole
-      // point of the theme. Expressed as a step so it stays this theme's grey
-      // rather than becoming a fixed colour the moment its neutral ramp
-      // changes — and 950 because the shared ladder already occupies 500
-      // through 900, leaving nowhere else to go without colliding.
+      /*
+       * The whole ladder one step darker, ending at 950 rather than 900 — the
+       * shared mapping occupies 400 through 900, so the extra step at the
+       * bottom is what stops two weights colliding once everything shifts.
+       */
+      'text.dimmed': step('neutral', '500'),
+      'text.muted': step('neutral', '600'),
+      'text.toned': step('neutral', '700'),
+      'text.base': step('neutral', '800'),
       'text.highlighted': step('neutral', '950'),
+      /* 4.95:1 rather than 1.49:1 — the scrollbar thumb becomes a thing you see. */
+      'border.base': step('neutral', '300'),
+      'border.accented': step('neutral', '500'),
       'nowPlaying.coverBleed': '0.12'
     }
   },
@@ -302,11 +320,23 @@ const SLATE: BuiltInTheme = {
       neutral: palette('slate'),
       ...STATUS_RAMPS
     },
-    values: { 'nowPlaying.coverBleed': '0.24' }
+    values: {
+      /* Mirrored: on a dark surface, further apart means lighter. */
+      'text.dimmed': step('neutral', '400'),
+      'text.muted': step('neutral', '300'),
+      'text.toned': step('neutral', '200'),
+      'text.base': step('neutral', '100'),
+      'border.base': step('neutral', '600'),
+      'border.accented': step('neutral', '500'),
+      'nowPlaying.coverBleed': '0.24'
+    }
   }
 }
 
-export const BUILT_IN_THEMES: readonly BuiltInTheme[] = [FERMATA, NOCTURNE, SLATE]
+export const BUILT_IN_THEMES: readonly BuiltInTheme[] = [FERMATA, NOCTURNE, HIGH_CONTRAST]
+
+/** The theme measured against the strict pair set. */
+export const HIGH_CONTRAST_THEME_ID = HIGH_CONTRAST.id
 
 export const DEFAULT_THEME_ID = FERMATA.id
 

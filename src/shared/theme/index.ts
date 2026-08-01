@@ -24,6 +24,7 @@ export {
   AA_NON_TEXT,
   AA_NORMAL,
   CONTRAST_PAIRS,
+  STRICT_CONTRAST_PAIRS,
   contrastRatio,
   findContrastFailures,
   type ContrastDemand,
@@ -57,6 +58,7 @@ export {
 export {
   BUILT_IN_THEMES,
   DEFAULT_THEME_ID,
+  HIGH_CONTRAST_THEME_ID,
   SEMANTIC_MAPPING,
   STRUCTURAL_DEFAULTS,
   findTheme,
