@@ -168,30 +168,87 @@ Per the card, if this work requires a component edit to function, the token laye
 | 3. Window background from the resolved token | landed, `ecaff26` |
 | 4. The `theme` category and the `interface.theme` migration | landed, `85125bd` |
 | 6. `fermata/no-raw-colours` | landed, `8ee5666` |
-| **5. The token editor** | **not started — the remaining work** |
-| **7. Card update, and a Windows run** | **not started** |
+| 5. The token editor | landed, `a29af3f` |
+| **7. Card update, and a Windows run** | **card updated; the Windows run is the remaining work** |
 
-Gate is green at `8ee5666`: lint, format, typecheck, 95 files / 1479 tests, build.
+Gate is green at `a29af3f`: lint, format, typecheck, 96 files / 1507 tests, build.
+
+## What the editor turned out to be
+
+Seven files under `src/renderer/panels/settings/theme/` plus one line in
+`customControls.ts`. Nothing else on the settings surface changed, which is the
+independent check on W8-6's claim that adding a setting requires zero edits to
+that view.
+
+Three shape decisions that the plan did not anticipate and that the next person
+should not have to rediscover:
+
+- **The registered control is a trigger, not the editor.** A settings row is a
+  fixed 64 px in a virtualized list with a 288 px control gutter. Thirty tokens
+  with eleven ramp steps apiece do not go in it, so `ThemeEditorControl` states
+  how much has been authored and opens a modal. The alternative — a row that
+  grows — would have meant a non-uniform row height in `SettingsPane`, which is
+  the one thing `visibleRange` cannot have.
+- **Group headings are rows in the same virtualized list, at row height.**
+  `visibleRange` is uniform-row arithmetic; a taller heading turns every row's
+  offset into a running sum.
+- **The viewport is measured by `ResizeObserver`, not once when the ref lands.**
+  This is the one place `SettingsPane`'s pattern could not be copied. Inside a
+  dialog the scroller reports zero height at ref time, `visibleRange` falls back
+  to drawing the overscan — which happens to cover a short window and leaves a
+  tall one blank below the fold. It also covers the resize a `60vh` body makes
+  routine.
+
+And one behavioural split worth keeping: **colours commit on every keystroke
+that parses; lengths, durations and easings commit on `change`.** A half-typed
+colour either parses or it does not, so live commits are safe and the preview is
+free. A half-typed `1.5rem` passes through `1`, which is a valid *number* and an
+invalid length, so the property it lands on drops out and the app reflows under
+the operator's hands on the way to a value they were always going to reach.
+
+## The live run, and what it established
+
+Second instance, throwaway user-data directory, port 9333, per the recipe below.
+
+| Claim | What was observed |
+|---|---|
+| The stated gap is filled | The `theme.overrides` row draws the control; "No control registered" is nowhere on the surface |
+| Zero component changes | A `surface.base` override repainted `--ui-bg` and the body background; a seeded `color.primary` ramp drove `--ui-primary` |
+| T5a opens on the mode last used | The Fermata primary opened on **Tailwind amber**, read back by `describeRamp`, with Advanced already on |
+| A seed derives eleven steps | `oklch(62% 0.21 265)` produced 50…950 at hue 264.85, stored normalised as `oklch(61.73% 0.2059 264.85)` |
+| Live preview, no apply button | Every write repainted within a tick; nothing was pressed |
+| Overrides survive a theme swap | All three built-ins swapped with four overrides in place; the neutral ramp changed per theme, the overrides did not |
+| Overrides survive a reload | The full map, including the orphan, came back from SQLite |
+| The unknown-key rule on screen | `legacy.sidebar.tint` rendered as an orphan with its value visible and a revert, and stayed visible under the changed filter |
+| T7 warns, never blocks | A 30% body text wrote, repainted, and produced two footer warnings naming the pairings in words |
+| Both reverts | Per-row revert cleared the key and the warning; Revert all emptied the map and restored the theme |
+| Mode tracking | Switching `theme.mode` moved the editor's effective values, the swatches, the header and `.dark` together |
+| Commit-on-change | Typing `1.2rem` into the radius field changed nothing until `change` fired |
+
+**Not verified:** the reduced-motion banner. It is guarded by `useMediaQuery`
+and there was no way to assert the OS preference from the probe.
+
+**A probe trap, since it cost twenty minutes:** `window.fermata.settings.set`
+takes a `SetSettingRequest` object — `{ key, value }` — not `(key, value)`. The
+two-argument call resolves and writes nothing, which reads exactly like the
+feature being broken. Write through the renderer store, or pass the object.
 
 ---
 
 # Handoff — step 5, the token editor
 
-Everything below step 5 depends on is landed, tested and verified in a running
-app. What remains is one Vue component and its registration.
+**Landed at `a29af3f`.** Kept because the API tour below is still the fastest
+way into `src/shared/theme`, and the traps at the end are still live.
 
 ## The one thing to build
 
 `theme.overrides` already ships as a descriptor with
 `control: { kind: 'custom', component: 'themeEditor' }`. `customControls.ts`
-has no entry for that name, so the Settings view currently renders the row as
-*"No control registered for 'themeEditor'"* — which is the stated-gap behaviour
-W8-6 built that register for. **Filling it is the whole task.**
+had no entry for that name, so the Settings view rendered the row as
+*"No control registered for 'themeEditor'"* — the stated-gap behaviour W8-6
+built that register for. **Filling it was the whole task.**
 
-Register the component in `src/renderer/panels/settings/customControls.ts` and
-build it under `src/renderer/panels/settings/`. Nothing else in the settings
-view should need touching; if it does, that is a finding worth reporting rather
-than working around.
+It is registered now, and nothing else in the settings view needed touching.
 
 ## The API it renders against
 
@@ -273,13 +330,20 @@ Synthetic clicks do not reach reka-ui; use `Input.dispatchMouseEvent`. Clean up
 the scratch directory, and kill the launcher PID captured at launch rather than
 matching on the directory name.
 
+Two refinements the editor's run added. A `UButton` is a real `<button>` with a
+Vue listener, so `el.click()` drives it — reka-ui only matters for the select and
+popover *triggers*. And a row in a virtualized list has a `getBoundingClientRect`
+even when it is scrolled past the container's edge, so coordinates read off one
+can land on the footer instead; scroll it into view first, or use `.click()`.
+
 ## Step 7, after it
 
-- Update W8-12 (`01KYWX0K27SPJEB14SPR5TPN5J`) with what landed and the evidence.
+- ~~Update W8-12 (`01KYWX0K27SPJEB14SPR5TPN5J`) with what landed and the
+  evidence.~~ Done.
 - The card's "done when" also asks for **follow-system reacting to a live OS
   theme change on Windows and Linux**. Linux is verified; Windows is not, and
   needs a real run. `nativeTheme` drives the window background and VueUse drives
-  the class, so both paths need checking there.
+  the class, so both paths need checking there. **This is the one thing left.**
 - W8-13 (export/import) should carry `theme.overrides` — worth confirming the
   blob survives a round trip once the editor can author a non-trivial one.
 
