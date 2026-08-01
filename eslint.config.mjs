@@ -5,7 +5,7 @@ import vue from 'eslint-plugin-vue'
 import vueParser from 'vue-eslint-parser'
 import tseslint from 'typescript-eslint'
 
-import fermata from './tools/eslint/no-windows-path-literals.mjs'
+import fermata from './tools/eslint/index.mjs'
 
 /**
  * Nuxt UI's auto-imported composables, as globals the renderer may see.
@@ -160,6 +160,26 @@ export default tseslint.config(
     files: ['src/**/*.{ts,vue}'],
     rules: {
       'fermata/no-windows-path-literals': 'error'
+    }
+  },
+
+  {
+    /*
+     * M5 exits when swapping a theme touches zero component code, and W8-12
+     * says the token layer is not finished if it needs a component edit. One
+     * hex in one hover state is invisible until somebody switches to a theme it
+     * clashes with, so the check runs on every push rather than once.
+     *
+     * Scoped to the renderer, and `src/renderer/theme/` is exempt: it is the
+     * layer that *is* allowed to name a colour. `src/shared/theme/` is exempt
+     * for the same reason — it is the catalog, the ramps and the generated
+     * Tailwind palettes, which are nothing but colours by definition.
+     */
+    name: 'fermata/theme-tokens',
+    files: ['src/renderer/**/*.{ts,vue}'],
+    ignores: ['src/renderer/theme/**'],
+    rules: {
+      'fermata/no-raw-colours': 'error'
     }
   },
 
