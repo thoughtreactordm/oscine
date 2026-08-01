@@ -253,13 +253,13 @@ export function defineSetting<
   // A default must be a fixed point, not merely acceptable. Bounds clamp rather
   // than reject by default, so an out-of-range default would otherwise sail
   // through here and quietly become a different number at every read.
-  if (!sameValue(checked.value, definition.default)) {
+  if (!sameSettingValue(checked.value, definition.default)) {
     fail(`default is repaired by its own validate to ${JSON.stringify(checked.value)}`)
   }
 
   if (control?.kind === 'select') {
     if (!control.options.length) fail('a select control needs at least one option')
-    if (!control.options.some((o) => sameValue(o.value, definition.default))) {
+    if (!control.options.some((o) => sameSettingValue(o.value, definition.default))) {
       fail('the default is not one of the select options')
     }
   }
@@ -287,11 +287,31 @@ export function defineSetting<
   })
 }
 
-/** Structural equality, enough for the small values settings hold. */
-function sameValue(a: unknown, b: unknown): boolean {
+/**
+ * Structural equality, enough for the small values settings hold.
+ *
+ * Exported because "is this value the same as that one" is asked in four places
+ * — the kernel's own repair check, both renderer stores, and W8-7's
+ * changed-from-default filter — and a filter that answered it differently from
+ * the store it reads would show rows that have not moved.
+ */
+export function sameSettingValue(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true
   if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false
   return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/**
+ * Has this value moved off the key's default?
+ *
+ * The whole of W8-7's filter, in one line, and deliberately a question about the
+ * *value* rather than about whether a row exists. A row holding exactly the
+ * default has changed nothing and belongs nowhere near a list of "what have I
+ * broken" — it is still worth being able to delete, which is a different
+ * question and a different affordance.
+ */
+export function changedFromDefault(descriptor: SettingDescriptor, value: unknown): boolean {
+  return !sameSettingValue(value, descriptor.default)
 }
 
 /** A persisted value together with the version it was written under. */
@@ -358,7 +378,7 @@ export function validateValue<T>(
     return fallback(descriptor, raw, `validator failed: ${(error as Error).message}`)
   }
   if (!result.ok) return fallback(descriptor, raw, result.reason)
-  return { value: result.value, notice: null, changed: !sameValue(result.value, raw) }
+  return { value: result.value, notice: null, changed: !sameSettingValue(result.value, raw) }
 }
 
 /**

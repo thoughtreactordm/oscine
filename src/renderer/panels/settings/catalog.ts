@@ -70,8 +70,13 @@ export interface SettingsSection {
   readonly total: number
   /** How many of `total` are advanced — what the disclosure is worth offering for. */
   readonly advancedTotal: number
-  /** Rows the query matches. Equal to `total` when nothing is being searched. */
+  /**
+   * Rows surviving whatever is narrowing the catalog — the query, the
+   * changed-from-default filter, or both. Equal to `total` when neither is on.
+   */
   readonly matches: number
+  /** How many of `total` differ from their default, whatever is narrowing. */
+  readonly changed: number
 }
 
 export interface SettingsCatalogOptions {
@@ -88,6 +93,18 @@ export interface SettingsCatalogOptions {
    * state, and the intermediate answer would be the one it painted.
    */
   advanced?: Readonly<Record<string, boolean>>
+  /**
+   * Keys whose value differs from their descriptor default — the store's
+   * `changedKeys`.
+   *
+   * Passed in rather than read, because this module is pure and the values live
+   * in a reactive store two layers away. Handing it a set keeps the same
+   * property the `descriptors` parameter has: a test can state the delta it
+   * wants without building a store to hold one.
+   */
+  changed?: ReadonlySet<string>
+  /** Show only the rows in `changed`, across every category at once. */
+  changedOnly?: boolean
 }
 
 export interface SettingsCatalog {
@@ -95,12 +112,25 @@ export interface SettingsCatalog {
   readonly sections: readonly SettingsSection[]
   /** The rows the body draws, in order. */
   readonly rows: readonly SettingsRow[]
-  /** The section actually being shown, or null while a query spans all of them. */
+  /** The section actually being shown, or null while something spans all of them. */
   readonly category: SettingCategoryId | null
   /** Rows withheld only because the advanced disclosure is shut. */
   readonly withheldAdvanced: number
   /** Whether a query is narrowing `rows`. */
   readonly filtered: boolean
+  /** Whether the changed-from-default filter is narrowing `rows`. */
+  readonly changedOnly: boolean
+  /**
+   * `rows` is drawn from every category rather than from one.
+   *
+   * True for a query and for the changed filter alike, because both answer "show
+   * me this wherever it lives" — and a caller that had to spell out which of the
+   * two was on every time it wanted to know whether to print a category name
+   * would get it wrong the first time a third one landed.
+   */
+  readonly spanning: boolean
+  /** How many rows differ from their default, in the whole catalog. */
+  readonly changedTotal: number
 }
 
 /**
@@ -164,6 +194,12 @@ export function buildSettingsCatalog(
 ): SettingsCatalog {
   const query = (options.query ?? '').trim()
   const filtered = query.length > 0
+  const changedKeys = options.changed ?? EMPTY
+  const changedOnly = options.changedOnly === true
+  const spanning = filtered || changedOnly
+
+  const narrows = (descriptor: SettingDescriptor): boolean =>
+    matchesSettingQuery(descriptor, query) && (!changedOnly || changedKeys.has(descriptor.key))
 
   // `internal` keys are the ones with no control — pane sizes, open tabs, column
   // layouts. They are settings in every other sense and are deliberately not on
@@ -181,7 +217,8 @@ export function buildSettingsCatalog(
       icon: category.icon,
       total: inCategory.length,
       advancedTotal: inCategory.filter((descriptor) => descriptor.advanced).length,
-      matches: inCategory.filter((descriptor) => matchesSettingQuery(descriptor, query)).length
+      matches: inCategory.filter(narrows).length,
+      changed: inCategory.filter((descriptor) => changedKeys.has(descriptor.key)).length
     }
   })
     .filter((section) => section.total > 0)
@@ -189,19 +226,21 @@ export function buildSettingsCatalog(
 
   // A query spans every category: the operator who typed "crossfade" is asking
   // where it is, and answering only from the section they happen to be standing
-  // in would be a search that requires you to already know the answer.
-  const category = filtered ? null : resolveCategory(options.category, sections)
+  // in would be a search that requires you to already know the answer. The
+  // changed filter is the same question asked without a name to type — the whole
+  // delta on one screen is the point, and one section of it is not.
+  const category = spanning ? null : resolveCategory(options.category, sections)
 
   const scoped = shown.filter(
     (descriptor) =>
-      (filtered || category === null || descriptor.category === category) &&
-      matchesSettingQuery(descriptor, query)
+      (spanning || category === null || descriptor.category === category) && narrows(descriptor)
   )
 
-  // A query discloses advanced rows wherever they are. Hiding a knob the
-  // operator has just gone looking for by name is the same failure the
-  // changed-from-default filter exists to prevent.
-  const disclosed = filtered || (category !== null && options.advanced?.[category] === true)
+  // A query discloses advanced rows wherever they are, and so does the changed
+  // filter — hiding a knob the operator has actually turned is exactly the
+  // failure mode that filter exists to prevent, and hiding one they have just
+  // gone looking for by name is the same failure with a different cause.
+  const disclosed = spanning || (category !== null && options.advanced?.[category] === true)
   const rows = scoped.filter((descriptor) => disclosed || !descriptor.advanced)
 
   return {
@@ -209,9 +248,14 @@ export function buildSettingsCatalog(
     rows: rows.map(toRow),
     category,
     withheldAdvanced: scoped.length - rows.length,
-    filtered
+    filtered,
+    changedOnly,
+    spanning,
+    changedTotal: shown.filter((descriptor) => changedKeys.has(descriptor.key)).length
   }
 }
+
+const EMPTY: ReadonlySet<string> = new Set()
 
 /**
  * The section to show when nothing has been chosen, or when what was chosen is

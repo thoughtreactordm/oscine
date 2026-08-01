@@ -27,17 +27,37 @@ const scroller = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
 const viewportPx = ref(0)
 
+const changed = computed(() => new Set(settings.changedKeys.value))
+
 const catalog = computed(() =>
   buildSettingsCatalog(undefined, {
     query: nav.query,
     category: nav.category,
-    advanced: nav.advanced
+    advanced: nav.advanced,
+    changed: changed.value,
+    changedOnly: nav.changedOnly
   })
 )
 
 const section = computed(() =>
   catalog.value.sections.find((entry) => entry.id === catalog.value.category)
 )
+
+/**
+ * Reverting a section is offered where there is something in it to revert, and
+ * only while a section is what is being shown.
+ *
+ * `section.changed` counts the whole category rather than the drawn rows, so an
+ * advanced key hidden behind a shut disclosure still makes the button appear —
+ * and pressing it still clears that key. A sweep that silently skipped what the
+ * disclosure was hiding would leave the operator convinced they had reset Audio.
+ */
+const sectionChanged = computed(() => (catalog.value.spanning ? 0 : (section.value?.changed ?? 0)))
+
+function revertSection(): void {
+  const id = catalog.value.category
+  if (id) void settings.resetCategory(id)
+}
 
 const rowWindow = computed(() =>
   visibleRange({
@@ -118,27 +138,58 @@ watch(
     >
       <div class="flex min-w-0 flex-1 items-center gap-2">
         <UIcon
-          v-if="section && !catalog.filtered"
+          v-if="section && !catalog.spanning"
           :name="section.icon"
           class="size-4 shrink-0 text-dimmed"
         />
+        <UIcon
+          v-else-if="catalog.changedOnly"
+          name="i-tabler-filter"
+          class="size-4 shrink-0 text-dimmed"
+        />
         <h1 class="min-w-0 truncate text-sm font-semibold text-highlighted">
-          {{ catalog.filtered ? 'Search results' : (section?.label ?? 'Settings') }}
+          <template v-if="catalog.filtered">Search results</template>
+          <template v-else-if="catalog.changedOnly">Changed from default</template>
+          <template v-else>{{ section?.label ?? 'Settings' }}</template>
         </h1>
         <span v-if="catalog.filtered" class="shrink-0 text-[11px] text-dimmed">
           {{ catalog.rows.length }}
           {{ catalog.rows.length === 1 ? 'setting matches' : 'settings match' }}
           “{{ nav.query.trim() }}”
         </span>
+        <span v-else-if="catalog.changedOnly" class="shrink-0 text-[11px] text-dimmed">
+          {{ catalog.rows.length }}
+          {{ catalog.rows.length === 1 ? 'setting differs' : 'settings differ' }}
+          from what Fermata ships with
+        </span>
       </div>
 
       <!--
-        Hidden while a query is active because a query already discloses every
-        advanced row it matches — offering to open what is open would be a
-        control that does nothing.
+        Not behind a confirmation, unlike Reset all. A section is a scope the
+        operator can see the whole of, every row in it carries its own revert,
+        and the changed filter above says exactly what is about to go — which is
+        the pair that makes an immediate destructive action legible rather than a
+        surprise.
       -->
       <UButton
-        v-if="!catalog.filtered && (section?.advancedTotal ?? 0) > 0"
+        v-if="sectionChanged > 0"
+        size="xs"
+        color="neutral"
+        variant="ghost"
+        icon="i-tabler-arrow-back-up"
+        :label="`Revert section (${sectionChanged})`"
+        :title="`Revert every ${section?.label} setting to the built-in default`"
+        class="shrink-0 text-xs"
+        @click="revertSection"
+      />
+
+      <!--
+        Hidden while a query or the changed filter is active because both already
+        disclose every advanced row they turn up — offering to open what is open
+        would be a control that does nothing.
+      -->
+      <UButton
+        v-if="!catalog.spanning && (section?.advancedTotal ?? 0) > 0"
         size="xs"
         color="neutral"
         variant="ghost"
@@ -159,13 +210,26 @@ watch(
       :ref="measure"
       class="min-h-0 flex-1 overflow-y-auto"
       role="list"
-      :aria-label="catalog.filtered ? 'Matching settings' : (section?.label ?? 'Settings')"
+      :aria-label="
+        catalog.filtered
+          ? 'Matching settings'
+          : catalog.changedOnly
+            ? 'Settings changed from default'
+            : (section?.label ?? 'Settings')
+      "
       @scroll="onScroll"
     >
       <div v-if="catalog.rows.length === 0" class="px-4 py-10 text-center text-xs text-dimmed">
         <template v-if="catalog.filtered">
           Nothing matches “{{ nav.query.trim() }}”. Search runs over names, descriptions and
           keywords.
+        </template>
+        <!--
+          The good news case, and worth saying as such: an empty delta is what a
+          working install looks like, not a filter that has gone wrong.
+        -->
+        <template v-else-if="catalog.changedOnly">
+          Every setting is at the value Fermata ships with.
         </template>
         <template v-else>This section has no settings yet.</template>
       </div>
@@ -178,7 +242,7 @@ watch(
           v-for="(row, i) in drawn"
           :key="row.key"
           :row="row"
-          :show-category="catalog.filtered"
+          :show-category="catalog.spanning"
           :highlighted="nav.highlighted === row.key"
           role="listitem"
           class="absolute inset-x-0"

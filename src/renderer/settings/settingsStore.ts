@@ -9,15 +9,19 @@ import {
 import {
   acceptValue,
   cascadeLayers,
+  changedFromDefault,
   GLOBAL_SCOPE,
   isGlobalScope,
   rejectValue,
   resolveCascade,
   resolveDefault,
+  sameSettingValue,
   scopeKey,
+  SETTING_CATEGORIES,
   SETTINGS_REGISTRY,
   validateValue,
   type CascadeScopeRef,
+  type SettingCategoryId,
   type GetAllSettingsResult,
   type GetSettingOverridesRequest,
   type GetSettingOverridesResult,
@@ -125,6 +129,24 @@ export interface SettingsStore extends SettingsReader {
   set<T>(key: string, value: T): Promise<SettingValidation<T>>
   /** Drop the stored value so the key resumes tracking its descriptor default. */
   reset(key: string): Promise<void>
+  /**
+   * Drop every stored value in one category, both scopes.
+   *
+   * A category is the unit the settings rail is divided into, so it is the unit
+   * "put Audio back how it shipped" has to be expressed in. Internal keys carry a
+   * category precisely so a sweep reaches them — closing every tab is part of
+   * resetting Interface — even though they have no row of their own.
+   */
+  resetCategory(category: SettingCategoryId): Promise<void>
+  /**
+   * Drop every stored value this build knows about, both scopes.
+   *
+   * The one destructive action on the surface, and the only one behind a
+   * confirmation. Keys with no descriptor are left alone — a build that deleted
+   * a neighbouring branch's rows would make "reset everything" a way to lose
+   * work that was never on screen to be reset.
+   */
+  resetAll(): Promise<void>
   value<T>(key: string): WritableComputedRef<T>
 
   /**
@@ -159,6 +181,24 @@ export interface SettingsStore extends SettingsReader {
     scope: CascadeScopeRef<C>
   ): Promise<void>
 
+  /**
+   * A row or entry exists for this key at the global scope, whatever it holds.
+   *
+   * The predicate behind the per-row revert affordance, and deliberately not the
+   * same one as `changedKeys`. A row holding exactly the default has changed
+   * nothing, so it is not part of the operator's delta — but it is still a row,
+   * and it is the row that stops the key tracking a default a later build moves.
+   * Offering to delete it is the only way to say so.
+   */
+  isStored(key: string): boolean
+  /**
+   * Every key whose current global value differs from its descriptor default.
+   *
+   * The operator's whole delta, reactive, across both scopes and every category
+   * at once. Internal keys are included — the surface filters them out because
+   * they have no row, but an export or a bug report wants them.
+   */
+  readonly changedKeys: ComputedRef<readonly string[]>
   /** Writes anything either half's debounce is still holding. */
   flush(): Promise<void>
   /** False until `settings.getAll` has landed. Durable keys read defaults until then. */
@@ -187,11 +227,6 @@ interface PendingWrite {
   scope: SettingScopeRef
   value: unknown
   resolvers: ((result: SettingValidation<unknown>) => void)[]
-}
-
-/** Structural equality, enough for the small values settings hold. */
-function sameValue(a: unknown, b: unknown): boolean {
-  return Object.is(a, b) || JSON.stringify(a) === JSON.stringify(b)
 }
 
 /**
@@ -373,13 +408,13 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
     if (pending.has(writeKey(key, scope))) return
 
     if (isGlobalScope(scope)) {
-      if (sameValue(state.value[key], value)) return
+      if (sameSettingValue(state.value[key], value)) return
       state.value = { ...state.value, [key]: value }
       return
     }
 
     const scoped = scopeKey(scope)
-    if (sameValue(overrides.value[scoped]?.[key]?.value, value)) return
+    if (sameSettingValue(overrides.value[scoped]?.[key]?.value, value)) return
     overrides.value = {
       ...overrides.value,
       [scoped]: {
@@ -623,7 +658,7 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
     // Propagation is immediate; only the write behind it is deferred. Assigned
     // directly rather than through `apply`, which exists to stop *other* paths
     // from overtaking a queued write — a caller's own set is that write.
-    if (!sameValue(state.value[key], value)) state.value = { ...state.value, [key]: value }
+    if (!sameSettingValue(state.value[key], value)) state.value = { ...state.value, [key]: value }
     markGlobalRow(key, true)
     return enqueue(key, GLOBAL_SCOPE, value) as Promise<SettingValidation<T>>
   }
@@ -658,7 +693,7 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
       view.reset(key)
       return
     }
-    await clear(descriptor, GLOBAL_SCOPE)
+    await clear({ key }, GLOBAL_SCOPE, [descriptor])
   }
 
   function clearOverride<T, C extends readonly SettingEntityKind[]>(
@@ -667,32 +702,86 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
   ): Promise<void> {
     if (isGlobalScope(scope)) return reset(descriptor.key)
     cascadeLayers(descriptor, scope, () => null)
-    return clear(descriptor, scope)
+    return clear({ key: descriptor.key }, scope, [descriptor])
   }
 
-  /** Drop one row at one scope, and put the surface where that leaves it. */
-  async function clear(descriptor: SettingDescriptor, scope: SettingScopeRef): Promise<void> {
-    const key = descriptor.key
-    const target = writeKey(key, scope)
+  /**
+   * Sweep a whole category, or the lot.
+   *
+   * One request to main rather than one per key: main's `reset` already takes a
+   * category, and a loop would be N round trips and N broadcasts for what is one
+   * operator action. The view half is swept here in the same pass, because the
+   * split is main's storage boundary and not a distinction the operator is
+   * asking about — "revert Interface" that left the pane widths alone would be
+   * reverting half a category.
+   */
+  async function sweep(category: SettingCategoryId | null): Promise<void> {
+    const scoped = descriptors.filter(
+      (descriptor) => category === null || descriptor.category === category
+    )
+    for (const descriptor of scoped) {
+      if (descriptor.scope === 'view') view.reset(descriptor.key)
+    }
+    await clear(
+      category === null ? {} : { category },
+      GLOBAL_SCOPE,
+      scoped.filter((descriptor) => descriptor.scope === 'durable')
+    )
+  }
 
+  function resetCategory(category: SettingCategoryId): Promise<void> {
+    if (!SETTING_CATEGORIES.some((entry) => entry.id === category)) {
+      throw new RangeError(`unknown settings category: ${category}`)
+    }
+    return sweep(category)
+  }
+
+  function resetAll(): Promise<void> {
+    return sweep(null)
+  }
+
+  /**
+   * Drop rows at one scope, and put the surface where that leaves it.
+   *
+   * `request` is what main is asked; `targets` is what the surface then has to
+   * be walked over. They are separate because main accepts a category as one
+   * request and the surface has no such shorthand — every key in it has to be
+   * dropped, settled and re-resolved individually whichever way the ask arrived.
+   */
+  async function clear(
+    request: ResetSettingsRequest,
+    scope: SettingScopeRef,
+    targets: readonly SettingDescriptor[]
+  ): Promise<void> {
     // A queued write for a row being dropped is moot, but its callers are still
     // waiting on an answer.
-    const dropped = pending.get(target)
-    pending.delete(target)
+    const dropped = new Map<string, PendingWrite>()
+    for (const descriptor of targets) {
+      const entry = pending.get(writeKey(descriptor.key, scope))
+      if (!entry) continue
+      dropped.set(descriptor.key, entry)
+      pending.delete(writeKey(descriptor.key, scope))
+    }
 
     try {
-      applyRemote(await durable.reset({ key, scope }))
-      // Main answers with a change only when something actually moved, so the
-      // already-absent case has to be settled here rather than by the echo.
-      confirmed.set(target, null)
-      drop(key, scope)
-      // What now applies is one level down, whichever level that was: the global
-      // value for an entity, the descriptor default for the global itself.
-      if (dropped) settle(dropped, acceptValue(inheritedAfterDrop(descriptor, scope)))
+      applyRemote(await durable.reset({ ...request, scope }))
+      for (const descriptor of targets) {
+        // Main answers with a change only when something actually moved, so the
+        // already-absent case has to be settled here rather than by the echo.
+        confirmed.set(writeKey(descriptor.key, scope), null)
+        drop(descriptor.key, scope)
+        // What now applies is one level down, whichever level that was: the
+        // global value for an entity, the descriptor default for the global.
+        const entry = dropped.get(descriptor.key)
+        if (entry) settle(entry, acceptValue(inheritedAfterDrop(descriptor, scope)))
+      }
     } catch (error) {
       const reason = (error as Error).message
-      note({ key, reason: `the reset was refused: ${reason}`, rejected: null })
-      if (dropped) settle(dropped, rejectValue(reason))
+      for (const descriptor of targets) {
+        note({ key: descriptor.key, reason: `the reset was refused: ${reason}`, rejected: null })
+        const entry = dropped.get(descriptor.key)
+        if (entry) settle(entry, rejectValue(reason))
+      }
       throw error
     }
   }
@@ -715,6 +804,26 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
     })
   }
 
+  function isStored(key: string): boolean {
+    const descriptor = descriptorFor(key)
+    return descriptor.scope === 'view' ? view.stored(key) : storedGlobals.value.has(key)
+  }
+
+  /**
+   * Read through `currentValue`, so a view key is compared against the view
+   * store's live value rather than against a copy this store does not keep.
+   *
+   * A key whose stored value this build rejected is *not* changed: the surface
+   * holds the fallback default, which is the value in effect, and listing it here
+   * would send an operator hunting for a knob that is reading exactly as shipped.
+   * The rejection is a notice, and a notice is the honest place for it.
+   */
+  const changedKeys = computed<readonly string[]>(() =>
+    descriptors
+      .filter((descriptor) => changedFromDefault(descriptor, currentValue(descriptor)))
+      .map((descriptor) => descriptor.key)
+  )
+
   const notices = computed<readonly SettingNotice[]>(() => [
     ...ownNotices.value,
     ...view.notices.value
@@ -725,7 +834,7 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
       .filter(
         (descriptor) =>
           descriptor.requiresRestart &&
-          !sameValue(currentValue(descriptor), launch.value[descriptor.key])
+          !sameSettingValue(currentValue(descriptor), launch.value[descriptor.key])
       )
       .map((descriptor) => descriptor.key)
   )
@@ -745,12 +854,16 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
     get,
     set,
     reset,
+    resetCategory,
+    resetAll,
     value,
     loadOverrides,
     overridesLoaded,
     cascade,
     setOverride,
     clearOverride,
+    isStored,
+    changedKeys,
     flush,
     hydrated,
     ready,

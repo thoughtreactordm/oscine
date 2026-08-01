@@ -2,6 +2,7 @@ import { computed, shallowRef, type Ref, type WritableComputedRef } from 'vue'
 import {
   resolveDefault,
   resolveSettings,
+  sameSettingValue,
   settingsInScope,
   validateValue,
   type SettingDescriptor,
@@ -96,6 +97,15 @@ export interface ViewSettingsDeps {
 export interface ViewSettings extends SettingsReader {
   /** The current value, reactive. Throws for a key with no descriptor. */
   get<T>(key: string): T
+  /**
+   * An entry for this key survived the load or has been written since. Reactive.
+   *
+   * The durable half tracks the same thing as `storedKeys`, and W8-7 needs both:
+   * a revert affordance is only offered where there is a row to delete, and an
+   * entry holding exactly the default is such a row. The value alone cannot say
+   * — that is the same blind spot `GetAllSettingsResult.storedKeys` exists for.
+   */
+  stored(key: string): boolean
   /** Validates, repairs and stores. A rejected value falls back to the default. */
   set<T>(key: string, value: T): void
   /** Back to the default, and stop storing an entry for it. */
@@ -107,11 +117,6 @@ export interface ViewSettings extends SettingsReader {
   /** What did not survive the load, and what a `set` refused since. */
   readonly notices: Ref<readonly SettingNotice[]>
   readonly descriptors: readonly SettingDescriptor[]
-}
-
-/** Structural equality, enough for the small values settings hold. */
-function sameValue(a: unknown, b: unknown): boolean {
-  return Object.is(a, b) || JSON.stringify(a) === JSON.stringify(b)
 }
 
 export function createViewSettings(deps: ViewSettingsDeps = {}): ViewSettings {
@@ -130,6 +135,15 @@ export function createViewSettings(deps: ViewSettingsDeps = {}): ViewSettings {
    * change one.
    */
   const state = shallowRef<Record<string, unknown>>({})
+
+  /**
+   * Which keys an entry actually supplied a value for.
+   *
+   * A key whose entry was rejected is not among them: `state` holds the fallback
+   * default, and calling that "stored" would attribute it to an entry that
+   * supplied nothing — the same rule main's `stored` set follows.
+   */
+  const storedKeys = shallowRef<ReadonlySet<string>>(new Set())
 
   /** Keys whose stored entry is behind `state`, waiting on the debounce. */
   const pending = new Set<string>()
@@ -187,6 +201,8 @@ export function createViewSettings(deps: ViewSettingsDeps = {}): ViewSettings {
 
     const resolution = resolveSettings(stored, 'view', descriptors)
     state.value = resolution.values
+    const rejected = new Set(resolution.notices.map((notice) => notice.key))
+    storedKeys.value = new Set(Object.keys(stored).filter((key) => !rejected.has(key)))
     if (resolution.notices.length) notices.value = [...notices.value, ...resolution.notices]
     // A repaired or migrated entry is stale on disk. Rewritten through the same
     // debounce as everything else, so a cold start does not fire a burst of
@@ -227,14 +243,28 @@ export function createViewSettings(deps: ViewSettingsDeps = {}): ViewSettings {
     return state.value[key] as T
   }
 
+  function stored(key: string): boolean {
+    descriptorFor(key)
+    return storedKeys.value.has(key)
+  }
+
+  function markStored(key: string, present: boolean): void {
+    if (storedKeys.value.has(key) === present) return
+    const next = new Set(storedKeys.value)
+    if (present) next.add(key)
+    else next.delete(key)
+    storedKeys.value = next
+  }
+
   function set<T>(key: string, next: T): void {
     const descriptor = descriptorFor(key)
     const resolved = validateValue(descriptor, next)
     if (resolved.notice) note(resolved.notice)
     // A no-op set writes nothing. Callers hand this clamped values from a drag,
     // and most pointer moves land on the number already stored.
-    if (sameValue(state.value[key], resolved.value)) return
+    if (sameSettingValue(state.value[key], resolved.value)) return
     state.value = { ...state.value, [key]: resolved.value }
+    markStored(key, true)
     pending.add(key)
     schedule()
   }
@@ -245,6 +275,7 @@ export function createViewSettings(deps: ViewSettingsDeps = {}): ViewSettings {
     // Forgotten rather than stored as the default, so that a later build which
     // changes the default reaches a profile that never overrode it.
     pending.delete(key)
+    markStored(key, false)
     storage?.remove(VIEW_STORAGE_PREFIX + key)
   }
 
@@ -255,5 +286,5 @@ export function createViewSettings(deps: ViewSettingsDeps = {}): ViewSettings {
 
   load()
 
-  return { get, set, reset, value, flush, notices, descriptors }
+  return { get, stored, set, reset, value, flush, notices, descriptors }
 }

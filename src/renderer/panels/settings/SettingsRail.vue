@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { buildSettingsCatalog } from '@renderer/panels/settings/catalog'
+import ResetAllDialog from '@renderer/panels/settings/ResetAllDialog.vue'
+import { useSettings } from '@renderer/settings'
 import { useSettingsNavStore } from '@renderer/stores/settingsNav'
 import type { SettingCategoryId } from '@shared/settings'
 
@@ -19,9 +21,17 @@ import type { SettingCategoryId } from '@shared/settings'
  * over a few dozen descriptors — cheaper than the coupling would be.
  */
 const nav = useSettingsNavStore()
+const settings = useSettings()
+
+const changed = computed(() => new Set(settings.changedKeys.value))
 
 const catalog = computed(() =>
-  buildSettingsCatalog(undefined, { query: nav.query, category: nav.category })
+  buildSettingsCatalog(undefined, {
+    query: nav.query,
+    category: nav.category,
+    changed: changed.value,
+    changedOnly: nav.changedOnly
+  })
 )
 
 /** Which rail entry reads as current: the query's section while one is set. */
@@ -36,11 +46,12 @@ function select(id: SettingCategoryId): void {
  *
  * `reveal` keeps the query when the target still answers to it, so this scrolls
  * and marks the row without emptying the box that found it — the operator can
- * type, jump, and then keep going down the list.
+ * type, jump, and then keep going down the list. The same applies to the changed
+ * filter, and the row came out of the filtered list, so it says so.
  */
 function jumpToFirstMatch(): void {
   const first = catalog.value.rows[0]
-  if (first) nav.reveal(first.key)
+  if (first) nav.reveal(first.key, { changed: nav.changedOnly })
 }
 </script>
 
@@ -70,6 +81,23 @@ function jumpToFirstMatch(): void {
           />
         </template>
       </UInput>
+
+      <!--
+        Under the search box, because it is the other way of narrowing two
+        hundred rows and the one you reach for when you cannot name what you
+        broke. The count is on the button rather than beside it: "Changed (0)" is
+        the answer to "have I touched anything" without having to press it.
+      -->
+      <UButton
+        :color="nav.changedOnly ? 'primary' : 'neutral'"
+        :variant="nav.changedOnly ? 'subtle' : 'ghost'"
+        size="xs"
+        icon="i-tabler-filter"
+        :label="`Changed from default (${catalog.changedTotal})`"
+        :aria-pressed="nav.changedOnly"
+        class="mt-2 w-full justify-start text-xs"
+        @click="nav.toggleChangedOnly()"
+      />
     </div>
 
     <div class="min-h-0 flex-1 overflow-y-auto py-1" role="list">
@@ -80,26 +108,32 @@ function jumpToFirstMatch(): void {
         role="listitem"
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors"
         :class="[
-          current === section.id && !catalog.filtered
+          current === section.id && !catalog.spanning
             ? 'bg-elevated text-highlighted'
             : 'hover:bg-elevated/60',
-          catalog.filtered && section.matches === 0 ? 'opacity-40' : ''
+          catalog.spanning && section.matches === 0 ? 'opacity-40' : ''
         ]"
-        :aria-current="current === section.id && !catalog.filtered ? 'true' : undefined"
+        :aria-current="current === section.id && !catalog.spanning ? 'true' : undefined"
         @click="select(section.id)"
       >
         <UIcon :name="section.icon" class="size-4 shrink-0 text-dimmed" />
         <span class="min-w-0 flex-1 truncate text-xs font-medium">{{ section.label }}</span>
         <!--
-          The count is what the query did, not how big the section is. Without it
-          a search that matches nothing under Library looks identical to one that
-          matches four, and the rail is the only place that comparison is visible
-          at all — the body only ever draws one answer.
+          The count is what the narrowing did, not how big the section is.
+          Without it a search that matches nothing under Library looks identical
+          to one that matches four, and the rail is the only place that
+          comparison is visible at all — the body only ever draws one answer. The
+          same holds for the changed filter, where it doubles as the per-section
+          delta: which domain the operator has been turning knobs in.
         -->
-        <span v-if="catalog.filtered" class="shrink-0 text-[11px] text-dimmed tabular-nums">
+        <span v-if="catalog.spanning" class="shrink-0 text-[11px] text-dimmed tabular-nums">
           {{ section.matches }}
         </span>
       </button>
+    </div>
+
+    <div class="shrink-0 border-t border-default px-3 py-2">
+      <ResetAllDialog />
     </div>
   </nav>
 </template>

@@ -2,7 +2,9 @@
 import { computed } from 'vue'
 import type { SettingsRow } from '@renderer/panels/settings/catalog'
 import SettingControl from '@renderer/panels/settings/SettingControl.vue'
+import SettingRevertButton from '@renderer/panels/settings/SettingRevertButton.vue'
 import { useSettings } from '@renderer/settings'
+import { DEFAULT_PROVENANCE, provenanceLabel } from '@shared/settings'
 
 /**
  * One setting: what it is called, what it does, and the thing that changes it.
@@ -45,6 +47,30 @@ const model = computed<unknown>({
  * started. Neither is a list anywhere; both come off the descriptor's flag.
  */
 const restartPending = computed(() => settings.restartRequired.value.includes(props.row.key))
+
+/**
+ * Offered where there is a row to delete, not where the value has moved.
+ *
+ * The two nearly coincide — a value can only differ from its default because
+ * something stored it — and they come apart in exactly the case the affordance
+ * matters most for: a row that holds the default anyway. Nothing on screen has
+ * changed, so it stays out of the changed-from-default filter, but the row is
+ * what stops this key following the default if a later build moves it. Deleting
+ * it is the only way to resume tracking, so the button has to be there to press.
+ */
+const revertable = computed(() => settings.isStored(props.row.key))
+
+/**
+ * The settings surface edits the global scope, so reverting always lands on the
+ * descriptor default. Phrased through `provenanceLabel` rather than written out,
+ * so this row and an entity control built on `useCascade` name their levels with
+ * the same vocabulary.
+ */
+const revertTo = provenanceLabel(DEFAULT_PROVENANCE)
+
+function revert(): void {
+  void settings.reset(props.row.key)
+}
 </script>
 
 <template>
@@ -91,6 +117,16 @@ const restartPending = computed(() => settings.restartRequired.value.includes(pr
 
     <div class="flex w-72 shrink-0 justify-end">
       <SettingControl v-model="model" :descriptor="row.descriptor" class="w-full" />
+    </div>
+
+    <!--
+      A fixed slot whether or not the button is in it. Rendering the button only
+      where there is something to revert would shift every control on the row
+      sideways the moment a value moved, which is a list that reflows while you
+      are dragging a slider on it.
+    -->
+    <div class="flex w-7 shrink-0 justify-end">
+      <SettingRevertButton v-if="revertable" :destination="revertTo" @revert="revert" />
     </div>
   </div>
 </template>

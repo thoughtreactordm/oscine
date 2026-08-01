@@ -255,3 +255,88 @@ describe('the section being shown', () => {
     expect(new Set(catalog.rows.map((row) => row.category))).toEqual(new Set(['network']))
   })
 })
+
+/**
+ * The changed-from-default filter.
+ *
+ * Driven through the same pure function as everything else here, and handed the
+ * delta as a set rather than a store — which is the point of the parameter: the
+ * cases worth pinning are "changed", "unchanged", "a key nobody has a descriptor
+ * for" and "advanced and changed", and three of the four are awkward to arrange
+ * through a real store and trivial to state as a set.
+ */
+describe('changed from default', () => {
+  it('shows only the keys in the delta', () => {
+    const catalog = buildSettingsCatalog(FIXTURE, {
+      changed: new Set(['network.testOnlySelect']),
+      changedOnly: true
+    })
+
+    expect(catalog.rows.map((row) => row.key)).toEqual(['network.testOnlySelect'])
+    expect(catalog.changedOnly).toBe(true)
+    expect(catalog.changedTotal).toBe(1)
+  })
+
+  it('spans every category rather than the one being shown', () => {
+    // The whole delta on one screen is what the filter is for, and an operator
+    // who could already name the section would not have needed it.
+    const catalog = buildSettingsCatalog([...SETTINGS_REGISTRY, ...FIXTURE], {
+      category: 'network',
+      changed: new Set(['audio.crossfadeMs', 'network.testOnlyToggle']),
+      changedOnly: true
+    })
+
+    expect(catalog.category).toBeNull()
+    expect(catalog.spanning).toBe(true)
+    expect(new Set(catalog.rows.map((row) => row.category))).toEqual(new Set(['audio', 'network']))
+  })
+
+  it('draws an advanced key that has changed even with the disclosure shut', () => {
+    // Hiding a knob the operator has actually turned is exactly the failure mode
+    // this filter exists to prevent.
+    const catalog = buildSettingsCatalog(FIXTURE, {
+      advanced: { network: false },
+      changed: new Set(['network.testOnlyBudget']),
+      changedOnly: true
+    })
+
+    expect(catalog.rows.map((row) => row.key)).toEqual(['network.testOnlyBudget'])
+    expect(catalog.withheldAdvanced).toBe(0)
+  })
+
+  it('ignores a changed key that has no descriptor, and one that has no row', () => {
+    // A stored key from a neighbouring branch has nothing to render, and an
+    // internal key has no row on this surface however far it has moved.
+    const catalog = buildSettingsCatalog(FIXTURE, {
+      changed: new Set(['network.fromAnotherBranch', 'network.testOnlyInternal']),
+      changedOnly: true
+    })
+
+    expect(catalog.rows).toEqual([])
+    expect(catalog.changedTotal).toBe(0)
+  })
+
+  it('counts the delta per section whether or not the filter is on', () => {
+    const changed = new Set(['network.testOnlyToggle', 'network.testOnlyBudget'])
+
+    expect(buildSettingsCatalog(FIXTURE, { changed }).sections[0]?.changed).toBe(2)
+    expect(buildSettingsCatalog(FIXTURE, { changed }).sections[0]?.matches).toBe(3)
+    expect(buildSettingsCatalog(FIXTURE, { changed, changedOnly: true }).sections[0]?.matches).toBe(
+      2
+    )
+  })
+
+  it('narrows with a query rather than instead of one', () => {
+    const catalog = buildSettingsCatalog(FIXTURE, {
+      query: 'obscure',
+      changed: new Set(['network.testOnlySelect']),
+      changedOnly: true
+    })
+
+    // "obscure" finds the budget; the delta holds the select. Neither survives
+    // both, and a filter that answered with either would be an or.
+    expect(catalog.rows).toEqual([])
+    expect(catalog.filtered).toBe(true)
+    expect(catalog.changedOnly).toBe(true)
+  })
+})

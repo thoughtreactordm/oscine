@@ -190,10 +190,18 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
     async reset(request) {
       calls.reset.push(request)
       const scope = request.scope ?? GLOBAL_SCOPE
+      // Naming a key resets that key; naming a category sweeps it; naming
+      // neither sweeps the lot — and a row whose key has no descriptor is
+      // reached by none of the three, which is the preservation rule the real
+      // service follows and the one W8-7's reset-all has to be held to.
       const targets =
         request.key !== undefined
           ? [descriptorFor(request.key)]
-          : descriptors.filter((descriptor) => descriptor.scope === 'durable')
+          : descriptors.filter(
+              (descriptor) =>
+                descriptor.scope === 'durable' &&
+                (request.category === undefined || descriptor.category === request.category)
+            )
 
       const changes: SettingsChange[] = []
       for (const descriptor of targets) {
