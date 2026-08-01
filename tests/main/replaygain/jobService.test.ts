@@ -27,8 +27,16 @@ function analyzer(
   return { analyze, close: async () => {} }
 }
 
-function service(createAnalyzer: () => ReplayGainAnalyzer): ReplayGainJobService {
-  const instance = new ReplayGainJobService({ db, onProgress: () => {}, createAnalyzer })
+function service(
+  createAnalyzer: () => ReplayGainAnalyzer,
+  canCompute?: () => boolean
+): ReplayGainJobService {
+  const instance = new ReplayGainJobService({
+    db,
+    onProgress: () => {},
+    createAnalyzer,
+    ...(canCompute ? { canCompute } : {})
+  })
   services.push(instance)
   return instance
 }
@@ -270,5 +278,66 @@ describe('ReplayGainJobService', () => {
     expect(rows[0].albumGain).toBe(rows[1].albumGain)
     expect(rows[0].albumPeak).toBe(0.95)
     expect(rows[1].albumPeak).toBe(0.95)
+  })
+
+  /**
+   * `audio.replayGainComputeWhenMissing`, the one audio key whose consumer is in
+   * main rather than in the renderer.
+   *
+   * It refuses rather than returning an empty completed job, because an empty
+   * completed job is indistinguishable from a library that is already fully
+   * analysed — and the operator would then go looking for tracks the job had
+   * never been allowed to touch.
+   */
+  describe('the compute-when-missing gate', () => {
+    it('refuses to start while the setting is off', async () => {
+      addTrack('untagged.flac')
+      const job = service(
+        () => analyzer(async () => result()),
+        () => false
+      )
+
+      await expect(job.start()).rejects.toThrow(/turned off in audio settings/)
+      expect(await job.get()).toBeNull()
+    })
+
+    it('refuses to resume a paused job while the setting is off', async () => {
+      addTrack('untagged.flac')
+      let allowed = true
+      const job = service(
+        () => analyzer(async () => result()),
+        () => allowed
+      )
+
+      const started = await job.start()
+      await job.cancel(started.jobId)
+      allowed = false
+
+      await expect(job.resume(started.jobId)).rejects.toThrow(/turned off in audio settings/)
+    })
+
+    it('reads the setting at the moment it is asked, not at construction', async () => {
+      // Turned off after the service was built. A boolean captured in the
+      // constructor would have been one this service never heard change.
+      addTrack('untagged.flac')
+      let allowed = true
+      const job = service(
+        () => analyzer(async () => result()),
+        () => allowed
+      )
+
+      allowed = false
+      await expect(job.start()).rejects.toThrow(/turned off in audio settings/)
+
+      allowed = true
+      await expect(job.start()).resolves.toMatchObject({ total: 1 })
+    })
+
+    it('runs as it always did when nothing gates it', async () => {
+      addTrack('untagged.flac')
+      const job = service(() => analyzer(async () => result()))
+
+      await expect(job.start()).resolves.toMatchObject({ total: 1 })
+    })
   })
 })

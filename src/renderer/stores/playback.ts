@@ -22,14 +22,17 @@ import { useSettings } from '@renderer/settings'
  */
 export const usePlaybackStore = defineStore('playback', () => {
   // Both scheduler slots come from one factory so R1 accounts current and
-  // prefetched decoded buffers in the same proven-freed ledger.
-  const createEngine = createAudioEngineFactory()
+  // prefetched decoded buffers in the same proven-freed ledger. The factory also
+  // owns the output device, because the sink belongs to the AudioContexts it
+  // built rather than to either engine — see `audio/outputDevice.ts`.
+  const audio = createAudioEngineFactory()
   // Resolved once: absent means the runtime has no Media Session API, and the
   // controller simply runs unbound.
   const mediaSessionPlatform = createBrowserMediaSessionPlatform()
 
   return createPlaybackController({
-    createEngine,
+    createEngine: audio.createEngine,
+    setOutputDevice: audio.setOutputDevice,
     fetchPage: (query) => library.listTracks(query),
     fetchPlaylistEntries: (query) => playlists.listEntries(query),
     // The session tier's two verbs (§5 amendment). Both already existed —

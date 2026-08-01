@@ -1,7 +1,7 @@
 import {
   AudioEngineError,
   type AudioEngineEventMap,
-  type NormalizationMode,
+  type NormalizationPolicy,
   type PlaybackStatus,
   type SampleAccurateTime
 } from './AudioEngine'
@@ -13,8 +13,9 @@ import { Emitter } from './emitter'
 import { equalPowerCurve } from './equalPower'
 import { decodedSourceEndTimeSec } from './gaplessTiming'
 import {
-  DEFAULT_NORMALIZATION_MODE,
+  DEFAULT_NORMALIZATION_POLICY,
   resolveNormalization,
+  sameNormalizationPolicy,
   type NormalizationDecision
 } from './normalization'
 import { clamp, pausedAt, positionAt, type PlaybackClock } from './playbackClock'
@@ -66,7 +67,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
   #fadeOutScheduled = false
   readonly #retiringSourceReleases = new Set<() => void>()
   #volume = 1
-  #normalizationMode: NormalizationMode = DEFAULT_NORMALIZATION_MODE
+  #normalizationPolicy: NormalizationPolicy = DEFAULT_NORMALIZATION_POLICY
   #ticker: ReturnType<typeof setInterval> | null = null
   /** Bumped by every `load`, so a decode that finishes late can tell it lost. */
   #generation = 0
@@ -101,8 +102,8 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     return this.#volume
   }
 
-  get normalizationMode(): NormalizationMode {
-    return this.#normalizationMode
+  get normalizationPolicy(): NormalizationPolicy {
+    return this.#normalizationPolicy
   }
 
   get status(): PlaybackStatus {
@@ -414,9 +415,9 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     param.linearRampToValueAtTime(target, now + VOLUME_RAMP_SEC)
   }
 
-  setNormalizationMode(mode: NormalizationMode): void {
-    if (mode === this.#normalizationMode) return
-    this.#normalizationMode = mode
+  setNormalizationPolicy(policy: NormalizationPolicy): void {
+    if (sameNormalizationPolicy(policy, this.#normalizationPolicy)) return
+    this.#normalizationPolicy = policy
     if (this.#disposed || !this.#normalizationGain || !this.#audioSource) return
 
     const target = this.#normalizationDecision().effectiveGain
@@ -573,7 +574,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
         rgAlbumPeak: null,
         rgSource: null
       },
-      this.#normalizationMode
+      this.#normalizationPolicy
     )
   }
 

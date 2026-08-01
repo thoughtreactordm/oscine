@@ -13,7 +13,7 @@ import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles
 import { SqlitePodcastService } from './podcasts/service'
 import { SqliteSettingsService } from './settings'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
-import type { SettingsChange } from '@shared/settings'
+import { AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING, type SettingsChange } from '@shared/settings'
 
 const isDev = !app.isPackaged
 const rendererDir = join(__dirname, '../renderer')
@@ -251,7 +251,11 @@ if (!app.requestSingleInstanceLock()) {
       pickFolder: pickMusicFolder,
       onProgress: broadcastScanProgress,
       onNotice: broadcastLibraryNotice,
-      onReplayGainProgress: broadcastReplayGainProgress
+      onReplayGainProgress: broadcastReplayGainProgress,
+      // Read at the moment the job is asked for, not now: main resolves durable
+      // settings before the window exists, and this one can be turned off from
+      // the settings view while the app is running.
+      canComputeReplayGain: () => settings.get<boolean>(AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING.key)
     })
 
     // Its own service on the same connection: playlists own two tables the

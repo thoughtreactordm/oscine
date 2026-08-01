@@ -3,16 +3,28 @@ import {
   createPlaybackController,
   type PlaybackControllerDeps
 } from '../../../src/renderer/playback/controller'
-import { AUDIO_CROSSFADE_MS, AUDIO_CROSSFADE_MS_KEY } from '../../../src/shared/settings'
+import {
+  AUDIO_CROSSFADE_MS,
+  AUDIO_CROSSFADE_MS_KEY,
+  AUDIO_DECODE_TRACK_CAP_MB,
+  AUDIO_OUTPUT_DEVICE,
+  AUDIO_PREFETCH_DEPTH,
+  AUDIO_REPLAY_GAIN_FALLBACK_DB,
+  AUDIO_REPLAY_GAIN_MODE,
+  AUDIO_REPLAY_GAIN_PREAMP_DB,
+  MIB
+} from '../../../src/shared/settings'
 import { TRANSPORT_REPEAT_KEY } from '../../../src/renderer/playback/transportPreferences'
 import { settingsStoreFixture, storedValue } from '../settings/fixture'
+import { DEFAULT_NORMALIZATION_POLICY } from '../../../src/renderer/audio/normalization'
+import { DEFAULT_R1_POLICY, type R1Policy } from '../../../src/renderer/audio/r1Admission'
 // The contract, not the barrel: these tests compile under the node config,
 // which has no DOM, and the barrel reaches the Web Audio implementation.
 import {
   AudioEngineError,
   type AudioEngine,
   type AudioEngineEventMap,
-  type NormalizationMode,
+  type NormalizationPolicy,
   type PlaybackStatus,
   type SampleAccurateTime
 } from '../../../src/renderer/audio/AudioEngine'
@@ -66,7 +78,8 @@ class FakeEngine implements AudioEngine {
   currentTime = 0
   duration = 0
   volume = 1
-  normalizationMode: NormalizationMode = 'track'
+  normalizationPolicy: NormalizationPolicy = DEFAULT_NORMALIZATION_POLICY
+  decodePolicy: R1Policy = DEFAULT_R1_POLICY
   status: PlaybackStatus = 'idle'
   trackId: number | null = null
   transitionPolicy = 'sample-accurate' as const
@@ -118,8 +131,12 @@ class FakeEngine implements AudioEngine {
     this.volume = gain
   }
 
-  setNormalizationMode(mode: NormalizationMode): void {
-    this.normalizationMode = mode
+  setNormalizationPolicy(policy: NormalizationPolicy): void {
+    this.normalizationPolicy = policy
+  }
+
+  setDecodePolicy(policy: Partial<R1Policy>): void {
+    this.decodePolicy = { ...this.decodePolicy, ...policy }
   }
 
   scheduleSampleAccurateStart(_at: SampleAccurateTime, _fadeInDurationSec = 0): boolean {
@@ -189,6 +206,7 @@ function harness(
      * waited on it, `playFromList` would simply never resolve.
      */
     stallSessionFill?: boolean
+    setOutputDevice?: PlaybackControllerDeps['setOutputDevice']
   } = {}
 ) {
   const total = options.total ?? 10
@@ -253,6 +271,7 @@ function harness(
     fetchTracksByIds,
     ...(options.createMediaSession ? { createMediaSession: options.createMediaSession } : {}),
     ...(options.settings ? { settings: options.settings } : {}),
+    ...(options.setOutputDevice ? { setOutputDevice: options.setOutputDevice } : {}),
     ...(options.crossfadeMs === undefined ? {} : { crossfadeMs: options.crossfadeMs }),
     ...(options.sessionCap === undefined ? {} : { sessionQueueCap: options.sessionCap }),
     // Fixed by default, so a shuffled traversal is something a test can name.
@@ -357,6 +376,119 @@ describe('createPlaybackController', () => {
       expect(store.settings.get<number>(AUDIO_CROSSFADE_MS_KEY)).toBe(1500)
     })
 
+    /**
+     * W8-9's live half, for the keys that had no UI before it.
+     *
+     * The claim each of these makes is the same one W8-4 makes about the
+     * crossfade: a value changed in the settings view has to reach a transport
+     * that is already playing. A controller that read these at construction
+     * would pass a test that only checked its own refs and fail the operator.
+     */
+    describe('the audio settings that land mid-track', () => {
+      async function playing(settings: PlaybackControllerDeps['settings']) {
+        const bound = harness({ settings })
+        await bound.controller.playFromList({
+          sort: 'artist',
+          direction: 'asc',
+          index: 0,
+          track: track(0)
+        })
+        return bound
+      }
+
+      it('carries a pre-amp change to the scheduler', async () => {
+        const store = viewStore()
+        const bound = await playing(store.settings)
+        expect(bound.controller.schedulerNormalizationPolicy()?.preampDb).toBe(0)
+
+        await store.settings.set(AUDIO_REPLAY_GAIN_PREAMP_DB.key, 4.5)
+        await settle()
+
+        expect(bound.controller.schedulerNormalizationPolicy()).toMatchObject({
+          mode: 'track',
+          preampDb: 4.5
+        })
+        expect(bound.engines.every((engine) => engine.normalizationPolicy.preampDb === 4.5)).toBe(
+          true
+        )
+      })
+
+      it('carries an untagged-track fallback change to the scheduler', async () => {
+        const store = viewStore()
+        const bound = await playing(store.settings)
+
+        await store.settings.set(AUDIO_REPLAY_GAIN_FALLBACK_DB.key, -3)
+        await settle()
+
+        expect(bound.controller.schedulerNormalizationPolicy()?.fallbackGainDb).toBe(-3)
+      })
+
+      it('carries an R1 budget change to both engine slots', async () => {
+        const store = viewStore()
+        const bound = await playing(store.settings)
+
+        await store.settings.set(AUDIO_DECODE_TRACK_CAP_MB.key, 128)
+        await settle()
+
+        expect(
+          bound.engines.every((engine) => engine.decodePolicy.maxTrackDecodedBytes === 128 * MIB)
+        ).toBe(true)
+      })
+
+      it('carries a decode-ahead change to the scheduler', async () => {
+        const store = viewStore()
+        const bound = await playing(store.settings)
+        expect(bound.controller.schedulerPrefetchDepth()).toBe(1)
+
+        await store.settings.set(AUDIO_PREFETCH_DEPTH.key, 0)
+        await settle()
+
+        expect(bound.controller.schedulerPrefetchDepth()).toBe(0)
+      })
+
+      it('writes the mode rather than holding one of its own', async () => {
+        // `setNormalizationMode` used to assign a ref the settings view could
+        // not see. Now the assignment *is* the persistence, as it is for repeat.
+        const store = viewStore()
+        const bound = harness({ settings: store.settings })
+
+        bound.controller.setNormalizationMode('album')
+        await store.settings.flush()
+
+        expect(store.settings.get<string>(AUDIO_REPLAY_GAIN_MODE.key)).toBe('album')
+        expect(bound.controller.normalizationMode.value).toBe('album')
+      })
+
+      it('points the audio device at the stored setting before anything plays', async () => {
+        // Immediate, unlike the others: the device is not a change to react to
+        // at startup, it is the state the contexts have to be built into.
+        const store = settingsStoreFixture({ stored: { [AUDIO_OUTPUT_DEVICE.key]: 'usb-dac' } })
+        const setOutputDevice = vi.fn(async () => {})
+        harness({ settings: store.settings, setOutputDevice })
+        await settle()
+
+        expect(setOutputDevice).toHaveBeenCalledWith('usb-dac')
+      })
+
+      it('carries a device change made while a track is playing', async () => {
+        const store = viewStore()
+        const setOutputDevice = vi.fn(async () => {})
+        const bound = harness({ settings: store.settings, setOutputDevice })
+        await bound.controller.playFromList({
+          sort: 'artist',
+          direction: 'asc',
+          index: 0,
+          track: track(0)
+        })
+        setOutputDevice.mockClear()
+
+        await store.settings.set(AUDIO_OUTPUT_DEVICE.key, 'headphones')
+        await settle()
+
+        expect(setOutputDevice).toHaveBeenCalledWith('headphones')
+      })
+    })
+
     it('defaults to track normalization and replays a pre-play mode choice', async () => {
       expect(h.controller.normalizationMode.value).toBe('track')
       h.controller.setNormalizationMode('album')
@@ -369,7 +501,7 @@ describe('createPlaybackController', () => {
         track: track(0)
       })
 
-      expect(h.engines.every((engine) => engine.normalizationMode === 'album')).toBe(true)
+      expect(h.engines.every((engine) => engine.normalizationPolicy.mode === 'album')).toBe(true)
     })
   })
 

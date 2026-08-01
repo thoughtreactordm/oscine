@@ -10,6 +10,19 @@ export interface ReplayGainJobDeps {
   db: Database.Database
   onProgress: (progress: ReplayGainJobProgress) => void
   createAnalyzer?: () => ReplayGainAnalyzer
+  /**
+   * `audio.replayGainComputeWhenMissing`, read at the moment it is needed.
+   *
+   * A predicate rather than a boolean because the setting can be turned off
+   * while a job is queued, and a value captured at construction would be one
+   * this service never heard change. Read in `start` and `resume` only: a job
+   * already running is not killed mid-track, because the work it is part-way
+   * through is the expensive part and the store checkpoints per track.
+   *
+   * Omitting it means always allowed, which is what every test and every caller
+   * without a settings service wants.
+   */
+  canCompute?: () => boolean
 }
 
 export class ReplayGainJobService {
@@ -26,6 +39,7 @@ export class ReplayGainJobService {
   }
 
   async start(): Promise<ReplayGainJobProgress> {
+    this.assertComputeAllowed()
     const progress = this.store.createJob()
     if (progress.total === 0) {
       this.store.setState(progress.jobId, 'completed')
@@ -54,6 +68,7 @@ export class ReplayGainJobService {
   }
 
   async resume(jobId: number): Promise<ReplayGainJobProgress> {
+    this.assertComputeAllowed()
     const state = this.store.state(jobId)
     if (state !== 'paused' && state !== 'cancelled') {
       throw new FermataError('conflict', 'Only a paused or cancelled ReplayGain job can resume.')
@@ -72,6 +87,22 @@ export class ReplayGainJobService {
     }
     this.abort?.abort()
     await this.running
+  }
+
+  /**
+   * The gate, stated as a refusal rather than as a silent no-op.
+   *
+   * A `start` that returned an empty completed job would be indistinguishable
+   * from a library that is already fully analysed, and the operator would be
+   * left looking for tracks the job had never been allowed to touch.
+   */
+  private assertComputeAllowed(): void {
+    if (this.deps.canCompute && !this.deps.canCompute()) {
+      throw new FermataError(
+        'conflict',
+        'Analysing untagged tracks is turned off in audio settings.'
+      )
+    }
   }
 
   private launch(jobId: number): void {

@@ -1,15 +1,18 @@
 import type { Track } from '@shared/library'
+import { AUDIO_PREFETCH_DEPTH } from '@shared/settings'
 import {
   AudioEngineError,
   type AudioEngine,
   type AudioEngineEventMap,
   type AudioTransitionPolicy,
-  type NormalizationMode,
+  type NormalizationPolicy,
   type PlaybackPosition,
   type PlaybackStatus,
   type SampleAccurateTime
 } from '../audio/AudioEngine'
 import { Emitter } from '../audio/emitter'
+import { DEFAULT_NORMALIZATION_POLICY, sameNormalizationPolicy } from '../audio/normalization'
+import type { R1Policy } from '../audio/r1Admission'
 import type { PlayOrder } from './playOrder'
 import { previousIndex, type AdvanceReason, type RepeatMode } from './traversal'
 import {
@@ -48,7 +51,18 @@ export interface PlaybackSchedulerDeps {
    * a positive value selects an equal-power crossfade.
    */
   crossfadeMs?: number
-  normalizationMode?: NormalizationMode
+  normalizationPolicy?: NormalizationPolicy
+  /** R1's budgets, forwarded to every slot this scheduler creates. */
+  decodePolicy?: Partial<R1Policy>
+  /**
+   * `audio.prefetchDepth`: one prepared successor, or none.
+   *
+   * The scheduler has one prefetch slot, so this is 0 or 1 and the descriptor
+   * clamps it there. Zero is not a smaller version of one — it removes the
+   * prepared engine that a sample-accurate join needs, so a boundary falls back
+   * to loading the successor when the current track ends.
+   */
+  prefetchDepth?: number
   /**
    * Traversal policy. It belongs here rather than in the transport because the
    * successor is decided while the current track is still audible — a repeat
@@ -82,6 +96,15 @@ interface Slot {
   unsubscribes: Array<() => void>
 }
 
+/**
+ * Normalized here as well as in the descriptor, for the reason the crossfade is:
+ * the scheduler's behaviour must not depend on somebody else having validated
+ * first. A non-integer or a negative reads as "no decode-ahead".
+ */
+function normalizePrefetchDepth(depth: number): number {
+  return Number.isFinite(depth) && depth >= 1 ? 1 : 0
+}
+
 const idlePrefetch = (): PrefetchState => ({
   status: 'idle',
   index: null,
@@ -107,7 +130,10 @@ export class PlaybackScheduler {
   readonly #queue: SuccessorQueue | null
 
   #crossfadeMs: number
-  #normalizationMode: NormalizationMode
+  #normalizationPolicy: NormalizationPolicy
+  /** `null` until somebody sets one: the engines then keep their own defaults. */
+  #decodePolicy: Partial<R1Policy> | null
+  #prefetchDepth: number
   #repeatMode: RepeatMode
 
   #slots: Slot[] = []
@@ -134,7 +160,9 @@ export class PlaybackScheduler {
   constructor(deps: PlaybackSchedulerDeps) {
     this.#createEngine = deps.createEngine
     this.#crossfadeMs = this.#normalizeCrossfadeMs(deps.crossfadeMs ?? 0)
-    this.#normalizationMode = deps.normalizationMode ?? 'track'
+    this.#normalizationPolicy = deps.normalizationPolicy ?? DEFAULT_NORMALIZATION_POLICY
+    this.#decodePolicy = deps.decodePolicy ?? null
+    this.#prefetchDepth = normalizePrefetchDepth(deps.prefetchDepth ?? AUDIO_PREFETCH_DEPTH.default)
     this.#repeatMode = deps.repeatMode ?? 'off'
     this.#queue = deps.queue ?? null
     this.#onCrossfadeAdjusted =
@@ -160,8 +188,8 @@ export class PlaybackScheduler {
     return this.#crossfadeMs
   }
 
-  get normalizationMode(): NormalizationMode {
-    return this.#normalizationMode
+  get normalizationPolicy(): NormalizationPolicy {
+    return this.#normalizationPolicy
   }
 
   get repeatMode(): RepeatMode {
@@ -287,11 +315,49 @@ export class PlaybackScheduler {
     for (const slot of this.#slots) slot.engine.setVolume(target)
   }
 
-  setNormalizationMode(mode: NormalizationMode): void {
+  setNormalizationPolicy(policy: NormalizationPolicy): void {
     this.#assertUsable()
-    if (mode === this.#normalizationMode) return
-    this.#normalizationMode = mode
-    for (const slot of this.#slots) slot.engine.setNormalizationMode(mode)
+    if (sameNormalizationPolicy(policy, this.#normalizationPolicy)) return
+    this.#normalizationPolicy = policy
+    for (const slot of this.#slots) slot.engine.setNormalizationPolicy(policy)
+  }
+
+  /**
+   * Push R1's budgets to both slots.
+   *
+   * Held rather than only forwarded, because a slot created later — the prefetch
+   * engine, or a fresh pair after `stop()` — has to start with the budget in
+   * force rather than the registry default the constructor saw.
+   */
+  setDecodePolicy(policy: Partial<R1Policy>): void {
+    this.#assertUsable()
+    this.#decodePolicy = policy
+    for (const slot of this.#slots) slot.engine.setDecodePolicy(policy)
+  }
+
+  get prefetchDepth(): number {
+    return this.#prefetchDepth
+  }
+
+  /**
+   * Take decode-ahead away, or give it back, without interrupting the track.
+   *
+   * Dropping to zero discards whatever is already prepared, through the same
+   * path a reordered play order takes — the prefetch token bump is what makes an
+   * in-flight load land on nothing. That is the point: the operator turned this
+   * off because the decode-ahead itself was the problem, so leaving one last
+   * prepared track resident would answer the wrong half of the request. Raising
+   * it back to one prepares the successor at the next natural opportunity rather
+   * than immediately, because
+   * "immediately" would mean a decode starting under a track the user is in the
+   * middle of listening to.
+   */
+  setPrefetchDepth(depth: number): void {
+    this.#assertUsable()
+    const next = normalizePrefetchDepth(depth)
+    if (next === this.#prefetchDepth) return
+    this.#prefetchDepth = next
+    if (next === 0) this.#discardPrefetch()
   }
 
   /**
@@ -473,6 +539,15 @@ export class PlaybackScheduler {
     const active = this.#active
     const order = this.#order
     if (!active || !order || active.position === null) return
+    // `audio.prefetchDepth` at zero. Left `idle` rather than announced as a
+    // failure, because nothing failed: no successor was ever asked for, and the
+    // natural-end handler reads `idle` as "there is nothing prepared" and loads
+    // the successor the ordinary way. What is lost is the sample-accurate join,
+    // which is what a depth of zero is trading away.
+    if (this.#prefetchDepth < 1) {
+      this.#setPrefetch(idlePrefetch())
+      return
+    }
 
     const from = active.position
     const token = ++this.#prefetchToken
@@ -698,7 +773,8 @@ export class PlaybackScheduler {
         unsubscribes: []
       }
       slot.engine.setVolume(this.#volume)
-      slot.engine.setNormalizationMode(this.#normalizationMode)
+      slot.engine.setNormalizationPolicy(this.#normalizationPolicy)
+      if (this.#decodePolicy) slot.engine.setDecodePolicy(this.#decodePolicy)
       slot.unsubscribes = [
         slot.engine.on('statuschange', (status) => {
           if (this.#active === slot) this.#events.emit('statuschange', status)

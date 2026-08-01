@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DecodedAudioEngine } from '../../../src/renderer/audio/DecodedAudioEngine'
 import type { TrackAudioSource } from '../../../src/renderer/audio/AudioPath'
 import type { DecodedAudioContextLease } from '../../../src/renderer/audio/decodedAudioContext'
+import { normalizationPolicyForMode } from '../../../src/renderer/audio/normalization'
 
 class FakeSource {
   buffer: AudioBuffer | null = null
@@ -265,7 +266,7 @@ describe('DecodedAudioEngine equal-power graph', () => {
 
     // Node order is master, then this source's transition and normalization.
     expect(h.gains[2].value).toBeCloseTo(0.501187)
-    h.engine.setNormalizationMode('off')
+    h.engine.setNormalizationPolicy(normalizationPolicyForMode('off'))
     expect(h.gains[2].linearRampToValueAtTime).toHaveBeenCalledWith(1, 5.05)
     expect(h.gains[1].setValueCurveAtTime).toHaveBeenCalledTimes(1)
     expect(h.gains[0].linearRampToValueAtTime).toHaveBeenCalledWith(0.4, 5.015)

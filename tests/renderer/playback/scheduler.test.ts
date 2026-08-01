@@ -4,11 +4,16 @@ import {
   type AudioEngine,
   type AudioEngineEventMap,
   type AudioTransitionPolicy,
-  type NormalizationMode,
+  type NormalizationPolicy,
   type PlaybackStatus,
   type SampleAccurateTime
 } from '../../../src/renderer/audio/AudioEngine'
+import { DEFAULT_R1_POLICY, type R1Policy } from '../../../src/renderer/audio/r1Admission'
 import type { PlayOrder } from '../../../src/renderer/playback/playOrder'
+import {
+  DEFAULT_NORMALIZATION_POLICY,
+  normalizationPolicyForMode
+} from '../../../src/renderer/audio/normalization'
 import { PlaybackScheduler } from '../../../src/renderer/playback/scheduler'
 import type { RepeatMode } from '../../../src/renderer/playback/traversal'
 import type { Track } from '../../../src/shared/library'
@@ -43,7 +48,8 @@ class FakeEngine implements AudioEngine {
   currentTime = 0
   duration = 120
   volume = 1
-  normalizationMode: NormalizationMode = 'track'
+  normalizationPolicy: NormalizationPolicy = DEFAULT_NORMALIZATION_POLICY
+  decodePolicy: R1Policy = DEFAULT_R1_POLICY
   status: PlaybackStatus = 'idle'
   trackId: number | null = null
   transitionPolicy: AudioTransitionPolicy = 'sample-accurate'
@@ -134,8 +140,12 @@ class FakeEngine implements AudioEngine {
     this.volume = gain
   }
 
-  setNormalizationMode(mode: NormalizationMode): void {
-    this.normalizationMode = mode
+  setNormalizationPolicy(policy: NormalizationPolicy): void {
+    this.normalizationPolicy = policy
+  }
+
+  setDecodePolicy(policy: Partial<R1Policy>): void {
+    this.decodePolicy = { ...this.decodePolicy, ...policy }
   }
 
   get sampleAccurateEndTime(): SampleAccurateTime | null {
@@ -221,7 +231,12 @@ class FakeEngine implements AudioEngine {
   }
 }
 
-function harness(total = 6, crossfadeMs = 0, repeatMode: RepeatMode = 'off') {
+function harness(
+  total = 6,
+  crossfadeMs = 0,
+  repeatMode: RepeatMode = 'off',
+  prefetchDepth?: number
+) {
   const engines = [new FakeEngine(), new FakeEngine()]
   const timeline = Symbol('shared-audio-context')
   for (const engine of engines) engine.timeline = timeline
@@ -234,6 +249,7 @@ function harness(total = 6, crossfadeMs = 0, repeatMode: RepeatMode = 'off') {
     crossfadeMs,
     repeatMode,
     onCrossfadeAdjusted,
+    ...(prefetchDepth === undefined ? {} : { prefetchDepth }),
     createEngine: () => {
       const engine = engines[engineIndex++]
       if (!engine) throw new Error('Scheduler created more than two engines')
@@ -264,6 +280,78 @@ describe('PlaybackScheduler', () => {
     expect(h.engines[1].scheduledStart).toEqual({
       timeline: h.engines[0].timeline,
       timeSec: 120
+    })
+  })
+
+  /**
+   * `audio.prefetchDepth` at zero — the one advanced R1 key whose effect is
+   * structural rather than numeric.
+   *
+   * Zero is not a smaller version of one. It removes the prepared engine that a
+   * sample-accurate join needs, so what these assert is that the scheduler
+   * degrades to loading the successor at the boundary rather than breaking: the
+   * gapless join is what a depth of zero trades away, and playback is not.
+   */
+  describe('decode-ahead depth', () => {
+    it('prepares nothing when the depth is zero', async () => {
+      const h = harness(6, 0, 'off', 0)
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+
+      expect(h.engines[0].loads).toEqual([1])
+      expect(h.engines[1].loads).toEqual([])
+      // Not even asked for: the successor lookup is a round trip, and a depth of
+      // zero is a request not to make it.
+      expect(h.at).not.toHaveBeenCalled()
+      expect(h.scheduler.prefetchState).toMatchObject({ status: 'idle', index: null })
+    })
+
+    it('leaves the prefetch idle rather than failed', async () => {
+      // The natural-end handler reads `resolving` as "fail closed" and `idle` as
+      // "nothing prepared". Nothing failed here, so it has to be the latter or a
+      // boundary would surface an error the operator did not cause.
+      const h = harness(6, 0, 'off', 0)
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+
+      expect(h.scheduler.prefetchState.status).toBe('idle')
+      expect(h.scheduler.prefetchState.error).toBeNull()
+    })
+
+    it('discards what is already prepared when the depth drops to zero', async () => {
+      const h = harness()
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+      expect(h.scheduler.prefetchState).toMatchObject({ status: 'ready', index: 2 })
+
+      h.scheduler.setPrefetchDepth(0)
+
+      expect(h.scheduler.prefetchDepth).toBe(0)
+      expect(h.scheduler.prefetchState).toMatchObject({ status: 'idle', index: null })
+    })
+
+    it('prepares again at the next opportunity once the depth is restored', async () => {
+      // Restored rather than immediate: starting a decode under a track the user
+      // is in the middle of is not what turning a setting back on asked for.
+      const h = harness(6, 0, 'off', 0)
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+      expect(h.engines[1].loads).toEqual([])
+
+      h.scheduler.setPrefetchDepth(1)
+      expect(h.scheduler.prefetchState.status).toBe('idle')
+
+      await h.scheduler.next()
+      await settle()
+
+      expect(h.scheduler.prefetchState).toMatchObject({ status: 'ready' })
+    })
+
+    it('reads a nonsense depth as no decode-ahead', () => {
+      const h = harness()
+      h.scheduler.setPrefetchDepth(Number.NaN)
+
+      expect(h.scheduler.prefetchDepth).toBe(0)
     })
   })
 
@@ -661,9 +749,9 @@ describe('PlaybackScheduler', () => {
     await h.scheduler.start(h.order, 0, track(0))
     await settle()
 
-    h.scheduler.setNormalizationMode('album')
+    h.scheduler.setNormalizationPolicy(normalizationPolicyForMode('album'))
 
-    expect(h.engines.map((engine) => engine.normalizationMode)).toEqual(['album', 'album'])
+    expect(h.engines.map((engine) => engine.normalizationPolicy.mode)).toEqual(['album', 'album'])
     expect(h.engines.map((engine) => engine.loads)).toEqual([[0], [1]])
   })
 

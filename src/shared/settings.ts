@@ -31,8 +31,25 @@ export * from './settings/kernel'
 export * from './settings/scope'
 export * from './settings/cascade'
 export type { AlbumArtSize, ThemeMode } from './settings/interface'
-export { AUDIO_CROSSFADE_MS, AUDIO_CROSSFADE_MS_KEY } from './settings/audio'
-export type { RepeatMode, ReplayGainMode } from './settings/audio'
+export {
+  AUDIO_CROSSFADE_MS,
+  AUDIO_CROSSFADE_MS_KEY,
+  AUDIO_DECODE_RESIDENCY_BUDGET_MB,
+  AUDIO_DECODE_TRACK_CAP_MB,
+  AUDIO_NUMERIC_BOUNDS,
+  AUDIO_OUTPUT_DEVICE,
+  AUDIO_PREFETCH_DEPTH,
+  AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
+  AUDIO_REPLAY_GAIN_FALLBACK_DB,
+  AUDIO_REPLAY_GAIN_MODE,
+  AUDIO_REPLAY_GAIN_PREAMP_DB,
+  MIB,
+  PLAYBACK_REPEAT,
+  PLAYBACK_SHUFFLE,
+  boundaryPolicy,
+  clampSetting
+} from './settings/audio'
+export type { BoundaryPolicy, RepeatMode, ReplayGainMode } from './settings/audio'
 export type { StoredColumnLayout, TabSession } from './settings/view'
 
 /**

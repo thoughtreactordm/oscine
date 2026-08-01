@@ -38,7 +38,7 @@ export type PlaybackStatus = 'idle' | 'loading' | 'ready' | 'playing' | 'paused'
 export type AudioTransitionPolicy = 'sample-accurate' | 'hard'
 
 /** Loudness-normalization policy applied independently of volume and fades. */
-export type { NormalizationMode } from './normalization'
+export type { NormalizationMode, NormalizationPolicy } from './normalization'
 
 /**
  * A point on the private clock shared by decoded engine slots.
@@ -138,14 +138,34 @@ export interface AudioEngine {
 
   /** Output level, 0 to 1. Applied smoothly enough to be click-free. */
   setVolume(gain: number): void
-  /** Switch loudness policy. An audible source ramps to the new gain. */
-  setNormalizationMode(mode: NormalizationMode): void
+  /**
+   * Switch loudness policy. An audible source ramps to the new gain.
+   *
+   * Takes the whole policy rather than the mode alone (W8-9): the pre-amp and
+   * the untagged-track fallback change the gain of a playing source exactly as
+   * the mode does, and a second setter for them would be a second ramp racing
+   * the first.
+   */
+  setNormalizationPolicy(policy: NormalizationPolicy): void
+
+  /**
+   * Change R1's memory budgets. Applies from the next `load`.
+   *
+   * On the interface rather than hidden inside the guard because R1's ceiling is
+   * a property of *an* engine, not of this one implementation: whatever replaces
+   * the decode path still has to be told how much memory it may hold, and a
+   * caller that could not tell it would have to reach past this interface to a
+   * concrete class. The implementation is free to clamp — and does.
+   */
+  setDecodePolicy(policy: Partial<R1Policy>): void
 
   readonly currentTime: number
   /** Length in seconds, or 0 when nothing is loaded. */
   readonly duration: number
   readonly volume: number
-  readonly normalizationMode: NormalizationMode
+  readonly normalizationPolicy: NormalizationPolicy
+  /** The budgets in force, already clamped to what the guard will honour. */
+  readonly decodePolicy: Readonly<R1Policy>
   readonly status: PlaybackStatus
   /** The loaded track, or `null`. */
   readonly trackId: number | null
@@ -188,4 +208,5 @@ export interface AudioEngine {
   /** Release the audio device and every listener. The engine is unusable after. */
   dispose(): void
 }
-import type { NormalizationMode } from './normalization'
+import type { NormalizationPolicy } from './normalization'
+import type { R1Policy } from './r1Admission'

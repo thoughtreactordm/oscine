@@ -67,6 +67,15 @@ export interface SqliteLibraryDeps {
   watchSettleMs?: number
   /** Test seam; production uses the packaged worker-thread adapter. */
   createReplayGainAnalyzer?: () => ReplayGainAnalyzer
+  /**
+   * Reads `audio.replayGainComputeWhenMissing`.
+   *
+   * A predicate rather than the settings service, so this stays a library
+   * service that happens to be told one thing rather than one that can reach
+   * every key. Omitting it means the job is always allowed, which is what the
+   * tests want.
+   */
+  canComputeReplayGain?: () => boolean
 }
 
 function conflictMessage(conflict: RootConflict): string {
@@ -130,7 +139,8 @@ export class SqliteLibraryService implements LibraryService {
     this.replayGain = new ReplayGainJobService({
       db: deps.db,
       onProgress: deps.onReplayGainProgress ?? (() => {}),
-      ...(deps.createReplayGainAnalyzer ? { createAnalyzer: deps.createReplayGainAnalyzer } : {})
+      ...(deps.createReplayGainAnalyzer ? { createAnalyzer: deps.createReplayGainAnalyzer } : {}),
+      ...(deps.canComputeReplayGain ? { canCompute: deps.canComputeReplayGain } : {})
     })
     this.watcher = new RootDirectoryWatcher({
       ...(deps.watchAdapter ? { adapter: deps.watchAdapter } : {}),

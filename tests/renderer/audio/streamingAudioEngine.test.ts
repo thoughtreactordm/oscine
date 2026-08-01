@@ -5,6 +5,7 @@ import {
   type StreamingPlatform
 } from '../../../src/renderer/audio/StreamingAudioEngine'
 import type { TrackAudioSource } from '../../../src/renderer/audio/AudioPath'
+import { normalizationPolicyForMode } from '../../../src/renderer/audio/normalization'
 
 class FakeMedia implements StreamingMedia {
   currentTime = 0
@@ -112,7 +113,7 @@ describe('StreamingAudioEngine', () => {
     })
 
     engine.setVolume(0.35)
-    engine.setNormalizationMode('off')
+    engine.setNormalizationPolicy(normalizationPolicyForMode('off'))
     await engine.play()
     expect(media.playCount).toBe(1)
     expect(engine.status).toBe('playing')

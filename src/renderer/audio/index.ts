@@ -24,16 +24,26 @@ export type {
 } from './AudioEngine'
 export { AudioEngineError, AUDIO_ERROR_CODES } from './AudioEngine'
 export {
-  DEFAULT_NORMALIZATION_MODE,
+  DEFAULT_NORMALIZATION_POLICY,
   NORMALIZATION_MODES,
   dbToLinear,
+  normalizationPolicyForMode,
   resolveNormalization,
-  type NormalizationDecision
+  sameNormalizationPolicy,
+  type NormalizationDecision,
+  type NormalizationPolicy
 } from './normalization'
 export { estimateDecodedBytes, estimateDecodePeakBytes } from './decodedSize'
 export {
+  AudioOutputRouter,
+  SYSTEM_DEFAULT_OUTPUT_DEVICE,
+  type SinkCapableContext
+} from './outputDevice'
+export {
   DEFAULT_R1_POLICY,
+  R1_POLICY_LIMITS,
   decideR1Admission,
+  resolveR1Policy,
   R1ReservationLedger,
   type R1AdmissionDecision,
   type R1Policy
@@ -48,6 +58,7 @@ import { DecodedBufferLedger } from './decodedBufferLedger'
 import { GuardedAudioEngine } from './GuardedAudioEngine'
 import { StreamingAudioEngine } from './StreamingAudioEngine'
 import { createBrowserStreamingPlatform } from './browserStreamingPlatform'
+import { AudioOutputRouter } from './outputDevice'
 import type { R1Policy } from './r1Admission'
 import { R1ReservationLedger } from './r1Admission'
 
@@ -59,7 +70,23 @@ import { R1ReservationLedger } from './r1Admission'
  * than making one per view.
  */
 export function createAudioEngine(policy: Partial<R1Policy> = {}): AudioEngine {
-  return createAudioEngineFactory(policy)()
+  return createAudioEngineFactory(policy).createEngine()
+}
+
+/**
+ * Everything one audio device's worth of engines shares.
+ *
+ * `createEngine` is what it always was. The output device sits beside it rather
+ * than on `AudioEngine` because it is a fact about the contexts the factory
+ * builds, not about a slot — see `outputDevice.ts`.
+ */
+export interface AudioEngineFactory {
+  createEngine: () => AudioEngine
+  /** `''` selects the system default. Live; no restart, no reload. */
+  setOutputDevice: (deviceId: string) => Promise<void>
+  readonly outputDeviceId: string
+  /** False when this runtime's `AudioContext` has no `setSinkId`. */
+  readonly outputDeviceSelectable: boolean
 }
 
 /**
@@ -68,16 +95,26 @@ export function createAudioEngine(policy: Partial<R1Policy> = {}): AudioEngine {
  * The playback scheduler owns two engines (current and prefetched-next). A
  * ledger per engine would let both independently admit almost the full R1
  * budget, defeating the current+prefetch ceiling precisely when it matters.
+ *
+ * `policy` is an override, not a default: omitting it means R1's registry
+ * defaults, and the controller supplies the operator's values from
+ * `audio.decodeTrackCapMb` and `audio.decodeResidencyBudgetMb`. `resolveR1Policy`
+ * clamps whatever arrives, so this boundary cannot be used to raise the guard's
+ * ceiling.
  */
-export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): () => AudioEngine {
+export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): AudioEngineFactory {
   const decodedBuffers = new DecodedBufferLedger()
-  const decodedContext = new DecodedAudioContextPool(() => new AudioContext())
+  const router = new AudioOutputRouter()
+  const decodedContext = new DecodedAudioContextPool(() => router.adopt(new AudioContext()))
   const reservations = new R1ReservationLedger()
 
-  return () =>
+  const createEngine = (): AudioEngine =>
     new GuardedAudioEngine({
       decoded: new DecodedAudioEngine(decodedBuffers, decodedContext.acquire()),
-      createStreaming: () => new StreamingAudioEngine(createBrowserStreamingPlatform()),
+      createStreaming: () =>
+        new StreamingAudioEngine(
+          createBrowserStreamingPlatform({ adoptContext: (context) => router.adopt(context) })
+        ),
       policy,
       reservations,
       resolveTrack: async (trackId) => {
@@ -108,4 +145,15 @@ export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): () => 
         return { trackId, url, ...metadata }
       }
     })
+
+  return {
+    createEngine,
+    setOutputDevice: (deviceId) => router.setDevice(deviceId),
+    get outputDeviceId() {
+      return router.deviceId
+    },
+    get outputDeviceSelectable() {
+      return router.supported
+    }
+  }
 }

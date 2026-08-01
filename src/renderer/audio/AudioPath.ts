@@ -2,7 +2,7 @@ import type { TrackAudioMetadata } from '@shared/library'
 import type {
   AudioEngine,
   AudioEngineEventMap,
-  NormalizationMode,
+  NormalizationPolicy,
   PlaybackStatus,
   SampleAccurateTime
 } from './AudioEngine'
@@ -26,11 +26,11 @@ export interface AudioPath {
   pause(): void
   seek(seconds: number): void
   setVolume(gain: number): void
-  setNormalizationMode(mode: NormalizationMode): void
+  setNormalizationPolicy(policy: NormalizationPolicy): void
   readonly currentTime: number
   readonly duration: number
   readonly volume: number
-  readonly normalizationMode: NormalizationMode
+  readonly normalizationPolicy: NormalizationPolicy
   readonly status: PlaybackStatus
   readonly trackId: number | null
   readonly sampleAccurateEndTime: SampleAccurateTime | null
@@ -52,10 +52,17 @@ export interface DecodedAudioPath extends AudioPath {
   readonly issuedNotFreedBytes: number
 }
 
-/** Compile-time guard that `AudioPath` continues to mirror the public controls. */
+/**
+ * Compile-time guard that `AudioPath` continues to mirror the public controls.
+ *
+ * `decodePolicy` and its setter join `load` and `transitionPolicy` on the
+ * exclusion list, and for the same reason those two are there: admission is the
+ * guarded wrapper's job. A path is handed a track that has already been priced
+ * and has no business knowing what the budget was.
+ */
 type MissingPublicMembers = Exclude<
   keyof AudioEngine,
-  keyof AudioPath | 'load' | 'transitionPolicy'
+  keyof AudioPath | 'load' | 'transitionPolicy' | 'decodePolicy' | 'setDecodePolicy'
 >
 const _allPublicMembersMirrored: MissingPublicMembers extends never ? true : never = true
 void _allPublicMembersMirrored

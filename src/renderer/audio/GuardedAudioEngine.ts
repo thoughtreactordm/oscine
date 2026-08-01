@@ -5,14 +5,14 @@ import {
   type AudioEngineEventMap,
   type AudioErrorCode,
   type AudioTransitionPolicy,
-  type NormalizationMode,
+  type NormalizationPolicy,
   type PlaybackStatus,
   type SampleAccurateTime
 } from './AudioEngine'
 import type { AudioPath, DecodedAudioPath, TrackAudioSource } from './AudioPath'
 import { Emitter } from './emitter'
 import {
-  DEFAULT_NORMALIZATION_MODE,
+  DEFAULT_NORMALIZATION_POLICY,
   resolveNormalization,
   type NormalizationDecision
 } from './normalization'
@@ -31,7 +31,7 @@ export interface GuardedAudioEngineDeps {
   policy?: Partial<R1Policy>
   diagnostic?: (decision: R1AdmissionDecision) => void
   normalizationDiagnostic?: (decision: TrackNormalizationDiagnostic) => void
-  normalizationMode?: NormalizationMode
+  normalizationPolicy?: NormalizationPolicy
   reservations?: R1ReservationLedger
 }
 
@@ -51,7 +51,7 @@ export class GuardedAudioEngine implements AudioEngine {
   readonly #decoded: DecodedAudioPath
   readonly #createStreaming: () => AudioPath
   readonly #resolveTrack: (trackId: number) => Promise<TrackAudioSource>
-  readonly #policy: R1Policy
+  #policy: R1Policy
   readonly #diagnostic: (decision: R1AdmissionDecision) => void
   readonly #normalizationDiagnostic: (decision: TrackNormalizationDiagnostic) => void
   readonly #reservations: R1ReservationLedger
@@ -63,7 +63,7 @@ export class GuardedAudioEngine implements AudioEngine {
   #status: PlaybackStatus = 'idle'
   #transitionPolicy: AudioTransitionPolicy = 'hard'
   #volume = 1
-  #normalizationMode: NormalizationMode
+  #normalizationPolicy: NormalizationPolicy
   #audioSource: TrackAudioSource | null = null
   #generation = 0
   #disposed = false
@@ -74,7 +74,7 @@ export class GuardedAudioEngine implements AudioEngine {
     this.#resolveTrack = deps.resolveTrack
     this.#policy = resolveR1Policy(deps.policy)
     this.#reservations = deps.reservations ?? new R1ReservationLedger()
-    this.#normalizationMode = deps.normalizationMode ?? DEFAULT_NORMALIZATION_MODE
+    this.#normalizationPolicy = deps.normalizationPolicy ?? DEFAULT_NORMALIZATION_POLICY
     this.#diagnostic =
       deps.diagnostic ??
       ((decision) => {
@@ -85,7 +85,7 @@ export class GuardedAudioEngine implements AudioEngine {
       ((decision) => {
         console.info('[audio] ReplayGain', JSON.stringify(decision))
       })
-    this.#decoded.setNormalizationMode(this.#normalizationMode)
+    this.#decoded.setNormalizationPolicy(this.#normalizationPolicy)
     this.#watch(this.#decoded)
   }
 
@@ -101,8 +101,28 @@ export class GuardedAudioEngine implements AudioEngine {
     return this.#volume
   }
 
-  get normalizationMode(): NormalizationMode {
-    return this.#normalizationMode
+  get normalizationPolicy(): NormalizationPolicy {
+    return this.#normalizationPolicy
+  }
+
+  get decodePolicy(): Readonly<R1Policy> {
+    return this.#policy
+  }
+
+  /**
+   * Change R1's budgets under a playing track.
+   *
+   * Lands at the next admission rather than the current one — a track already
+   * decoded and audible is not re-priced, because the only way to act on a
+   * verdict that has changed would be to stop it. That is the same "at the next
+   * boundary" contract the crossfade has, and it is why these are settings
+   * rather than launch flags.
+   *
+   * Runs through `resolveR1Policy`, so this is not a way around the guard's own
+   * ceiling however the value got here.
+   */
+  setDecodePolicy(policy: Partial<R1Policy>): void {
+    this.#policy = resolveR1Policy(policy)
   }
 
   get status(): PlaybackStatus {
@@ -241,10 +261,10 @@ export class GuardedAudioEngine implements AudioEngine {
     this.#streaming?.setVolume(target)
   }
 
-  setNormalizationMode(mode: NormalizationMode): void {
-    this.#normalizationMode = mode
-    this.#decoded.setNormalizationMode(mode)
-    this.#streaming?.setNormalizationMode(mode)
+  setNormalizationPolicy(policy: NormalizationPolicy): void {
+    this.#normalizationPolicy = policy
+    this.#decoded.setNormalizationPolicy(policy)
+    this.#streaming?.setNormalizationPolicy(policy)
     if (this.#audioSource) this.#emitNormalizationDiagnostic(this.#audioSource)
   }
 
@@ -268,7 +288,7 @@ export class GuardedAudioEngine implements AudioEngine {
     if (this.#streaming) return this.#streaming
     const streaming = this.#createStreaming()
     streaming.setVolume(this.#volume)
-    streaming.setNormalizationMode(this.#normalizationMode)
+    streaming.setNormalizationPolicy(this.#normalizationPolicy)
     this.#streaming = streaming
     this.#watch(streaming)
     return streaming
@@ -300,7 +320,7 @@ export class GuardedAudioEngine implements AudioEngine {
   #emitNormalizationDiagnostic(source: TrackAudioSource): void {
     this.#normalizationDiagnostic({
       trackId: source.trackId,
-      ...resolveNormalization(source, this.#normalizationMode)
+      ...resolveNormalization(source, this.#normalizationPolicy)
     })
   }
 

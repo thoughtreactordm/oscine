@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   AudioEngineError,
   type AudioEngineEventMap,
-  type NormalizationMode,
+  type NormalizationPolicy,
   type PlaybackStatus,
   type SampleAccurateTime
 } from '../../../src/renderer/audio/AudioEngine'
@@ -19,6 +19,10 @@ import {
   R1ReservationLedger,
   type R1AdmissionDecision
 } from '../../../src/renderer/audio/r1Admission'
+import {
+  DEFAULT_NORMALIZATION_POLICY,
+  normalizationPolicyForMode
+} from '../../../src/renderer/audio/normalization'
 
 const MIB = 1024 ** 2
 
@@ -26,7 +30,7 @@ class FakePath implements AudioPath {
   currentTime = 0
   duration = 0
   volume = 1
-  normalizationMode: NormalizationMode = 'track'
+  normalizationPolicy: NormalizationPolicy = DEFAULT_NORMALIZATION_POLICY
   status: PlaybackStatus = 'idle'
   trackId: number | null = null
   readonly loads: TrackAudioSource[] = []
@@ -97,8 +101,8 @@ class FakePath implements AudioPath {
     this.volume = gain
   }
 
-  setNormalizationMode(mode: NormalizationMode): void {
-    this.normalizationMode = mode
+  setNormalizationPolicy(policy: NormalizationPolicy): void {
+    this.normalizationPolicy = policy
   }
 
   scheduleSampleAccurateStart(at: SampleAccurateTime, _fadeInDurationSec = 0): boolean {
@@ -287,10 +291,10 @@ describe('GuardedAudioEngine', () => {
         effectiveGain: 1.25
       })
     ])
-    expect(h.decoded.normalizationMode).toBe('track')
+    expect(h.decoded.normalizationPolicy.mode).toBe('track')
 
-    h.engine.setNormalizationMode('off')
-    expect(h.decoded.normalizationMode).toBe('off')
+    h.engine.setNormalizationPolicy(normalizationPolicyForMode('off'))
+    expect(h.decoded.normalizationPolicy.mode).toBe('off')
     expect(h.normalizationDecisions.at(-1)).toMatchObject({
       trackId: 2,
       mode: 'off',

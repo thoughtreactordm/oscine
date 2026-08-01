@@ -9,6 +9,7 @@ import {
   AudioEngineError,
   type AudioEngine,
   type NormalizationMode,
+  type NormalizationPolicy,
   type PlaybackStatus
 } from '../audio/AudioEngine'
 import type {
@@ -66,6 +67,7 @@ import {
  */
 export const SESSION_QUEUE_CAP = 5000
 import type { CascadingSettingsReader, SettingsReader } from '../settings/reader'
+import { bindAudioPreferences } from './audioPreferences'
 import { bindTransportPreferences } from './transportPreferences'
 
 /**
@@ -121,8 +123,15 @@ export interface PlaybackControllerDeps {
    * changing the crossfade did nothing until relaunch.
    */
   crossfadeMs?: number
-  /** ReplayGain policy; track normalization is the M2 default. */
-  normalizationMode?: NormalizationMode
+  /**
+   * The audio device, for the one setting that is not the engine's to hold.
+   *
+   * Handed in beside `createEngine` because `audio.outputDevice` is a property
+   * of the contexts the engine factory built, not of an engine slot — see
+   * `audio/outputDevice.ts`. Omitting it is supported and means the system
+   * default, which is what a test with a fake engine wants.
+   */
+  setOutputDevice?: (deviceId: string) => Promise<void>
   /**
    * Binds the OS now-playing surface — SMTC on Windows, MPRIS on Linux.
    *
@@ -254,7 +263,18 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       deps.settings.cascade(AUDIO_CROSSFADE_MS, { kind: 'playlist', id: playlistId }).value
     )
   })
-  const normalizationMode = ref<NormalizationMode>(deps.normalizationMode ?? 'track')
+  /**
+   * ReplayGain, R1's budgets, decode-ahead: read through, never snapshotted.
+   *
+   * `normalizationMode` used to be a plain `ref` seeded from a dep, which is
+   * exactly the shape W8-4 rules out — the settings view could write
+   * `audio.replayGainMode` and the playing track would not hear it. It is now a
+   * projection of the three registry keys, and `setNormalizationMode` below
+   * writes the key rather than the ref.
+   */
+  const audioPreferences = bindAudioPreferences(deps.settings)
+  const normalizationPolicy = audioPreferences.normalization
+  const normalizationMode = computed(() => normalizationPolicy.value.mode)
   const nowPlaying = ref<Track | null>(null)
   const error = ref<string | null>(null)
   const prefetchStatus = ref<PrefetchStatus>('idle')
@@ -405,7 +425,9 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       createEngine: deps.createEngine,
       queue,
       crossfadeMs: crossfadeMs.value,
-      normalizationMode: normalizationMode.value,
+      normalizationPolicy: normalizationPolicy.value,
+      decodePolicy: audioPreferences.decodePolicy.value,
+      prefetchDepth: audioPreferences.prefetchDepth.value,
       repeatMode: repeatMode.value
     })
     unsubscribes = [
@@ -992,10 +1014,49 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     applyCrossfade()
   }
 
+  /**
+   * Sets `audio.replayGainMode`, and lets the watch do the pushing.
+   *
+   * The assignment is the persistence, as it is for repeat: there is no second
+   * place holding the mode, so a change made here and a change made in the
+   * settings view are the same act on the same row. Without a settings surface
+   * the binding is a plain ref and this still works for the session.
+   */
   function setNormalizationMode(mode: NormalizationMode): void {
-    normalizationMode.value = mode
-    scheduler?.setNormalizationMode(mode)
+    audioPreferences.mode.value = mode
   }
+
+  /**
+   * The rest of W8-4's live half.
+   *
+   * Three watches rather than one, because the three land in different places:
+   * loudness ramps the playing source, R1's budgets apply at the next
+   * admission, and decode-ahead is taken away or given back immediately. A
+   * single watch would have to push all three whenever any one moved, and
+   * pushing a decode policy is not free.
+   */
+  const stopNormalizationWatch = watch(normalizationPolicy, (policy) => {
+    scheduler?.setNormalizationPolicy(policy)
+  })
+  const stopDecodePolicyWatch = watch(audioPreferences.decodePolicy, (policy) => {
+    scheduler?.setDecodePolicy(policy)
+  })
+  const stopPrefetchDepthWatch = watch(audioPreferences.prefetchDepth, (depth) => {
+    scheduler?.setPrefetchDepth(depth)
+  })
+  /**
+   * Immediate, unlike the other three: the router has to be told the stored
+   * device at startup, not only when it next changes. Nothing is playing yet, so
+   * there is no ramp to coordinate — the contexts are simply built pointing at
+   * the right place, and one that has not been built yet is caught by `adopt`.
+   */
+  const stopOutputDeviceWatch = watch(
+    audioPreferences.outputDevice,
+    (deviceId) => {
+      void deps.setOutputDevice?.(deviceId)
+    },
+    { immediate: true }
+  )
 
   /** Stop playback and invalidate current and prefetched work. */
   function stop(): void {
@@ -1037,6 +1098,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   function dispose(): void {
     mediaSession?.dispose()
     stopCrossfadeWatch()
+    stopNormalizationWatch()
+    stopDecodePolicyWatch()
+    stopPrefetchDepthWatch()
+    stopOutputDeviceWatch()
     for (const off of unsubscribes) off()
     unsubscribes = []
     scheduler?.dispose()
@@ -1140,7 +1205,15 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
      * opposed to the one the controller believes applies. The card's claim is
      * about what the scheduler reads, so that is what gets asserted.
      */
-    schedulerCrossfadeMs: (): number | null => scheduler?.crossfadeMs ?? null
+    schedulerCrossfadeMs: (): number | null => scheduler?.crossfadeMs ?? null,
+    /**
+     * Test seams for the other three live audio settings, and the same argument
+     * as `schedulerCrossfadeMs`: the claim W8-9 makes is about what the
+     * scheduler ends up holding, not about what the controller believes.
+     */
+    schedulerNormalizationPolicy: (): NormalizationPolicy | null =>
+      scheduler?.normalizationPolicy ?? null,
+    schedulerPrefetchDepth: (): number | null => scheduler?.prefetchDepth ?? null
   }
 }
 

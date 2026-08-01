@@ -1,13 +1,17 @@
 import {
   AudioEngineError,
   type AudioEngineEventMap,
-  type NormalizationMode,
+  type NormalizationPolicy,
   type PlaybackStatus,
   type SampleAccurateTime
 } from './AudioEngine'
 import type { AudioPath, TrackAudioSource } from './AudioPath'
 import { Emitter } from './emitter'
-import { DEFAULT_NORMALIZATION_MODE, resolveNormalization } from './normalization'
+import {
+  DEFAULT_NORMALIZATION_POLICY,
+  resolveNormalization,
+  sameNormalizationPolicy
+} from './normalization'
 import { clamp } from './playbackClock'
 
 export interface StreamingMedia {
@@ -48,7 +52,7 @@ export class StreamingAudioEngine implements AudioPath {
   #trackId: number | null = null
   #status: PlaybackStatus = 'idle'
   #volume = 1
-  #normalizationMode: NormalizationMode = DEFAULT_NORMALIZATION_MODE
+  #normalizationPolicy: NormalizationPolicy = DEFAULT_NORMALIZATION_POLICY
   #audioSource: TrackAudioSource | null = null
   #metadataDuration = 0
   #generation = 0
@@ -80,8 +84,8 @@ export class StreamingAudioEngine implements AudioPath {
     return this.#volume
   }
 
-  get normalizationMode(): NormalizationMode {
-    return this.#normalizationMode
+  get normalizationPolicy(): NormalizationPolicy {
+    return this.#normalizationPolicy
   }
 
   get status(): PlaybackStatus {
@@ -135,7 +139,7 @@ export class StreamingAudioEngine implements AudioPath {
     this.#audioSource = source
     this.#metadataDuration = source.durationSec ?? 0
     this.#platform.setNormalizationGain(
-      resolveNormalization(source, this.#normalizationMode).effectiveGain,
+      resolveNormalization(source, this.#normalizationPolicy).effectiveGain,
       false
     )
     this.#setStatus('loading')
@@ -249,12 +253,12 @@ export class StreamingAudioEngine implements AudioPath {
     if (!this.#disposed) this.#platform.setOutputVolume(target)
   }
 
-  setNormalizationMode(mode: NormalizationMode): void {
-    if (mode === this.#normalizationMode) return
-    this.#normalizationMode = mode
+  setNormalizationPolicy(policy: NormalizationPolicy): void {
+    if (sameNormalizationPolicy(policy, this.#normalizationPolicy)) return
+    this.#normalizationPolicy = policy
     if (!this.#disposed && this.#audioSource) {
       this.#platform.setNormalizationGain(
-        resolveNormalization(this.#audioSource, mode).effectiveGain,
+        resolveNormalization(this.#audioSource, policy).effectiveGain,
         true
       )
     }
