@@ -1,7 +1,7 @@
 ---
 taskId: 01KYWX0K27SPJEB14SPR5TPN5J
 title: Theme selection and operator-authored token overrides
-status: todo
+status: in-progress
 priority: medium
 labels: []
 workstream: W8
@@ -10,9 +10,9 @@ workstreamDependsOn:
   - W4
 dependsOn:
   - 01KYWWY6TM6XQA3NB7YHQWZZG4
-order: 39
+order: 7
 created: '2026-07-31T20:14:23.814Z'
-updated: '2026-07-31T20:14:23.814Z'
+updated: '2026-08-01T18:02:44.326Z'
 ---
 W4 owns the token layer. W8 owns choosing a theme and authoring one.
 

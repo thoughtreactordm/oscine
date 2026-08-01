@@ -25,6 +25,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "icons": "node scripts/make-icons.mjs",
+    "palettes": "node scripts/make-palettes.mjs",
     "verify:native": "node scripts/check-native-abi.mjs",
     "seed:synthetic": "node scripts/seed-synthetic-library.mjs",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
