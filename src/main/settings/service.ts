@@ -13,10 +13,15 @@
  */
 
 import type BetterSqlite3 from 'better-sqlite3'
+import { readFile, writeFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { FermataError } from '@shared/errors'
 import {
+  buildSettingsProfile,
   cascadeLayers,
   GLOBAL_SCOPE,
+  parseSettingsProfile,
+  planSettingsImport,
   resolveCascade,
   resolveDefault,
   resolveSettings,
@@ -24,6 +29,7 @@ import {
   type CascadeScopeRef,
   type GetAllSettingsResult,
   type GetSettingOverridesResult,
+  type ImportSettingsProfileRequest,
   type ResetSettingsRequest,
   type SetSettingRequest,
   type SettingCascade,
@@ -32,7 +38,11 @@ import {
   type SettingNotice,
   type SettingScopeRef,
   type SettingsChange,
+  type SettingsImportPlan,
+  type SettingsProfileExportResult,
+  type SettingsProfileFile,
   SETTING_CATEGORIES,
+  SETTINGS_PROFILE_FILE_NAME,
   SETTINGS_REGISTRY
 } from '@shared/settings'
 import { SettingsStore, type WriteEntry } from './store'
@@ -58,8 +68,25 @@ export interface SettingsService {
   getOverrides(scope: SettingScopeRef): GetSettingOverridesResult
   set(request: SetSettingRequest): SettingsChange[]
   reset(request: ResetSettingsRequest): SettingsChange[]
+  /**
+   * Write the portable half of this configuration to a file the operator names.
+   *
+   * Resolves `null` when they dismiss the save dialog, following
+   * `library.addRoot` and `playlists.exportM3u8` — a cancelled dialog is an
+   * ordinary outcome and not an error the renderer should have to catch.
+   */
+  exportProfile(): Promise<SettingsProfileExportResult | null>
+  /** Open, read and parse a profile without applying it. `null` on cancel. */
+  readProfile(): Promise<SettingsProfileFile | null>
+  /** Apply one, and return the plan that was actually applied. */
+  importProfile(request: ImportSettingsProfileRequest): SettingsImportPlan
   /** Notices raised while loading, for a log line at startup. */
   loadNotices(): readonly SettingNotice[]
+}
+
+/** Opens a dialog this build was not wired with. */
+function noPicker(): Promise<string | null> {
+  throw new FermataError('io-error', 'Settings profiles are unavailable in this build.')
 }
 
 export interface SqliteSettingsServiceOptions {
@@ -75,6 +102,18 @@ export interface SqliteSettingsServiceOptions {
   /** Injectable so a test can assert on `updated_at` without racing the clock. */
   now?: () => number
   onChanged?: (changes: SettingsChange[]) => void
+  /**
+   * Opens the OS save dialog on a suggested filename. Resolves `null` on cancel.
+   *
+   * Injected for the reason `SqlitePlaylistDeps.pickExportFile` is: Electron
+   * appears nowhere in this file, so the whole profile path — including the
+   * writing and reading of a real file — is drivable from a test with a temp
+   * directory and no application.
+   */
+  pickExportFile?: (suggestedName: string) => Promise<string | null>
+  pickImportFile?: () => Promise<string | null>
+  /** Stamped into the file so a bug report says which build wrote it. */
+  appVersion?: string
 }
 
 export class SqliteSettingsService implements SettingsService {
@@ -83,6 +122,9 @@ export class SqliteSettingsService implements SettingsService {
   private readonly byKey: ReadonlyMap<string, SettingDescriptor>
   private readonly now: () => number
   private readonly onChanged: (changes: SettingsChange[]) => void
+  private readonly pickExportFile: (suggestedName: string) => Promise<string | null>
+  private readonly pickImportFile: () => Promise<string | null>
+  private readonly appVersion: string | undefined
 
   /** Resolved global values for every durable key, defaults included. */
   private values: Record<string, unknown> = {}
@@ -94,13 +136,19 @@ export class SqliteSettingsService implements SettingsService {
     db,
     registry = SETTINGS_REGISTRY,
     now = Date.now,
-    onChanged = () => {}
+    onChanged = () => {},
+    pickExportFile = noPicker,
+    pickImportFile = noPicker,
+    appVersion
   }: SqliteSettingsServiceOptions) {
     this.store = new SettingsStore(db)
     this.registry = registry
     this.byKey = new Map(registry.map((descriptor) => [descriptor.key, descriptor]))
     this.now = now
     this.onChanged = onChanged
+    this.pickExportFile = pickExportFile
+    this.pickImportFile = pickImportFile
+    this.appVersion = appVersion
     this.load()
   }
 
@@ -303,6 +351,136 @@ export class SqliteSettingsService implements SettingsService {
     return this.announce(changes)
   }
 
+  /**
+   * The configuration as a file.
+   *
+   * Built before the dialog opens, so what lands on disk is what the operator
+   * was looking at when they asked rather than whatever a background write left
+   * behind while they browsed for a folder — the same ordering
+   * `SqlitePlaylistService.exportM3u8` keeps, for the same reason.
+   *
+   * `.json` is appended here rather than relied on from the dialog, because GTK
+   * hands back whatever was typed and a profile that does not announce itself as
+   * JSON is one nothing on the machine will open.
+   */
+  async exportProfile(): Promise<SettingsProfileExportResult | null> {
+    const { profile, excluded } = buildSettingsProfile({
+      descriptors: this.registry,
+      values: this.values,
+      storedKeys: this.stored,
+      ...(this.appVersion === undefined ? {} : { app: this.appVersion }),
+      exportedAt: new Date(this.now()).toISOString()
+    })
+
+    const picked = await this.pickExportFile(SETTINGS_PROFILE_FILE_NAME)
+    if (picked === null) return null
+    const destination = picked.toLowerCase().endsWith('.json') ? picked : `${picked}.json`
+
+    try {
+      // Indented and newline-terminated: the format is advertised as
+      // human-readable, and a file meant to be read in a diff or a bug report is
+      // not one to minify.
+      await writeFile(destination, `${JSON.stringify(profile, null, 2)}\n`, 'utf8')
+    } catch (error) {
+      // The path is logged in main and deliberately not forwarded: an
+      // `IpcErrorPayload` never carries one. See `toSafeError`.
+      console.error(`[settings] export to ${destination} failed:`, error)
+      throw new FermataError('io-error', 'Those settings could not be written to disk.')
+    }
+
+    return {
+      fileName: basename(destination),
+      keyCount: Object.keys(profile.settings).length,
+      excluded
+    }
+  }
+
+  /**
+   * Read a profile without applying it.
+   *
+   * Separate from `importProfile` because the preview between them is the point
+   * of the card: the operator picks a file, sees what it would do, and then
+   * decides — including deciding between merge and replace, which is a question
+   * they cannot answer before seeing the diff.
+   */
+  async readProfile(): Promise<SettingsProfileFile | null> {
+    const picked = await this.pickImportFile()
+    if (picked === null) return null
+
+    let text: string
+    try {
+      text = await readFile(picked, 'utf8')
+    } catch (error) {
+      console.error(`[settings] import from ${picked} failed:`, error)
+      throw new FermataError('io-error', 'That file could not be read.')
+    }
+
+    let raw: unknown
+    try {
+      raw = JSON.parse(text) as unknown
+    } catch (error) {
+      throw new FermataError('invalid-request', `That file is not valid JSON: ${asMessage(error)}`)
+    }
+
+    const parsed = parseSettingsProfile(raw)
+    if (!parsed.ok) {
+      throw new FermataError(
+        'invalid-request',
+        `That file is not a Fermata settings profile: ${parsed.reason}.`
+      )
+    }
+
+    return { fileName: basename(picked), profile: parsed.profile }
+  }
+
+  /**
+   * Apply a profile, and return the plan that was applied.
+   *
+   * The plan is recomputed here rather than taken from the renderer, which has
+   * already computed the same one to draw the preview. That is not duplicated
+   * work being tolerated — it is the only way the boundary keeps its promise
+   * that main validates every write, and because both sides call the same pure
+   * function over the same values, the preview and the outcome agree.
+   *
+   * Unknown keys are written but not announced: there is no descriptor for a
+   * listener to resolve them with, and a store that broadcast one would be
+   * telling the renderer about a key it cannot type.
+   */
+  importProfile({ profile, mode }: ImportSettingsProfileRequest): SettingsImportPlan {
+    const plan = planSettingsImport({
+      descriptors: this.registry,
+      profile,
+      values: this.values,
+      storedKeys: this.stored,
+      mode
+    })
+
+    const entries: WriteEntry[] = [...plan.apply, ...plan.preserve].map((write) => ({
+      key: write.key,
+      scope: GLOBAL_SCOPE,
+      value: write.value,
+      version: write.version
+    }))
+    if (entries.length > 0) this.store.put(entries, this.now())
+    if (plan.clear.length > 0) this.store.removeMany([...plan.clear], GLOBAL_SCOPE)
+
+    const changes: SettingsChange[] = []
+    for (const write of plan.apply) {
+      this.values[write.key] = write.value
+      this.stored.add(write.key)
+      changes.push({ key: write.key, scope: GLOBAL_SCOPE, value: write.value, cleared: false })
+    }
+    for (const key of plan.clear) {
+      const next = resolveDefault(this.byKey.get(key) as SettingDescriptor)
+      this.values[key] = next
+      this.stored.delete(key)
+      changes.push({ key, scope: GLOBAL_SCOPE, value: next, cleared: true })
+    }
+
+    this.announce(changes)
+    return plan
+  }
+
   private resetTargets(key?: string, category?: string): readonly SettingDescriptor[] {
     if (key !== undefined) return [this.requireDurable(key)]
 
@@ -361,6 +539,11 @@ function assertScope(descriptor: SettingDescriptor, scope: SettingScopeRef): voi
   if (!Number.isInteger(scope.id) || (scope.id as number) < 1) {
     throw new FermataError('invalid-request', `A ${scope.kind} scope needs a positive id.`)
   }
+}
+
+/** A thrown value's message, without assuming it was an `Error`. */
+function asMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /** Structural equality, matching how the kernel compares setting values. */

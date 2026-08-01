@@ -25,6 +25,7 @@ import {
   assertMoveEntriesRequest,
   assertGetSettingOverridesRequest,
   assertGetTracksByIdsQuery,
+  assertImportSettingsProfileRequest,
   assertOpmlXml,
   assertOrderTrackIdsQuery,
   assertPlaylistName,
@@ -286,6 +287,14 @@ export function registerIpcHandlers(
   handle('settings.set', (request) => settings.set(assertSetSettingRequest(request)))
 
   handle('settings.reset', (request) => settings.reset(assertResetSettingsRequest(request)))
+
+  handle('settings.exportProfile', () => settings.exportProfile())
+
+  handle('settings.readProfile', () => settings.readProfile())
+
+  handle('settings.importProfile', (request) =>
+    settings.importProfile(assertImportSettingsProfileRequest(request))
+  )
 
   assertEveryChannelHandled()
 }

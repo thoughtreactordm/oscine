@@ -1,16 +1,22 @@
 import {
+  buildSettingsProfile,
   GLOBAL_SCOPE,
   isGlobalScope,
+  planSettingsImport,
   resolveDefault,
   scopeKey,
+  SETTINGS_PROFILE_FILE_NAME,
   SETTINGS_REGISTRY,
   validateValue,
+  type ImportSettingsProfileRequest,
   type ResetSettingsRequest,
   type SetSettingRequest,
   type SettingDescriptor,
   type SettingNotice,
   type SettingScopeRef,
   type SettingsChange,
+  type SettingsProfile,
+  type SettingsProfileFile,
   type StoredSetting
 } from '../../../src/shared/settings'
 import {
@@ -52,7 +58,12 @@ export interface DurableBridgeFixture extends DurableSettingsBridge {
     getOverrides: SettingScopeRef[]
     set: SetSettingRequest[]
     reset: ResetSettingsRequest[]
+    importProfile: ImportSettingsProfileRequest[]
   }
+  /** Profiles this fake main was asked to write, newest last. */
+  readonly exported: SettingsProfile[]
+  /** What the next `readProfile` resolves with. Null stands for a cancelled dialog. */
+  offerProfile(file: SettingsProfileFile | null): void
   /** Resolves the pending `getAll`. Only when the fixture was made deferred. */
   answerGetAll(): void
   /** Push a change as another window's write would arrive. */
@@ -97,10 +108,25 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
     getAll: 0,
     getOverrides: [] as SettingScopeRef[],
     set: [] as SetSettingRequest[],
-    reset: [] as ResetSettingsRequest[]
+    reset: [] as ResetSettingsRequest[],
+    importProfile: [] as ImportSettingsProfileRequest[]
   }
+  const exported: SettingsProfile[] = []
 
   let releaseGetAll: (() => void) | null = null
+  let offered: SettingsProfileFile | null = null
+
+  /** Global-scope state in the shape the profile functions read it. */
+  function globalState(): { values: Record<string, unknown>; storedKeys: string[] } {
+    const values: Record<string, unknown> = {}
+    for (const descriptor of descriptors) {
+      if (descriptor.scope !== 'durable') continue
+      values[descriptor.key] = rows.has(descriptor.key)
+        ? rows.get(descriptor.key)
+        : resolveDefault(descriptor)
+    }
+    return { values, storedKeys: [...rows.keys()] }
+  }
 
   function announce(changes: SettingsChange[]): void {
     for (const listener of listeners) listener(changes)
@@ -128,8 +154,12 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
     rows,
     overrides,
     calls,
+    exported,
     answerGetAll: () => releaseGetAll?.(),
     announce,
+    offerProfile: (file) => {
+      offered = file
+    },
     seedOverride: (scope, key, value) => {
       rowsFor(scope).set(key, value)
     },
@@ -217,6 +247,58 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
       return changes
     },
 
+    /**
+     * No dialog and no file: the fake main builds the profile it would have
+     * written and keeps it, so a test can assert on what would have travelled.
+     */
+    async exportProfile() {
+      const { values, storedKeys } = globalState()
+      const { profile, excluded } = buildSettingsProfile({ descriptors, values, storedKeys })
+      exported.push(profile)
+      return {
+        fileName: SETTINGS_PROFILE_FILE_NAME,
+        keyCount: Object.keys(profile.settings).length,
+        excluded
+      }
+    },
+
+    async readProfile() {
+      return offered
+    },
+
+    /**
+     * The real apply, over the fake table.
+     *
+     * Runs `planSettingsImport` exactly as `SqliteSettingsService` does rather
+     * than approximating it, so a renderer test that asserts the surface caught
+     * up is asserting against the plan the app would have applied.
+     */
+    async importProfile(request) {
+      calls.importProfile.push(request)
+      const { values, storedKeys } = globalState()
+      const plan = planSettingsImport({
+        descriptors,
+        profile: request.profile,
+        values,
+        storedKeys,
+        mode: request.mode
+      })
+
+      const changes: SettingsChange[] = []
+      for (const write of plan.apply) {
+        rows.set(write.key, write.value)
+        changes.push({ key: write.key, scope: GLOBAL_SCOPE, value: write.value, cleared: false })
+      }
+      for (const write of plan.preserve) rows.set(write.key, write.value)
+      for (const key of plan.clear) {
+        rows.delete(key)
+        const value = resolveDefault(descriptorFor(key))
+        changes.push({ key, scope: GLOBAL_SCOPE, value, cleared: true })
+      }
+      if (changes.length) announce(changes)
+      return plan
+    },
+
     onChanged(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -233,14 +315,21 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
  * constructs.
  */
 export function settingsStoreFixture(
-  options: DurableBridgeOptions & { seed?: Readonly<Record<string, unknown>> } = {}
+  options: DurableBridgeOptions & {
+    seed?: Readonly<Record<string, unknown>>
+    /**
+     * Zero writes through, which is what most tests want. Raise it where the
+     * property under test is that something *waits* for a queued write.
+     */
+    debounceMs?: number
+  } = {}
 ) {
   const view = viewSettingsFixture(options.seed)
   const bridge = durableBridgeFixture(options)
   const settings = createSettingsStore({
     durable: bridge,
     view: view.settings,
-    debounceMs: 0,
+    debounceMs: options.debounceMs ?? 0,
     ...(options.descriptors ? { descriptors: options.descriptors } : {})
   })
   return { settings, storage: view.storage, view: view.settings, bridge }

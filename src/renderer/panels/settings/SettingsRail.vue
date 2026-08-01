@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { buildSettingsCatalog } from '@renderer/panels/settings/catalog'
+import ProfileActions from '@renderer/panels/settings/ProfileActions.vue'
 import ResetAllDialog from '@renderer/panels/settings/ResetAllDialog.vue'
 import { useSettings } from '@renderer/settings'
 import { useSettingsNavStore } from '@renderer/stores/settingsNav'
@@ -132,7 +133,8 @@ function jumpToFirstMatch(): void {
       </button>
     </div>
 
-    <div class="shrink-0 border-t border-default px-3 py-2">
+    <div class="flex shrink-0 flex-col gap-0.5 border-t border-default px-3 py-2">
+      <ProfileActions />
       <ResetAllDialog />
     </div>
   </nav>

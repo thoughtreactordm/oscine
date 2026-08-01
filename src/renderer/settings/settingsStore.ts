@@ -2,6 +2,7 @@ import {
   computed,
   ref,
   shallowRef,
+  toRaw,
   type ComputedRef,
   type Ref,
   type WritableComputedRef
@@ -12,6 +13,7 @@ import {
   changedFromDefault,
   GLOBAL_SCOPE,
   isGlobalScope,
+  planSettingsImport,
   rejectValue,
   resolveCascade,
   resolveDefault,
@@ -25,6 +27,7 @@ import {
   type GetAllSettingsResult,
   type GetSettingOverridesRequest,
   type GetSettingOverridesResult,
+  type ImportSettingsProfileRequest,
   type ResetSettingsRequest,
   type SetSettingRequest,
   type SettingCascade,
@@ -33,6 +36,11 @@ import {
   type SettingNotice,
   type SettingScopeRef,
   type SettingsChange,
+  type SettingsImportMode,
+  type SettingsImportPlan,
+  type SettingsProfile,
+  type SettingsProfileExportResult,
+  type SettingsProfileFile,
   type SettingValidation,
   type StoredSetting
 } from '@shared/settings'
@@ -93,6 +101,9 @@ export interface DurableSettingsBridge {
   getOverrides(request: GetSettingOverridesRequest): Promise<GetSettingOverridesResult>
   set(request: SetSettingRequest): Promise<SettingsChange[]>
   reset(request: ResetSettingsRequest): Promise<SettingsChange[]>
+  exportProfile(): Promise<SettingsProfileExportResult | null>
+  readProfile(): Promise<SettingsProfileFile | null>
+  importProfile(request: ImportSettingsProfileRequest): Promise<SettingsImportPlan>
   /** Returns an unsubscribe function. */
   onChanged(listener: (changes: SettingsChange[]) => void): () => void
 }
@@ -147,6 +158,26 @@ export interface SettingsStore extends SettingsReader {
    * work that was never on screen to be reset.
    */
   resetAll(): Promise<void>
+  /**
+   * Write the portable keys to a file. `null` when the operator cancels.
+   *
+   * Flushes first: a value the debounce is still holding is one main has not
+   * been told about, and exporting before it lands would write a profile that
+   * disagrees with the surface the operator was looking at.
+   */
+  exportProfile(): Promise<SettingsProfileExportResult | null>
+  /** Pick and parse a file. Nothing is applied — see `previewImport`. */
+  readProfile(): Promise<SettingsProfileFile | null>
+  /**
+   * What importing this file would do, without doing any of it.
+   *
+   * Pure and local: the store already holds every value the plan compares
+   * against, so the preview needs no round trip and updates with the surface.
+   * Main recomputes the same plan when the import is confirmed.
+   */
+  previewImport(profile: SettingsProfile, mode: SettingsImportMode): SettingsImportPlan
+  /** Apply one, and answer with the plan main actually carried out. */
+  importProfile(profile: SettingsProfile, mode: SettingsImportMode): Promise<SettingsImportPlan>
   value<T>(key: string): WritableComputedRef<T>
 
   /**
@@ -809,6 +840,54 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
     return descriptor.scope === 'view' ? view.stored(key) : storedGlobals.value.has(key)
   }
 
+  // --- profiles ---------------------------------------------------------------
+
+  /**
+   * Both scopes, as `planSettingsImport` wants them.
+   *
+   * View keys are included even though nothing portable can be one: a file that
+   * names `view.trackColumns` should be previewed as *excluded, and here is
+   * why*, and that needs the descriptor and the current value, not silence.
+   */
+  function profileInputs(): { values: Record<string, unknown>; storedKeys: string[] } {
+    const values: Record<string, unknown> = {}
+    const storedKeys: string[] = []
+    for (const descriptor of descriptors) {
+      values[descriptor.key] = currentValue(descriptor)
+      if (isStored(descriptor.key)) storedKeys.push(descriptor.key)
+    }
+    return { values, storedKeys }
+  }
+
+  function previewImport(profile: SettingsProfile, mode: SettingsImportMode): SettingsImportPlan {
+    return planSettingsImport({ descriptors, profile, mode, ...profileInputs() })
+  }
+
+  async function exportProfile(): Promise<SettingsProfileExportResult | null> {
+    await flush()
+    return durable.exportProfile()
+  }
+
+  /**
+   * Applied in main, and applied to the surface by the broadcast that follows.
+   *
+   * Nothing here writes into `state`: an import is main's write, not this
+   * store's, and `applyRemote` is already the one path by which a value main
+   * chose reaches the surface. Making the import a second one would be how the
+   * two drift.
+   */
+  async function importProfile(
+    profile: SettingsProfile,
+    mode: SettingsImportMode
+  ): Promise<SettingsImportPlan> {
+    await flush()
+    // `toRaw` because the profile reaches here from a component, and structured
+    // cloning — which is what `ipcRenderer.invoke` serialises with — refuses a
+    // `Proxy` outright. A reactive wrapper anywhere in the caller's chain would
+    // otherwise turn every import into "an object could not be cloned".
+    return durable.importProfile({ profile: toRaw(profile), mode })
+  }
+
   /**
    * Read through `currentValue`, so a view key is compared against the view
    * store's live value rather than against a copy this store does not keep.
@@ -856,6 +935,10 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
     reset,
     resetCategory,
     resetAll,
+    exportProfile,
+    readProfile: () => durable.readProfile(),
+    previewImport,
+    importProfile,
     value,
     loadOverrides,
     overridesLoaded,

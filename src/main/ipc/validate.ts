@@ -1,12 +1,16 @@
 import { FermataError } from '@shared/errors'
 import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
 import {
+  parseSettingsProfile,
   SETTING_SCOPE_KINDS,
+  SETTINGS_IMPORT_MODES,
   type GetSettingOverridesRequest,
+  type ImportSettingsProfileRequest,
   type ResetSettingsRequest,
   type SetSettingRequest,
   type SettingScopeKind,
-  type SettingScopeRef
+  type SettingScopeRef,
+  type SettingsImportMode
 } from '@shared/settings'
 import {
   type GetTracksByIdsQuery,
@@ -630,4 +634,46 @@ export function assertResetSettingsRequest(value: unknown): ResetSettingsRequest
     ...(raw.category === undefined ? {} : { category: raw.category as string }),
     ...(raw.scope === undefined ? {} : { scope: assertScopeRef(raw.scope) })
   }
+}
+
+/**
+ * A profile's key ceiling.
+ *
+ * The registry is a few dozen keys and a profile may carry unknown ones from a
+ * newer build, so the cap is generous — it is not there to bound a legitimate
+ * file, it is there so that a renderer that has gone wrong cannot turn one import
+ * into a hundred thousand row writes.
+ */
+const MAX_PROFILE_KEYS = 2000
+
+/**
+ * A settings profile arriving over IPC.
+ *
+ * Parsed with the same `parseSettingsProfile` that read it off disk, because
+ * this one did not come off disk: main handed the renderer a profile and the
+ * renderer handed something back, and the boundary's job is to not care that the
+ * two are usually the same object. Each value goes through `assertSettingValue`
+ * for the reason `settings.set` does — the column is what is being protected.
+ */
+export function assertImportSettingsProfileRequest(value: unknown): ImportSettingsProfileRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['profile', 'mode'])
+
+  if (
+    typeof raw.mode !== 'string' ||
+    !(SETTINGS_IMPORT_MODES as readonly string[]).includes(raw.mode)
+  ) {
+    invalid(`mode must be one of: ${SETTINGS_IMPORT_MODES.join(', ')}.`)
+  }
+
+  const parsed = parseSettingsProfile(raw.profile)
+  if (!parsed.ok) invalid(`profile is not a settings profile: ${parsed.reason}.`)
+
+  const keys = Object.keys(parsed.profile.settings)
+  if (keys.length > MAX_PROFILE_KEYS) {
+    invalid(`profile must hold at most ${MAX_PROFILE_KEYS} settings.`)
+  }
+  for (const key of keys) assertSettingValue(parsed.profile.settings[key].value)
+
+  return { profile: parsed.profile, mode: raw.mode as SettingsImportMode }
 }

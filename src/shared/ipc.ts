@@ -56,9 +56,13 @@ import type {
   GetAllSettingsResult,
   GetSettingOverridesRequest,
   GetSettingOverridesResult,
+  ImportSettingsProfileRequest,
   ResetSettingsRequest,
   SetSettingRequest,
-  SettingsChange
+  SettingsChange,
+  SettingsImportPlan,
+  SettingsProfileExportResult,
+  SettingsProfileFile
 } from './settings'
 
 /**
@@ -278,6 +282,34 @@ export interface IpcContract {
   'settings.set': { request: SetSettingRequest; response: SettingsChange[] }
   /** One key, one category, or every durable key. */
   'settings.reset': { request: ResetSettingsRequest; response: SettingsChange[] }
+  /**
+   * Write the portable settings to a file the operator names.
+   *
+   * `null` when they dismiss the save dialog. The renderer never sees a path:
+   * the result carries a bare filename, because a filesystem the renderer cannot
+   * touch is not one it should be able to read the shape of either.
+   */
+  'settings.exportProfile': { request: null; response: SettingsProfileExportResult | null }
+  /**
+   * Pick and parse a profile without applying it.
+   *
+   * Reading and importing are two calls because the preview between them is the
+   * point: the operator sees what a file would do — and picks merge or replace —
+   * before anything is written.
+   */
+  'settings.readProfile': { request: null; response: SettingsProfileFile | null }
+  /**
+   * Apply a profile that came back from `settings.readProfile`.
+   *
+   * The response is the plan main actually applied, recomputed here rather than
+   * accepted from the renderer. Both sides run the same pure `planSettingsImport`
+   * over the same values, so it should equal the preview — and if a background
+   * write moved something in between, this is what says so.
+   */
+  'settings.importProfile': {
+    request: ImportSettingsProfileRequest
+    response: SettingsImportPlan
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -375,7 +407,10 @@ export const IPC_CHANNELS = [
   'settings.getAll',
   'settings.getOverrides',
   'settings.set',
-  'settings.reset'
+  'settings.reset',
+  'settings.exportProfile',
+  'settings.readProfile',
+  'settings.importProfile'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [

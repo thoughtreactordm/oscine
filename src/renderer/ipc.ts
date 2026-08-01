@@ -22,6 +22,7 @@ import type {
 } from '@shared/playlists'
 import type {
   GetSettingOverridesRequest,
+  ImportSettingsProfileRequest,
   ResetSettingsRequest,
   SetSettingRequest,
   SettingsChange
@@ -153,6 +154,10 @@ export const settings = {
     unwrap(window.fermata.settings.getOverrides(payload)),
   set: (payload: SetSettingRequest) => unwrap(window.fermata.settings.set(payload)),
   reset: (payload: ResetSettingsRequest) => unwrap(window.fermata.settings.reset(payload)),
+  exportProfile: () => unwrap(window.fermata.settings.exportProfile()),
+  readProfile: () => unwrap(window.fermata.settings.readProfile()),
+  importProfile: (payload: ImportSettingsProfileRequest) =>
+    unwrap(window.fermata.settings.importProfile(payload)),
   /** Returns an unsubscribe function. Call it on unmount. */
   onChanged: (listener: (changes: SettingsChange[]) => void) =>
     window.fermata.settings.onChanged(listener)

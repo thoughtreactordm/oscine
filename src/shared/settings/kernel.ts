@@ -15,7 +15,7 @@
  * Where a key's value lives.
  *
  * `durable` means the SQLite settings table: main can read it before the window
- * exists, and W8-8's export bundle carries it between machines. `view` means
+ * exists, and a settings profile can carry it to another machine. `view` means
  * the renderer's own local storage: window geometry, pane widths, the shuffle
  * toggle — state that
  * is *about this machine* and would be actively wrong to sync.
@@ -115,6 +115,17 @@ export interface SettingDefinition<
   /** Dotted and namespaced by domain: `audio.crossfadeMs`. */
   key: string
   scope: SettingScope
+  /**
+   * Does this value still mean something on a different machine?
+   *
+   * Defaults to true for a durable key and is not permitted on a view-scoped
+   * one. Set it false for a key that describes *this* machine — a device name,
+   * a path — and the settings profile (W8-13) will leave it behind on both
+   * export and import. The flag is declared here rather than listed in the
+   * exporter so that a new key cannot be forgotten by the export: the exporter
+   * walks the registry and reads this.
+   */
+  portable?: boolean
   /** Authoritative. Nothing outside this registry may hardcode one. */
   default: T
   /** Starts at 1 and bumps whenever the stored shape changes. */
@@ -168,6 +179,8 @@ export interface SettingDescriptor<
 > {
   readonly key: string
   readonly scope: SettingScope
+  /** False for view scope always, and for the durable keys about this machine. */
+  readonly portable: boolean
   readonly default: T
   readonly version: number
   readonly upgrade: SettingUpgrade | null
@@ -210,6 +223,7 @@ export function defineSetting<
   const {
     key,
     scope,
+    portable = scope === 'durable',
     version = 1,
     upgrade,
     validate,
@@ -236,6 +250,7 @@ export function defineSetting<
   if (!Number.isInteger(version) || version < 1) fail('version must be an integer >= 1')
   if (upgrade && version === 1) fail('upgrade is meaningless at version 1')
   if (version > 1 && !upgrade) fail(`version ${version} needs an upgrade to reach it from 1`)
+  if (portable && scope !== 'durable') fail('view state is about this machine and never portable')
   if (cascade.length && scope !== 'durable') fail('cascade requires durable scope')
   if (new Set(cascade).size !== cascade.length) fail('cascade lists an entity kind twice')
   if (!SETTING_CATEGORIES.some((c) => c.id === category)) fail(`unknown category "${category}"`)
@@ -271,6 +286,7 @@ export function defineSetting<
   return Object.freeze({
     key,
     scope,
+    portable,
     default: definition.default,
     version,
     upgrade: upgrade ?? null,

@@ -75,6 +75,48 @@ async function pickPlaylistExportFile(suggestedName: string): Promise<string | n
   return result.filePath
 }
 
+/**
+ * W8-13's profile, out and in.
+ *
+ * Two dialogs rather than one picker with a mode, because they are two different
+ * questions to the operator — name a file, choose a file — and Electron models
+ * them as two calls. The `.json` filter is a filter only: `SqliteSettingsService`
+ * is what puts the extension on a bare name, so that rule stays in one place.
+ */
+async function pickSettingsExportFile(suggestedName: string): Promise<string | null> {
+  const options: Electron.SaveDialogOptions = {
+    title: 'Export settings',
+    buttonLabel: 'Export',
+    defaultPath: suggestedName,
+    filters: [{ name: 'Fermata settings', extensions: ['json'] }],
+    properties: ['createDirectory', 'showOverwriteConfirmation', 'dontAddToRecent']
+  }
+
+  const result = mainWindow
+    ? await dialog.showSaveDialog(mainWindow, options)
+    : await dialog.showSaveDialog(options)
+
+  // Cancelling is an ordinary outcome, not an error — the contract says so.
+  if (result.canceled || result.filePath === undefined || result.filePath === '') return null
+  return result.filePath
+}
+
+async function pickSettingsImportFile(): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    title: 'Import settings',
+    buttonLabel: 'Open',
+    filters: [{ name: 'Fermata settings', extensions: ['json'] }],
+    properties: ['openFile', 'dontAddToRecent']
+  }
+
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options)
+
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+}
+
 function broadcastScanProgress(progress: ScanProgress): void {
   if (mainWindow) emit(mainWindow.webContents, 'library.scanProgress', progress)
 }
@@ -242,6 +284,9 @@ if (!app.requestSingleInstanceLock()) {
     // library whose settings are damaged still opens, with defaults.
     const settings = new SqliteSettingsService({
       db,
+      pickExportFile: pickSettingsExportFile,
+      pickImportFile: pickSettingsImportFile,
+      appVersion: app.getVersion(),
       onChanged: (changes) => {
         broadcastSettingsChanged(changes)
         // The window paints its own background; a theme write has to reach it

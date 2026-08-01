@@ -31,6 +31,7 @@ import {
 export * from './settings/kernel'
 export * from './settings/scope'
 export * from './settings/cascade'
+export * from './settings/profile'
 export {
   CONFIRM_ENTRY_REMOVAL_KEY,
   CONFIRM_PLAYLIST_DELETE_KEY,

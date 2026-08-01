@@ -37,6 +37,7 @@ import type {
 } from '@shared/podcasts'
 import type {
   GetSettingOverridesRequest,
+  ImportSettingsProfileRequest,
   ResetSettingsRequest,
   SetSettingRequest,
   SettingsChange
@@ -187,6 +188,13 @@ const api = {
     set: (payload: SetSettingRequest) => request('settings.set', payload),
     /** One key, one category, or every durable key. */
     reset: (payload: ResetSettingsRequest) => request('settings.reset', payload),
+    /** Save dialog, then the portable keys as JSON. `null` when cancelled. */
+    exportProfile: () => request('settings.exportProfile', null),
+    /** Open dialog, then a parsed profile. Nothing is applied. */
+    readProfile: () => request('settings.readProfile', null),
+    /** Applies one, and answers with the plan main actually carried out. */
+    importProfile: (payload: ImportSettingsProfileRequest) =>
+      request('settings.importProfile', payload),
     onChanged: (listener: (changes: SettingsChange[]) => void) =>
       subscribe('settings.changed', listener)
   }

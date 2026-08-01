@@ -218,6 +218,11 @@ export const AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING = defineSetting<boolean>({
 export const AUDIO_OUTPUT_DEVICE = defineSetting<string>({
   key: 'audio.outputDevice',
   scope: 'durable',
+  // The one durable key that names hardware. A device label is meaningful only
+  // on the machine that enumerated it, and importing one would silently point
+  // playback at a sink that is not there — so the profile leaves it behind, and
+  // the help text below is now a promise the exporter keeps rather than a note.
+  portable: false,
   default: '',
   validate: stringValue({ maxLength: 256, allowEmpty: true }),
   control: { kind: 'custom', component: 'OutputDeviceControl' },
