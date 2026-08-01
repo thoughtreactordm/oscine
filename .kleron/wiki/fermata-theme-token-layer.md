@@ -19,15 +19,20 @@ taken, and three of the four change the shape of the card.
    and none of them is the token layer. No card for it exists anywhere on the board. W8-12 was not
    waiting on a workstream; it was waiting on someone deciding to write it.
 
-2. **Nothing applies a theme.** `interface.theme` (`system` / `light` / `dark`, default `system`) is a
-   durable descriptor at `src/shared/settings/interface.ts:71`. It validates, it writes to SQLite, and
-   it is read by nobody. Nothing puts `.dark` on the document element, nothing reads
-   `prefers-color-scheme`, there is no `nativeTheme` call, and `@vueuse` is not a dependency. Nuxt UI's
-   standalone Vue plugin ships no colour-mode module — that is a Nuxt-module feature the Vite/Vue
-   integration does not carry. **The app is permanently light.** The `.dark` block at
-   `src/renderer/theme/main.css:37` is dead code, and `backgroundColor: '#0a0a0a'` at
-   `src/main/index.ts:117`, commented "matches the dark surface token so launch does not flash white",
-   currently produces a dark-to-light flash instead.
+2. **`interface.theme` is read by nobody — but light and dark do work.** The descriptor at
+   `src/shared/settings/interface.ts:71` validates, writes to SQLite, and nothing consumes it.
+
+   > **Correction.** This finding originally read "the app is permanently light" and that was wrong.
+   > It is repeated in the first two commit messages. Nuxt UI's Vite plugin injects
+   > `runtime/vue/plugins/color-mode`, which calls VueUse's `useDark()`; that applies `.dark`, and
+   > `UColorModeSwitch` in the title bar drives it. The mechanism is injected from `node_modules` by
+   > the build plugin, so grepping `src/` for `prefers-color-scheme` / `classList` and checking
+   > `package.json` for `@vueuse` both came back empty. `@vueuse/core` was a transitive dependency and
+   > is now a direct one. `.dark` at `src/renderer/theme/main.css:37` was never dead code.
+
+   What is true: the durable setting and the switch were two unconnected preferences, and
+   `backgroundColor: '#0a0a0a'` at `src/main/index.ts:117` — commented "matches the dark surface token
+   so launch does not flash white" — named a token that did not exist.
 
 3. **`main.css` is 85 lines and defines three real theme tokens** — `--fermata-cover-bleed`, `-blur`,
    `-drift` — plus two deliberately fixed ones (`--fermata-scrim`, `--fermata-on-scrim`, which sit over
@@ -75,9 +80,14 @@ Sharable theme files remain out of scope, so that half of D9 stands unfired.
 | T7 | **WCAG 2.1 AA, warn only.** 4.5:1 body / 3:1 large, warned inline on the offending row, never blocking | APCA is more accurate for a dark-first player but unfamiliar. Refusing the write would make contrast an invariant at the cost of a deliberately low-contrast theme being unauthorable. |
 | T8 | **One card.** W8-12 absorbs the token layer | A separate W4 card would keep W8-12 an independent proof of "zero component changes"; accepted cost is that W8-12 now tests something it authored. |
 | T9 | New **`theme` settings category**; `interface.theme` migrates to `theme.mode` | A ~40-token surface buried in Interface is unfindable. Costs a store-level key rename — the kernel's `version`/`upgrade` machinery upgrades *values*, not key names — plus a legacy absorb modelled on `src/renderer/settings/legacyViewKeys.ts`. W8-6's recorded evidence citing `interface.theme` goes stale. |
-| T10 | **Three built-ins**: Light, Dark, and one deliberately off-palette | Two would leave the "any hue" claim untested until someone authors a theme, which is the failure mode where the architecture quietly does not work. |
+| T10 | **Three built-ins**: Fermata (amber/taupe), Nocturne (off-palette, hue 197), High Contrast | Two would leave the "any hue" claim untested until someone authors a theme, which is the failure mode where the architecture quietly does not work. |
 | T11 | Three **font roles** — Heading, List item, General text — each with family, weight and italic. Curated cross-platform stacks plus a free-text escape hatch | Enumerating installed system fonts is the best experience but adds a platform-specific main-process surface and stores a value that means nothing on the other machine, fighting W8-13's export. |
 | T12 | **OS reduced-motion clamps duration tokens at the token layer, always** | A three-state operator setting gives more control; clamping means an accessibility preference cannot be defeated by authoring a theme. |
+| T13 | **Ownership is split three ways rather than taken.** VueUse owns the `.dark` class and the system query; `interface.theme` owns persistence; the token layer owns which colours a mode resolves to. The two preference stores sync both ways, each guarded by an equality check | Taking ownership of the class broke `UColorModeSwitch`, which already worked. `useColorMode()` from `@vueuse/core` is the *same* store Nuxt UI's stub wraps — same `vueuse-color-scheme` key — so reading it is reading what the switch wrote. The pre-paint replay falls out for free: `installTheme` reads that key by name before `createApp`, because the composable needs an app context that does not exist yet. |
+| T14 | **The shipped defaults keep Nuxt UI's text ladder and borders; the pushed ladder becomes the High Contrast theme** | Only `text.dimmed` (2.55:1) actually failed a threshold — `muted`, `toned` and `base` passed with room (4.95, 7.89, 10.63) and were moved solely to keep five weights distinct. That made light mode heavy for contrast nobody asked for. Widening every gap is what a high-contrast *mode* is for, not what a default should do. |
+| T14a | The two pairs the defaults do not meet are kept as `STRICT_CONTRAST_PAIRS` and the High Contrast theme is measured against them | A dropped check that leaves no trace is indistinguishable from one nobody thought of. This is what stops `CONTRAST_PAIRS` being *lenient* from decaying into `CONTRAST_PAIRS` being *wrong*. The costs are named at the site: placeholders share `text.dimmed` and are not WCAG-exempt, and the scrollbar thumb has no fill to fall back on. |
+| T15 | **No border-width token** | Tailwind compiles `.border` to a literal `border-width: 1px` with no variable behind it, unlike `--radius-*` and `--text-*`. The token would appear in the editor, accept a value and change nothing until all 40 components were rewritten. |
+| T16 | **Accents are their own tokens** (`accent.*`), at step 700 in light and 400 in dark | `text-primary` resolves to one colour, not a ramp, and `--color-primary: var(--ui-primary)` ships with nothing defining `--ui-primary` — so accents resolved to an undefined custom property in 125 places. Nuxt UI's step 500 is ~2.15:1 for amber on white; 700 clears 4.4 on both the window and a raised panel. Known cost: Tailwind's amber shifts hue as it darkens (84° at 400, 49° at 700), so the light accent reads more rust than gold. |
 
 ## Verified mechanism
 
@@ -145,6 +155,21 @@ Per the card, if this work requires a component edit to function, the token laye
   the generated Tailwind ramps cannot produce.
 - The live run in step 7 swaps all three themes and authors an override without reloading, since T3's
   live propagation makes preview free — no apply button, no preview mode.
+
+## Progress
+
+| Step | State |
+|---|---|
+| 1. `src/shared/theme/` — catalog, themes, ramps, contrast, overrides | landed, `9beff38` |
+| 2. Bridge and application | landed, `0cdec21` |
+| 2a. Mode toggle wiring and the contrast revert | landed, `fe0bf0c` |
+| 2b. Coexistence with `UColorModeSwitch` | landed, `ea71c5e` |
+| 2c. High Contrast theme | landed, `aa6a16a` |
+| 3. `nativeTheme` authoritative in main, window background from the resolved token | not started |
+| 4. The `theme` category, `theme.name` / `theme.overrides`, the `interface.theme` migration | partly pre-empted by 2a |
+| 5. The token editor | not started |
+| 6. `no-raw-colours` lint rule | not started |
+| 7. Live run and the card | ongoing — 2a, 2b verified over CDP |
 
 ## Known debts this creates
 
