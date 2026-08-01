@@ -19,6 +19,14 @@ import {
 export type ReplayGainMode = 'off' | 'track' | 'album'
 export type RepeatMode = 'off' | 'all' | 'one'
 
+/**
+ * Named because the playback controller binds to it by key.
+ *
+ * A literal there and a literal here would be two places to get the same string
+ * right; the descriptor below is built from this one, so a rename moves both.
+ */
+export const AUDIO_CROSSFADE_MS_KEY = 'audio.crossfadeMs'
+
 export const AUDIO_SETTINGS: readonly SettingDescriptor[] = [
   /**
    * Cascades because the whole point of a per-album crossfade is that a live
@@ -27,7 +35,7 @@ export const AUDIO_SETTINGS: readonly SettingDescriptor[] = [
    * at the boundary, and the boundary belongs to an album or a playlist.
    */
   defineSetting<number>({
-    key: 'audio.crossfadeMs',
+    key: AUDIO_CROSSFADE_MS_KEY,
     scope: 'durable',
     default: 0,
     validate: integerValue({ min: 0, max: 12_000 }),

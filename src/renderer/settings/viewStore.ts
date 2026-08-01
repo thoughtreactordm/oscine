@@ -8,6 +8,7 @@ import {
   type SettingNotice,
   type StoredSetting
 } from '@shared/settings'
+import type { SettingsReader } from './reader'
 
 /**
  * The `view` half of the settings store: one flat-key backend for every key
@@ -92,7 +93,7 @@ export interface ViewSettingsDeps {
   debounceMs?: number
 }
 
-export interface ViewSettings {
+export interface ViewSettings extends SettingsReader {
   /** The current value, reactive. Throws for a key with no descriptor. */
   get<T>(key: string): T
   /** Validates, repairs and stores. A rejected value falls back to the default. */

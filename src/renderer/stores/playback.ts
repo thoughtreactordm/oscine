@@ -4,7 +4,7 @@ import { library, playlists } from '@renderer/ipc'
 import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMediaSession'
 import { createPlaybackController } from '@renderer/playback/controller'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
-import { useViewSettings } from '@renderer/settings'
+import { useSettings } from '@renderer/settings'
 
 /**
  * Playback state for the whole app: what is loaded, where it has reached, and
@@ -37,8 +37,10 @@ export const usePlaybackStore = defineStore('playback', () => {
     // shuffle case affordable.
     fetchTrackIds: (query) => library.listTrackIds(query),
     fetchTracksByIds: (query) => library.getTracksByIds(query),
-    // Shuffle and repeat survive a restart; the shuffle sequence does not.
-    settings: useViewSettings(),
+    // Both scopes, live. Shuffle and repeat survive a restart and the shuffle
+    // sequence does not; the global crossfade is durable and reaches the
+    // scheduler at the next boundary rather than at the next launch.
+    settings: useSettings(),
     ...(mediaSessionPlatform
       ? {
           createMediaSession: ({ state, transport }) =>

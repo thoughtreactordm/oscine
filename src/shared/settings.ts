@@ -30,6 +30,7 @@ import {
 export * from './settings/kernel'
 export * from './settings/scope'
 export type { AlbumArtSize, ThemeMode } from './settings/interface'
+export { AUDIO_CROSSFADE_MS_KEY } from './settings/audio'
 export type { RepeatMode, ReplayGainMode } from './settings/audio'
 export type { StoredColumnLayout, TabSession } from './settings/view'
 

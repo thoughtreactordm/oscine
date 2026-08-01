@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 // The contract module, not the `audio/` barrel. The barrel is the runtime door
 // — it hands out `createAudioEngine` and so pulls in the Web Audio
 // implementation with it — whereas this file only ever needs the contract.
@@ -23,6 +23,7 @@ import type {
   TrackSortColumn
 } from '@shared/library'
 import type { ListPlaylistEntriesQuery, ListPlaylistEntriesResult } from '@shared/playlists'
+import { AUDIO_CROSSFADE_MS_KEY } from '@shared/settings'
 import type { MediaSessionBinding, MediaSessionState, MediaSessionTransport } from './mediaSession'
 import {
   createFixedPlayOrder,
@@ -64,8 +65,8 @@ import {
  * nothing at either end of the IPC.
  */
 export const SESSION_QUEUE_CAP = 5000
-import type { ViewSettings } from '../settings/viewStore'
-import { readTransportPreferences, writeTransportPreferences } from './transportPreferences'
+import type { SettingsReader } from '../settings/reader'
+import { bindTransportPreferences } from './transportPreferences'
 
 /**
  * The bridge between the `AudioEngine` and the UI.
@@ -114,6 +115,10 @@ export interface PlaybackControllerDeps {
    * R2's boundary policy where nothing more specific applies — the library
    * order, and anything played before a playlist has been chosen. A playing
    * playlist's own `crossfadeMs` replaces it for as long as it is playing.
+   *
+   * The fallback for a controller with no `settings`. With one, `audio.crossfadeMs`
+   * is the value and this is ignored — a controller that snapshotted the setting
+   * here would be one where changing the crossfade did nothing until relaunch.
    */
   crossfadeMs?: number
   /** ReplayGain policy; track normalization is the M2 default. */
@@ -135,11 +140,14 @@ export interface PlaybackControllerDeps {
     transport: MediaSessionTransport
   }) => MediaSessionBinding
   /**
-   * Where shuffle and repeat are remembered — the renderer's view store.
-   * Omitting it is supported and means the modes last for the session, which
-   * is what the tests want.
+   * The reactive settings surface — shuffle, repeat and the global crossfade.
+   *
+   * Read through rather than copied out: a change made in the settings view has
+   * to reach the transport that is already playing, which is the whole of W8-4.
+   * Omitting it is supported and means the modes last for the session and the
+   * crossfade is whatever `crossfadeMs` said, which is what the tests want.
    */
-  settings?: ViewSettings
+  settings?: SettingsReader
   /**
    * The seed for a shuffle, drawn each time shuffle is switched on so that off
    * and on again reshuffles. Injected only so a test can assert a sequence.
@@ -190,13 +198,42 @@ function normalizeCrossfadeMs(milliseconds: number | undefined): number {
   return Number.isFinite(milliseconds) && (milliseconds ?? 0) > 0 ? (milliseconds ?? 0) : 0
 }
 
+/**
+ * The global crossfade as a two-way binding on `audio.crossfadeMs`.
+ *
+ * Wrapped rather than handed over raw so that R2's normalization applies to a
+ * value arriving from the store — from another window, or from a build whose
+ * descriptor allowed something this one does not — exactly as it applies to one
+ * arriving from `setCrossfadeMs`.
+ */
+function bindCrossfadeMs(settings: SettingsReader): Ref<number> {
+  const stored = settings.value<number>(AUDIO_CROSSFADE_MS_KEY)
+  return computed({
+    get: () => normalizeCrossfadeMs(stored.value),
+    set: (milliseconds: number) => {
+      stored.value = normalizeCrossfadeMs(milliseconds)
+    }
+  })
+}
+
 export function createPlaybackController(deps: PlaybackControllerDeps) {
   const status = ref<PlaybackStatus>('idle')
   const currentTime = ref(0)
   const duration = ref(0)
   const volume = ref(1)
-  /** R2's fallback: what a boundary uses when no playlist is playing. */
-  const defaultCrossfadeMs = ref(normalizeCrossfadeMs(deps.crossfadeMs))
+  /**
+   * R2's fallback: what a boundary uses when no playlist is playing.
+   *
+   * Bound to `audio.crossfadeMs` when there is a settings surface to bind to, so
+   * that setting it here and setting it in the settings view are the same act on
+   * the same value. Normalized on the way in *and* on the way out: the stored
+   * value has already been through the descriptor's validator, but a controller
+   * that trusted that would still be a controller whose R2 contract depended on
+   * somebody else's.
+   */
+  const defaultCrossfadeMs: Ref<number> = deps.settings
+    ? bindCrossfadeMs(deps.settings)
+    : ref(normalizeCrossfadeMs(deps.crossfadeMs))
   /**
    * The playing playlist's boundary policy, or `null` when none is playing.
    *
@@ -263,9 +300,9 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    */
   const playingPlaylistId = ref<number | null>(null)
 
-  const preferences = readTransportPreferences(deps.settings)
-  const repeatMode = ref<RepeatMode>(preferences.repeat)
-  const shuffleEnabled = ref(preferences.shuffle)
+  // Bound rather than read: assigning either one persists it, and a change made
+  // anywhere else arrives here without anything having to be told about it.
+  const { repeat: repeatMode, shuffle: shuffleEnabled } = bindTransportPreferences(deps.settings)
 
   /**
    * How many positions the playing order has, or `null` when unknown — which
@@ -793,8 +830,8 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
 
   function setRepeatMode(mode: RepeatMode): void {
     if (mode === repeatMode.value) return
+    // The assignment is the persistence: `repeatMode` is the setting.
     repeatMode.value = mode
-    persistPreferences()
     // Wrapping has just become possible, or just stopped being possible.
     captureTotal()
     // The scheduler decided the successor minutes ago and may have it decoded
@@ -820,8 +857,8 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    */
   async function setShuffle(enabled: boolean): Promise<void> {
     if (enabled === shuffleEnabled.value) return
+    // As with `setRepeatMode`: the assignment is the persistence.
     shuffleEnabled.value = enabled
-    persistPreferences()
 
     const base = baseOrder
     const at = position.value
@@ -868,13 +905,6 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
 
   async function toggleShuffle(): Promise<void> {
     await setShuffle(!shuffleEnabled.value)
-  }
-
-  function persistPreferences(): void {
-    writeTransportPreferences(deps.settings, {
-      repeat: repeatMode.value,
-      shuffle: shuffleEnabled.value
-    })
   }
 
   /**
@@ -943,6 +973,17 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   }
 
   /**
+   * The live half of W8-4, for the one setting that has to act mid-track.
+   *
+   * `setCrossfadeMs` pushes its own change, but it is no longer the only way one
+   * arrives: the settings view writes the key directly, and so does another
+   * window. The scheduler applies a new value at the next boundary rather than
+   * to the boundary it is already in — which is what "changing crossfade
+   * mid-track changes the next boundary" means, and why this needs no restart.
+   */
+  const stopCrossfadeWatch = watch(crossfadeMs, applyCrossfade)
+
+  /**
    * Sets the global boundary policy.
    *
    * Takes effect immediately only when no playlist is playing; under one, the
@@ -999,6 +1040,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   /** Releases the audio device and every subscription. Safe to call twice. */
   function dispose(): void {
     mediaSession?.dispose()
+    stopCrossfadeWatch()
     for (const off of unsubscribes) off()
     unsubscribes = []
     scheduler?.dispose()

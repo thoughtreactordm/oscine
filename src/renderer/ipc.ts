@@ -20,6 +20,7 @@ import type {
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
+import type { ResetSettingsRequest, SetSettingRequest, SettingsChange } from '@shared/settings'
 import type {
   BrowsePodcastCategoryQuery,
   EpisodeDownloadProgress,
@@ -135,6 +136,22 @@ export const podcasts = {
     unwrap(window.fermata.podcasts.browseCategory(query)),
   onDownloadProgress: (listener: (progress: EpisodeDownloadProgress) => void) =>
     window.fermata.podcasts.onDownloadProgress(listener)
+}
+
+/**
+ * The durable half of the settings surface.
+ *
+ * Shaped as `DurableSettingsBridge` so `createSettingsStore` takes it whole —
+ * the store is written against this contract rather than against `window`, which
+ * is what lets it be driven by a fake under the node test config.
+ */
+export const settings = {
+  getAll: () => unwrap(window.fermata.settings.getAll()),
+  set: (payload: SetSettingRequest) => unwrap(window.fermata.settings.set(payload)),
+  reset: (payload: ResetSettingsRequest) => unwrap(window.fermata.settings.reset(payload)),
+  /** Returns an unsubscribe function. Call it on unmount. */
+  onChanged: (listener: (changes: SettingsChange[]) => void) =>
+    window.fermata.settings.onChanged(listener)
 }
 
 export const windowControls = {

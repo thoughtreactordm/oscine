@@ -3,8 +3,9 @@ import {
   createPlaybackController,
   type PlaybackControllerDeps
 } from '../../../src/renderer/playback/controller'
+import { AUDIO_CROSSFADE_MS_KEY } from '../../../src/shared/settings'
 import { TRANSPORT_REPEAT_KEY } from '../../../src/renderer/playback/transportPreferences'
-import { storedValue, viewSettingsFixture } from '../settings/fixture'
+import { settingsStoreFixture, storedValue } from '../settings/fixture'
 // The contract, not the barrel: these tests compile under the node config,
 // which has no DOM, and the barrel reaches the Web Audio implementation.
 import {
@@ -315,6 +316,45 @@ describe('createPlaybackController', () => {
 
       h.controller.setCrossfadeMs(Number.NaN)
       expect(h.controller.crossfadeMs.value).toBe(0)
+    })
+
+    /**
+     * W8-4's audible claim, as far as a test can carry it.
+     *
+     * The setting is written the way the settings view writes it — no call into
+     * the controller at all — and the scheduler has the new value before the
+     * next boundary is planned. A controller that had snapshotted the setting at
+     * construction would still be crossfading at zero here, and the operator
+     * would have to relaunch to hear the change they just made.
+     */
+    it('takes a crossfade written elsewhere without a restart', async () => {
+      const store = viewStore()
+      const bound = harness({ settings: store.settings })
+      await bound.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 0,
+        track: track(0)
+      })
+      expect(bound.controller.schedulerCrossfadeMs()).toBe(0)
+
+      await store.settings.set(AUDIO_CROSSFADE_MS_KEY, 2000)
+      await settle()
+
+      expect(bound.controller.crossfadeMs.value).toBe(2000)
+      expect(bound.controller.schedulerCrossfadeMs()).toBe(2000)
+    })
+
+    /** The other direction: the transport's own control is the same value. */
+    it('persists a crossfade set from the transport', async () => {
+      const store = viewStore()
+      const bound = harness({ settings: store.settings })
+
+      bound.controller.setCrossfadeMs(1500)
+      await store.settings.flush()
+
+      expect(store.bridge.rows.get(AUDIO_CROSSFADE_MS_KEY)).toBe(1500)
+      expect(store.settings.get<number>(AUDIO_CROSSFADE_MS_KEY)).toBe(1500)
     })
 
     it('defaults to track normalization and replays a pre-play mode choice', async () => {
@@ -642,9 +682,14 @@ describe('createPlaybackController', () => {
     })
   })
 
-  /** A real view store over a memory area, which is what the app hands it. */
+  /**
+   * The real settings surface over a memory area and a faked main.
+   *
+   * Both scopes, because the controller now reads both: shuffle and repeat are
+   * view keys, and the global crossfade is a durable one.
+   */
   function viewStore() {
-    return viewSettingsFixture()
+    return settingsStoreFixture()
   }
 
   describe('remembering the modes', () => {
