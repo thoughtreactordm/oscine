@@ -1,6 +1,13 @@
 import { FermataError } from '@shared/errors'
 import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
 import {
+  SETTING_SCOPE_KINDS,
+  type ResetSettingsRequest,
+  type SetSettingRequest,
+  type SettingScopeKind,
+  type SettingScopeRef
+} from '@shared/settings'
+import {
   type GetTracksByIdsQuery,
   type LibraryBrowseFilters,
   type ListFacetIdsQuery,
@@ -529,4 +536,101 @@ export function assertBrowsePodcastCategoryQuery(value: unknown): { genreId: str
     invalid('genreId is not a known podcast category.')
   }
   return { genreId }
+}
+
+/**
+ * A serialized setting value's ceiling.
+ *
+ * Settings hold toggles, numbers and small records. The cap is here rather than
+ * in the descriptors because it protects the *column*, not the key: without it
+ * one `settings.set` can push an arbitrary blob into the library database, and
+ * no individual validator would have been the natural place to notice.
+ */
+const MAX_SETTING_VALUE_CHARS = 64 * 1024
+
+/**
+ * The value survives the trip to a TEXT column.
+ *
+ * Structured cloning carries things JSON does not — `undefined`, cyclic
+ * references, a `Map` — so a payload that arrived intact can still be
+ * unstorable. Finding that out here produces a clear rejection; finding it out
+ * at the insert produces a `NOT NULL` failure or a throw inside a transaction.
+ *
+ * What the value *means* is still the descriptor's validator's business, and the
+ * settings service runs it before anything is written.
+ */
+function assertSettingValue(value: unknown): unknown {
+  let json: string | undefined
+  try {
+    json = JSON.stringify(value)
+  } catch {
+    invalid('value must be JSON-serialisable.')
+  }
+  if (json === undefined) invalid('value must not be undefined.')
+  if (json.length > MAX_SETTING_VALUE_CHARS) {
+    invalid(`value must serialise to at most ${MAX_SETTING_VALUE_CHARS} characters.`)
+  }
+  return value
+}
+
+function assertScopeRef(value: unknown): SettingScopeRef {
+  const raw = assertRecord(value, 'scope')
+  assertOnlyKeys(raw, ['kind', 'id'])
+
+  if (
+    typeof raw.kind !== 'string' ||
+    !(SETTING_SCOPE_KINDS as readonly string[]).includes(raw.kind)
+  ) {
+    invalid('scope.kind is not a known scope.')
+  }
+  const kind = raw.kind as SettingScopeKind
+
+  // Whether this key *accepts* this scope is the service's call — it needs the
+  // descriptor's `cascade` to say. This only checks the shape: global carries no
+  // id, everything else carries a real one.
+  if (kind === 'global') {
+    if (raw.id !== null && raw.id !== undefined) invalid('The global scope has no id.')
+    return { kind, id: null }
+  }
+  return { kind, id: assertPositiveInt(raw.id, 'scope.id') }
+}
+
+export function assertSetSettingRequest(value: unknown): SetSettingRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['key', 'value', 'scope'])
+  if (typeof raw.key !== 'string' || raw.key.trim() === '') {
+    invalid('key must be a non-empty string.')
+  }
+  return {
+    key: raw.key,
+    value: assertSettingValue(raw.value),
+    ...(raw.scope === undefined ? {} : { scope: assertScopeRef(raw.scope) })
+  }
+}
+
+/**
+ * `key` and `category` are alternatives, and naming both is a caller that has
+ * not decided which reset it means. Refused rather than silently resolved by
+ * precedence — a "reset this category" that quietly resets one key is the sort
+ * of thing nobody notices until they have lost a page of settings.
+ */
+export function assertResetSettingsRequest(value: unknown): ResetSettingsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['key', 'category', 'scope'])
+
+  if (raw.key !== undefined && raw.category !== undefined) {
+    invalid('Reset takes a key or a category, not both.')
+  }
+  if (raw.key !== undefined && (typeof raw.key !== 'string' || raw.key.trim() === '')) {
+    invalid('key must be a non-empty string.')
+  }
+  if (raw.category !== undefined && typeof raw.category !== 'string') {
+    invalid('category must be a string.')
+  }
+
+  return {
+    ...(raw.key === undefined ? {} : { key: raw.key as string }),
+    ...(raw.category === undefined ? {} : { category: raw.category as string }),
+    ...(raw.scope === undefined ? {} : { scope: assertScopeRef(raw.scope) })
+  }
 }

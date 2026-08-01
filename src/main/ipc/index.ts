@@ -4,6 +4,7 @@ import { trackUrl } from '@shared/ipc'
 import type { LibraryService } from '../library/service'
 import type { PlaylistService } from '../library/playlists/service'
 import type { PodcastService } from '../podcasts/service'
+import type { SettingsService } from '../settings/service'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertAddTracksRequest,
@@ -30,6 +31,8 @@ import {
   assertPositiveInt,
   assertRecord,
   assertRemoveEntriesRequest,
+  assertResetSettingsRequest,
+  assertSetSettingRequest,
   assertTabIndex
 } from './validate'
 
@@ -42,7 +45,8 @@ import {
 export function registerIpcHandlers(
   library: LibraryService,
   playlists: PlaylistService,
-  podcasts: PodcastService
+  podcasts: PodcastService,
+  settings: SettingsService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -284,6 +288,12 @@ export function registerIpcHandlers(
     const { genreId } = assertBrowsePodcastCategoryQuery(request)
     return podcasts.browseCategory(genreId)
   })
+
+  handle('settings.getAll', () => settings.getAll())
+
+  handle('settings.set', (request) => settings.set(assertSetSettingRequest(request)))
+
+  handle('settings.reset', (request) => settings.reset(assertResetSettingsRequest(request)))
 
   assertEveryChannelHandled()
 }

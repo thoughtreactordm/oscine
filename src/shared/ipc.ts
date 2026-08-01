@@ -52,6 +52,12 @@ import type {
   SearchPodcastCatalogResult,
   SubscribePodcastRequest
 } from './podcasts'
+import type {
+  GetAllSettingsResult,
+  ResetSettingsRequest,
+  SetSettingRequest,
+  SettingsChange
+} from './settings'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -247,6 +253,25 @@ export interface IpcContract {
     request: BrowsePodcastCategoryQuery
     response: BrowsePodcastCategoryResult
   }
+  /**
+   * Every durable key resolved, for renderer hydration.
+   *
+   * Carries the load notices with it rather than pushing them as events: main
+   * resolves settings before the window exists, so a notice raised then has
+   * nowhere to go until the renderer asks.
+   */
+  'settings.getAll': { request: null; response: GetAllSettingsResult }
+  /**
+   * Write one key, revalidated in main.
+   *
+   * The renderer validates too, so the control can refuse a bad value without a
+   * round trip — but it is not trusted to have done so, and the response carries
+   * back what was actually stored, which may be a repaired version of what was
+   * sent.
+   */
+  'settings.set': { request: SetSettingRequest; response: SettingsChange[] }
+  /** One key, one category, or every durable key. */
+  'settings.reset': { request: ResetSettingsRequest; response: SettingsChange[] }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -268,6 +293,14 @@ export interface IpcEventContract {
   'library.notice': LibraryNotice
   'library.replayGainProgress': ReplayGainJobProgress
   'podcasts.downloadProgress': EpisodeDownloadProgress
+  /**
+   * Durable keys that just changed, and their new values.
+   *
+   * Broadcast on every write including the renderer's own, so the store applies
+   * main's value rather than the one it optimistically sent — that is how a
+   * repaired value gets back to the control that submitted it.
+   */
+  'settings.changed': SettingsChange[]
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -333,7 +366,10 @@ export const IPC_CHANNELS = [
   'podcasts.getEpisodeAudioMetadata',
   'podcasts.searchCatalog',
   'podcasts.recommend',
-  'podcasts.browseCategory'
+  'podcasts.browseCategory',
+  'settings.getAll',
+  'settings.set',
+  'settings.reset'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [
@@ -341,7 +377,8 @@ export const IPC_EVENT_CHANNELS = [
   'library.scanProgress',
   'library.notice',
   'library.replayGainProgress',
-  'podcasts.downloadProgress'
+  'podcasts.downloadProgress',
+  'settings.changed'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**

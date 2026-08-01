@@ -11,7 +11,9 @@ import { SqliteLibraryService } from './library/sqliteService'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { SqlitePodcastService } from './podcasts/service'
+import { SqliteSettingsService } from './settings'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
+import type { SettingsChange } from '@shared/settings'
 
 const isDev = !app.isPackaged
 const rendererDir = join(__dirname, '../renderer')
@@ -86,6 +88,10 @@ function broadcastLibraryNotice(notice: LibraryNotice): void {
 
 function broadcastEpisodeDownloadProgress(progress: EpisodeDownloadProgress): void {
   if (mainWindow) emit(mainWindow.webContents, 'podcasts.downloadProgress', progress)
+}
+
+function broadcastSettingsChanged(changes: SettingsChange[]): void {
+  if (mainWindow) emit(mainWindow.webContents, 'settings.changed', changes)
 }
 
 /**
@@ -223,6 +229,16 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
 
+    // Constructed here, before every other service and long before the window,
+    // because that is the property the main-side store exists for: its load is
+    // synchronous, so anything below this line can read a durable setting to
+    // decide how to build itself. Notices are logged rather than thrown — a
+    // library whose settings are damaged still opens, with defaults.
+    const settings = new SqliteSettingsService({ db, onChanged: broadcastSettingsChanged })
+    for (const notice of settings.loadNotices()) {
+      console.warn(`[settings] ${notice.key}: ${notice.reason}`)
+    }
+
     // One artwork worker for library albums and podcast covers — a second
     // WorkerArtworkImageProcessor was racing the same native sharp module and
     // silently dropping podcast thumbs.
@@ -274,7 +290,7 @@ if (!app.requestSingleInstanceLock()) {
 
     setTrustedRendererUrl(rendererUrl)
     registerTrackProtocol(library, artworkCachePath(), podcasts)
-    registerIpcHandlers(library, playlists, podcasts)
+    registerIpcHandlers(library, playlists, podcasts, settings)
 
     mainWindow = createWindow()
     mainWindow.on('maximize', () => {

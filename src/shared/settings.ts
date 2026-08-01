@@ -27,6 +27,7 @@ import {
 } from './settings/kernel'
 
 export * from './settings/kernel'
+export * from './settings/scope'
 export type { AlbumArtSize, ThemeMode } from './settings/interface'
 export type { RepeatMode, ReplayGainMode } from './settings/audio'
 
@@ -44,9 +45,13 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = Object.freeze([
   ...INTERFACE_SETTINGS
 ])
 
-const BY_KEY: ReadonlyMap<string, SettingDescriptor> = new Map(
-  SETTINGS_REGISTRY.map((descriptor) => [descriptor.key, descriptor])
-)
+function indexByKey(
+  descriptors: readonly SettingDescriptor[]
+): ReadonlyMap<string, SettingDescriptor> {
+  return new Map(descriptors.map((descriptor) => [descriptor.key, descriptor]))
+}
+
+const BY_KEY = indexByKey(SETTINGS_REGISTRY)
 
 export function getSetting(key: string): SettingDescriptor | null {
   return BY_KEY.get(key) ?? null
@@ -98,18 +103,25 @@ export interface SettingsResolution {
  * SQLite, the renderer resolves `view` from localStorage — but a stored key
  * belonging to the *other* scope is still not "unknown", so it lands in neither
  * `values` nor `unknown` and is left for the store that owns it.
+ *
+ * `descriptors` defaults to the registry and exists so a test can resolve
+ * against a hand-built one, the same reason `auditRegistry` takes it. Every key
+ * in the real registry is at version 1 until one of them changes shape, so
+ * without this the upgrade-on-read path has nothing to exercise it.
  */
 export function resolveSettings(
   stored: Readonly<Record<string, StoredSetting>>,
-  scope?: SettingScope
+  scope?: SettingScope,
+  descriptors: readonly SettingDescriptor[] = SETTINGS_REGISTRY
 ): SettingsResolution {
+  const byKey = descriptors === SETTINGS_REGISTRY ? BY_KEY : indexByKey(descriptors)
   const values: Record<string, unknown> = {}
   const unknown: Record<string, StoredSetting> = {}
   const notices: SettingNotice[] = []
   const rewrite: string[] = []
 
   for (const [key, entry] of Object.entries(stored)) {
-    const descriptor = BY_KEY.get(key)
+    const descriptor = byKey.get(key)
     if (!descriptor) {
       unknown[key] = entry
       continue
@@ -122,7 +134,7 @@ export function resolveSettings(
     if (resolved.changed) rewrite.push(key)
   }
 
-  for (const descriptor of SETTINGS_REGISTRY) {
+  for (const descriptor of descriptors) {
     if (scope && descriptor.scope !== scope) continue
     if (!(descriptor.key in values)) values[descriptor.key] = resolveDefault(descriptor)
   }

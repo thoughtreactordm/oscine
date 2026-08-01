@@ -4,6 +4,7 @@ import { indexTrackOrder } from './002-index-track-order'
 import { replayGainJobs } from './003-replaygain-jobs'
 import { trigramSearch } from './004-trigram-search'
 import { podcasts } from './005-podcasts'
+import { settings } from './006-settings'
 
 /**
  * Every migration, in order.
@@ -19,5 +20,6 @@ export const MIGRATIONS: readonly Migration[] = [
   indexTrackOrder,
   replayGainJobs,
   trigramSearch,
-  podcasts
+  podcasts,
+  settings
 ]

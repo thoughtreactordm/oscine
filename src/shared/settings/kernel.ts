@@ -21,8 +21,16 @@
  */
 export type SettingScope = 'durable' | 'view'
 
-/** Entity kinds a cascading key may be overridden on (W8-5). */
-export type SettingEntityKind = 'track' | 'album' | 'artist' | 'playlist' | 'podcast'
+/**
+ * Entity kinds a cascading key may be overridden on (W8-5).
+ *
+ * The type is derived from the list rather than declared beside it, so the
+ * runtime array a validator checks against cannot fall behind the union a
+ * descriptor is written against.
+ */
+export const SETTING_ENTITY_KINDS = ['track', 'album', 'artist', 'playlist', 'podcast'] as const
+
+export type SettingEntityKind = (typeof SETTING_ENTITY_KINDS)[number]
 
 /**
  * The category rail on the settings view.

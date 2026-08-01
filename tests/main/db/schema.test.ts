@@ -40,15 +40,16 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(0)
-      expect(migration.to).toBe(5)
+      expect(migration.to).toBe(6)
       expect(migration.applied.map((m) => m.name)).toEqual([
         'schema-v1',
         'index-track-order',
         'replaygain-jobs',
         'trigram-search',
-        'podcasts'
+        'podcasts',
+        'settings'
       ])
-      expect(db.pragma('user_version', { simple: true })).toBe(5)
+      expect(db.pragma('user_version', { simple: true })).toBe(6)
     } finally {
       db.close()
     }
@@ -60,8 +61,8 @@ describe('openDatabase', () => {
 
     const { db, migration } = openDatabase(file)
     try {
-      expect(migration.from).toBe(5)
-      expect(migration.to).toBe(5)
+      expect(migration.from).toBe(6)
+      expect(migration.to).toBe(6)
       expect(migration.applied).toEqual([])
     } finally {
       db.close()
@@ -77,12 +78,13 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(1)
-      expect(migration.to).toBe(5)
+      expect(migration.to).toBe(6)
       expect(migration.applied.map((m) => m.name)).toEqual([
         'index-track-order',
         'replaygain-jobs',
         'trigram-search',
-        'podcasts'
+        'podcasts',
+        'settings'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -105,7 +107,11 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(3)
-      expect(migration.applied.map((step) => step.name)).toEqual(['trigram-search', 'podcasts'])
+      expect(migration.applied.map((step) => step.name)).toEqual([
+        'trigram-search',
+        'podcasts',
+        'settings'
+      ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
       ).toEqual({ rowid: trackId })

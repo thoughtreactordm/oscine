@@ -35,6 +35,7 @@ import type {
   ListRecentEpisodesQuery,
   SearchPodcastCatalogQuery
 } from '@shared/podcasts'
+import type { ResetSettingsRequest, SetSettingRequest, SettingsChange } from '@shared/settings'
 
 /**
  * The entire main/renderer seam.
@@ -174,6 +175,16 @@ const api = {
       request('podcasts.browseCategory', query),
     onDownloadProgress: (listener: (progress: EpisodeDownloadProgress) => void) =>
       subscribe('podcasts.downloadProgress', listener)
+  },
+  settings: {
+    /** Every durable key resolved, with whatever did not survive the load. */
+    getAll: () => request('settings.getAll', null),
+    /** Revalidated in main; the response carries what was actually stored. */
+    set: (payload: SetSettingRequest) => request('settings.set', payload),
+    /** One key, one category, or every durable key. */
+    reset: (payload: ResetSettingsRequest) => request('settings.reset', payload),
+    onChanged: (listener: (changes: SettingsChange[]) => void) =>
+      subscribe('settings.changed', listener)
   }
 } as const
 
