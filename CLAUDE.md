@@ -20,8 +20,8 @@ that way.
 
 ## Board
 
-Workstreams and cards live in `.kleron/`. Six streams: W1 Foundation, W2 Library, W3 Audio, W4 UI,
-W5 Playlists & Queue, W6 Packaging & Ops.
+Workstreams and cards live in `.kleron/`. Nine streams: W1 Foundation, W2 Library, W3 Audio, W4 UI,
+W5 Playlists & Queue, W6 Packaging & Ops, W7 Tunedeck, W8 Settings, W9 Podcasts.
 
 ## Commands
 

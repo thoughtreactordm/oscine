@@ -40,14 +40,15 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(0)
-      expect(migration.to).toBe(4)
+      expect(migration.to).toBe(5)
       expect(migration.applied.map((m) => m.name)).toEqual([
         'schema-v1',
         'index-track-order',
         'replaygain-jobs',
-        'trigram-search'
+        'trigram-search',
+        'podcasts'
       ])
-      expect(db.pragma('user_version', { simple: true })).toBe(4)
+      expect(db.pragma('user_version', { simple: true })).toBe(5)
     } finally {
       db.close()
     }
@@ -59,8 +60,8 @@ describe('openDatabase', () => {
 
     const { db, migration } = openDatabase(file)
     try {
-      expect(migration.from).toBe(4)
-      expect(migration.to).toBe(4)
+      expect(migration.from).toBe(5)
+      expect(migration.to).toBe(5)
       expect(migration.applied).toEqual([])
     } finally {
       db.close()
@@ -76,11 +77,12 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(1)
-      expect(migration.to).toBe(4)
+      expect(migration.to).toBe(5)
       expect(migration.applied.map((m) => m.name)).toEqual([
         'index-track-order',
         'replaygain-jobs',
-        'trigram-search'
+        'trigram-search',
+        'podcasts'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -103,7 +105,7 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(3)
-      expect(migration.applied.map((step) => step.name)).toEqual(['trigram-search'])
+      expect(migration.applied.map((step) => step.name)).toEqual(['trigram-search', 'podcasts'])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
       ).toEqual({ rowid: trackId })

@@ -3,21 +3,28 @@ import { FermataError } from '@shared/errors'
 import { trackUrl } from '@shared/ipc'
 import type { LibraryService } from '../library/service'
 import type { PlaylistService } from '../library/playlists/service'
+import type { PodcastService } from '../podcasts/service'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertAddTracksRequest,
   assertCrossfadeMs,
   assertExportPlaylistRequest,
+  assertFeedUrl,
+  assertBrowsePodcastCategoryQuery,
+  assertSearchPodcastCatalogQuery,
+  assertListEpisodesQuery,
   assertListFacetIdsQuery,
   assertListFacetsQuery,
   assertListPlaylistEntriesQuery,
   assertListPlaylistEntryGroupsQuery,
   assertListPlaylistEntryIdsQuery,
+  assertListRecentEpisodesQuery,
   assertListTrackGroupsQuery,
   assertListTrackIdsQuery,
   assertListTracksQuery,
   assertMoveEntriesRequest,
   assertGetTracksByIdsQuery,
+  assertOpmlXml,
   assertOrderTrackIdsQuery,
   assertPlaylistName,
   assertPositiveInt,
@@ -32,7 +39,11 @@ import {
  * Handlers stay thin on purpose: validate, delegate, return. Anything they
  * throw is flattened by the registry before it reaches the renderer.
  */
-export function registerIpcHandlers(library: LibraryService, playlists: PlaylistService): void {
+export function registerIpcHandlers(
+  library: LibraryService,
+  playlists: PlaylistService,
+  podcasts: PodcastService
+): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
     return null
@@ -190,6 +201,89 @@ export function registerIpcHandlers(library: LibraryService, playlists: Playlist
   handle('playlists.exportM3u8', (request) =>
     playlists.exportM3u8(assertExportPlaylistRequest(request))
   )
+
+  handle('podcasts.list', () => podcasts.listPodcasts())
+
+  handle('podcasts.get', (request) => {
+    const { podcastId } = assertRecord(request, 'request')
+    return podcasts.getPodcast(assertPositiveInt(podcastId, 'podcastId'))
+  })
+
+  handle('podcasts.subscribe', (request) => {
+    const { feedUrl } = assertRecord(request, 'request')
+    return podcasts.subscribe(assertFeedUrl(feedUrl))
+  })
+
+  handle('podcasts.unsubscribe', async (request) => {
+    const { podcastId } = assertRecord(request, 'request')
+    await podcasts.unsubscribe(assertPositiveInt(podcastId, 'podcastId'))
+    return null
+  })
+
+  handle('podcasts.refresh', (request) => {
+    const { podcastId } = assertRecord(request, 'request')
+    return podcasts.refresh(assertPositiveInt(podcastId, 'podcastId'))
+  })
+
+  handle('podcasts.refreshAll', () => podcasts.refreshAll())
+
+  handle('podcasts.listEpisodes', (request) =>
+    podcasts.listEpisodes(assertListEpisodesQuery(request))
+  )
+
+  handle('podcasts.listRecent', (request) =>
+    podcasts.listRecent(assertListRecentEpisodesQuery(request))
+  )
+
+  handle('podcasts.downloadEpisode', (request) => {
+    const { episodeId } = assertRecord(request, 'request')
+    return podcasts.downloadEpisode(assertPositiveInt(episodeId, 'episodeId'))
+  })
+
+  handle('podcasts.deleteDownload', (request) => {
+    const { episodeId } = assertRecord(request, 'request')
+    return podcasts.deleteDownload(assertPositiveInt(episodeId, 'episodeId'))
+  })
+
+  handle('podcasts.clearDownloads', (request) => {
+    const { podcastId } = assertRecord(request, 'request')
+    return podcasts.clearDownloads(assertPositiveInt(podcastId, 'podcastId'))
+  })
+
+  handle('podcasts.setPlayed', (request) => {
+    const { episodeId, played } = assertRecord(request, 'request')
+    if (typeof played !== 'boolean') {
+      throw new FermataError('invalid-request', 'played must be a boolean.')
+    }
+    return podcasts.setPlayed(assertPositiveInt(episodeId, 'episodeId'), played)
+  })
+
+  handle('podcasts.importOpml', (request) => {
+    const { xml } = assertRecord(request, 'request')
+    return podcasts.importOpml(assertOpmlXml(xml))
+  })
+
+  handle('podcasts.getEpisodeFileUrl', (request) => {
+    const { episodeId } = assertRecord(request, 'request')
+    return podcasts.getEpisodeFileUrl(assertPositiveInt(episodeId, 'episodeId'))
+  })
+
+  handle('podcasts.getEpisodeAudioMetadata', (request) => {
+    const { episodeId } = assertRecord(request, 'request')
+    return podcasts.getEpisodeAudioMetadata(assertPositiveInt(episodeId, 'episodeId'))
+  })
+
+  handle('podcasts.searchCatalog', (request) => {
+    const query = assertSearchPodcastCatalogQuery(request)
+    return podcasts.searchCatalog(query.term, query.limit)
+  })
+
+  handle('podcasts.recommend', () => podcasts.recommend())
+
+  handle('podcasts.browseCategory', (request) => {
+    const { genreId } = assertBrowsePodcastCategoryQuery(request)
+    return podcasts.browseCategory(genreId)
+  })
 
   assertEveryChannelHandled()
 }

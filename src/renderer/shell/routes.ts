@@ -5,6 +5,8 @@ import Sources from '@renderer/panels/Sources.vue'
 import CurateSidebar from '@renderer/views/CurateSidebar.vue'
 import CurateView from '@renderer/views/CurateView.vue'
 import LibraryView from '@renderer/views/LibraryView.vue'
+import PodcastsSidebar from '@renderer/views/PodcastsSidebar.vue'
+import PodcastsView from '@renderer/views/PodcastsView.vue'
 import StageView from '@renderer/views/StageView.vue'
 
 declare module 'vue-router' {
@@ -57,6 +59,14 @@ const TABS: ShellTab[] = [
     icon: 'i-tabler-sparkles',
     view: CurateView,
     sidebar: CurateSidebar
+  },
+  {
+    name: 'podcasts',
+    path: 'podcasts',
+    label: 'Podcasts',
+    icon: 'i-tabler-microphone',
+    view: PodcastsView,
+    sidebar: PodcastsSidebar
   },
   {
     name: 'now-playing',

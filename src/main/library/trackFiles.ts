@@ -2,8 +2,10 @@ import { net, protocol } from 'electron'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { TRACK_SCHEME } from '@shared/ipc'
+import { CATALOG_ARTWORK_HOST, isCatalogArtworkHost, TRACK_SCHEME } from '@shared/ipc'
 import type { ArtworkVariant } from '@shared/library'
+import { FERMATA_USER_AGENT, readCappedBytes } from '../podcasts/http'
+import type { PodcastService } from '../podcasts/service'
 import { parseByteRange, UNSATISFIABLE_RANGE } from './byteRange'
 import type { LibraryService } from './service'
 
@@ -46,7 +48,11 @@ export function registerTrackScheme(): void {
 }
 
 /** Must run after `app.whenReady()`. */
-export function registerTrackProtocol(library: LibraryService, artworkCacheDir: string): void {
+export function registerTrackProtocol(
+  library: LibraryService,
+  artworkCacheDir: string,
+  podcasts?: PodcastService
+): void {
   protocol.handle(TRACK_SCHEME, async (request) => {
     let url: URL
     try {
@@ -59,7 +65,11 @@ export function registerTrackProtocol(library: LibraryService, artworkCacheDir: 
       return serveArtwork(url, artworkCacheDir)
     }
 
-    if (url.hostname !== 'track') {
+    if (url.hostname === CATALOG_ARTWORK_HOST) {
+      return serveCatalogArtwork(url)
+    }
+
+    if (url.hostname !== 'track' && url.hostname !== 'episode') {
       return new Response('Not found', { status: 404 })
     }
 
@@ -70,12 +80,17 @@ export function registerTrackProtocol(library: LibraryService, artworkCacheDir: 
       return new Response('Bad request', { status: 400 })
     }
 
-    const trackId = Number(segment)
+    const id = Number(segment)
     let absolutePath: string | null
     try {
-      absolutePath = await library.resolveTrackPath(trackId)
+      absolutePath =
+        url.hostname === 'episode'
+          ? podcasts
+            ? await podcasts.resolveEpisodePath(id)
+            : null
+          : await library.resolveTrackPath(id)
     } catch (err) {
-      console.error(`[${TRACK_SCHEME}] failed to resolve track ${trackId}:`, err)
+      console.error(`[${TRACK_SCHEME}] failed to resolve ${url.hostname} ${id}:`, err)
       return new Response('Internal error', { status: 500 })
     }
 
@@ -83,67 +98,71 @@ export function registerTrackProtocol(library: LibraryService, artworkCacheDir: 
       return new Response('Not found', { status: 404 })
     }
 
-    let totalBytes: number
-    try {
-      totalBytes = (await stat(absolutePath)).size
-    } catch {
-      return new Response('Not found', { status: 404 })
-    }
+    return serveLocalFile(request, absolutePath)
+  })
+}
 
-    // Preserve a media element's Range request: seeking must not restart a
-    // long track from byte zero. Only the one relevant request header crosses
-    // to file:, rather than forwarding renderer-controlled headers wholesale.
-    const requestedRange = parseByteRange(request.headers.get('range'), totalBytes)
-    if (requestedRange === UNSATISFIABLE_RANGE) {
-      return new Response(null, {
-        status: 416,
-        headers: {
-          'accept-ranges': 'bytes',
-          'access-control-allow-origin': '*',
-          'content-range': `bytes */${totalBytes}`
-        }
-      })
-    }
-    const upstreamHeaders = new Headers()
-    const range = request.headers.get('range')
-    if (range) upstreamHeaders.set('range', range)
-    const upstream = await net.fetch(pathToFileURL(absolutePath).toString(), {
-      headers: upstreamHeaders
+async function serveLocalFile(request: Request, absolutePath: string): Promise<Response> {
+  let totalBytes: number
+  try {
+    totalBytes = (await stat(absolutePath)).size
+  } catch {
+    return new Response('Not found', { status: 404 })
+  }
+
+  // Preserve a media element's Range request: seeking must not restart a
+  // long track from byte zero. Only the one relevant request header crosses
+  // to file:, rather than forwarding renderer-controlled headers wholesale.
+  const requestedRange = parseByteRange(request.headers.get('range'), totalBytes)
+  if (requestedRange === UNSATISFIABLE_RANGE) {
+    return new Response(null, {
+      status: 416,
+      headers: {
+        'accept-ranges': 'bytes',
+        'access-control-allow-origin': '*',
+        'content-range': `bytes */${totalBytes}`
+      }
     })
+  }
+  const upstreamHeaders = new Headers()
+  const range = request.headers.get('range')
+  if (range) upstreamHeaders.set('range', range)
+  const upstream = await net.fetch(pathToFileURL(absolutePath).toString(), {
+    headers: upstreamHeaders
+  })
 
-    // The renderer and fermata: have different origins in development.
-    // Explicit CORS response headers keep MediaElementAudioSourceNode origin
-    // clean, so the graph is audible rather than silently producing zeros.
-    const headers = new Headers(upstream.headers)
-    headers.set('access-control-allow-origin', '*')
-    headers.set('access-control-expose-headers', 'accept-ranges, content-length, content-range')
-    if (!upstream.ok) {
-      return new Response(upstream.body, {
-        status: upstream.status,
-        statusText: upstream.statusText,
-        headers
-      })
-    }
-
-    headers.set('accept-ranges', 'bytes')
-    headers.set(
-      'content-length',
-      String(requestedRange === null ? totalBytes : requestedRange.length)
-    )
-    if (requestedRange !== null) {
-      headers.set(
-        'content-range',
-        `bytes ${requestedRange.start}-${requestedRange.end}/${totalBytes}`
-      )
-    }
+  // The renderer and fermata: have different origins in development.
+  // Explicit CORS response headers keep MediaElementAudioSourceNode origin
+  // clean, so the graph is audible rather than silently producing zeros.
+  const headers = new Headers(upstream.headers)
+  headers.set('access-control-allow-origin', '*')
+  headers.set('access-control-expose-headers', 'accept-ranges, content-length, content-range')
+  if (!upstream.ok) {
     return new Response(upstream.body, {
-      // Electron's file loader honors Range and returns the sliced bytes, but
-      // reports them as 200 without Content-Range. Relabeling that payload is
-      // what lets HTMLMediaElement preserve its timeline after a seek.
-      status: requestedRange === null ? upstream.status : 206,
+      status: upstream.status,
       statusText: upstream.statusText,
       headers
     })
+  }
+
+  headers.set('accept-ranges', 'bytes')
+  headers.set(
+    'content-length',
+    String(requestedRange === null ? totalBytes : requestedRange.length)
+  )
+  if (requestedRange !== null) {
+    headers.set(
+      'content-range',
+      `bytes ${requestedRange.start}-${requestedRange.end}/${totalBytes}`
+    )
+  }
+  return new Response(upstream.body, {
+    // Electron's file loader honors Range and returns the sliced bytes, but
+    // reports them as 200 without Content-Range. Relabeling that payload is
+    // what lets HTMLMediaElement preserve its timeline after a seek.
+    status: requestedRange === null ? upstream.status : 206,
+    statusText: upstream.statusText,
+    headers
   })
 }
 
@@ -180,6 +199,70 @@ async function serveArtwork(url: URL, cacheDir: string): Promise<Response> {
     // and will be regenerated by the next artwork reconciliation.
     return placeholderResponse()
   }
+}
+
+/** A thumbnail is a thumbnail; anything larger than this is not one. */
+const MAX_CATALOG_ARTWORK_BYTES = 4 * 1024 * 1024
+const CATALOG_ARTWORK_TIMEOUT_MS = 15_000
+
+/**
+ * Fetches a Discover thumbnail on the renderer's behalf.
+ *
+ * A whole-transfer deadline is right here, unlike episode downloads: these are
+ * capped at a few megabytes, so a slow-but-alive transfer that trips it was
+ * never going to be a usable image anyway.
+ */
+async function serveCatalogArtwork(url: URL): Promise<Response> {
+  const remote = url.searchParams.get('u')
+  if (!remote) return new Response('Bad request', { status: 400 })
+
+  let target: URL
+  try {
+    target = new URL(remote)
+  } catch {
+    return new Response('Bad request', { status: 400 })
+  }
+
+  // Re-checked rather than trusted from the caller. `catalogArtworkUrl` filters
+  // in the renderer for the renderer's benefit; this process is the one holding
+  // the socket, so this is the check that actually constrains where it points.
+  if (target.protocol !== 'https:' || !isCatalogArtworkHost(target.hostname)) {
+    return new Response('Forbidden', { status: 403 })
+  }
+
+  let upstream: Response
+  try {
+    upstream = await net.fetch(target.toString(), {
+      signal: AbortSignal.timeout(CATALOG_ARTWORK_TIMEOUT_MS),
+      headers: { accept: 'image/*', 'user-agent': FERMATA_USER_AGENT }
+    })
+  } catch {
+    return placeholderResponse()
+  }
+
+  const contentType = upstream.headers.get('content-type') ?? ''
+  if (!upstream.ok || !contentType.startsWith('image/')) {
+    await upstream.body?.cancel().catch(() => undefined)
+    return placeholderResponse()
+  }
+
+  let bytes: Uint8Array<ArrayBuffer>
+  try {
+    bytes = await readCappedBytes(upstream, MAX_CATALOG_ARTWORK_BYTES)
+  } catch {
+    return placeholderResponse()
+  }
+
+  return new Response(new Blob([bytes]), {
+    status: 200,
+    headers: {
+      'access-control-allow-origin': '*',
+      // Discover re-renders the same shelves constantly. Without this every
+      // scroll back to a shelf is another round trip to Apple.
+      'cache-control': 'public, max-age=86400',
+      'content-type': contentType
+    }
+  })
 }
 
 function placeholderResponse(): Response {

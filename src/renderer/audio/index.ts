@@ -39,7 +39,8 @@ export {
   type R1Policy
 } from './r1Admission'
 
-import { library } from '@renderer/ipc'
+import { library, podcasts } from '@renderer/ipc'
+import { episodeIdFromPlaybackTrackId } from '@shared/podcasts'
 import type { AudioEngine } from './AudioEngine'
 import { DecodedAudioEngine } from './DecodedAudioEngine'
 import { DecodedAudioContextPool } from './decodedAudioContext'
@@ -80,6 +81,26 @@ export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): () => 
       policy,
       reservations,
       resolveTrack: async (trackId) => {
+        // Negative ids are downloaded podcast episodes — see
+        // `episodePlaybackTrackId`. Positive ids stay library tracks.
+        const episodeId = episodeIdFromPlaybackTrackId(trackId)
+        if (episodeId !== null) {
+          const metadata = await podcasts.getEpisodeAudioMetadata(episodeId)
+          const url = await podcasts.getEpisodeFileUrl(episodeId)
+          return {
+            trackId,
+            url,
+            durationSec: metadata.durationSec,
+            encodedBytes: metadata.encodedBytes,
+            channels: metadata.channels,
+            rgTrackGainDb: null,
+            rgTrackPeak: null,
+            rgAlbumGainDb: null,
+            rgAlbumPeak: null,
+            rgSource: null
+          }
+        }
+
         // Both calls are metadata/control-plane IPC. No response body containing
         // track bytes is requested until the selected path begins its own load.
         const metadata = await library.getTrackAudioMetadata(trackId)

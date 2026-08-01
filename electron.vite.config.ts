@@ -16,6 +16,9 @@ const BASE_CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
+  // No remote origin, including for Discover's Apple catalogue thumbnails:
+  // those are proxied through main over `fermata:` so the renderer never opens
+  // a socket (D14) and the operator's IP never reaches Apple.
   "img-src 'self' data: blob: fermata:",
   "font-src 'self' data:",
   // `fermata:` is the custom protocol main registers to serve track bytes.

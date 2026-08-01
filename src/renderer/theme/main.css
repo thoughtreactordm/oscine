@@ -23,6 +23,15 @@
   --fermata-cover-bleed: 0.18;
   --fermata-cover-blur: 40px;
   --fermata-cover-drift: 42s;
+
+  /*
+   * Scrim over arbitrary cover art, and the text that sits on it. These are not
+   * theme colours — the artwork underneath is whatever the feed shipped, so the
+   * contrast has to be won against an unknown image rather than against a
+   * surface. They stay fixed across themes for exactly that reason.
+   */
+  --fermata-scrim: oklch(0% 0 0 / 0.62);
+  --fermata-on-scrim: oklch(100% 0 0);
 }
 
 .dark {

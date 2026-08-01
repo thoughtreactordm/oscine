@@ -4,11 +4,14 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { LibraryNotice, ReplayGainJobProgress, ScanProgress } from '@shared/library'
 import { openDatabase } from './db'
-import { artworkCachePath, libraryDatabasePath } from './db/location'
+import { artworkCachePath, libraryDatabasePath, podcastsDirectoryPath } from './db/location'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
+import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { SqliteLibraryService } from './library/sqliteService'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
+import { SqlitePodcastService } from './podcasts/service'
+import type { EpisodeDownloadProgress } from '@shared/podcasts'
 
 const isDev = !app.isPackaged
 const rendererDir = join(__dirname, '../renderer')
@@ -79,6 +82,10 @@ function broadcastReplayGainProgress(progress: ReplayGainJobProgress): void {
 
 function broadcastLibraryNotice(notice: LibraryNotice): void {
   if (mainWindow) emit(mainWindow.webContents, 'library.notice', notice)
+}
+
+function broadcastEpisodeDownloadProgress(progress: EpisodeDownloadProgress): void {
+  if (mainWindow) emit(mainWindow.webContents, 'podcasts.downloadProgress', progress)
 }
 
 /**
@@ -216,9 +223,15 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
 
+    // One artwork worker for library albums and podcast covers — a second
+    // WorkerArtworkImageProcessor was racing the same native sharp module and
+    // silently dropping podcast thumbs.
+    const artworkProcessor = new WorkerArtworkImageProcessor()
+
     const library = new SqliteLibraryService({
       db,
       artworkCacheDir: artworkCachePath(),
+      artworkProcessor,
       pickFolder: pickMusicFolder,
       onProgress: broadcastScanProgress,
       onNotice: broadcastLibraryNotice,
@@ -228,6 +241,14 @@ if (!app.requestSingleInstanceLock()) {
     // Its own service on the same connection: playlists own two tables the
     // library layer never touches, and the library owns the rest.
     const playlists = new SqlitePlaylistService({ db, pickExportFile: pickPlaylistExportFile })
+
+    const podcasts = new SqlitePodcastService({
+      db,
+      podcastsRoot: podcastsDirectoryPath(),
+      artworkCacheDir: artworkCachePath(),
+      artworkProcessor,
+      onDownloadProgress: broadcastEpisodeDownloadProgress
+    })
 
     let readyToQuit = false
     let quitInProgress = false
@@ -252,8 +273,8 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     setTrustedRendererUrl(rendererUrl)
-    registerTrackProtocol(library, artworkCachePath())
-    registerIpcHandlers(library, playlists)
+    registerTrackProtocol(library, artworkCachePath(), podcasts)
+    registerIpcHandlers(library, playlists, podcasts)
 
     mainWindow = createWindow()
     mainWindow.on('maximize', () => {

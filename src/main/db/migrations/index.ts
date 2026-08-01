@@ -3,6 +3,7 @@ import { schemaV1 } from './001-schema-v1'
 import { indexTrackOrder } from './002-index-track-order'
 import { replayGainJobs } from './003-replaygain-jobs'
 import { trigramSearch } from './004-trigram-search'
+import { podcasts } from './005-podcasts'
 
 /**
  * Every migration, in order.
@@ -17,5 +18,6 @@ export const MIGRATIONS: readonly Migration[] = [
   schemaV1,
   indexTrackOrder,
   replayGainJobs,
-  trigramSearch
+  trigramSearch,
+  podcasts
 ]

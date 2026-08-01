@@ -88,6 +88,18 @@
         "W1",
         "W4"
       ]
+    },
+    {
+      "tag": "W9",
+      "name": "Podcasts",
+      "description": "Subscriptions to remote feeds as a domain parallel to the library rather than an extension of it (D16): migration 005's `podcasts` and `episodes` tables, main-process RSS and OPML parsing, byte-capped stall-guarded downloads into a machine-local podcasts directory, and playback of episodes from disk through the existing `fermata:` protocol on its own hostname and id space. No episode is ever a row in `tracks`, so Library facets, `tracks_fts` and ReplayGain stay music-only. Owns the Podcasts view — subscription rail, show tabs, virtualized episode list — and Discover, which queries the keyless Apple iTunes catalogue for search, genre charts and recommendation shelves. Shares exactly two things with W2: the artwork thumbnail cache with its single worker, and the custom protocol. Does NOT own the D14 consent gate (W7-6); Discover currently reaches Apple ahead of it, which is recorded debt rather than a settled position.",
+      "color": "teal",
+      "order": 8,
+      "cardCounter": 5,
+      "dependsOn": [
+        "W2",
+        "W4"
+      ]
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { FermataError } from '@shared/errors'
+import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
 import {
   type GetTracksByIdsQuery,
   type LibraryBrowseFilters,
@@ -439,4 +440,93 @@ export function assertTabIndex(value: unknown): number {
     invalid('toIndex must be a non-negative integer.')
   }
   return value
+}
+
+const MAX_FEED_URL_LENGTH = 2048
+const MAX_OPML_CHARS = 2_000_000
+const MAX_PODCAST_EPISODE_PAGE = 100
+const MAX_PODCAST_RECENT_PAGE = 50
+
+export function assertFeedUrl(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    invalid('feedUrl must be a non-empty string.')
+  }
+  if ([...value].length > MAX_FEED_URL_LENGTH) {
+    invalid(`feedUrl must not exceed ${MAX_FEED_URL_LENGTH} characters.`)
+  }
+  return value.trim()
+}
+
+export function assertOpmlXml(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    invalid('xml must be a non-empty string.')
+  }
+  if (value.length > MAX_OPML_CHARS) {
+    invalid('OPML file is too large.')
+  }
+  return value
+}
+
+export function assertListEpisodesQuery(value: unknown): {
+  podcastId: number
+  offset: number
+  limit: number
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['podcastId', 'offset', 'limit'])
+  return {
+    podcastId: assertPositiveInt(raw.podcastId, 'podcastId'),
+    ...assertWindow(raw, MAX_PODCAST_EPISODE_PAGE)
+  }
+}
+
+export function assertListRecentEpisodesQuery(value: unknown): {
+  offset: number
+  limit: number
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['offset', 'limit'])
+  return assertWindow(raw, MAX_PODCAST_RECENT_PAGE)
+}
+
+const MAX_CATALOG_SEARCH_TERM = 200
+const MAX_CATALOG_SEARCH_LIMIT = 25
+
+export function assertSearchPodcastCatalogQuery(value: unknown): {
+  term: string
+  limit?: number
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['term', 'limit'])
+  if (typeof raw.term !== 'string') {
+    invalid('term must be a string.')
+  }
+  const term = raw.term.trim()
+  if ([...term].length > MAX_CATALOG_SEARCH_TERM) {
+    invalid(`term must not exceed ${MAX_CATALOG_SEARCH_TERM} characters.`)
+  }
+  if (raw.limit === undefined) return { term }
+  if (typeof raw.limit !== 'number' || !Number.isInteger(raw.limit) || raw.limit < 1) {
+    invalid('limit must be a positive integer.')
+  }
+  return { term, limit: Math.min(raw.limit, MAX_CATALOG_SEARCH_LIMIT) }
+}
+
+/**
+ * Only the categories the rail actually offers.
+ *
+ * An allowlist rather than a digit check: `genreId` reaches an outbound URL,
+ * and the renderer has no business naming a genre Discover does not show.
+ */
+export function assertBrowsePodcastCategoryQuery(value: unknown): { genreId: string } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['genreId'])
+  if (typeof raw.genreId !== 'string') {
+    invalid('genreId must be a string.')
+  }
+  const genreId = raw.genreId.trim()
+  if (!PODCAST_BROWSE_CATEGORIES.some((category) => category.genreId === genreId)) {
+    invalid('genreId is not a known podcast category.')
+  }
+  return { genreId }
 }

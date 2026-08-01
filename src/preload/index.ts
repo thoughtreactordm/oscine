@@ -28,6 +28,13 @@ import type {
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
+import type {
+  BrowsePodcastCategoryQuery,
+  EpisodeDownloadProgress,
+  ListEpisodesQuery,
+  ListRecentEpisodesQuery,
+  SearchPodcastCatalogQuery
+} from '@shared/podcasts'
 
 /**
  * The entire main/renderer seam.
@@ -142,6 +149,31 @@ const api = {
       request('playlists.removeEntries', payload),
     /** Opens a native save dialog in main. Resolves `null` if cancelled. */
     exportM3u8: (payload: ExportPlaylistRequest) => request('playlists.exportM3u8', payload)
+  },
+  podcasts: {
+    list: () => request('podcasts.list', null),
+    get: (podcastId: number) => request('podcasts.get', { podcastId }),
+    subscribe: (feedUrl: string) => request('podcasts.subscribe', { feedUrl }),
+    unsubscribe: (podcastId: number) => request('podcasts.unsubscribe', { podcastId }),
+    refresh: (podcastId: number) => request('podcasts.refresh', { podcastId }),
+    refreshAll: () => request('podcasts.refreshAll', null),
+    listEpisodes: (query: ListEpisodesQuery) => request('podcasts.listEpisodes', query),
+    listRecent: (query: ListRecentEpisodesQuery) => request('podcasts.listRecent', query),
+    downloadEpisode: (episodeId: number) => request('podcasts.downloadEpisode', { episodeId }),
+    deleteDownload: (episodeId: number) => request('podcasts.deleteDownload', { episodeId }),
+    clearDownloads: (podcastId: number) => request('podcasts.clearDownloads', { podcastId }),
+    setPlayed: (episodeId: number, played: boolean) =>
+      request('podcasts.setPlayed', { episodeId, played }),
+    importOpml: (xml: string) => request('podcasts.importOpml', { xml }),
+    getEpisodeFileUrl: (episodeId: number) => request('podcasts.getEpisodeFileUrl', { episodeId }),
+    getEpisodeAudioMetadata: (episodeId: number) =>
+      request('podcasts.getEpisodeAudioMetadata', { episodeId }),
+    searchCatalog: (query: SearchPodcastCatalogQuery) => request('podcasts.searchCatalog', query),
+    recommend: () => request('podcasts.recommend', null),
+    browseCategory: (query: BrowsePodcastCategoryQuery) =>
+      request('podcasts.browseCategory', query),
+    onDownloadProgress: (listener: (progress: EpisodeDownloadProgress) => void) =>
+      subscribe('podcasts.downloadProgress', listener)
   }
 } as const
 

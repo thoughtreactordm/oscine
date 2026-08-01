@@ -348,6 +348,10 @@ function prepareStatements(db: Database.Database) {
       FROM albums al
       WHERE al.artwork_hash IS NOT NULL
         AND EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = al.id)
+      UNION
+      SELECT DISTINCT p.artwork_hash AS artworkHash
+      FROM podcasts p
+      WHERE p.artwork_hash IS NOT NULL
     `),
     listAlbumsUnderDirectory: db.prepare(`
       SELECT DISTINCT t.album_id AS albumId

@@ -35,6 +35,23 @@ import type {
   PlaylistExportResult,
   RemovePlaylistEntriesRequest
 } from './playlists'
+import type {
+  BrowsePodcastCategoryQuery,
+  BrowsePodcastCategoryResult,
+  Episode,
+  EpisodeAudioMetadata,
+  EpisodeDownloadProgress,
+  ImportOpmlResult,
+  ListEpisodesQuery,
+  ListEpisodesResult,
+  ListRecentEpisodesQuery,
+  ListRecentEpisodesResult,
+  Podcast,
+  PodcastRecommendResult,
+  SearchPodcastCatalogQuery,
+  SearchPodcastCatalogResult,
+  SubscribePodcastRequest
+} from './podcasts'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -189,6 +206,47 @@ export interface IpcContract {
     request: ExportPlaylistRequest
     response: PlaylistExportResult | null
   }
+  /** Every subscription, title order. */
+  'podcasts.list': { request: null; response: Podcast[] }
+  'podcasts.get': { request: { podcastId: number }; response: Podcast | null }
+  'podcasts.subscribe': { request: SubscribePodcastRequest; response: Podcast }
+  'podcasts.unsubscribe': { request: { podcastId: number }; response: null }
+  'podcasts.refresh': { request: { podcastId: number }; response: Podcast }
+  'podcasts.refreshAll': { request: null; response: Podcast[] }
+  'podcasts.listEpisodes': { request: ListEpisodesQuery; response: ListEpisodesResult }
+  'podcasts.listRecent': { request: ListRecentEpisodesQuery; response: ListRecentEpisodesResult }
+  'podcasts.downloadEpisode': { request: { episodeId: number }; response: Episode }
+  /** Removes the local file; the episode remains listed as remote. */
+  'podcasts.deleteDownload': { request: { episodeId: number }; response: Episode }
+  /** Removes every local file for a show; the subscription remains. */
+  'podcasts.clearDownloads': { request: { podcastId: number }; response: Podcast }
+  'podcasts.setPlayed': {
+    request: { episodeId: number; played: boolean }
+    response: Episode
+  }
+  /** Parses OPML text already read in the renderer (paste / file picker). */
+  'podcasts.importOpml': { request: { xml: string }; response: ImportOpmlResult }
+  'podcasts.getEpisodeFileUrl': { request: { episodeId: number }; response: string }
+  'podcasts.getEpisodeAudioMetadata': {
+    request: { episodeId: number }
+    response: EpisodeAudioMetadata
+  }
+  /** Apple iTunes Search — keyless catalogue lookup; subscribe still uses feedUrl. */
+  'podcasts.searchCatalog': {
+    request: SearchPodcastCatalogQuery
+    response: SearchPodcastCatalogResult
+  }
+  /**
+   * Discover shelves: genre charts weighted by existing subscriptions, or
+   * popular charts when there are none yet. Empty shelves when the catalogue
+   * is unreachable — Discover degrades to search rather than erroring.
+   */
+  'podcasts.recommend': { request: null; response: PodcastRecommendResult }
+  /** Top charts for one category off the Discover rail. */
+  'podcasts.browseCategory': {
+    request: BrowsePodcastCategoryQuery
+    response: BrowsePodcastCategoryResult
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -209,6 +267,7 @@ export interface IpcEventContract {
   'library.scanProgress': ScanProgress
   'library.notice': LibraryNotice
   'library.replayGainProgress': ReplayGainJobProgress
+  'podcasts.downloadProgress': EpisodeDownloadProgress
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -256,14 +315,33 @@ export const IPC_CHANNELS = [
   'playlists.addTracks',
   'playlists.moveEntries',
   'playlists.removeEntries',
-  'playlists.exportM3u8'
+  'playlists.exportM3u8',
+  'podcasts.list',
+  'podcasts.get',
+  'podcasts.subscribe',
+  'podcasts.unsubscribe',
+  'podcasts.refresh',
+  'podcasts.refreshAll',
+  'podcasts.listEpisodes',
+  'podcasts.listRecent',
+  'podcasts.downloadEpisode',
+  'podcasts.deleteDownload',
+  'podcasts.clearDownloads',
+  'podcasts.setPlayed',
+  'podcasts.importOpml',
+  'podcasts.getEpisodeFileUrl',
+  'podcasts.getEpisodeAudioMetadata',
+  'podcasts.searchCatalog',
+  'podcasts.recommend',
+  'podcasts.browseCategory'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [
   'window.maximizedChange',
   'library.scanProgress',
   'library.notice',
-  'library.replayGainProgress'
+  'library.replayGainProgress',
+  'podcasts.downloadProgress'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**
@@ -288,6 +366,49 @@ export const TRACK_SCHEME = 'fermata'
  */
 export function trackUrl(trackId: number): string {
   return `${TRACK_SCHEME}://track/${trackId}`
+}
+
+/** Opaque URL for a downloaded episode's bytes. */
+export function episodeUrl(episodeId: number): string {
+  return `${TRACK_SCHEME}://episode/${episodeId}`
+}
+
+/** The `fermata:` hostname that proxies remote catalogue thumbnails. */
+export const CATALOG_ARTWORK_HOST = 'catalog-artwork'
+
+/**
+ * Hosts main is willing to proxy catalogue artwork from: Apple's podcast CDN
+ * and nothing else. A leading dot on the suffix check is the load-bearing
+ * character — without it `notmzstatic.com` matches.
+ */
+export function isCatalogArtworkHost(hostname: string): boolean {
+  return hostname === 'mzstatic.com' || hostname.endsWith('.mzstatic.com')
+}
+
+/**
+ * Re-addresses a catalogue thumbnail so it is fetched by main rather than by
+ * the renderer.
+ *
+ * D14 says nothing leaves the machine except from main, and an `<img>` pointed
+ * at Apple's CDN is the renderer opening a socket — it leaks the operator's IP
+ * to Apple on every Discover tab open, and it forces a remote origin into
+ * `img-src`. Routing through the existing custom protocol keeps both closed.
+ *
+ * The remote address rides in a query parameter rather than a path segment
+ * because `URL` round-trips exactly one of those unambiguously; a `/` inside
+ * the value needs no hand-rolled encoding. Returns null for anything off the
+ * allowlist so callers render their own placeholder instead of a broken image.
+ */
+export function catalogArtworkUrl(remote: string | null | undefined): string | null {
+  if (!remote) return null
+  let target: URL
+  try {
+    target = new URL(remote)
+  } catch {
+    return null
+  }
+  if (target.protocol !== 'https:' || !isCatalogArtworkHost(target.hostname)) return null
+  return `${TRACK_SCHEME}://${CATALOG_ARTWORK_HOST}/?u=${encodeURIComponent(target.toString())}`
 }
 
 /** The hash segment standing in for an album that has no cover of its own. */

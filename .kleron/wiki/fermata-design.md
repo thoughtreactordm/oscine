@@ -103,11 +103,27 @@ Sources are MusicBrainz (artist identity, artist-to-artist relations, outbound l
 
 **This does not reopen D1.** No audio ever arrives over the network. The library is still folders on disk.
 
+**Podcast Discover sits inside D14's second rule and outside its first.** Every catalogue request — search, charts, lookup — issues from main, and Discover's thumbnails are proxied through the `fermata:` protocol rather than loaded from Apple's CDN, so the renderer opens no socket and no remote origin appears in `img-src`. But they are not behind a consent prompt: opening the Discover tab reaches Apple before the operator has agreed to anything. That is recorded debt against W7-6, which owns the prompt for every outbound source; podcasts are simply the first surface that shipped ahead of it. Subscribing to a feed and refreshing it are a different case — the operator named that host by pasting its URL — but a catalogue browsed on tab open is not.
+
 ### D15 — Tunedeck: **panel island hosted in a drawer**
 
 An extended control and information surface opened from NowPlaying: up-next queue, format and signal readout, play history, related-in-library, and the D14 artist nexus. Its content is an ordinary D4 panel island and `UDrawer` is merely its first host. It opens from the right, is resizable, and pushes content rather than covering it — so it stays usable while browsing, which is the only thing that makes the related panes worth having, and so the eventual docking system promotes it to a pane instead of rebuilding it.
 
 *Rejected*: a bottom overlay (better for wide carousels, but it buries the track list and is a dead end for docking); a modal covering the content (simplest, and useless for browsing alongside).
+
+### D16 — Podcasts: **a separate domain, downloaded before played**
+
+Podcasts are subscriptions to remote feeds; the library is folders on disk. Rather than bend either into the other, podcasts are a parallel domain — their own tables, their own IPC surface, their own view — and an episode is never a row in `tracks`. It does not appear in a Library facet, is not in an FTS index built for music, and does not inherit an album's ReplayGain.
+
+They share exactly two things with the library, in both cases because sharing is safer than duplicating: the `fermata:` protocol that serves bytes to the renderer, where episodes get their own hostname and their own id space, and the artwork thumbnail cache with its single worker.
+
+Episodes are downloaded to a machine-local podcasts directory and played from disk — never streamed. That is what keeps D1's "no audio ever arrives over the network" true rather than narrowly true: the decode path, R1's memory guard and the gapless machinery all see an ordinary local file, and a dropped connection cannot become a dropout. `rel_path` is relative to the podcasts directory under the same rule that governs `tracks`.
+
+*Rejected*: episodes as `tracks` rows behind a flag (one list to virtualize and one search index, but every music query grows an `is_podcast = 0` and D11's export bundle has to decide whether a subscription is library data); streaming enclosures directly (no disk cost, but it makes the network a playback dependency and puts an untrusted, redirect-happy URL in front of the decoder).
+
+*Accepted cost*: disk. `keep_last` bounds it per show; there is no global cap yet.
+
+*Revisit when*: an operator wants podcasts inside a unified search, or the podcasts directory becomes the largest thing Fermata writes.
 
 ## 3. Risks
 
@@ -227,6 +243,52 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 
 Two deliberate choices: `playlist_entries.id` is stable and separate from `track_id` because the same track may appear twice in a playlist; `position` is a REAL so inserting between two entries never rewrites the rest of the list.
 
+### Podcasts (migration 005, D16)
+
+A second domain rather than an extension of the first: no foreign key crosses into `tracks`, `artists` or `albums`, and nothing here is indexed by `tracks_fts`.
+
+```sql
+CREATE TABLE podcasts (
+  id              INTEGER PRIMARY KEY,
+  feed_url        TEXT    NOT NULL UNIQUE,
+  title           TEXT    NOT NULL,
+  author          TEXT,
+  description     TEXT,
+  site_url        TEXT,
+  artwork_url     TEXT,                  -- remote, for refresh comparison
+  artwork_hash    TEXT,                  -- key into the same thumbnail cache
+  subscribed_at   INTEGER NOT NULL,
+  last_fetched_at INTEGER,
+  last_error      TEXT,                  -- cleared on a successful refresh
+  keep_last       INTEGER NOT NULL DEFAULT 10
+);
+
+CREATE TABLE episodes (
+  id              INTEGER PRIMARY KEY,
+  podcast_id      INTEGER NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+  guid            TEXT    NOT NULL,
+  title           TEXT    NOT NULL,
+  description     TEXT,
+  pub_date        INTEGER,
+  duration_ms     INTEGER,
+  enclosure_url   TEXT    NOT NULL,
+  enclosure_type  TEXT,
+  enclosure_size  INTEGER,
+  rel_path        TEXT,                  -- relative to the podcasts directory
+  downloaded_at   INTEGER,               -- NULL until the file is on disk
+  file_size       INTEGER,
+  download_error  TEXT,
+  played          INTEGER NOT NULL DEFAULT 0,
+  progress_ms     INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(podcast_id, guid)
+);
+
+CREATE INDEX episodes_pub_date ON episodes(pub_date DESC);
+CREATE INDEX episodes_podcast_pub ON episodes(podcast_id, pub_date DESC);
+```
+
+`guid` is the feed's own identity for an episode, so a re-published item updates in place instead of duplicating. There is deliberately no download-status column: `rel_path` non-NULL means ready and `download_error` means failed, so the persisted state cannot disagree with the filesystem across a crash. Only *downloading* is in-memory, which is correct — a download does not survive a restart, and a status column claiming it did would be a lie the next launch has to clean up.
+
 ## 5. Queue semantics (D5)
 
 State: `viewedPlaylistId` and `playingPlaylistId` are **separate** — browsing a different tab must not disturb playback. The up-next queue is an ordered list of track ids in two tiers: a **user tier**, put there by hand, and a **session tier**, materialized from the scope a play session started in. The user tier always sits above the session tier.
@@ -279,6 +341,7 @@ fermata/
 │  │  ├─ library/             # scanner, watcher, metadata, artwork cache
 │  │  ├─ jobs/                # background queue: scan, ReplayGain
 │  │  ├─ playlists/           # CRUD + m3u8 export
+│  │  ├─ podcasts/            # feeds, downloads, catalogue (D16)
 │  │  └─ ipc/                 # typed channel handlers
 │  ├─ preload/
 │  ├─ shared/                 # IPC contract + types
@@ -301,6 +364,8 @@ fermata/
 | W5 | Playlists & Queue — tabs, play-next, m3u8 export | W2, W4 |
 | W6 | Packaging & Ops — builder, CI matrix, export/import | W1 |
 | W7 | Tunedeck — deck panes, artist nexus, metadata cache | W4, W5 |
+| W8 | Settings — declarative registry, durable + view stores, cascade, onboarding | W1, W4 |
+| W9 | Podcasts — subscriptions, downloads, Discover (D16) | W2, W4 |
 
 ## 9. Milestones
 
@@ -324,6 +389,8 @@ fermata/
 
 **M7 — "Tunedeck"** *(first network milestone)* · D14's opt-in consent gate and main-process fetch layer, `cache.db`, MusicBrainz identity resolution with R5's correction UI, Wikipedia biography, artist relations intersected against the library, outbound links, artist images through the artwork cache.
 *Exit*: with networking declined the deck loses no local function; with it accepted, a cold artist resolves once and a warm one renders fully with the network unplugged.
+
+**Podcasts (W9, D16) are not on this ladder.** They landed as a self-contained vertical alongside M3–M5 rather than as a milestone of their own, which is why the schema, the view and Discover all arrived at once. The one thing that ladder ordering would have caught is recorded on the D14 note above and owed to W7-6: Discover reaches the network before the consent gate that M7 builds exists.
 
 ## 10. Conventions and assumptions
 

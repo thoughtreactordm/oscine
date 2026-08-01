@@ -24,7 +24,12 @@ import type {
 } from '@shared/library'
 import type { ListPlaylistEntriesQuery, ListPlaylistEntriesResult } from '@shared/playlists'
 import type { MediaSessionBinding, MediaSessionState, MediaSessionTransport } from './mediaSession'
-import { createListPlayOrder, createPlaylistPlayOrder, type PlayOrder } from './playOrder'
+import {
+  createFixedPlayOrder,
+  createListPlayOrder,
+  createPlaylistPlayOrder,
+  type PlayOrder
+} from './playOrder'
 import { PlaybackScheduler, type PrefetchState, type PrefetchStatus } from './scheduler'
 import {
   libraryScopeReader,
@@ -631,6 +636,38 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   }
 
   /**
+   * Plays a finite list of already-resolved rows (podcast episodes today).
+   *
+   * Not a playlist: `playingPlaylistId` clears, and the order is the rows
+   * themselves rather than another round trip per position. Caller downloads
+   * first — the engine only resolves `fermata://episode/<id>` for files on disk.
+   */
+  async function playTracks(params: { tracks: readonly Track[]; index: number }): Promise<void> {
+    if (params.tracks.length === 0) return
+    const index = Math.max(0, Math.min(params.index, params.tracks.length - 1))
+    const track = params.tracks[index]
+    if (!track) return
+
+    playingPlaylistId.value = null
+    playlistCrossfadeMs.value = null
+
+    const orderTracks = [...params.tracks]
+    await startOrder(
+      createFixedPlayOrder(orderTracks, `podcast:${orderTracks.map((row) => row.id).join(',')}`),
+      index,
+      async (baseIndices) => {
+        const rows = new Map<number, Track>()
+        for (const baseIndex of baseIndices) {
+          const row = orderTracks[baseIndex]
+          if (row) rows.set(baseIndex, row)
+        }
+        return rows
+      },
+      track
+    )
+  }
+
+  /**
    * §5 rule 4, second half: deleting the playing playlist stops playback.
    *
    * Called by whatever performed the deletion rather than watched for, because
@@ -1027,6 +1064,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     canSeek,
     playFromList,
     playFromPlaylist,
+    playTracks,
     playlistDeleted,
     playlistCrossfadeChanged,
     enqueue: queue.enqueue,

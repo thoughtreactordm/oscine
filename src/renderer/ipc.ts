@@ -20,6 +20,13 @@ import type {
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
+import type {
+  BrowsePodcastCategoryQuery,
+  EpisodeDownloadProgress,
+  ListEpisodesQuery,
+  ListRecentEpisodesQuery,
+  SearchPodcastCatalogQuery
+} from '@shared/podcasts'
 
 /**
  * The renderer's view of the IPC boundary.
@@ -99,6 +106,35 @@ export const playlists = {
   /** Resolves `null` when the operator dismisses the save dialog. */
   exportM3u8: (payload: ExportPlaylistRequest) =>
     unwrap(window.fermata.playlists.exportM3u8(payload))
+}
+
+export const podcasts = {
+  list: () => unwrap(window.fermata.podcasts.list()),
+  get: (podcastId: number) => unwrap(window.fermata.podcasts.get(podcastId)),
+  subscribe: (feedUrl: string) => unwrap(window.fermata.podcasts.subscribe(feedUrl)),
+  unsubscribe: (podcastId: number) => unwrap(window.fermata.podcasts.unsubscribe(podcastId)),
+  refresh: (podcastId: number) => unwrap(window.fermata.podcasts.refresh(podcastId)),
+  refreshAll: () => unwrap(window.fermata.podcasts.refreshAll()),
+  listEpisodes: (query: ListEpisodesQuery) => unwrap(window.fermata.podcasts.listEpisodes(query)),
+  listRecent: (query: ListRecentEpisodesQuery) => unwrap(window.fermata.podcasts.listRecent(query)),
+  downloadEpisode: (episodeId: number) =>
+    unwrap(window.fermata.podcasts.downloadEpisode(episodeId)),
+  deleteDownload: (episodeId: number) => unwrap(window.fermata.podcasts.deleteDownload(episodeId)),
+  clearDownloads: (podcastId: number) => unwrap(window.fermata.podcasts.clearDownloads(podcastId)),
+  setPlayed: (episodeId: number, played: boolean) =>
+    unwrap(window.fermata.podcasts.setPlayed(episodeId, played)),
+  importOpml: (xml: string) => unwrap(window.fermata.podcasts.importOpml(xml)),
+  getEpisodeFileUrl: (episodeId: number) =>
+    unwrap(window.fermata.podcasts.getEpisodeFileUrl(episodeId)),
+  getEpisodeAudioMetadata: (episodeId: number) =>
+    unwrap(window.fermata.podcasts.getEpisodeAudioMetadata(episodeId)),
+  searchCatalog: (query: SearchPodcastCatalogQuery) =>
+    unwrap(window.fermata.podcasts.searchCatalog(query)),
+  recommend: () => unwrap(window.fermata.podcasts.recommend()),
+  browseCategory: (query: BrowsePodcastCategoryQuery) =>
+    unwrap(window.fermata.podcasts.browseCategory(query)),
+  onDownloadProgress: (listener: (progress: EpisodeDownloadProgress) => void) =>
+    window.fermata.podcasts.onDownloadProgress(listener)
 }
 
 export const windowControls = {

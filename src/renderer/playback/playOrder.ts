@@ -211,3 +211,19 @@ export function createPlaylistPlayOrder(deps: PlaylistPlayOrderDeps): PlayOrder 
     }
   }
 }
+
+/**
+ * An order that is already the rows themselves — podcast episode runs, and
+ * any other finite list that does not need another round trip per position.
+ */
+export function createFixedPlayOrder(tracks: readonly Track[], id?: string): PlayOrder {
+  const rows = [...tracks]
+  return {
+    id: id ?? `fixed:${rows.map((track) => track.id).join(',')}`,
+    count: async () => rows.length,
+    async at(index: number): Promise<Track | null> {
+      if (!Number.isInteger(index) || index < 0 || index >= rows.length) return null
+      return rows[index] ?? null
+    }
+  }
+}
