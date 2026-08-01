@@ -166,7 +166,30 @@ function categoryOrder(id: SettingCategoryId): number {
   return SETTING_CATEGORIES.find((category) => category.id === id)?.order ?? Number.MAX_SAFE_INTEGER
 }
 
-function toRow(descriptor: SettingDescriptor): SettingsRow {
+/**
+ * Whether a descriptor has a place on *any* settings surface.
+ *
+ * `internal` keys are the ones with no control — pane sizes, open tabs, column
+ * layouts. They are settings in every other sense and are deliberately not on
+ * these surfaces: the operator sets them by dragging the thing they describe.
+ *
+ * Exported because W8-8's inline popovers ask the same question of the keys a
+ * panel declares, and a panel that could surface a key the full view refuses
+ * would be the first crack in "one definition, two renderings".
+ */
+export function isSurfacedSetting(descriptor: SettingDescriptor): boolean {
+  return !descriptor.internal && descriptor.control !== null
+}
+
+/**
+ * The row a descriptor draws as, wherever it is drawn.
+ *
+ * The single constructor for a `SettingsRow`, and the reason a popover and the
+ * full view cannot disagree about a label: they do not each derive one, they are
+ * handed the same object with the same descriptor by reference. A second copy of
+ * this function is what the card's identity test exists to catch.
+ */
+export function settingsRowFor(descriptor: SettingDescriptor): SettingsRow {
   return {
     key: descriptor.key,
     descriptor,
@@ -201,13 +224,7 @@ export function buildSettingsCatalog(
   const narrows = (descriptor: SettingDescriptor): boolean =>
     matchesSettingQuery(descriptor, query) && (!changedOnly || changedKeys.has(descriptor.key))
 
-  // `internal` keys are the ones with no control — pane sizes, open tabs, column
-  // layouts. They are settings in every other sense and are deliberately not on
-  // this surface: the operator sets them by dragging the thing they describe.
-  const shown = descriptors
-    .filter((descriptor) => !descriptor.internal && descriptor.control !== null)
-    .slice()
-    .sort(compareDescriptors)
+  const shown = descriptors.filter(isSurfacedSetting).slice().sort(compareDescriptors)
 
   const sections = SETTING_CATEGORIES.map((category): SettingsSection => {
     const inCategory = shown.filter((descriptor) => descriptor.category === category.id)
@@ -245,7 +262,7 @@ export function buildSettingsCatalog(
 
   return {
     sections,
-    rows: rows.map(toRow),
+    rows: rows.map(settingsRowFor),
     category,
     withheldAdvanced: scoped.length - rows.length,
     filtered,
@@ -256,6 +273,83 @@ export function buildSettingsCatalog(
 }
 
 const EMPTY: ReadonlySet<string> = new Set()
+
+/** What the surface is looking at when a reveal arrives. */
+export interface SettingRevealState {
+  /** The query box's contents. */
+  readonly query?: string
+  readonly changedOnly?: boolean
+  /**
+   * The reveal came from inside the changed-from-default list, so the filter is
+   * the operator's current frame of reference and survives.
+   *
+   * A deep link from a panel's gear says nothing and the filter goes, because a
+   * link that landed on a row the filter had hidden would be a link that did
+   * nothing. The caller says because the filter cannot check it for itself: the
+   * set of changed keys lives in a store, and this module never sees values.
+   */
+  readonly keepChangedOnly?: boolean
+}
+
+/** Where the surface has to be standing for one row to be on screen. */
+export interface SettingReveal {
+  readonly key: string
+  readonly anchorId: string
+  /** What the query box holds afterwards — the same string, or empty. */
+  readonly query: string
+  readonly changedOnly: boolean
+  /**
+   * The section to select, or null when a query or the filter still spans every
+   * category and choosing one would contradict it.
+   */
+  readonly category: SettingCategoryId | null
+  /** The category whose advanced disclosure has to open, or null. */
+  readonly discloseAdvanced: SettingCategoryId | null
+}
+
+/**
+ * Everything a deep link has to change to put one row in front of the operator.
+ *
+ * Pure, and separate from the store that applies it, because "the link landed on
+ * the right row with its category expanded" is the claim W8-8 has to make and a
+ * Pinia store full of refs is a poor place to make it from. The store keeps the
+ * timers and the scroll handshake; the decisions are here, where a test can hand
+ * this a key and read back where the surface would be standing.
+ *
+ * Returns null for a key no descriptor answers to and for one with no control —
+ * an inline control pointing at an internal key is a link to a row that does not
+ * exist, and silently doing nothing is the right response to it.
+ */
+export function planSettingReveal(
+  key: string,
+  state: SettingRevealState = {},
+  descriptors: readonly SettingDescriptor[] = SETTINGS_REGISTRY
+): SettingReveal | null {
+  const descriptor = descriptors.find((candidate) => candidate.key === key)
+  if (!descriptor || !isSurfacedSetting(descriptor)) return null
+
+  // The query survives when the target still matches it — jumping to the first
+  // search result must not throw away the search that found it — and is dropped
+  // when it does not, because a link from a panel's gear has no idea what the
+  // operator last typed here.
+  const incoming = (state.query ?? '').trim()
+  const query = matchesSettingQuery(descriptor, incoming) ? (state.query ?? '') : ''
+  const changedOnly = state.changedOnly === true && state.keepChangedOnly === true
+  const spanning = query.trim().length > 0 || changedOnly
+
+  return {
+    key,
+    anchorId: settingAnchorId(key),
+    query,
+    changedOnly,
+    category: spanning ? null : descriptor.category,
+    // A query and the changed filter each disclose advanced rows wherever they
+    // are, so the disclosure only has to be opened when neither is what is
+    // holding the row on screen. Opening it regardless is harmless and one fewer
+    // condition for the caller to get wrong.
+    discloseAdvanced: descriptor.advanced ? descriptor.category : null
+  }
+}
 
 /**
  * The section to show when nothing has been chosen, or when what was chosen is

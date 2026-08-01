@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { matchesSettingQuery } from '@renderer/panels/settings/catalog'
-import { getSetting, type SettingCategoryId } from '@shared/settings'
+import { planSettingReveal } from '@renderer/panels/settings/catalog'
+import type { SettingCategoryId } from '@shared/settings'
 
 /** How long a revealed row stays marked, in milliseconds. */
 export const SETTING_HIGHLIGHT_MS = 2_400
@@ -80,26 +80,29 @@ export const useSettingsNavStore = defineStore('settingsNav', () => {
    * Put a key on screen: the entry point for a deep link, and for Enter in the
    * search box.
    *
-   * The query survives when the target still matches it — jumping to the first
-   * search result must not throw away the search that found it — and is dropped
-   * when it does not, because a link from a panel's gear has no idea what the
-   * operator last typed here and would otherwise land on a filtered-out row.
+   * Where the surface ends up standing is `planSettingReveal`'s to decide — a
+   * pure function over the descriptor and the current query, so W8-8's claim
+   * that a link lands on the right row with its category expanded is tested
+   * against the decision rather than against a store full of refs. What is left
+   * here is the part that is genuinely stateful: the scroll handshake with the
+   * body, and the highlight timer.
    *
-   * The changed filter follows the same rule and cannot check it for itself, so
-   * the caller says. A jump from inside the filtered list passes `changed: true`
-   * and keeps the filter; a deep link from elsewhere says nothing and clears it,
-   * because a link that landed on a row the filter had hidden would be a link
-   * that did nothing.
+   * A jump from inside the changed-from-default list passes `changed: true` and
+   * keeps the filter; a deep link from elsewhere says nothing and clears it.
    */
   function reveal(key: string, options: { changed?: boolean } = {}): void {
-    const descriptor = getSetting(key)
-    if (!descriptor || descriptor.internal || descriptor.control === null) return
+    const plan = planSettingReveal(key, {
+      query: query.value,
+      changedOnly: changedOnly.value,
+      keepChangedOnly: options.changed === true
+    })
+    if (!plan) return
 
-    if (!matchesSettingQuery(descriptor, query.value.trim())) query.value = ''
-    if (options.changed !== true) changedOnly.value = false
-    if (query.value.trim().length === 0 && !changedOnly.value) category.value = descriptor.category
-    if (descriptor.advanced) {
-      advanced.value = { ...advanced.value, [descriptor.category]: true }
+    query.value = plan.query
+    changedOnly.value = plan.changedOnly
+    if (plan.category) category.value = plan.category
+    if (plan.discloseAdvanced) {
+      advanced.value = { ...advanced.value, [plan.discloseAdvanced]: true }
     }
 
     scrollTo.value = key

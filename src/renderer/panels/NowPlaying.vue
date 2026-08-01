@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
+import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import UpNextOverlay from '@renderer/panels/UpNextOverlay.vue'
 import { hasArtwork } from '@shared/ipc'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -14,6 +16,8 @@ import { useShellStore } from '@renderer/stores/shell'
  * when playback started and this panel does not need to know what it was.
  */
 const playback = usePlaybackStore()
+
+const playbackSettings = panelSettingsSurface('transport')
 
 /**
  * Names the count as well as the control, so the badge is not the only telling.
@@ -336,6 +340,15 @@ function onSeekInput(value: number | undefined): void {
           </template>
         </UPopover>
       </UTooltip>
+
+      <!--
+        Crossfade and levelling, next to the thing they act on. Both are judged
+        by ear against what is playing right now, and a round trip to a settings
+        tab to move a slider and back to hear it is how a knob stops being
+        tuned. Generated from the same descriptors the settings view draws, and
+        every row links through to its place there.
+      -->
+      <PanelSettingsPopover :surface="playbackSettings" />
 
       <UTooltip text="Open Tunedeck">
         <UButton variant="ghost" size="lg" icon="i-tabler-device-audio-tape" />

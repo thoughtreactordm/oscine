@@ -4,6 +4,8 @@ import type { ContextMenuItem } from '@nuxt/ui'
 import type { AddTarget } from '@renderer/panels/addToPlaylist'
 import type { FacetDimension, FacetWindow } from '@renderer/panels/facetWindow'
 import FacetList from '@renderer/panels/FacetList.vue'
+import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
+import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import { queueCommandLabel, queueIds } from '@renderer/playback/queueCommands'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
 import { SOURCES_ARTISTS_PANE } from '@renderer/shell/shellLayout'
@@ -16,6 +18,8 @@ import { MAX_SEARCH_LENGTH, type AlbumFacet, type ArtistFacet } from '@shared/li
 
 const ARTIST_ROW_HEIGHT = 32
 const ALBUM_ROW_HEIGHT = 44
+
+const watchSettings = panelSettingsSurface('library-roots')
 
 /**
  * The Library tab's sidebar contents, mounted by the frame above its cover pane.
@@ -157,8 +161,15 @@ const albumMenu = facetMenu<AlbumFacet>({
       <div class="flex items-center gap-2">
         <UIcon name="i-tabler-library" class="size-5 text-primary" />
         <h1 class="font-semibold text-highlighted">Library</h1>
+        <!--
+          Watcher behaviour belongs beside the roots it watches: the operator
+          deciding whether a network share should be followed is looking at the
+          share. Generated from the registry, so this is the settings view's
+          rows in a smaller frame rather than a second copy of them.
+        -->
+        <PanelSettingsPopover class="ml-auto" :surface="watchSettings" />
+
         <UButton
-          class="ml-auto"
           icon="i-tabler-folder-plus"
           size="xs"
           color="neutral"

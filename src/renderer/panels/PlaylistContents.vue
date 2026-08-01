@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import type { ContextMenuItem } from '@nuxt/ui'
 import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import { createPlaylistContents } from '@renderer/panels/playlistContents'
+import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
+import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { activeRowDrag, beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
 import type {
@@ -18,6 +20,7 @@ import { usePlaylistEntriesStore } from '@renderer/stores/playlistEntries'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { PLAYLIST_PATH_STYLES } from '@shared/playlists'
 import type { Track } from '@shared/library'
+import type { CascadeScopeRef } from '@shared/settings'
 
 /**
  * The pane under the tab strip: one playlist's entries.
@@ -38,6 +41,22 @@ const entries = usePlaylistEntriesStore()
 const playback = usePlaybackStore()
 const queue = useQueueCommandsStore()
 const addToPlaylist = useAddToPlaylistStore()
+
+/**
+ * The gear on this header edits *this playlist's* crossfade.
+ *
+ * The one place W8-8 exercises the cascade outside the settings view: the same
+ * `audio.crossfadeMs` descriptor, the same control, resolved against a playlist
+ * scope instead of the global row — so the inheriting/overridden affordance
+ * W8-5 built has to work where an operator would actually meet it. Held as a
+ * scope ref rather than an id so the popover never learns what a playlist is.
+ */
+const playlistScope = computed<CascadeScopeRef | null>(() => {
+  const viewed = playlists.viewed
+  return viewed === null ? null : { kind: 'playlist', id: viewed.id }
+})
+
+const playlistSettings = panelSettingsSurface('playlist-playback')
 
 const model = createPlaylistContents({
   playlistId: () => entries.playlistId,
@@ -308,6 +327,12 @@ function play(track: Track, index: number): void {
         for a column this list does not have. So there is no hint to give.
       -->
       <GroupChooser :groupable="true" />
+
+      <PanelSettingsPopover
+        v-if="playlistScope"
+        :surface="playlistSettings"
+        :scope="playlistScope"
+      />
 
       <UDropdownMenu :items="exportItems">
         <UButton
