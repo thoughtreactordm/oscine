@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { visibleRange } from '@renderer/panels/listViewport'
+import { useDisplayFormatStore } from '@renderer/stores/displayFormat'
 import { usePodcastsStore } from '@renderer/stores/podcasts'
 import { hasArtwork } from '@shared/ipc'
 import type { Episode, Podcast } from '@shared/podcasts'
@@ -13,6 +14,7 @@ import type { Episode, Podcast } from '@shared/podcasts'
  */
 
 const podcasts = usePodcastsStore()
+const formats = useDisplayFormatStore()
 const RECENT_ROW = 52
 const SHOW_ROW = 40
 
@@ -92,13 +94,6 @@ function openEpisode(episode: Episode): void {
 function openShow(podcast: Podcast): void {
   podcasts.openTab(podcast.id)
 }
-
-function formatWhen(iso: string | null): string {
-  if (!iso) return ''
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
 </script>
 
 <template>
@@ -154,7 +149,7 @@ function formatWhen(iso: string | null): string {
               </span>
               <span class="block truncate text-[11px] text-dimmed">
                 {{ episode.podcastTitle }}
-                <span v-if="episode.pubDate"> · {{ formatWhen(episode.pubDate) }}</span>
+                <span v-if="episode.pubDate"> · {{ formats.date(episode.pubDate) }}</span>
               </span>
             </span>
           </button>

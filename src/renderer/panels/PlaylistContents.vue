@@ -7,6 +7,7 @@ import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { activeRowDrag, beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
+import { useTrackActivation } from '@renderer/panels/useTrackActivation'
 import type {
   TrackListDrag,
   TrackListGroupMenu,
@@ -20,7 +21,8 @@ import { usePlaylistEntriesStore } from '@renderer/stores/playlistEntries'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { PLAYLIST_PATH_STYLES } from '@shared/playlists'
 import type { Track } from '@shared/library'
-import type { CascadeScopeRef } from '@shared/settings'
+import { CONFIRM_ENTRY_REMOVAL_KEY, type CascadeScopeRef } from '@shared/settings'
+import { useSettings } from '@renderer/settings'
 
 /**
  * The pane under the tab strip: one playlist's entries.
@@ -41,6 +43,7 @@ const entries = usePlaylistEntriesStore()
 const playback = usePlaybackStore()
 const queue = useQueueCommandsStore()
 const addToPlaylist = useAddToPlaylistStore()
+const settings = useSettings()
 
 /**
  * The gear on this header edits *this playlist's* crossfade.
@@ -67,6 +70,7 @@ const model = createPlaylistContents({
   activeDrag: activeRowDrag,
   beginDrag: beginRowDrag,
   endDrag: endRowDrag,
+  confirmRemoval: () => settings.get<boolean>(CONFIRM_ENTRY_REMOVAL_KEY),
   commands: {
     addTracks: (trackIds, insertion) => entries.addTracks(trackIds, insertion),
     moveEntries: (entryIds, insertion) => entries.moveEntries(entryIds, insertion),
@@ -212,10 +216,10 @@ const groupMenu: TrackListGroupMenu = (run): ContextMenuItem[] => {
       label: count === 1 ? 'Remove from playlist' : `Remove ${count.toLocaleString()} entries`,
       icon: 'i-tabler-trash',
       color: 'error',
+      // Through the model, not through the store: this is a removal like any
+      // other and `interface.confirmEntryRemoval` has to reach it.
       onSelect: () =>
-        void entries
-          .idsInRange(run.firstOffset, last)
-          .then((entryIds) => entries.removeEntries(entryIds))
+        void entries.idsInRange(run.firstOffset, last).then((ids) => model.removeEntries(ids))
     }
   ]
 }
@@ -279,6 +283,24 @@ function play(track: Track, index: number): void {
     track
   })
 }
+
+/**
+ * What a double-click does here, which is not necessarily playing.
+ *
+ * `playAt` — the menu's Play — still goes straight to `play`. A verb the
+ * operator named is not the gesture the setting is about.
+ */
+const activation = useTrackActivation(play)
+
+const removal = computed(() => model.removalPrompt.value)
+const removalOpen = computed({
+  get: () => removal.value !== null,
+  // Escape, the close button and a click outside all have to mean Keep, the
+  // same way the rail's delete prompt reads them.
+  set: (open: boolean) => {
+    if (!open) model.cancelRemoval()
+  }
+})
 </script>
 
 <template>
@@ -352,7 +374,7 @@ function play(track: Track, index: number): void {
         :menu="menu"
         :group-menu="groupMenu"
         :label="`${playlists.viewed.name} entries`"
-        @activate="play"
+        @activate="activation.activate"
       >
         <template #empty>
           <UEmpty
@@ -375,4 +397,18 @@ function play(track: Track, index: number): void {
     description="Click a playlist in the rail to open it, or double-click to play it."
     class="h-full"
   />
+
+  <UModal
+    v-model:open="removalOpen"
+    :title="removal?.title ?? ''"
+    :description="removal?.message ?? ''"
+    :ui="{ footer: 'justify-end' }"
+  >
+    <template #footer>
+      <UButton color="neutral" variant="ghost" @click="model.cancelRemoval()">Keep</UButton>
+      <UButton color="primary" icon="i-tabler-playlist-x" @click="model.confirmRemoval()">
+        Remove
+      </UButton>
+    </template>
+  </UModal>
 </template>

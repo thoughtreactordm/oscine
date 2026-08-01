@@ -4,9 +4,11 @@ import type { ContextMenuItem } from '@nuxt/ui'
 import { visibleRange } from '@renderer/panels/listViewport'
 import { createPlaylistRail, PLAYLIST_NAME_MAX_LENGTH } from '@renderer/panels/playlistRail'
 import type { DropSide } from '@renderer/panels/playlistReorder'
+import { useSettings } from '@renderer/settings'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import type { Playlist } from '@shared/playlists'
+import { CONFIRM_PLAYLIST_DELETE_KEY } from '@shared/settings'
 
 /**
  * Every playlist, in the Curate sidebar.
@@ -30,6 +32,7 @@ import type { Playlist } from '@shared/playlists'
 
 const playlists = usePlaylistsStore()
 const playback = usePlaybackStore()
+const settings = useSettings()
 
 const model = createPlaylistRail({
   playlists: () => playlists.list,
@@ -37,6 +40,7 @@ const model = createPlaylistRail({
   viewedId: () => playlists.viewedPlaylistId,
   // The other half of the §5 split, read from the controller that owns it.
   playingId: () => playback.playingPlaylistId,
+  confirmDelete: () => settings.get<boolean>(CONFIRM_PLAYLIST_DELETE_KEY),
   commands: {
     open: (playlistId) => playlists.openTab(playlistId),
     create: (name) => playlists.create(name),

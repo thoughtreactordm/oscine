@@ -7,6 +7,7 @@ import { createViewSettings, type ViewSettings } from './viewStore'
 export { browserViewStorage } from './browserViewStorage'
 export { absorbLegacyViewKeys, LEGACY_VIEW_KEYS, type LegacyViewKey } from './legacyViewKeys'
 export type { CascadingSettings, CascadingSettingsReader, SettingsReader } from './reader'
+export { restoredTabSession } from './session'
 export { useCascade, type CascadeBinding } from './useCascade'
 export {
   createSettingsStore,

@@ -68,6 +68,17 @@ export interface PlaylistRailDeps {
   viewedId: MaybeRefOrGetter<number | null>
   /** From the playback controller, never from the playlists store. See §5. */
   playingId: MaybeRefOrGetter<number | null>
+  /**
+   * `interface.confirmPlaylistDelete`, as a getter rather than as a store.
+   *
+   * A getter for the reason `playingId` is one: this module is driven from a
+   * test without Pinia, without IPC and without a settings store, and a
+   * `SettingsReader` parameter would have made a rail that reads one boolean
+   * take a hydration promise and a notice list to be constructible. The default
+   * still lives in the registry and nowhere else — the store that wires this is
+   * what reads it.
+   */
+  confirmDelete: MaybeRefOrGetter<boolean>
   commands: PlaylistRailCommands
 }
 
@@ -201,7 +212,17 @@ export function createPlaylistRail(deps: PlaylistRailDeps) {
 
   // -- delete ---------------------------------------------------------------
 
+  /**
+   * An empty, silent playlist was never worth a prompt; the setting decides
+   * about the rest.
+   *
+   * Off means off, including for the playing playlist. Half-honouring it —
+   * skipping the prompt for a full playlist but keeping it for a playing one —
+   * would leave the operator who turned it off still being asked, at the moment
+   * they are least expecting it, about the case they can already hear.
+   */
   function needsConfirmation(target: Playlist): boolean {
+    if (!toValue(deps.confirmDelete)) return false
     return target.trackCount > 0 || isPlaying(target.id)
   }
 

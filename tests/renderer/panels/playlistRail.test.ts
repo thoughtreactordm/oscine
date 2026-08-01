@@ -38,7 +38,8 @@ function rail(
     playlist(3, 'Gamma', 12),
     playlist(4, 'Delta')
   ],
-  open: number[] = [1]
+  open: number[] = [1],
+  confirmDelete = ref(true)
 ) {
   const list = ref<Playlist[]>(playlists)
   const openIds = ref<number[]>([...open])
@@ -77,9 +78,16 @@ function rail(
     }
   }
 
-  const model = createPlaylistRail({ playlists: list, openIds, viewedId, playingId, commands })
+  const model = createPlaylistRail({
+    playlists: list,
+    openIds,
+    viewedId,
+    playingId,
+    confirmDelete,
+    commands
+  })
   const named = (name: keyof PlaylistRailCommands): Call[] => calls.filter((c) => c.name === name)
-  return { model, list, openIds, viewedId, playingId, calls, named }
+  return { model, list, openIds, viewedId, playingId, confirmDelete, calls, named }
 }
 
 const key = (event: RailKeyEvent): RailKeyEvent => event
@@ -227,6 +235,38 @@ describe('deleting from the rail', () => {
     await h.model.confirmDelete()
     expect(h.named('remove')[0]?.args).toEqual([3])
     expect(h.model.deletePrompt.value).toBeNull()
+  })
+
+  /**
+   * `interface.confirmPlaylistDelete`, off. The prompt is skipped for the
+   * playing playlist too — half-honouring the setting would leave the operator
+   * who turned it off still being asked, about the one case they can hear.
+   */
+  it('asks nothing at all when the setting says not to', async () => {
+    const confirmDelete = ref(false)
+    const h = rail(undefined, undefined, confirmDelete)
+
+    await h.model.requestDelete(3)
+    expect(h.model.deletePrompt.value).toBeNull()
+    expect(h.named('remove')[0]?.args).toEqual([3])
+  })
+
+  it('skips the prompt for the playing playlist too', async () => {
+    const h = rail(undefined, undefined, ref(false))
+    h.playingId.value = 2
+    await h.model.requestDelete(2)
+    expect(h.model.deletePrompt.value).toBeNull()
+    expect(h.named('remove')[0]?.args).toEqual([2])
+  })
+
+  it('starts asking again the moment the setting comes back', async () => {
+    const confirmDelete = ref(false)
+    const h = rail(undefined, undefined, confirmDelete)
+    confirmDelete.value = true
+
+    await h.model.requestDelete(3)
+    expect(h.named('remove')).toHaveLength(0)
+    expect(h.model.deletePrompt.value?.playlistId).toBe(3)
   })
 
   it('warns that playback stops when it is the playing one', async () => {

@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { FermataError, podcasts as podcastsApi } from '@renderer/ipc'
 import { episodeAsTrack } from '@renderer/playback/episodeTrack'
-import { useViewSettings } from '@renderer/settings'
+import { restoredTabSession, useViewSettings } from '@renderer/settings'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import {
   episodeIdFromPlaybackTrackId,
@@ -60,7 +60,9 @@ export const usePodcastsStore = defineStore('podcasts', () => {
   const downloadProgress = ref<Map<number, EpisodeDownloadProgress>>(new Map())
 
   const settings = useViewSettings()
-  const restored = settings.get<TabSession>(PODCAST_TABS_KEY)
+  // Gated by `view.restoreSession`. The gate is on this read only; the watcher
+  // below goes on recording whatever ends up open. See `restoredTabSession`.
+  const restored = restoredTabSession(settings, PODCAST_TABS_KEY)
   const openIds = ref<number[]>(restored.openIds)
   viewedPodcastId.value = restored.viewedId
 

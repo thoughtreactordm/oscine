@@ -146,7 +146,13 @@ export interface ScrollMemory {
 /**
  * Where each list was left, for the length of the session.
  *
- * Not persisted, unlike the pane sizes. An offset is a position in a specific
+ * A bounded LRU of one number per key, and deliberately incurious about what
+ * that number counts — `TrackList` puts a *row* here rather than a pixel offset,
+ * because the operator can change the row height from another tab while the list
+ * is unmounted and an offset means nothing afterwards. Anything monotonic in
+ * position would do; what this owns is the eviction, not the unit.
+ *
+ * Not persisted, unlike the pane sizes. A position is a position in a specific
  * set of rows, and a restart is exactly when that set may have been rescanned
  * out from under it — restoring row 8,000 of a library that now has 300 tracks
  * is worse than restoring nothing.

@@ -18,7 +18,9 @@ import type { PlaylistInsertion } from '../../../src/shared/playlists'
 
 const ENTRY_IDS = [100, 101, 102, 103, 104, 105, 106, 107, 108, 109]
 
-function harness(options: { selected?: number[]; playlistId?: number | null } = {}) {
+function harness(
+  options: { selected?: number[]; playlistId?: number | null; confirmRemoval?: boolean } = {}
+) {
   const selected = new Set(options.selected ?? [])
   const calls: string[] = []
   let dragging: RowDragPayload | null = null
@@ -49,6 +51,7 @@ function harness(options: { selected?: number[]; playlistId?: number | null } = 
     endDrag: () => {
       dragging = null
     },
+    confirmRemoval: options.confirmRemoval ?? false,
     commands: { addTracks, moveEntries, removeEntries }
   }
 
@@ -254,6 +257,95 @@ describe('removing', () => {
 
     await scene.model.remove()
 
+    expect(scene.calls).toEqual([])
+  })
+})
+
+/**
+ * `interface.confirmEntryRemoval`.
+ *
+ * The rows are resolved before the prompt goes up, which is the part worth
+ * pinning: `resolveSelection` is a round trip and the pane can reload under it,
+ * so a dialog phrased from `selectionCount` would be able to say one number and
+ * remove another.
+ */
+describe('confirming a removal', () => {
+  it('parks the removal rather than performing it', async () => {
+    const scene = harness({ selected: [6, 1], confirmRemoval: true })
+
+    await scene.model.remove()
+
+    expect(scene.calls).toEqual([])
+    expect(scene.model.removalPrompt.value?.entryIds).toEqual([101, 106])
+    expect(scene.model.removalPrompt.value?.title).toContain('2 entries')
+  })
+
+  it('removes exactly what the prompt named', async () => {
+    const scene = harness({ selected: [6, 1], confirmRemoval: true })
+
+    await scene.model.remove()
+    await scene.model.confirmRemoval()
+
+    expect(scene.removeEntries).toHaveBeenCalledWith([101, 106])
+    expect(scene.model.removalPrompt.value).toBeNull()
+  })
+
+  it('keeps everything when the prompt is dismissed', async () => {
+    const scene = harness({ selected: [6, 1], confirmRemoval: true })
+
+    await scene.model.remove()
+    scene.model.cancelRemoval()
+
+    expect(scene.calls).toEqual([])
+    expect(scene.model.removalPrompt.value).toBeNull()
+
+    // And a dismissed prompt leaves nothing behind for a later confirm to fire.
+    await scene.model.confirmRemoval()
+    expect(scene.calls).toEqual([])
+  })
+
+  it('asks about the row under the pointer, not the selection it is outside of', async () => {
+    const scene = harness({ selected: [1, 2], confirmRemoval: true })
+
+    await scene.model.remove(5)
+
+    expect(scene.model.removalPrompt.value?.entryIds).toEqual([105])
+    expect(scene.model.removalPrompt.value?.title).toBe('Remove this entry?')
+  })
+
+  /**
+   * The album-header menu removes a whole run and knows its entry ids already,
+   * so it does not go through `remove`. It went straight to the command for a
+   * while, which made the toggle gate one of the two removal paths — the exact
+   * half-working toggle the card says is worse than none.
+   */
+  it('gates the album-header removal too', async () => {
+    const scene = harness({ confirmRemoval: true })
+
+    await scene.model.removeEntries([102, 103, 104])
+
+    expect(scene.calls).toEqual([])
+    expect(scene.model.removalPrompt.value?.entryIds).toEqual([102, 103, 104])
+
+    await scene.model.confirmRemoval()
+    expect(scene.removeEntries).toHaveBeenCalledWith([102, 103, 104])
+  })
+
+  it('removes a run outright when the toggle is off', async () => {
+    const scene = harness({ confirmRemoval: false })
+
+    await scene.model.removeEntries([102, 103])
+
+    expect(scene.removeEntries).toHaveBeenCalledWith([102, 103])
+    expect(scene.model.removalPrompt.value).toBeNull()
+  })
+
+  it('has nothing to ask about when there is nothing to remove', async () => {
+    const scene = harness({ confirmRemoval: true })
+
+    await scene.model.remove()
+
+    expect(scene.model.removalPrompt.value).toBeNull()
     expect(scene.calls).toEqual([])
   })
 })

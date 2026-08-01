@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { FermataError, playlists } from '@renderer/ipc'
-import { useViewSettings } from '@renderer/settings'
+import { restoredTabSession, useViewSettings } from '@renderer/settings'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import type { TabSession } from '@shared/settings'
 import type {
@@ -62,7 +62,9 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   const loading = ref(false)
 
   const settings = useViewSettings()
-  const restored = settings.get<TabSession>(PLAYLIST_TABS_KEY)
+  // Gated by `view.restoreSession`. The gate is on this read only; the watcher
+  // below goes on recording whatever ends up open. See `restoredTabSession`.
+  const restored = restoredTabSession(settings, PLAYLIST_TABS_KEY)
 
   /**
    * Open tabs, in tab order — deliberately *not* `playlists.position` order.

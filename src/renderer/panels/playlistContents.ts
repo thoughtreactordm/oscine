@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, toValue, type MaybeRefOrGetter } from 'vue'
 import type { PlaylistInsertion } from '@shared/playlists'
 import { lazily, type RowDragPayload } from './trackDrag'
 
@@ -57,7 +57,20 @@ export interface PlaylistContentsDeps {
   /** Announces the rows this pane has picked up. */
   beginDrag: (payload: RowDragPayload) => void
   endDrag: () => void
+  /**
+   * `interface.confirmEntryRemoval`, as a getter for the reason
+   * `PlaylistRailDeps.confirmDelete` is one: this module is driven without
+   * Pinia, and the default still lives only in the registry.
+   */
+  confirmRemoval: MaybeRefOrGetter<boolean>
   commands: PlaylistContentsCommands
+}
+
+/** A removal the operator has to agree to before it happens. */
+export interface RemovalPrompt {
+  entryIds: readonly number[]
+  title: string
+  message: string
 }
 
 /**
@@ -82,6 +95,29 @@ export function insertionFor(
 
 export function createPlaylistContents(deps: PlaylistContentsDeps) {
   const target = ref<DropTarget | null>(null)
+  const pendingRemoval = ref<readonly number[] | null>(null)
+
+  /**
+   * What the prompt says, built from the ids rather than from the selection.
+   *
+   * The selection is resolved *before* the prompt goes up — `resolveSelection`
+   * is a round trip through main and the only honest reading of a selection
+   * over a windowed list — so the count in the dialog is the count that will be
+   * removed, even if the pane reloads underneath it. A prompt phrased from
+   * `selectionCount` would have been a second, racing answer.
+   */
+  const removalPrompt = computed<RemovalPrompt | null>(() => {
+    const entryIds = pendingRemoval.value
+    if (entryIds === null || entryIds.length === 0) return null
+    const many = entryIds.length > 1
+    return {
+      entryIds,
+      title: many ? `Remove ${entryIds.length.toLocaleString()} entries?` : 'Remove this entry?',
+      message: many
+        ? 'They come out of this playlist only. The files stay on disk, and playback is not interrupted.'
+        : 'It comes out of this playlist only. The file stays on disk, and playback is not interrupted.'
+    }
+  })
 
   /**
    * Whether the drag in flight can land here at all.
@@ -114,6 +150,33 @@ export function createPlaylistContents(deps: PlaylistContentsDeps) {
     const entryId = deps.entryIdAt(index)
     if (entryId === undefined) return null
     return () => Promise.resolve([entryId])
+  }
+
+  /** The rows a remove gesture is about: the selection, or the row it started on. */
+  async function resolveRemoval(index?: number): Promise<readonly number[]> {
+    if (index !== undefined && !deps.isSelectedAt(index)) {
+      const entryId = deps.entryIdAt(index)
+      return entryId === undefined ? [] : [entryId]
+    }
+    return deps.resolveSelection()
+  }
+
+  /**
+   * The one place a removal happens, whichever menu asked for it.
+   *
+   * The row menu and the album-header menu arrive at their ids differently — one
+   * from the selection, one from a run's range — and for a while the header menu
+   * called `removeEntries` itself, which meant the confirmation gated one of the
+   * two. A toggle that stops half the removals is worse than no toggle, so both
+   * come through here and the gate is read in exactly one place.
+   */
+  async function performRemoval(entryIds: readonly number[]): Promise<void> {
+    if (entryIds.length === 0) return
+    if (toValue(deps.confirmRemoval)) {
+      pendingRemoval.value = entryIds
+      return
+    }
+    await deps.commands.removeEntries(entryIds)
   }
 
   return {
@@ -178,17 +241,36 @@ export function createPlaylistContents(deps: PlaylistContentsDeps) {
       deps.endDrag()
     },
 
-    /** Removes the selection, or the row under the pointer when nothing is selected. */
+    /** The removal waiting on an answer, or null. */
+    removalPrompt,
+
+    /**
+     * Removes the selection, or the row under the pointer when nothing is
+     * selected — asking first when `interface.confirmEntryRemoval` says to.
+     *
+     * The setting is read after the ids are in hand, not before, so the
+     * unconfirmed path and the confirmed one resolve the same rows the same way
+     * and there is one place a removal can be assembled.
+     */
     async remove(index?: number): Promise<void> {
-      if (index !== undefined && !deps.isSelectedAt(index)) {
-        const entryId = deps.entryIdAt(index)
-        if (entryId === undefined) return
-        await deps.commands.removeEntries([entryId])
-        return
-      }
-      const entryIds = await deps.resolveSelection()
-      if (entryIds.length === 0) return
+      await performRemoval(await resolveRemoval(index))
+    },
+
+    /**
+     * The same removal, for a caller that already knows the entry ids — the
+     * album-header menu, which takes a whole run rather than a selection.
+     */
+    removeEntries: (entryIds: readonly number[]): Promise<void> => performRemoval(entryIds),
+
+    async confirmRemoval(): Promise<void> {
+      const entryIds = pendingRemoval.value
+      pendingRemoval.value = null
+      if (entryIds === null || entryIds.length === 0) return
       await deps.commands.removeEntries(entryIds)
+    },
+
+    cancelRemoval(): void {
+      pendingRemoval.value = null
     }
   }
 }

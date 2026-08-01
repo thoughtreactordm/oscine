@@ -44,6 +44,57 @@ export interface GroupLayout {
   headersBefore(display: number): number
 }
 
+/** What the two kinds of row are drawn at, in CSS pixels. */
+export interface RowMetrics {
+  /** A track row — `view.trackListDensity`. */
+  rowPx: number
+  /** An album header row — `view.trackGroupingArtSize`. */
+  headerPx: number
+}
+
+/**
+ * Where a display row's top edge sits, in pixels from the top of the list.
+ *
+ * The arithmetic `headersBefore` exists for, named once instead of spelled out
+ * at each call site. Clamped rather than guarded, so asking about a row past the
+ * end gives the end of the list — which is what a scroll target wants.
+ */
+export function displayTopPx(layout: GroupLayout, display: number, metrics: RowMetrics): number {
+  const clamped = Math.max(0, Math.min(display, layout.displayCount))
+  const headers = layout.headersBefore(clamped)
+  return headers * metrics.headerPx + (clamped - headers) * metrics.rowPx
+}
+
+/**
+ * `displayTopPx` run backwards: the display row a pixel offset lands in.
+ *
+ * Binary search rather than a division, because two row heights make the offset
+ * piecewise linear and `scrollTop / rowHeight` is wrong from the first album
+ * boundary down — the same reason `scrollIndexIntoView` never multiplied. It is
+ * monotonic in `display`, which is what makes the search legitimate, and it is
+ * seventeen steps at the 100k target.
+ *
+ * What needs it: changing the row height changes what a *pixel* offset means, so
+ * a density change converts the offset to a row before and back to pixels after.
+ * Keeping the top row still is the only reading of "where I was" that survives
+ * the rows changing size.
+ */
+export function displayAtPx(layout: GroupLayout, top: number, metrics: RowMetrics): number {
+  let low = 0
+  let high = Math.max(0, layout.displayCount - 1)
+  let found = 0
+  while (low <= high) {
+    const mid = (low + high) >> 1
+    if (displayTopPx(layout, mid, metrics) <= top) {
+      found = mid
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
+  }
+  return found
+}
+
 /**
  * The ungrouped list, as a layout.
  *

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { visibleRange } from '@renderer/panels/listViewport'
+import { useDisplayFormatStore } from '@renderer/stores/displayFormat'
 import { usePodcastsStore } from '@renderer/stores/podcasts'
 import { hasArtwork } from '@shared/ipc'
 import type { Episode } from '@shared/podcasts'
@@ -14,6 +15,7 @@ import type { Episode } from '@shared/podcasts'
  */
 
 const podcasts = usePodcastsStore()
+const formats = useDisplayFormatStore()
 const ROW = 56
 const scrollTop = ref(0)
 const viewportPx = ref(0)
@@ -80,28 +82,6 @@ onMounted(() => {
 onUnmounted(() => {
   rowEls.clear()
 })
-
-function formatDuration(ms: number | null): string {
-  if (ms === null || ms <= 0) return ''
-  const totalSec = Math.round(ms / 1000)
-  const hours = Math.floor(totalSec / 3600)
-  const minutes = Math.floor((totalSec % 3600) / 60)
-  const seconds = totalSec % 60
-  if (hours > 0)
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-  return `${minutes}:${String(seconds).padStart(2, '0')}`
-}
-
-function formatWhen(iso: string | null): string {
-  if (!iso) return ''
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })
-}
 
 function statusLabel(episode: Episode): string {
   const progress = podcasts.downloadProgress.get(episode.id)
@@ -213,9 +193,9 @@ function statusLabel(episode: Episode): string {
               {{ episode.title }}
             </p>
             <p class="truncate text-xs text-dimmed">
-              <span v-if="episode.pubDate">{{ formatWhen(episode.pubDate) }}</span>
+              <span v-if="episode.pubDate">{{ formats.date(episode.pubDate) }}</span>
               <span v-if="episode.durationMs">
-                <span v-if="episode.pubDate"> · </span>{{ formatDuration(episode.durationMs) }}
+                <span v-if="episode.pubDate"> · </span>{{ formats.durationMs(episode.durationMs) }}
               </span>
               <span> · {{ statusLabel(episode) }}</span>
             </p>

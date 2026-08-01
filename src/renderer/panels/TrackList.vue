@@ -14,10 +14,13 @@ import {
   type NowPlayingMark
 } from '@renderer/panels/nowPlayingMark'
 import {
+  displayAtPx,
+  displayTopPx,
   groupedLayout,
   identityLayout,
   type GroupedRun,
-  type GroupLayout
+  type GroupLayout,
+  type RowMetrics
 } from '@renderer/panels/trackGrouping'
 import type {
   RowDropSide,
@@ -27,6 +30,7 @@ import type {
   TrackListSource
 } from '@renderer/panels/trackListSource'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
+import { useDisplayFormatStore } from '@renderer/stores/displayFormat'
 import { useTrackGroupingStore } from '@renderer/stores/grouping'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
@@ -88,9 +92,9 @@ const emit = defineEmits<{
 
 const columns = useTrackColumnsStore()
 const grouping = useTrackGroupingStore()
+const formats = useDisplayFormatStore()
 const playback = usePlaybackStore()
 const shell = useShellStore()
-const ROW_HEIGHT = 32
 const OVERSCAN = 8
 /** Pixels an arrow key moves a column edge. Shift narrows it to one. */
 const WIDTH_STEP = 16
@@ -283,8 +287,15 @@ const scrollTop = ref(0)
  *
  * Read once here rather than on mount: the restore below is an `immediate`
  * watcher, which runs during setup, before `onMounted` would have claimed it.
+ *
+ * What is remembered is the **display row** at the top, not its pixel offset.
+ * The operator changes the row height on the Settings tab, which unmounts this
+ * list — so the geometry watcher below never sees that change, and a pixel
+ * offset handed back afterwards would land wherever the new height put it. A row
+ * survives it, and survives an album-header resize and a grouping toggle with
+ * it.
  */
-let pendingScroll: number | null = shell.recallScroll(props.source.scrollKey) || null
+let pendingAnchor: number | null = shell.recallScroll(props.source.scrollKey) || null
 
 /**
  * Grouped when the ordering is album-major and the runs describe this list.
@@ -331,9 +342,47 @@ const tableRows = computed<TrackTableRow[]>(() => {
   return rows
 })
 
+/**
+ * The heights the list is drawn at, as one value.
+ *
+ * Read together because they are read together: a track row and an album header
+ * row are the only two sizes on screen, and every pixel answer this component
+ * gives is a sum of the two.
+ */
+const metrics = computed<RowMetrics>(() => ({
+  rowPx: formats.rowPx,
+  headerPx: grouping.rowPx
+}))
+
 function estimateRowSize(display: number): number {
-  return layout.value.rowAt(display)?.kind === 'header' ? grouping.rowPx : ROW_HEIGHT
+  return layout.value.rowAt(display)?.kind === 'header'
+    ? metrics.value.headerPx
+    : metrics.value.rowPx
 }
+
+/**
+ * A height change is a *new* virtualizer, not a stale one.
+ *
+ * TanStack memoizes its measurements, and `estimateSize` is read inside that
+ * memo rather than being one of its dependencies — the invalidation it expects
+ * is `measure()`, which Nuxt UI's table neither calls nor exposes, since it
+ * never measures an element and hands back only `$el` and `tableApi`. So a
+ * density change would repaint every row at its new height while the virtualizer
+ * went on placing them at the old one: rows overlapping, the scroll height
+ * wrong, and worse the further down you are — at the 100k target the drift is
+ * tens of thousands of pixels.
+ *
+ * Keying the table on the geometry remounts it, and a fresh virtualizer has no
+ * measurements to be stale. Guaranteed by Vue's own semantics rather than by a
+ * dependency's memo list, which is the point: the alternative — passing a new
+ * `getItemKey` identity, which *is* one of those dependencies — works today and
+ * would fail silently on the upgrade that reorders them, and silent is the
+ * failure mode being prevented.
+ *
+ * The album header height is in the key too. It has been changeable since W8-3
+ * put art size on a control, and it has had this same bug that whole time.
+ */
+const rowGeometry = computed(() => `${metrics.value.rowPx}:${metrics.value.headerPx}`)
 
 /** The album header's own cell spans the table; the rest of the row is not drawn. */
 function isHeaderRow(row: TrackTableRow | undefined): boolean {
@@ -369,22 +418,11 @@ function trackAt(row: TrackTableRow): Track | undefined {
   return track
 }
 
-function formatDuration(seconds: number | null): string {
-  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return '—'
-  const whole = Math.round(seconds)
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
-}
-
 function formatChannels(channels: number | null): string {
   if (channels === null) return '—'
   if (channels === 1) return 'Mono'
   if (channels === 2) return 'Stereo'
   return `${channels} ch`
-}
-
-function formatBytes(bytes: number): string {
-  const mib = bytes / 1024 / 1024
-  return mib < 10 ? `${mib.toFixed(1)} MB` : `${Math.round(mib)} MB`
 }
 
 function cellText(row: TrackTableRow, key: TrackColumnKey): string | undefined {
@@ -408,7 +446,7 @@ function cellText(row: TrackTableRow, key: TrackColumnKey): string | undefined {
     case 'codec':
       return track.codec === null ? '—' : track.codec.toUpperCase()
     case 'durationSec':
-      return formatDuration(track.durationSec)
+      return formats.duration(track.durationSec)
     case 'sampleRateHz':
       return track.sampleRateHz === null ? '—' : `${(track.sampleRateHz / 1000).toFixed(1)} kHz`
     case 'bitDepth':
@@ -416,7 +454,7 @@ function cellText(row: TrackTableRow, key: TrackColumnKey): string | undefined {
     case 'channels':
       return formatChannels(track.channels)
     case 'encodedBytes':
-      return formatBytes(track.encodedBytes)
+      return formats.fileSize(track.encodedBytes)
   }
 }
 
@@ -560,17 +598,17 @@ const menuItems = computed(() =>
  * Takes an offset rather than a display row because that is what the focus
  * model deals in. Headers are taller than tracks, so the pixel position is the
  * rows above times their height plus the headers above times theirs — not
- * `index * ROW_HEIGHT`, which stops being true at the first album boundary.
+ * `index * rowPx`, which stops being true at the first album boundary.
  */
 function scrollIndexIntoView(index: number): void {
   const element = tableElement()
   if (!element) return
   const display = layout.value.displayOf(index)
-  const headers = layout.value.headersBefore(display)
-  const top = headers * grouping.rowPx + (display - headers) * ROW_HEIGHT
+  const rowPx = metrics.value.rowPx
+  const top = displayTopPx(layout.value, display, metrics.value)
   if (top < element.scrollTop) element.scrollTop = top
-  else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) {
-    element.scrollTop = top + ROW_HEIGHT - element.clientHeight
+  else if (top + rowPx > element.scrollTop + element.clientHeight) {
+    element.scrollTop = top + rowPx - element.clientHeight
   }
   scrollTop.value = element.scrollTop
 }
@@ -608,7 +646,7 @@ function onKeydown(event: KeyboardEvent): void {
 
   const rowsPerPage = Math.max(
     1,
-    Math.floor((tableElement()?.clientHeight ?? ROW_HEIGHT) / ROW_HEIGHT)
+    Math.floor((tableElement()?.clientHeight ?? formats.rowPx) / formats.rowPx)
   )
   const next = props.source.moveFocus(event.key, rowsPerPage, event)
   if (next === null) return
@@ -695,24 +733,46 @@ function onGripKeydown(column: TrackColumnSpec, event: KeyboardEvent): void {
   event.stopPropagation()
 }
 
+/**
+ * The display row at the top, kept current as the list scrolls.
+ *
+ * Maintained here rather than derived when it is needed, because the moments it
+ * is needed — a scroll key changing, an unmount — are moments when `layout` may
+ * already describe the list being moved *to*. During a scroll it always
+ * describes the list being looked at, so this is the only place the conversion
+ * is unambiguous.
+ */
+let anchorRow = 0
+
+function onScroll(): void {
+  scrollTop.value = tableElement()?.scrollTop ?? 0
+  anchorRow = displayAtPx(layout.value, scrollTop.value, metrics.value)
+}
+
 function restoreScroll(top: number): void {
   scrollTop.value = top
+  anchorRow = displayAtPx(layout.value, top, metrics.value)
   const element = tableElement()
   if (element) element.scrollTop = top
+}
+
+/** Puts a remembered row back where the current geometry says it belongs. */
+function restoreAnchor(display: number): void {
+  restoreScroll(displayTopPx(layout.value, display, metrics.value))
 }
 
 watch(
   () => props.source.scrollKey,
   async (next, previous) => {
-    shell.rememberScroll(previous, tableElement()?.scrollTop ?? scrollTop.value)
-    pendingScroll = null
+    shell.rememberScroll(previous, anchorRow)
+    pendingAnchor = null
     await nextTick()
-    restoreScroll(shell.recallScroll(next))
+    restoreAnchor(shell.recallScroll(next))
   }
 )
 
 /**
- * The remembered offset, applied on the first render that has somewhere to go.
+ * The remembered row, applied on the first render that has somewhere to go.
  *
  * Not on mount: the list's total is still zero then, so the virtualizer's
  * scroll height is too and a `scrollTop` written into it is discarded without a
@@ -725,22 +785,22 @@ watch(
 watch(
   () => props.source.total,
   async (total) => {
-    if (pendingScroll === null || total <= 0) return
-    const top = pendingScroll
-    pendingScroll = null
+    if (pendingAnchor === null || total <= 0) return
+    const display = pendingAnchor
+    pendingAnchor = null
     await nextTick()
     if ((tableElement()?.scrollTop ?? 0) > 0) return
-    restoreScroll(top)
+    restoreAnchor(display)
   },
   { immediate: true }
 )
 
 /**
- * Handing the offset back on the way out, because there is no scroll event for
+ * Handing the row back on the way out, because there is no scroll event for
  * "unmounted": the container is gone by the time anything could ask it.
  */
 onUnmounted(() => {
-  shell.rememberScroll(props.source.scrollKey, tableElement()?.scrollTop ?? scrollTop.value)
+  shell.rememberScroll(props.source.scrollKey, anchorRow)
 })
 
 // Changing the visible columns rebuilds the table, which resets the scroll
@@ -751,11 +811,26 @@ watch(layoutKey, async () => {
   restoreScroll(previous)
 })
 
+/**
+ * A height change keeps the top row, not the top pixel.
+ *
+ * `anchorRow` is already the row and is already current — this only has to put
+ * it back after the remount `rowGeometry` forces, which starts at zero. The one
+ * case that is *not* covered here is the common one: the height is changed from
+ * the Settings tab, with this list unmounted. That is why the memory holds a row
+ * rather than an offset.
+ */
+watch(metrics, async () => {
+  const display = anchorRow
+  await nextTick()
+  restoreAnchor(display)
+})
+
 // A re-sort has moved every row, so the offset means nothing now — including a
 // remembered one that has not been applied yet, which would otherwise land on
 // top of the reset a moment later.
 watch([() => props.source.sort, () => props.source.direction], () => {
-  pendingScroll = null
+  pendingAnchor = null
   restoreScroll(0)
 })
 
@@ -776,6 +851,7 @@ onMounted(() => props.source.ensureRange(0, 30))
     >
       <UTable
         ref="table"
+        :key="rowGeometry"
         :data="tableRows"
         :columns="tableColumns"
         :meta="tableMeta"
@@ -787,20 +863,23 @@ onMounted(() => props.source.ensureRange(0, 30))
         sticky="header"
         :virtualize="{ estimateSize: estimateRowSize, overscan: OVERSCAN }"
         :watch-options="{ deep: false }"
-        :style="{ '--fermata-table-width': `${columns.totalWidth}px` }"
+        :style="{
+          '--fermata-table-width': `${columns.totalWidth}px`,
+          '--fermata-row-px': `${metrics.rowPx}px`
+        }"
         class="h-full min-h-0 select-none overflow-auto overscroll-contain pb-2 outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-primary"
         :ui="{
           base: 'table-fixed w-[var(--fermata-table-width)] min-w-full',
           thead: 'bg-elevated/75',
           th: 'h-8 px-0 py-0 text-xs font-medium uppercase tracking-wide text-muted',
           tbody: 'divide-y divide-default/60',
-          td: 'h-8 overflow-hidden px-2 py-0 text-sm last:pe-4',
-          tr: 'h-8 hover:bg-elevated/70',
+          td: 'h-[var(--fermata-row-px)] overflow-hidden px-2 py-0 text-sm last:pe-4',
+          tr: 'h-[var(--fermata-row-px)] hover:bg-elevated/70',
           empty: 'h-full p-0'
         }"
         tabindex="0"
         :aria-label="label ?? 'Songs'"
-        @scroll.passive="scrollTop = tableElement()?.scrollTop ?? 0"
+        @scroll.passive="onScroll"
         @keydown="onKeydown"
         @contextmenu="onTableContextmenu"
         @dragover="onRowDragOver(null, $event)"

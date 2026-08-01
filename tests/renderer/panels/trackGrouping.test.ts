@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { TrackGroup } from '@shared/library'
 import {
+  displayAtPx,
+  displayTopPx,
   groupedLayout,
   identityLayout,
-  type GroupLayout
+  type GroupLayout,
+  type RowMetrics
 } from '../../../src/renderer/panels/trackGrouping'
 
 function group(title: string, trackCount: number, albumId: number | null = 1): TrackGroup {
@@ -153,5 +156,81 @@ describe('groupedLayout', () => {
     expect(layout.runs).toHaveLength(2)
     expect(layout.runs[1]!.group.albumId).toBeNull()
     expectRoundTrip(layout)
+  })
+})
+
+/**
+ * Pixel arithmetic, and its inverse.
+ *
+ * The pair exists so that a density change keeps the top row rather than the top
+ * pixel, which means the interesting property is not "is this offset right" but
+ * "does the row survive the round trip at *every* position" — including the ones
+ * a `scrollTop / rowHeight` would have got right by accident.
+ */
+describe('where a row sits, and what sits at a pixel', () => {
+  const SMALL: RowMetrics = { rowPx: 32, headerPx: 56 }
+  const ROOMY: RowMetrics = { rowPx: 40, headerPx: 112 }
+
+  it('sums the two heights, not one of them', () => {
+    const layout = groupedLayout([group('A', 3, 1), group('B', 2, 2)])
+    // header A, three tracks, header B — the fifth display row down.
+    expect(displayTopPx(layout, 0, SMALL)).toBe(0)
+    expect(displayTopPx(layout, 1, SMALL)).toBe(56)
+    expect(displayTopPx(layout, 4, SMALL)).toBe(56 + 3 * 32)
+    expect(displayTopPx(layout, 5, SMALL)).toBe(56 + 3 * 32 + 56)
+  })
+
+  it('is the plain multiple when there are no headers', () => {
+    const layout = identityLayout(500)
+    expect(displayTopPx(layout, 137, SMALL)).toBe(137 * 32)
+    expect(displayAtPx(layout, 137 * 32, SMALL)).toBe(137)
+  })
+
+  it('clamps rather than running off either end', () => {
+    const layout = groupedLayout([group('A', 3, 1)])
+    expect(displayTopPx(layout, -5, SMALL)).toBe(0)
+    expect(displayTopPx(layout, 999, SMALL)).toBe(displayTopPx(layout, layout.displayCount, SMALL))
+    expect(displayAtPx(layout, -1, SMALL)).toBe(0)
+    expect(displayAtPx(layout, 10 ** 9, SMALL)).toBe(layout.displayCount - 1)
+  })
+
+  it('lands on the row a pixel is inside, not the one after it', () => {
+    const layout = groupedLayout([group('A', 3, 1), group('B', 2, 2)])
+    for (let display = 0; display < layout.displayCount; display++) {
+      const top = displayTopPx(layout, display, SMALL)
+      expect(displayAtPx(layout, top, SMALL)).toBe(display)
+      // One pixel in is still this row; one pixel back is the previous one.
+      expect(displayAtPx(layout, top + 1, SMALL)).toBe(display)
+      if (display > 0) expect(displayAtPx(layout, top - 1, SMALL)).toBe(display - 1)
+    }
+  })
+
+  it('round-trips every row through a density change', () => {
+    const layout = groupedLayout([group('A', 4, 1), group('B', 1, 2), group('C', 7, 3)])
+    for (let display = 0; display < layout.displayCount; display++) {
+      const before = displayTopPx(layout, display, SMALL)
+      expect(displayAtPx(layout, before, SMALL)).toBe(display)
+      // What the watcher does: pixels to a row at the old height, back to pixels
+      // at the new one. The row is what is preserved; the offset is not.
+      const after = displayTopPx(layout, displayAtPx(layout, before, SMALL), ROOMY)
+      expect(displayAtPx(layout, after, ROOMY)).toBe(display)
+    }
+  })
+
+  it('holds at the 100k target, where a wrong answer is tens of thousands of pixels', () => {
+    // 10k albums of ten tracks: 110k display rows, and the deepest row sits
+    // millions of pixels down, which is where an off-by-one row height shows.
+    const groups = Array.from({ length: 10_000 }, (_, index) => group(`Album ${index}`, 10, index))
+    const layout = groupedLayout(groups)
+    expect(layout.displayCount).toBe(110_000)
+
+    const lastHeader = layout.runs[layout.runs.length - 1]!.headerIndex
+    expect(displayTopPx(layout, lastHeader, SMALL)).toBe(9_999 * (56 + 10 * 32))
+
+    for (const display of [0, 1, 55_000, 109_998, 109_999]) {
+      const top = displayTopPx(layout, display, SMALL)
+      expect(displayAtPx(layout, top, SMALL)).toBe(display)
+      expect(displayAtPx(layout, displayTopPx(layout, display, ROOMY), ROOMY)).toBe(display)
+    }
   })
 })

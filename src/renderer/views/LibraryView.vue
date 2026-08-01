@@ -5,6 +5,7 @@ import ColumnChooser from '@renderer/panels/ColumnChooser.vue'
 import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
+import { useTrackActivation } from '@renderer/panels/useTrackActivation'
 import type {
   TrackListDrag,
   TrackListGroupMenu,
@@ -58,6 +59,14 @@ function playTrack(track: Track, index: number): void {
     track
   })
 }
+
+/**
+ * What a double-click does here, which `interface.trackActivation` decides.
+ *
+ * The row menu's own Play still calls `playTrack` directly — the setting is
+ * about the gesture with no name on it, not about a verb the operator picked.
+ */
+const activation = useTrackActivation(playTrack)
 
 /**
  * The rows a gesture is about: the selection when the row is in it, that row
@@ -225,7 +234,7 @@ async function targetFor(index: number): Promise<QueueTarget> {
         :drag="drag"
         :menu="menu"
         :group-menu="groupMenu"
-        @activate="playTrack"
+        @activate="activation.activate"
       />
     </div>
   </section>

@@ -30,7 +30,25 @@ import {
 export * from './settings/kernel'
 export * from './settings/scope'
 export * from './settings/cascade'
-export type { AlbumArtSize, ThemeMode } from './settings/interface'
+export {
+  CONFIRM_ENTRY_REMOVAL_KEY,
+  CONFIRM_PLAYLIST_DELETE_KEY,
+  DATE_FORMAT_KEY,
+  DURATION_FORMAT_KEY,
+  FILE_SIZE_FORMAT_KEY,
+  RESTORE_SESSION_KEY,
+  TRACK_ACTIVATION_KEY,
+  TRACK_DENSITY_KEY
+} from './settings/interface'
+export type {
+  AlbumArtSize,
+  DateFormat,
+  DurationFormat,
+  FileSizeFormat,
+  ThemeMode,
+  TrackActivation,
+  TrackDensity
+} from './settings/interface'
 export {
   AUDIO_CROSSFADE_MS,
   AUDIO_CROSSFADE_MS_KEY,
