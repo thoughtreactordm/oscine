@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron'
 import type BetterSqlite3 from 'better-sqlite3'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -12,6 +12,7 @@ import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { SqlitePodcastService } from './podcasts/service'
 import { SqliteSettingsService } from './settings'
+import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
 import { AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING, type SettingsChange } from '@shared/settings'
 
@@ -104,7 +105,13 @@ const rendererUrl =
     ? process.env.ELECTRON_RENDERER_URL
     : pathToFileURL(indexHtml).toString()
 
-function createWindow(): BrowserWindow {
+/**
+ * `backgroundColor` is passed in rather than named here, because the colour is
+ * the theme's `surface.base` resolved by the same code the renderer uses. A
+ * literal in this file was what let the old one drift into claiming to match a
+ * token that did not exist.
+ */
+function createWindow(backgroundColor: string): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -113,8 +120,7 @@ function createWindow(): BrowserWindow {
     show: false,
     frame: false,
     autoHideMenuBar: true,
-    // Matches the dark surface token so launch does not flash white.
-    backgroundColor: '#0a0a0a',
+    backgroundColor,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // Design section 6. These three are not negotiable; the typed preload
@@ -234,7 +240,24 @@ if (!app.requestSingleInstanceLock()) {
     // synchronous, so anything below this line can read a durable setting to
     // decide how to build itself. Notices are logged rather than thrown — a
     // library whose settings are damaged still opens, with defaults.
-    const settings = new SqliteSettingsService({ db, onChanged: broadcastSettingsChanged })
+    const settings = new SqliteSettingsService({
+      db,
+      onChanged: (changes) => {
+        broadcastSettingsChanged(changes)
+        // The window paints its own background; a theme write has to reach it
+        // as well as the renderer, or the frame behind a resize stays the old
+        // colour until relaunch.
+        if (changes.some((change) => WINDOW_BACKGROUND_KEYS.includes(change.key))) {
+          applyWindowBackground()
+        }
+      }
+    })
+
+    const applyWindowBackground = (): void => {
+      mainWindow?.setBackgroundColor(
+        resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors)
+      )
+    }
     for (const notice of settings.loadNotices()) {
       console.warn(`[settings] ${notice.key}: ${notice.reason}`)
     }
@@ -296,7 +319,10 @@ if (!app.requestSingleInstanceLock()) {
     registerTrackProtocol(library, artworkCachePath(), podcasts)
     registerIpcHandlers(library, playlists, podcasts, settings)
 
-    mainWindow = createWindow()
+    mainWindow = createWindow(resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors))
+    // The other way the answer changes: the OS flips while the preference is
+    // `system`.
+    nativeTheme.on('updated', applyWindowBackground)
     mainWindow.on('maximize', () => {
       if (mainWindow) emit(mainWindow.webContents, 'window.maximizedChange', true)
     })
