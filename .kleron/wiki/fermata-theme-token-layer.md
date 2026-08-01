@@ -165,11 +165,135 @@ Per the card, if this work requires a component edit to function, the token laye
 | 2a. Mode toggle wiring and the contrast revert | landed, `fe0bf0c` |
 | 2b. Coexistence with `UColorModeSwitch` | landed, `ea71c5e` |
 | 2c. High Contrast theme | landed, `aa6a16a` |
-| 3. `nativeTheme` authoritative in main, window background from the resolved token | not started |
-| 4. The `theme` category, `theme.name` / `theme.overrides`, the `interface.theme` migration | partly pre-empted by 2a |
-| 5. The token editor | not started |
-| 6. `no-raw-colours` lint rule | not started |
-| 7. Live run and the card | ongoing — 2a, 2b verified over CDP |
+| 3. Window background from the resolved token | landed, `ecaff26` |
+| 4. The `theme` category and the `interface.theme` migration | landed, `85125bd` |
+| 6. `fermata/no-raw-colours` | landed, `8ee5666` |
+| **5. The token editor** | **not started — the remaining work** |
+| **7. Card update, and a Windows run** | **not started** |
+
+Gate is green at `8ee5666`: lint, format, typecheck, 95 files / 1479 tests, build.
+
+---
+
+# Handoff — step 5, the token editor
+
+Everything below step 5 depends on is landed, tested and verified in a running
+app. What remains is one Vue component and its registration.
+
+## The one thing to build
+
+`theme.overrides` already ships as a descriptor with
+`control: { kind: 'custom', component: 'themeEditor' }`. `customControls.ts`
+has no entry for that name, so the Settings view currently renders the row as
+*"No control registered for 'themeEditor'"* — which is the stated-gap behaviour
+W8-6 built that register for. **Filling it is the whole task.**
+
+Register the component in `src/renderer/panels/settings/customControls.ts` and
+build it under `src/renderer/panels/settings/`. Nothing else in the settings
+view should need touching; if it does, that is a finding worth reporting rather
+than working around.
+
+## The API it renders against
+
+All pure, all `@shared`-only, all already tested.
+
+- **`PUBLIC_TOKENS`** (`src/shared/theme/tokens.ts`) — the ~30 tokens to show.
+  Each has `id`, `kind`, `group`, `label`, `help`, `keywords`, `order`. Never
+  render a token with `public: false`.
+- **`TOKEN_GROUPS`** — the editor's sections, in declaration order:
+  `color`, `accent`, `surface`, `text`, `border`, `shape`, `type`, `motion`,
+  `nowPlaying`.
+- **`TokenKind`** decides the control: `ramp` | `color` | `length` | `duration`
+  | `easing` | `fontFamily` | `fontWeight` | `fontStyle` | `number`.
+  `FONT_STACKS`, `FONT_WEIGHTS` and `FONT_STYLES` are the option lists for the
+  three font kinds — T11 wants curated stacks **plus a free-text escape hatch**.
+- **`resolveTheme({ theme, mode, overrides, reducedMotion })`** returns
+  `{ tokens, cssVars, unresolved, unknown }`. `tokens` is the effective value
+  per id — that is what a row displays. `unresolved` is override ids that could
+  not be resolved (mark the row); `unknown` is ids naming no token (keep them,
+  see below).
+- **Ramps** (`ramp.ts`) — T5a's three authoring modes behind a per-role Advanced
+  toggle: a seed (`rampFromSeed`), a named Tailwind palette
+  (`TAILWIND_PALETTE_NAMES`, `isTailwindPalette`), or 11 hand-authored steps.
+  `describeRamp(steps)` reads a spec back out, so the editor opens on the mode
+  last used rather than always on `custom`.
+- **Contrast** (`contrast.ts`) — `findContrastFailures(tokens, CONTRAST_PAIRS,
+  changed)` returns `{ pair, ratio, required, blame }`. T7: **warn inline on the
+  offending row, never block the write.** `pair.where` is written to be shown to
+  a person ("secondary text — artist, album, duration").
+- **Editing** (`overrides.ts`) — `withOverride`, `withoutOverride`,
+  `hasOverrides`. `withoutOverride` returns the *same object* when there was
+  nothing to remove, which is how the caller avoids spending a debounced write.
+- **Colour** (`color.ts`) — `parseColor` (hex, `rgb()`, `oklch()`; returns null
+  rather than throwing), `formatOklch`, `toHex`, `isOutOfGamut`, `clampToGamut`.
+
+## Where it reads and writes
+
+`src/renderer/stores/theme.ts` exposes `overrides` as a writable computed over
+`theme.overrides`, plus `state`, `mode`, `themeId`, `themeName`, `themeMissing`.
+
+**Live preview is free and must not be re-implemented.** `settings.get` is
+reactive, the store's `watchEffect` already calls `updateTheme`, and
+`applyTheme` writes the custom properties. Writing an override repaints on the
+next tick. There is no apply button and no preview mode — if you find yourself
+building one, something upstream is wrong.
+
+## What the card asks for that is easy to miss
+
+- **Provenance per row** — the value, whether it came from the theme or from an
+  override, and a revert. Same idea as W8-5, applied to custom properties.
+- **Grouped and searchable.** ~30 tokens plus 11 ramp steps per role is a lot;
+  `keywords` on each descriptor exist for this.
+- **An override naming a token the current theme does not define is kept.**
+  It arrives in `resolveTheme().unknown`. Show it as an orphan the operator can
+  revert — do not silently drop it. This is the unknown-key rule, and it matters
+  because themes gain and lose tokens.
+- **Every list is virtualized from its first commit** (CLAUDE.md). If a group
+  can exceed a screen — the ramp editor's 11 steps × 7 roles can — use
+  `visibleRange` from `listViewport.ts`, as `SettingsPane` does.
+- **Zero hardcoded colours**, which `fermata/no-raw-colours` now enforces. A
+  swatch takes its colour from a token value at runtime, not from a class.
+
+## How to verify it
+
+Do **not** kill the operator's dev instance. Use a second one against a
+throwaway user-data directory:
+
+```
+npm run dev -- -- --user-data-dir=/tmp/<scratch> --remote-debugging-port=9333
+FERMATA_CDP=http://127.0.0.1:9333 node scripts/cdp-eval.mjs '<expression>'
+```
+
+The expression is wrapped in an async function, so it needs an explicit
+`return`. Renderer modules are importable by dev-server path — the root is
+`src/renderer`, so `await import("/settings/index.ts")` works. Pinia stores are
+at
+`document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('theme')`.
+Synthetic clicks do not reach reka-ui; use `Input.dispatchMouseEvent`. Clean up
+the scratch directory, and kill the launcher PID captured at launch rather than
+matching on the directory name.
+
+## Step 7, after it
+
+- Update W8-12 (`01KYWX0K27SPJEB14SPR5TPN5J`) with what landed and the evidence.
+- The card's "done when" also asks for **follow-system reacting to a live OS
+  theme change on Windows and Linux**. Linux is verified; Windows is not, and
+  needs a real run. `nativeTheme` drives the window background and VueUse drives
+  the class, so both paths need checking there.
+- W8-13 (export/import) should carry `theme.overrides` — worth confirming the
+  blob survives a round trip once the editor can author a non-trivial one.
+
+## Traps already hit, so they are not hit again
+
+- **Do not grep only `src/` to decide what a library does.** Nuxt UI's Vite
+  plugin injects behaviour from `node_modules` — that is how the "app is
+  permanently light" error happened.
+- **The built CSS is pretty-printed**, not minified. A probe searching for
+  `--x:var(--y)` will report a false miss; normalise `:\s+` first.
+- **`@theme default inline`** means a variable is substituted at build time, not
+  emitted. That is *why* `--ui-color-*` stays live at runtime.
+- Tailwind hardcodes `border-width: 1px` in `.border`, with no variable —
+  see T15.
 
 ## Known debts this creates
 
