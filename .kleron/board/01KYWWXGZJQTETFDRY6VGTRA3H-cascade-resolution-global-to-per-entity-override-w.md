@@ -1,7 +1,7 @@
 ---
 taskId: 01KYWWXGZJQTETFDRY6VGTRA3H
 title: 'Cascade resolution — global to per-entity override, with provenance'
-status: todo
+status: in-review
 priority: medium
 labels: []
 workstream: W8
@@ -9,9 +9,9 @@ workstreamId: W8-5
 dependsOn:
   - 01KYWWVQQB80JQ6KK80HX96KYN
   - 01KYWWWA83W72X3CAT388JY932
-order: 32
+order: 3
 created: '2026-07-31T20:12:43.376Z'
-updated: '2026-07-31T20:12:43.376Z'
+updated: '2026-08-01T04:53:40.946Z'
 ---
 One resolution path for every "this playlist plays differently" case, replacing the ad-hoc ones.
 
