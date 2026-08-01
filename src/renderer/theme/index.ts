@@ -24,6 +24,32 @@ const listeners = new Set<(state: ThemeState) => void>()
 const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'
 const DARK_SCHEME = '(prefers-color-scheme: dark)'
 
+/**
+ * VueUse's colour-mode key, which Nuxt UI's colour-mode plugin already writes.
+ *
+ * Read directly, by name, because this runs before `createApp` — the composable
+ * needs an app context that does not exist yet. That is not a workaround: it is
+ * the pre-paint replay, and it comes free because the preference is already
+ * persisted somewhere synchronously readable.
+ *
+ * Nuxt UI spells "follow the system" as `auto` where the rest of this app spells
+ * it `system`; the translation lives here and in the store, and nowhere else.
+ */
+const VUEUSE_COLOR_SCHEME = 'vueuse-color-scheme'
+
+function storedPreference(): ThemeInputs['mode'] {
+  try {
+    const stored = window.localStorage.getItem(VUEUSE_COLOR_SCHEME)
+    if (stored === 'light' || stored === 'dark') return stored
+    return 'system'
+  } catch {
+    // Reading storage can throw when it is disabled or full. A theme that
+    // failed to paint because it could not read a preference would be a much
+    // worse outcome than one that starts on the system default.
+    return 'system'
+  }
+}
+
 function render(): void {
   state = computeTheme(inputs)
   applyTheme(state)
@@ -39,21 +65,29 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia(REDUCED_MOTION).matches
 }
 
+/**
+ * Paint the theme before the app exists.
+ *
+ * The mode comes from the same persisted preference Nuxt UI's colour-mode
+ * plugin uses, so the first paint matches what `useDark()` will settle on a
+ * moment later and there is nothing to flash between. Once the app is up, the
+ * store takes over and this stops being the source of the mode — see the
+ * ownership note there.
+ */
 export function installTheme(): void {
   inputs = {
     ...inputs,
+    mode: storedPreference(),
     systemDark: window.matchMedia(DARK_SCHEME).matches,
     systemReducedMotion: prefersReducedMotion()
   }
   render()
 
   /*
-   * Chromium maps the OS colour preference onto this query on both platforms,
-   * which is what makes `system` work at all. The main process takes over as
-   * the authority in the next commit — it has to, because it is what sets the
-   * window background before the renderer exists — but this stays as the
-   * renderer's own answer rather than being ripped out, so the theme is never
-   * waiting on IPC to know what to paint.
+   * Chromium maps the OS colour preference onto this query on both platforms.
+   * VueUse watches the same query, so after mount the two agree by
+   * construction; this listener is what keeps the pre-mount window correct and
+   * what answers `system` if the store is ever not mounted.
    */
   window.matchMedia(DARK_SCHEME).addEventListener('change', (event) => {
     updateTheme({ systemDark: event.matches })
