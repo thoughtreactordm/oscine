@@ -3,7 +3,7 @@ taskId: 01KYWWWM5AMXSSMHVXN6G86VT2
 title: >-
   View store — one localStorage backend, and the five hand-rolled modules
   absorbed
-status: in-progress
+status: in-review
 priority: high
 labels: []
 workstream: W8
@@ -12,7 +12,7 @@ dependsOn:
   - 01KYWWVQQB80JQ6KK80HX96KYN
 order: 1
 created: '2026-07-31T20:12:13.864Z'
-updated: '2026-08-01T03:43:13.622Z'
+updated: '2026-08-01T04:11:00.451Z'
 ---
 The renderer half of the split, and the card that pays for this workstream by deleting code.
 

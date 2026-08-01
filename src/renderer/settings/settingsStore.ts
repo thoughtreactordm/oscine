@@ -74,8 +74,10 @@ export interface SettingsStoreDeps {
    * Which keys this store owns. Defaults to the whole registry.
    *
    * Present for the same reason `resolveSettings` and `createViewSettings` take
-   * one: every shipped key is at version 1 and none is `requiresRestart`, so a
-   * hand-built registry is the only way to exercise either path.
+   * one: every shipped key is at version 1, so a hand-built registry is the only
+   * way to exercise the migration path at all — and the only shipped
+   * `requiresRestart` key is `library.artworkCacheMb`, so a badge test written
+   * against the real registry would fail the day that flag moved.
    */
   descriptors?: readonly SettingDescriptor[]
   /** Zero writes through, which is what a test wants. */
