@@ -4,7 +4,8 @@ import type {
   SettingCascade,
   SettingDescriptor,
   SettingEntityKind,
-  SettingScopeRef
+  SettingScopeRef,
+  SettingValidation
 } from '@shared/settings'
 
 /**
@@ -52,8 +53,29 @@ export interface CascadingSettingsReader extends SettingsReader {
    * does.
    */
   loadOverrides(scope: SettingScopeRef): Promise<void>
+  /** True once `loadOverrides` has answered for this scope. */
+  overridesLoaded(scope: SettingScopeRef): boolean
   cascade<T, C extends readonly SettingEntityKind[]>(
     descriptor: SettingDescriptor<T, C>,
     scope: CascadeScopeRef<C>
   ): SettingCascade<T>
+}
+
+/**
+ * The reader plus the two writes an override control makes.
+ *
+ * What `useCascade` binds to. Narrower than the whole store for the reason
+ * `SettingsReader` is: a control that sets and reverts one key should not need a
+ * hydration promise and a notice list handed to it to be testable.
+ */
+export interface CascadingSettings extends CascadingSettingsReader {
+  setOverride<T, C extends readonly SettingEntityKind[]>(
+    descriptor: SettingDescriptor<T, C>,
+    scope: CascadeScopeRef<C>,
+    value: T
+  ): Promise<SettingValidation<T>>
+  clearOverride<T, C extends readonly SettingEntityKind[]>(
+    descriptor: SettingDescriptor<T, C>,
+    scope: CascadeScopeRef<C>
+  ): Promise<void>
 }
