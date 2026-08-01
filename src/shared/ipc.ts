@@ -54,6 +54,8 @@ import type {
 } from './podcasts'
 import type {
   GetAllSettingsResult,
+  GetSettingOverridesRequest,
+  GetSettingOverridesResult,
   ResetSettingsRequest,
   SetSettingRequest,
   SettingsChange
@@ -262,6 +264,18 @@ export interface IpcContract {
    */
   'settings.getAll': { request: null; response: GetAllSettingsResult }
   /**
+   * Every override row at one entity scope, unresolved.
+   *
+   * Raw rows rather than resolved values because the renderer holds the global
+   * layer reactively and resolves the cascade itself — a value resolved in main
+   * would be stale the moment the global moved. Scoped rather than per-key so
+   * that opening one playlist's settings is one call rather than one per row.
+   */
+  'settings.getOverrides': {
+    request: GetSettingOverridesRequest
+    response: GetSettingOverridesResult
+  }
+  /**
    * Write one key, revalidated in main.
    *
    * The renderer validates too, so the control can refuse a bad value without a
@@ -368,6 +382,7 @@ export const IPC_CHANNELS = [
   'podcasts.recommend',
   'podcasts.browseCategory',
   'settings.getAll',
+  'settings.getOverrides',
   'settings.set',
   'settings.reset'
 ] as const satisfies readonly IpcChannel[]

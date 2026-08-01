@@ -8,7 +8,12 @@
  * the meantime.
  */
 
-import { SETTING_ENTITY_KINDS, type SettingEntityKind, type SettingNotice } from './kernel'
+import {
+  SETTING_ENTITY_KINDS,
+  type SettingEntityKind,
+  type SettingNotice,
+  type StoredSetting
+} from './kernel'
 
 /**
  * The `scope_kind` column's domain.
@@ -79,11 +84,33 @@ export interface SettingsChange {
   scope: SettingScopeRef
   /** Post-validation, so a repaired value is the repaired one. */
   value: unknown
+  /**
+   * The row at `scope` is gone, and `value` is what applies in its place.
+   *
+   * Without this a listener cannot tell "this playlist's crossfade was set to
+   * 2000" from "this playlist's override was dropped and it now inherits 2000" —
+   * the two carry the same value and mean opposite things to a cascade. W8-5's
+   * override cache would otherwise resurrect every override the moment it was
+   * reverted.
+   */
+  cleared: boolean
 }
 
 export interface GetAllSettingsResult {
   /** Every durable key resolved at global scope — defaults included. */
   values: Record<string, unknown>
+  /**
+   * Which of those came from a global row rather than from the descriptor
+   * default.
+   *
+   * The values alone cannot say: a key stored at exactly its default is
+   * indistinguishable from one never written. The cascade needs the difference
+   * to name a provenance, and a per-row reset affordance needs it to know
+   * whether there is anything to reset. A key whose row this build rejected is
+   * *not* listed — the value in `values` is the fallback, and reporting it as
+   * stored would attribute the default to a row that did not supply it.
+   */
+  storedKeys: string[]
   /**
    * What did not survive the load, verbatim.
    *
@@ -91,6 +118,26 @@ export interface GetAllSettingsResult {
    * happens before the window exists: an event would have nobody to reach.
    */
   notices: SettingNotice[]
+}
+
+/**
+ * Every override row at one entity scope, unresolved.
+ *
+ * Raw `StoredSetting`s rather than resolved values, because resolution is the
+ * renderer's to do: it holds the global layer reactively, and a value resolved
+ * in main would go stale the moment the global moved. Main's job here is to say
+ * what rows exist.
+ */
+export interface GetSettingOverridesResult {
+  scope: SettingScopeRef
+  /** Keyed by setting key. Only durable keys that cascade to this scope kind. */
+  stored: Record<string, StoredSetting>
+  /** Rows that were not readable at all — malformed JSON, not bad values. */
+  notices: SettingNotice[]
+}
+
+export interface GetSettingOverridesRequest {
+  scope: SettingScopeRef
 }
 
 export interface SetSettingRequest {

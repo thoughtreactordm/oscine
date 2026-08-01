@@ -2,6 +2,7 @@ import { FermataError } from '@shared/errors'
 import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
 import {
   SETTING_SCOPE_KINDS,
+  type GetSettingOverridesRequest,
   type ResetSettingsRequest,
   type SetSettingRequest,
   type SettingScopeKind,
@@ -606,6 +607,12 @@ export function assertSetSettingRequest(value: unknown): SetSettingRequest {
     value: assertSettingValue(raw.value),
     ...(raw.scope === undefined ? {} : { scope: assertScopeRef(raw.scope) })
   }
+}
+
+export function assertGetSettingOverridesRequest(value: unknown): GetSettingOverridesRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['scope'])
+  return { scope: assertScopeRef(raw.scope) }
 }
 
 /**

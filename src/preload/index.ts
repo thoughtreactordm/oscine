@@ -35,7 +35,12 @@ import type {
   ListRecentEpisodesQuery,
   SearchPodcastCatalogQuery
 } from '@shared/podcasts'
-import type { ResetSettingsRequest, SetSettingRequest, SettingsChange } from '@shared/settings'
+import type {
+  GetSettingOverridesRequest,
+  ResetSettingsRequest,
+  SetSettingRequest,
+  SettingsChange
+} from '@shared/settings'
 
 /**
  * The entire main/renderer seam.
@@ -180,6 +185,9 @@ const api = {
     /** Every durable key resolved, with whatever did not survive the load. */
     getAll: () => request('settings.getAll', null),
     /** Revalidated in main; the response carries what was actually stored. */
+    /** One entity's override rows, for a renderer resolving its own cascade. */
+    getOverrides: (payload: GetSettingOverridesRequest) =>
+      request('settings.getOverrides', payload),
     set: (payload: SetSettingRequest) => request('settings.set', payload),
     /** One key, one category, or every durable key. */
     reset: (payload: ResetSettingsRequest) => request('settings.reset', payload),

@@ -15,14 +15,20 @@
 import type BetterSqlite3 from 'better-sqlite3'
 import { FermataError } from '@shared/errors'
 import {
+  cascadeLayers,
   GLOBAL_SCOPE,
+  resolveCascade,
   resolveDefault,
   resolveSettings,
   validateValue,
+  type CascadeScopeRef,
   type GetAllSettingsResult,
+  type GetSettingOverridesResult,
   type ResetSettingsRequest,
   type SetSettingRequest,
+  type SettingCascade,
   type SettingDescriptor,
+  type SettingEntityKind,
   type SettingNotice,
   type SettingScopeRef,
   type SettingsChange,
@@ -34,8 +40,22 @@ import { SettingsStore, type WriteEntry } from './store'
 export interface SettingsService {
   /** The resolved global value for a durable key. Throws on an unknown key. */
   get<T>(key: string): T
+  /**
+   * One key resolved down the cascade, with the level that supplied it.
+   *
+   * Takes a descriptor rather than a key so the entity kinds are checked at
+   * compile time — see `CascadeScopeRef`. Main has no cascading consumer of its
+   * own yet; this exists because the card's premise is one resolution path, and
+   * a path only main's callers cannot reach is two.
+   */
+  resolve<T, C extends readonly SettingEntityKind[]>(
+    descriptor: SettingDescriptor<T, C>,
+    scope: CascadeScopeRef<C>
+  ): SettingCascade<T>
   /** Every durable key resolved, plus whatever did not survive the load. */
   getAll(): GetAllSettingsResult
+  /** The raw override rows at one scope, for a renderer that resolves its own. */
+  getOverrides(scope: SettingScopeRef): GetSettingOverridesResult
   set(request: SetSettingRequest): SettingsChange[]
   reset(request: ResetSettingsRequest): SettingsChange[]
   /** Notices raised while loading, for a log line at startup. */
@@ -66,6 +86,8 @@ export class SqliteSettingsService implements SettingsService {
 
   /** Resolved global values for every durable key, defaults included. */
   private values: Record<string, unknown> = {}
+  /** Of those, the ones a surviving global row supplied. See `storedKeys`. */
+  private stored = new Set<string>()
   private notices: SettingNotice[] = []
 
   constructor({
@@ -100,6 +122,14 @@ export class SqliteSettingsService implements SettingsService {
     this.notices = [...malformed, ...resolution.notices]
 
     const rejected = new Set(resolution.notices.map((notice) => notice.key))
+    // A row that was read and accepted is what makes a key "stored". One that was
+    // rejected left the default in `values`, and attributing the default to it
+    // would tell the cascade a level supplied a value it did not.
+    this.stored = new Set(
+      Object.keys(stored).filter(
+        (key) => !rejected.has(key) && this.byKey.get(key)?.scope === 'durable'
+      )
+    )
     const entries: WriteEntry[] = resolution.rewrite
       .filter((key) => !rejected.has(key))
       .map((key) => ({
@@ -128,8 +158,57 @@ export class SqliteSettingsService implements SettingsService {
     return this.values[key] as T
   }
 
+  /**
+   * Read the rows a cascade walks straight off the table rather than off
+   * `values`.
+   *
+   * `values` holds resolved globals with defaults already filled in, and a
+   * cascade has to tell a global row holding the default from no global row at
+   * all — the two produce different provenance and a different revert
+   * affordance. Two indexed point lookups is the honest way to get that.
+   */
+  resolve<T, C extends readonly SettingEntityKind[]>(
+    descriptor: SettingDescriptor<T, C>,
+    scope: CascadeScopeRef<C>
+  ): SettingCascade<T> {
+    if (descriptor.scope !== 'durable') {
+      throw new RangeError(`setting "${descriptor.key}" is view-scoped and does not live in main`)
+    }
+    return resolveCascade(
+      descriptor,
+      cascadeLayers(descriptor, scope, (level) => this.store.readKey(descriptor.key, level))
+    )
+  }
+
   getAll(): GetAllSettingsResult {
-    return { values: { ...this.values }, notices: [...this.notices] }
+    return {
+      values: { ...this.values },
+      storedKeys: [...this.stored],
+      notices: [...this.notices]
+    }
+  }
+
+  /**
+   * Every override row at one scope, unresolved and unfiltered by value.
+   *
+   * Rows for keys this build does not know, or that do not cascade to this kind
+   * of entity, are dropped rather than returned: the first are another branch's
+   * and the renderer has no descriptor to resolve them with, and the second
+   * cannot have been written by this build at all. Neither is deleted — the
+   * unknown-key preservation rule applies to a read as much as to a reset.
+   */
+  getOverrides(scope: SettingScopeRef): GetSettingOverridesResult {
+    const { stored, malformed } = this.store.readScope(scope)
+
+    const kept: GetSettingOverridesResult['stored'] = {}
+    for (const [key, entry] of Object.entries(stored)) {
+      const descriptor = this.byKey.get(key)
+      if (!descriptor || descriptor.scope !== 'durable') continue
+      if (scope.kind !== 'global' && !descriptor.cascade.includes(scope.kind)) continue
+      kept[key] = entry
+    }
+
+    return { scope, stored: kept, notices: malformed }
   }
 
   loadNotices(): readonly SettingNotice[] {
@@ -157,9 +236,12 @@ export class SqliteSettingsService implements SettingsService {
     }
 
     this.store.put([{ key, scope, value: resolved.value, version: descriptor.version }], this.now())
-    if (scope.kind === 'global') this.values[key] = resolved.value
+    if (scope.kind === 'global') {
+      this.values[key] = resolved.value
+      this.stored.add(key)
+    }
 
-    return this.announce([{ key, scope, value: resolved.value }])
+    return this.announce([{ key, scope, value: resolved.value, cleared: false }])
   }
 
   /**
@@ -198,16 +280,23 @@ export class SqliteSettingsService implements SettingsService {
       if (scope.kind !== 'global') {
         if (!removed.has(descriptor.key)) continue
         // Dropping an override leaves the global value in effect: there is
-        // nothing between the two for it to fall through to.
-        changes.push({ key: descriptor.key, scope, value: this.values[descriptor.key] })
+        // nothing between the two for it to fall through to. `cleared` is what
+        // tells a listener that apart from setting the override *to* that value.
+        changes.push({
+          key: descriptor.key,
+          scope,
+          value: this.values[descriptor.key],
+          cleared: true
+        })
         continue
       }
 
       const next = resolveDefault(descriptor)
       const differs = !sameJson(this.values[descriptor.key], next)
       this.values[descriptor.key] = next
+      this.stored.delete(descriptor.key)
       if (differs || removed.has(descriptor.key)) {
-        changes.push({ key: descriptor.key, scope, value: next })
+        changes.push({ key: descriptor.key, scope, value: next, cleared: true })
       }
     }
 

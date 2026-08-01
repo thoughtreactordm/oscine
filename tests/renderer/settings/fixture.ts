@@ -1,13 +1,17 @@
 import {
   GLOBAL_SCOPE,
+  isGlobalScope,
   resolveDefault,
+  scopeKey,
   SETTINGS_REGISTRY,
   validateValue,
   type ResetSettingsRequest,
   type SetSettingRequest,
   type SettingDescriptor,
   type SettingNotice,
-  type SettingsChange
+  type SettingScopeRef,
+  type SettingsChange,
+  type StoredSetting
 } from '../../../src/shared/settings'
 import {
   createSettingsStore,
@@ -37,10 +41,15 @@ export function viewSettingsFixture(seed: Readonly<Record<string, unknown>> = {}
 }
 
 export interface DurableBridgeFixture extends DurableSettingsBridge {
-  /** What the fake main holds, by key. */
+  /** What the fake main holds at global scope, by key. */
   readonly rows: Map<string, unknown>
+  /** Override rows, keyed by `scopeKey` then by setting key. */
+  readonly overrides: Map<string, Map<string, unknown>>
+  /** Seed an override row without going through `set`, as main's table would hold it. */
+  seedOverride(scope: SettingScopeRef, key: string, value: unknown): void
   readonly calls: {
     getAll: number
+    getOverrides: SettingScopeRef[]
     set: SetSettingRequest[]
     reset: ResetSettingsRequest[]
   }
@@ -82,8 +91,14 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
   const descriptors = options.descriptors ?? SETTINGS_REGISTRY
   const byKey = new Map(descriptors.map((descriptor) => [descriptor.key, descriptor]))
   const rows = new Map(Object.entries(options.stored ?? {}))
+  const overrides = new Map<string, Map<string, unknown>>()
   const listeners = new Set<(changes: SettingsChange[]) => void>()
-  const calls = { getAll: 0, set: [] as SetSettingRequest[], reset: [] as ResetSettingsRequest[] }
+  const calls = {
+    getAll: 0,
+    getOverrides: [] as SettingScopeRef[],
+    set: [] as SetSettingRequest[],
+    reset: [] as ResetSettingsRequest[]
+  }
 
   let releaseGetAll: (() => void) | null = null
 
@@ -97,11 +112,27 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
     return descriptor
   }
 
+  /** The map a scope's rows live in — the flat one for global, a nested one otherwise. */
+  function rowsFor(scope: SettingScopeRef): Map<string, unknown> {
+    if (isGlobalScope(scope)) return rows
+    const key = scopeKey(scope)
+    let scoped = overrides.get(key)
+    if (!scoped) {
+      scoped = new Map()
+      overrides.set(key, scoped)
+    }
+    return scoped
+  }
+
   return {
     rows,
+    overrides,
     calls,
     answerGetAll: () => releaseGetAll?.(),
     announce,
+    seedOverride: (scope, key, value) => {
+      rowsFor(scope).set(key, value)
+    },
 
     async getAll() {
       calls.getAll += 1
@@ -117,7 +148,22 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
           ? rows.get(descriptor.key)
           : resolveDefault(descriptor)
       }
-      return { values, notices: [...(options.notices ?? [])] }
+      return {
+        values,
+        storedKeys: [...rows.keys()],
+        notices: [...(options.notices ?? [])]
+      }
+    },
+
+    async getOverrides(request) {
+      calls.getOverrides.push(request.scope)
+      const stored: Record<string, StoredSetting> = {}
+      for (const [key, value] of rowsFor(request.scope)) {
+        // Written by this build, so at this build's version — which is what the
+        // real table holds for a row main has just accepted.
+        stored[key] = { value, version: descriptorFor(key).version }
+      }
+      return { scope: request.scope, stored, notices: [] }
     },
 
     async set(request) {
@@ -132,9 +178,10 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
       const resolved = validateValue(descriptor, request.value)
       if (resolved.notice) throw new Error(`${request.key}: ${resolved.notice.reason}`)
 
+      const scope = request.scope ?? GLOBAL_SCOPE
       const stored = options.repair ? options.repair(request) : resolved.value
-      rows.set(request.key, stored)
-      const changes = [{ key: request.key, scope: request.scope ?? GLOBAL_SCOPE, value: stored }]
+      rowsFor(scope).set(request.key, stored)
+      const changes = [{ key: request.key, scope, value: stored, cleared: false }]
       // Main broadcasts to every window, the caller's included.
       announce(changes)
       return changes
@@ -142,6 +189,7 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
 
     async reset(request) {
       calls.reset.push(request)
+      const scope = request.scope ?? GLOBAL_SCOPE
       const targets =
         request.key !== undefined
           ? [descriptorFor(request.key)]
@@ -149,12 +197,13 @@ export function durableBridgeFixture(options: DurableBridgeOptions = {}): Durabl
 
       const changes: SettingsChange[] = []
       for (const descriptor of targets) {
-        if (!rows.delete(descriptor.key)) continue
-        changes.push({
-          key: descriptor.key,
-          scope: request.scope ?? GLOBAL_SCOPE,
-          value: resolveDefault(descriptor)
-        })
+        if (!rowsFor(scope).delete(descriptor.key)) continue
+        // At an entity scope the value that now applies is the global one, not
+        // the descriptor default: dropping an override falls one level, not two.
+        const value = isGlobalScope(scope)
+          ? resolveDefault(descriptor)
+          : (rows.get(descriptor.key) ?? resolveDefault(descriptor))
+        changes.push({ key: descriptor.key, scope, value, cleared: true })
       }
       if (changes.length) announce(changes)
       return changes

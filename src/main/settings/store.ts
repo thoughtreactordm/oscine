@@ -72,6 +72,33 @@ export class SettingsStore {
   }
 
   /**
+   * One key at one scope, or null when there is no row.
+   *
+   * The point lookup a cascade walks. It serves the primary key directly, so
+   * resolving a three-level cascade is two indexed reads rather than a scan —
+   * which is what lets `resolve` be called per boundary without a cache in front
+   * of it.
+   *
+   * A row whose JSON will not parse comes back as null rather than throwing: a
+   * damaged override should fall through to the next level, and that decision
+   * belongs to `resolveCascade`, which cannot make it if this layer raises.
+   */
+  readKey(key: string, scope: SettingScopeRef): StoredSetting | null {
+    const row = this.db
+      .prepare<[string, string, number | null], Omit<SettingRow, 'key'>>(
+        'SELECT value, version FROM settings WHERE key = ? AND scope_kind = ? AND scope_id IS ?'
+      )
+      .get(key, scope.kind, scope.id)
+    if (row === undefined) return null
+
+    try {
+      return { value: JSON.parse(row.value) as unknown, version: row.version }
+    } catch {
+      return null
+    }
+  }
+
+  /**
    * Insert or replace, as one transaction.
    *
    * Delete-then-insert rather than `ON CONFLICT`, because the conflict target

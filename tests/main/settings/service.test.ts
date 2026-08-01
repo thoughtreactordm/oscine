@@ -5,6 +5,7 @@ import { SqliteSettingsService } from '../../../src/main/settings'
 import {
   booleanValue,
   defineSetting,
+  GLOBAL_SCOPE,
   integerValue,
   type SettingDescriptor,
   type SettingsChange
@@ -20,25 +21,32 @@ import {
  */
 const upgrades: number[] = []
 
+/**
+ * Held apart from the list so its `cascade` survives into the type — the list is
+ * the erased form, and `resolve` takes a descriptor precisely so a caller with
+ * one in hand gets the compile-time check `SETTINGS_REGISTRY` cannot give.
+ */
+const TEST_VOLUME = defineSetting({
+  key: 'test.volume',
+  scope: 'durable',
+  default: 80,
+  version: 3,
+  upgrade: (oldValue, oldVersion) => {
+    upgrades.push(oldVersion)
+    // v1 stored 0–10, v2 stored 0–100, v3 clamps the same range.
+    return oldVersion === 1 ? (oldValue as number) * 10 : oldValue
+  },
+  validate: integerValue({ min: 0, max: 100 }),
+  cascade: ['playlist'],
+  control: { kind: 'slider', min: 0, max: 100 },
+  category: 'audio',
+  label: 'Volume',
+  help: 'Playback volume.',
+  order: 10
+})
+
 const TEST_REGISTRY: readonly SettingDescriptor[] = [
-  defineSetting<number>({
-    key: 'test.volume',
-    scope: 'durable',
-    default: 80,
-    version: 3,
-    upgrade: (oldValue, oldVersion) => {
-      upgrades.push(oldVersion)
-      // v1 stored 0–10, v2 stored 0–100, v3 clamps the same range.
-      return oldVersion === 1 ? (oldValue as number) * 10 : oldValue
-    },
-    validate: integerValue({ min: 0, max: 100 }),
-    cascade: ['playlist'],
-    control: { kind: 'slider', min: 0, max: 100 },
-    category: 'audio',
-    label: 'Volume',
-    help: 'Playback volume.',
-    order: 10
-  }),
+  TEST_VOLUME,
   defineSetting<boolean>({
     key: 'test.gapless',
     scope: 'durable',
@@ -141,7 +149,7 @@ describe('SqliteSettingsService', () => {
 
     const changes = service(db).set({ key: 'test.volume', value: 35 })
     expect(changes).toEqual([
-      { key: 'test.volume', scope: { kind: 'global', id: null }, value: 35 }
+      { key: 'test.volume', scope: { kind: 'global', id: null }, value: 35, cleared: false }
     ])
 
     expect(rows(db)).toEqual([
@@ -163,7 +171,7 @@ describe('SqliteSettingsService', () => {
     const db = libraryDb()
 
     expect(service(db).set({ key: 'test.volume', value: 400 })).toEqual([
-      { key: 'test.volume', scope: { kind: 'global', id: null }, value: 100 }
+      { key: 'test.volume', scope: { kind: 'global', id: null }, value: 100, cleared: false }
     ])
     expect(rows(db)[0]).toMatchObject({ value: '100' })
   })
@@ -336,7 +344,7 @@ describe('SqliteSettingsService', () => {
     settings.set({ key: 'test.gapless', value: false })
 
     expect(settings.reset({ key: 'test.volume' })).toEqual([
-      { key: 'test.volume', scope: { kind: 'global', id: null }, value: 80 }
+      { key: 'test.volume', scope: { kind: 'global', id: null }, value: 80, cleared: true }
     ])
     expect(settings.get('test.volume')).toBe(80)
     expect(settings.get('test.gapless')).toBe(false)
@@ -344,7 +352,7 @@ describe('SqliteSettingsService', () => {
     // 'playback' holds test.gapless; 'audio' holds test.volume, already reset.
     expect(settings.reset({ category: 'audio' })).toEqual([])
     expect(settings.reset({ category: 'playback' })).toEqual([
-      { key: 'test.gapless', scope: { kind: 'global', id: null }, value: true }
+      { key: 'test.gapless', scope: { kind: 'global', id: null }, value: true, cleared: true }
     ])
     expect(rows(db)).toEqual([])
 
@@ -360,7 +368,7 @@ describe('SqliteSettingsService', () => {
     settings.set({ key: 'test.volume', value: 90, scope: { kind: 'playlist', id: 7 } })
 
     expect(settings.reset({ key: 'test.volume', scope: { kind: 'playlist', id: 7 } })).toEqual([
-      { key: 'test.volume', scope: { kind: 'playlist', id: 7 }, value: 40 }
+      { key: 'test.volume', scope: { kind: 'playlist', id: 7 }, value: 40, cleared: true }
     ])
     expect(rows(db).map((row) => row.scope_kind)).toEqual(['global'])
     expect(settings.get('test.volume')).toBe(40)
@@ -377,8 +385,8 @@ describe('SqliteSettingsService', () => {
     settings.reset({ key: 'test.volume' })
 
     expect(changes).toEqual([
-      [{ key: 'test.volume', scope: { kind: 'global', id: null }, value: 100 }],
-      [{ key: 'test.volume', scope: { kind: 'global', id: null }, value: 80 }]
+      [{ key: 'test.volume', scope: { kind: 'global', id: null }, value: 100, cleared: false }],
+      [{ key: 'test.volume', scope: { kind: 'global', id: null }, value: 80, cleared: true }]
     ])
   })
 
@@ -387,6 +395,171 @@ describe('SqliteSettingsService', () => {
 
     expect(() => settings.get('test.nope')).toThrow(RangeError)
     expect(() => settings.get('view.paneWidth')).toThrow(/view-scoped/)
+  })
+
+  describe('cascade resolution', () => {
+    it('walks default, global and override in that order', () => {
+      const db = libraryDb()
+      const settings = service(db)
+      const playlist = { kind: 'playlist', id: 7 } as const
+
+      expect(settings.resolve(TEST_VOLUME, playlist)).toMatchObject({
+        value: 80,
+        provenance: { level: 'default' },
+        overridden: false
+      })
+
+      settings.set({ key: 'test.volume', value: 40 })
+      expect(settings.resolve(TEST_VOLUME, playlist)).toMatchObject({
+        value: 40,
+        provenance: { level: 'stored', scope: { kind: 'global' } },
+        overridden: false,
+        inherited: 40
+      })
+
+      settings.set({ key: 'test.volume', value: 90, scope: playlist })
+      expect(settings.resolve(TEST_VOLUME, playlist)).toMatchObject({
+        value: 90,
+        provenance: { level: 'stored', scope: playlist },
+        overridden: true,
+        inherited: 40
+      })
+    })
+
+    /**
+     * The one a `??` chain gets wrong. Both rows hold 40, and the override is
+     * still an override — reverting it is a thing the operator can do and a
+     * later change to the global must not do it for them.
+     */
+    it('keeps an override equal to the value it would inherit', () => {
+      const settings = service(libraryDb())
+      const playlist = { kind: 'playlist', id: 7 } as const
+
+      settings.set({ key: 'test.volume', value: 40 })
+      settings.set({ key: 'test.volume', value: 40, scope: playlist })
+
+      expect(settings.resolve(TEST_VOLUME, playlist)).toMatchObject({
+        value: 40,
+        overridden: true,
+        provenance: { level: 'stored', scope: playlist }
+      })
+    })
+
+    it('tells a global row holding the default from no global row', () => {
+      const settings = service(libraryDb())
+
+      expect(settings.resolve(TEST_VOLUME, GLOBAL_SCOPE).overridden).toBe(false)
+      settings.set({ key: 'test.volume', value: 80 })
+      expect(settings.resolve(TEST_VOLUME, GLOBAL_SCOPE)).toMatchObject({
+        value: 80,
+        overridden: true,
+        inherited: 80,
+        inheritedFrom: { level: 'default' }
+      })
+    })
+
+    it('upgrades an override row on read, like any other stored value', () => {
+      const db = libraryDb()
+      seed(db, [{ key: 'test.volume', value: '5', version: 1, scope: ['playlist', 7] }])
+
+      expect(service(db).resolve(TEST_VOLUME, { kind: 'playlist', id: 7 }).value).toBe(50)
+    })
+
+    it('falls through a damaged override to the global row', () => {
+      const db = libraryDb()
+      seed(db, [
+        { key: 'test.volume', value: '30', version: 3 },
+        { key: 'test.volume', value: '"nonsense"', version: 3, scope: ['playlist', 7] }
+      ])
+
+      const resolved = service(db).resolve(TEST_VOLUME, { kind: 'playlist', id: 7 })
+      expect(resolved.value).toBe(30)
+      expect(resolved.overridden).toBe(false)
+      expect(resolved.notices).toHaveLength(1)
+    })
+
+    it('refuses a scope the key does not cascade to', () => {
+      const settings = service(libraryDb())
+
+      expect(() =>
+        // @ts-expect-error test.volume cascades to playlist only
+        settings.resolve(TEST_VOLUME, { kind: 'album', id: 1 })
+      ).toThrow(/cannot be overridden per album/)
+    })
+  })
+
+  describe('getOverrides', () => {
+    it('returns one scope’s rows unresolved', () => {
+      const db = libraryDb()
+      const settings = service(db)
+      settings.set({ key: 'test.volume', value: 40 })
+      settings.set({ key: 'test.volume', value: 90, scope: { kind: 'playlist', id: 7 } })
+
+      expect(settings.getOverrides({ kind: 'playlist', id: 7 })).toEqual({
+        scope: { kind: 'playlist', id: 7 },
+        stored: { 'test.volume': { value: 90, version: 3 } },
+        notices: []
+      })
+      // A different playlist has none of it.
+      expect(settings.getOverrides({ kind: 'playlist', id: 8 }).stored).toEqual({})
+    })
+
+    it('drops rows the renderer could not resolve, without deleting them', () => {
+      const db = libraryDb()
+      seed(db, [
+        // A branch this build has never heard of.
+        { key: 'test.fromAnotherBranch', value: '1', version: 1, scope: ['playlist', 7] },
+        // Real key, but it does not cascade to a playlist at all.
+        { key: 'test.gapless', value: 'false', version: 1, scope: ['playlist', 7] },
+        { key: 'test.volume', value: '90', version: 3, scope: ['playlist', 7] }
+      ])
+      const settings = service(db)
+
+      expect(Object.keys(settings.getOverrides({ kind: 'playlist', id: 7 }).stored)).toEqual([
+        'test.volume'
+      ])
+      // Dropped from the answer, kept on disk — the unknown-key rule.
+      expect(rows(db)).toHaveLength(3)
+    })
+
+    it('reports a row whose JSON will not parse rather than coercing it', () => {
+      const db = libraryDb()
+      seed(db, [{ key: 'test.volume', value: '{oops', version: 3, scope: ['playlist', 7] }])
+
+      const result = service(db).getOverrides({ kind: 'playlist', id: 7 })
+      expect(result.stored).toEqual({})
+      expect(result.notices).toHaveLength(1)
+    })
+  })
+
+  describe('storedKeys', () => {
+    it('names the keys a surviving global row supplied, and only those', () => {
+      const db = libraryDb()
+      // A value equal to the default: indistinguishable from absent by value.
+      seed(db, [
+        { key: 'test.volume', value: '80', version: 3 },
+        { key: 'test.gapless', value: '"not a boolean"', version: 1 }
+      ])
+
+      const { values, storedKeys } = service(db).getAll()
+      expect(values).toMatchObject({ 'test.volume': 80, 'test.gapless': true })
+      // The gapless row was rejected, so the default in `values` did not come
+      // from it and attributing it to a row would misname the provenance.
+      expect(storedKeys).toEqual(['test.volume'])
+    })
+
+    it('follows a write and a reset', () => {
+      const settings = service(libraryDb())
+
+      expect(settings.getAll().storedKeys).toEqual([])
+      settings.set({ key: 'test.volume', value: 40 })
+      expect(settings.getAll().storedKeys).toEqual(['test.volume'])
+      // An override is not a global row.
+      settings.set({ key: 'test.volume', value: 90, scope: { kind: 'playlist', id: 7 } })
+      expect(settings.getAll().storedKeys).toEqual(['test.volume'])
+      settings.reset({ key: 'test.volume' })
+      expect(settings.getAll().storedKeys).toEqual([])
+    })
   })
 
   it('resolves against the real registry before any window could exist', () => {

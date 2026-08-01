@@ -230,7 +230,9 @@ describe('settings store', () => {
       await store.ready
 
       const seen = watched(() => store.get<number>(CROSSFADE))
-      bridge.announce([{ key: CROSSFADE, scope: { kind: 'global', id: null }, value: 4000 }])
+      bridge.announce([
+        { key: CROSSFADE, scope: { kind: 'global', id: null }, value: 4000, cleared: false }
+      ])
       await Promise.resolve()
 
       expect(store.get<number>(CROSSFADE)).toBe(4000)
@@ -248,7 +250,9 @@ describe('settings store', () => {
       // Main announces to every window including the one that asked. A store
       // that treated an incoming change as a change *of its own* would write
       // again here, and the two would volley for as long as anyone watched.
-      bridge.announce([{ key: CROSSFADE, scope: { kind: 'global', id: null }, value: 2500 }])
+      bridge.announce([
+        { key: CROSSFADE, scope: { kind: 'global', id: null }, value: 2500, cleared: false }
+      ])
       await store.flush()
 
       expect(bridge.calls.set).toHaveLength(1)
@@ -260,7 +264,9 @@ describe('settings store', () => {
       await store.ready
 
       store.set(CROSSFADE, 800)
-      bridge.announce([{ key: CROSSFADE, scope: { kind: 'global', id: null }, value: 200 }])
+      bridge.announce([
+        { key: CROSSFADE, scope: { kind: 'global', id: null }, value: 200, cleared: false }
+      ])
 
       expect(store.get<number>(CROSSFADE)).toBe(800)
     })
@@ -271,7 +277,9 @@ describe('settings store', () => {
 
       // W8-5 owns resolution; this surface has one slot per key and it holds the
       // global value, so a playlist's override must not land in it.
-      bridge.announce([{ key: CROSSFADE, scope: { kind: 'playlist', id: 7 }, value: 6000 }])
+      bridge.announce([
+        { key: CROSSFADE, scope: { kind: 'playlist', id: 7 }, value: 6000, cleared: false }
+      ])
 
       expect(store.get<number>(CROSSFADE)).toBe(1000)
     })

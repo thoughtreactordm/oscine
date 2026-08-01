@@ -20,7 +20,12 @@ import type {
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
-import type { ResetSettingsRequest, SetSettingRequest, SettingsChange } from '@shared/settings'
+import type {
+  GetSettingOverridesRequest,
+  ResetSettingsRequest,
+  SetSettingRequest,
+  SettingsChange
+} from '@shared/settings'
 import type {
   BrowsePodcastCategoryQuery,
   EpisodeDownloadProgress,
@@ -147,6 +152,8 @@ export const podcasts = {
  */
 export const settings = {
   getAll: () => unwrap(window.fermata.settings.getAll()),
+  getOverrides: (payload: GetSettingOverridesRequest) =>
+    unwrap(window.fermata.settings.getOverrides(payload)),
   set: (payload: SetSettingRequest) => unwrap(window.fermata.settings.set(payload)),
   reset: (payload: ResetSettingsRequest) => unwrap(window.fermata.settings.reset(payload)),
   /** Returns an unsubscribe function. Call it on unmount. */

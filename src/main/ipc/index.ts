@@ -24,6 +24,7 @@ import {
   assertListTrackIdsQuery,
   assertListTracksQuery,
   assertMoveEntriesRequest,
+  assertGetSettingOverridesRequest,
   assertGetTracksByIdsQuery,
   assertOpmlXml,
   assertOrderTrackIdsQuery,
@@ -290,6 +291,10 @@ export function registerIpcHandlers(
   })
 
   handle('settings.getAll', () => settings.getAll())
+
+  handle('settings.getOverrides', (request) =>
+    settings.getOverrides(assertGetSettingOverridesRequest(request).scope)
+  )
 
   handle('settings.set', (request) => settings.set(assertSetSettingRequest(request)))
 
