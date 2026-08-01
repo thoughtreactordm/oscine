@@ -1,5 +1,6 @@
 import type { Component } from 'vue'
 import OutputDeviceControl from './OutputDeviceControl.vue'
+import ThemeEditorControl from './theme/ThemeEditorControl.vue'
 
 /**
  * The escape hatch, and the register of who has used it.
@@ -18,9 +19,20 @@ import OutputDeviceControl from './OutputDeviceControl.vue'
  * `OutputDeviceControl` is the first entry and the kind of key this hatch was
  * left open for: its options are not a list the registry could hold, they are
  * whatever hardware is connected at the moment the view is open.
+ *
+ * `themeEditor` is the second, and the other shape the hatch is for: W8-12's
+ * `theme.overrides` holds a validated map (T6), and a map has no generic
+ * control. Two entries for two genuinely different reasons is the register
+ * working; a dozen would mean the generated surface had quietly stopped being
+ * generated.
+ *
+ * The key is the name in the descriptor, not the component's — `themeEditor` is
+ * what `src/shared/settings/theme.ts` writes, and `src/shared` cannot import a
+ * renderer component to say so.
  */
 export const CUSTOM_SETTING_CONTROLS: Readonly<Record<string, Component>> = Object.freeze({
-  OutputDeviceControl
+  OutputDeviceControl,
+  themeEditor: ThemeEditorControl
 })
 
 export function customSettingControl(name: string): Component | null {
