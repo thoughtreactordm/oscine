@@ -1,0 +1,210 @@
+/*
+ * The bridge: Fermata tokens in, Tailwind and Nuxt UI variables out.
+ *
+ * This file is the whole reason a theme swap touches zero component code. The
+ * 40 components in this app render against Nuxt UI's semantic classes —
+ * `text-highlighted`, `bg-elevated`, `border-default` — and Tailwind's utilities.
+ * Neither knows a colour. Assigning the variables those classes resolve to,
+ * from the token layer, is what makes the whole surface themeable without an
+ * edit.
+ *
+ * Nothing here declares a value. Every right-hand side is a `--fermata-*`
+ * custom property that `applyTheme.ts` writes at runtime. That separation is
+ * load-bearing: the bridge is static and auditable, and the runtime only ever
+ * writes tokens, so there is exactly one place a colour can enter the app.
+ */
+
+:root {
+  /*
+   * The two ramps Nuxt UI's semantic variables are built from, plus the four
+   * status ramps its components reach for by name. `@theme default inline`
+   * compiles `bg-primary-500` to a direct `var(--ui-color-primary-500)`
+   * reference rather than a build-frozen value, which is what leaves these
+   * live at runtime and makes the whole approach work.
+   */
+  --ui-color-primary-50: var(--fermata-color-primary-50);
+  --ui-color-primary-100: var(--fermata-color-primary-100);
+  --ui-color-primary-200: var(--fermata-color-primary-200);
+  --ui-color-primary-300: var(--fermata-color-primary-300);
+  --ui-color-primary-400: var(--fermata-color-primary-400);
+  --ui-color-primary-500: var(--fermata-color-primary-500);
+  --ui-color-primary-600: var(--fermata-color-primary-600);
+  --ui-color-primary-700: var(--fermata-color-primary-700);
+  --ui-color-primary-800: var(--fermata-color-primary-800);
+  --ui-color-primary-900: var(--fermata-color-primary-900);
+  --ui-color-primary-950: var(--fermata-color-primary-950);
+
+  --ui-color-secondary-50: var(--fermata-color-secondary-50);
+  --ui-color-secondary-100: var(--fermata-color-secondary-100);
+  --ui-color-secondary-200: var(--fermata-color-secondary-200);
+  --ui-color-secondary-300: var(--fermata-color-secondary-300);
+  --ui-color-secondary-400: var(--fermata-color-secondary-400);
+  --ui-color-secondary-500: var(--fermata-color-secondary-500);
+  --ui-color-secondary-600: var(--fermata-color-secondary-600);
+  --ui-color-secondary-700: var(--fermata-color-secondary-700);
+  --ui-color-secondary-800: var(--fermata-color-secondary-800);
+  --ui-color-secondary-900: var(--fermata-color-secondary-900);
+  --ui-color-secondary-950: var(--fermata-color-secondary-950);
+
+  --ui-color-success-50: var(--fermata-color-success-50);
+  --ui-color-success-100: var(--fermata-color-success-100);
+  --ui-color-success-200: var(--fermata-color-success-200);
+  --ui-color-success-300: var(--fermata-color-success-300);
+  --ui-color-success-400: var(--fermata-color-success-400);
+  --ui-color-success-500: var(--fermata-color-success-500);
+  --ui-color-success-600: var(--fermata-color-success-600);
+  --ui-color-success-700: var(--fermata-color-success-700);
+  --ui-color-success-800: var(--fermata-color-success-800);
+  --ui-color-success-900: var(--fermata-color-success-900);
+  --ui-color-success-950: var(--fermata-color-success-950);
+
+  --ui-color-info-50: var(--fermata-color-info-50);
+  --ui-color-info-100: var(--fermata-color-info-100);
+  --ui-color-info-200: var(--fermata-color-info-200);
+  --ui-color-info-300: var(--fermata-color-info-300);
+  --ui-color-info-400: var(--fermata-color-info-400);
+  --ui-color-info-500: var(--fermata-color-info-500);
+  --ui-color-info-600: var(--fermata-color-info-600);
+  --ui-color-info-700: var(--fermata-color-info-700);
+  --ui-color-info-800: var(--fermata-color-info-800);
+  --ui-color-info-900: var(--fermata-color-info-900);
+  --ui-color-info-950: var(--fermata-color-info-950);
+
+  --ui-color-warning-50: var(--fermata-color-warning-50);
+  --ui-color-warning-100: var(--fermata-color-warning-100);
+  --ui-color-warning-200: var(--fermata-color-warning-200);
+  --ui-color-warning-300: var(--fermata-color-warning-300);
+  --ui-color-warning-400: var(--fermata-color-warning-400);
+  --ui-color-warning-500: var(--fermata-color-warning-500);
+  --ui-color-warning-600: var(--fermata-color-warning-600);
+  --ui-color-warning-700: var(--fermata-color-warning-700);
+  --ui-color-warning-800: var(--fermata-color-warning-800);
+  --ui-color-warning-900: var(--fermata-color-warning-900);
+  --ui-color-warning-950: var(--fermata-color-warning-950);
+
+  --ui-color-error-50: var(--fermata-color-error-50);
+  --ui-color-error-100: var(--fermata-color-error-100);
+  --ui-color-error-200: var(--fermata-color-error-200);
+  --ui-color-error-300: var(--fermata-color-error-300);
+  --ui-color-error-400: var(--fermata-color-error-400);
+  --ui-color-error-500: var(--fermata-color-error-500);
+  --ui-color-error-600: var(--fermata-color-error-600);
+  --ui-color-error-700: var(--fermata-color-error-700);
+  --ui-color-error-800: var(--fermata-color-error-800);
+  --ui-color-error-900: var(--fermata-color-error-900);
+  --ui-color-error-950: var(--fermata-color-error-950);
+
+  --ui-color-neutral-50: var(--fermata-color-neutral-50);
+  --ui-color-neutral-100: var(--fermata-color-neutral-100);
+  --ui-color-neutral-200: var(--fermata-color-neutral-200);
+  --ui-color-neutral-300: var(--fermata-color-neutral-300);
+  --ui-color-neutral-400: var(--fermata-color-neutral-400);
+  --ui-color-neutral-500: var(--fermata-color-neutral-500);
+  --ui-color-neutral-600: var(--fermata-color-neutral-600);
+  --ui-color-neutral-700: var(--fermata-color-neutral-700);
+  --ui-color-neutral-800: var(--fermata-color-neutral-800);
+  --ui-color-neutral-900: var(--fermata-color-neutral-900);
+  --ui-color-neutral-950: var(--fermata-color-neutral-950);
+
+  /*
+   * The single accent per role. `--color-primary: var(--ui-primary)` ships in
+   * the generated stylesheet with nothing anywhere defining `--ui-primary`, so
+   * without these `text-primary` and `bg-primary` resolve to an undefined
+   * custom property.
+   */
+  --ui-primary: var(--fermata-accent-primary);
+  --ui-secondary: var(--fermata-accent-secondary);
+  --ui-success: var(--fermata-accent-success);
+  --ui-info: var(--fermata-accent-info);
+  --ui-warning: var(--fermata-accent-warning);
+  --ui-error: var(--fermata-accent-error);
+  --ui-neutral: var(--fermata-color-neutral-500);
+
+  /* Surfaces, text weights and borders. */
+  --ui-bg: var(--fermata-surface-base);
+  --ui-bg-muted: var(--fermata-surface-muted);
+  --ui-bg-elevated: var(--fermata-surface-elevated);
+  --ui-bg-accented: var(--fermata-surface-accented);
+  --ui-bg-inverted: var(--fermata-surface-inverted);
+
+  --ui-text-dimmed: var(--fermata-text-dimmed);
+  --ui-text-muted: var(--fermata-text-muted);
+  --ui-text-toned: var(--fermata-text-toned);
+  --ui-text: var(--fermata-text-base);
+  --ui-text-highlighted: var(--fermata-text-highlighted);
+  --ui-text-inverted: var(--fermata-text-inverted);
+
+  --ui-border: var(--fermata-border-base);
+  --ui-border-muted: var(--fermata-border-muted);
+  --ui-border-accented: var(--fermata-border-accented);
+  --ui-border-inverted: var(--fermata-border-inverted);
+
+  /*
+   * Shape. Tailwind compiles `rounded-lg` to `var(--radius-lg)`, so redefining
+   * the ladder from one base re-shapes every rounded thing in the app. The
+   * multipliers are Tailwind's own ratios against its 0.25rem `--radius-sm`,
+   * kept so a theme that leaves `shape.radius` alone renders identically.
+   */
+  --ui-radius: var(--fermata-shape-radius);
+  --radius-xs: calc(var(--fermata-shape-radius) * 0.5);
+  --radius-sm: var(--fermata-shape-radius);
+  --radius-md: calc(var(--fermata-shape-radius) * 1.5);
+  --radius-lg: calc(var(--fermata-shape-radius) * 2);
+  --radius-xl: calc(var(--fermata-shape-radius) * 3);
+  --radius-2xl: calc(var(--fermata-shape-radius) * 4);
+  --radius-3xl: calc(var(--fermata-shape-radius) * 6);
+  --radius-4xl: calc(var(--fermata-shape-radius) * 8);
+
+  /* Type scale, on Tailwind's ratios against its 1rem `--text-base`. */
+  --text-xs: calc(var(--fermata-type-base-size) * 0.75);
+  --text-sm: calc(var(--fermata-type-base-size) * 0.875);
+  --text-base: var(--fermata-type-base-size);
+  --text-lg: calc(var(--fermata-type-base-size) * 1.125);
+  --text-xl: calc(var(--fermata-type-base-size) * 1.25);
+  --text-2xl: calc(var(--fermata-type-base-size) * 1.5);
+  --text-3xl: calc(var(--fermata-type-base-size) * 1.875);
+  --text-4xl: calc(var(--fermata-type-base-size) * 2.25);
+
+  /* Motion. Both are clamped to zero upstream when the OS asks — see T12. */
+  --default-transition-duration: var(--fermata-motion-duration);
+  --default-transition-timing-function: var(--fermata-motion-easing);
+
+  --font-sans: var(--fermata-type-body-family);
+}
+
+/*
+ * Type roles.
+ *
+ * `--default-font-family` resolves at build time through Tailwind's `--theme()`
+ * function, so overriding `--font-sans` alone does not move the body font. It
+ * has to be set on the element.
+ *
+ * The three roles attach to selectors that already exist, which is the whole
+ * constraint: headings are real `h1`–`h3` elements, and every list in the app
+ * is either a Nuxt UI table, a listbox, or a role-annotated list. No component
+ * gains a class to make this work.
+ */
+body {
+  font-family: var(--fermata-type-body-family);
+  font-weight: var(--fermata-type-body-weight);
+  font-style: var(--fermata-type-body-style);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--fermata-type-heading-family);
+  font-weight: var(--fermata-type-heading-weight);
+  font-style: var(--fermata-type-heading-style);
+}
+
+table tbody td,
+[role='option'],
+[role='listitem'] {
+  font-family: var(--fermata-type-list-family);
+  font-weight: var(--fermata-type-list-weight);
+  font-style: var(--fermata-type-list-style);
+}

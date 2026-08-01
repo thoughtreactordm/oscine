@@ -132,7 +132,6 @@ export type ThemeMode = 'light' | 'dark'
  */
 export const STRUCTURAL_DEFAULTS: Readonly<Record<string, string>> = {
   'shape.radius': '0.25rem',
-  'shape.borderWidth': '1px',
 
   'type.baseSize': '1rem',
   'type.heading.family':

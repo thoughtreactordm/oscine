@@ -327,17 +327,16 @@ const STRUCTURAL: readonly TokenDescriptor[] = [
     order: 10,
     public: true
   },
-  {
-    id: 'shape.borderWidth',
-    cssVar: '--fermata-shape-border-width',
-    kind: 'length',
-    group: 'shape',
-    label: 'Border width',
-    help: 'How heavy a drawn edge is.',
-    keywords: ['border', 'outline', 'weight', 'hairline'],
-    order: 20,
-    public: true
-  },
+  /*
+   * There is no border-width token, and it is not an oversight.
+   *
+   * Tailwind compiles `.border` to a literal `border-width: 1px` with no
+   * variable behind it — unlike `--radius-*` and `--text-*`, which are exactly
+   * why shape and type are themeable at all. A border-width token could be
+   * defined, would appear in the editor, would accept a value, and would change
+   * nothing until all 40 components had their `border` classes rewritten. A
+   * control that silently does nothing is worse than an absent one.
+   */
 
   {
     id: 'type.baseSize',

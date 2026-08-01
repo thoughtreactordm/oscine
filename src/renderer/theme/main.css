@@ -1,42 +1,21 @@
 @import 'tailwindcss';
 @import '@nuxt/ui';
+@import './bridge.css';
 
 /*
- * D9's token layer. Every component is built against custom properties rather
- * than hardcoded colours, so a theme is a stylesheet rather than a rewrite.
+ * D9's token layer, made real by W8-12.
  *
- * The aliases themselves — `--ui-primary` and the neutral ramp behind
- * `--ui-text-*` and `--ui-border-*` — are generated from the palette named in
- * `electron.vite.config.ts`, which is why no `@theme` block declares a ramp of
- * its own. A hand-rolled ramp only earns its keep once a shipped theme needs a
- * hue Tailwind does not carry; until then it is a second source of truth for
- * colours nobody is choosing. Token names stay private until they settle — D9.
+ * The tokens themselves are no longer declared here. `src/shared/theme/`
+ * defines the catalog and resolves a theme; `applyTheme.ts` writes the
+ * resulting custom properties onto `documentElement`; `bridge.css` maps them
+ * onto the Tailwind and Nuxt UI variables the 40 components already render
+ * against. This file is left with the rules that are genuinely global and
+ * genuinely not a theme's business.
+ *
+ * The cover-backdrop and scrim properties that used to live here are now
+ * tokens, and they kept their variable names precisely so that migrating them
+ * into the catalog cost zero component edits — see `tokens.ts`.
  */
-
-/*
- * Now Playing's cover backdrop. The panel owns the layer; a theme owns how much
- * of the art bleeds through it, how soft it is and how far it drifts. Light mode
- * needs markedly less bleed than dark — the same opacity that reads as a glow
- * over a dark surface reads as a stain over a pale one.
- */
-:root {
-  --fermata-cover-bleed: 0.18;
-  --fermata-cover-blur: 40px;
-  --fermata-cover-drift: 42s;
-
-  /*
-   * Scrim over arbitrary cover art, and the text that sits on it. These are not
-   * theme colours — the artwork underneath is whatever the feed shipped, so the
-   * contrast has to be won against an unknown image rather than against a
-   * surface. They stay fixed across themes for exactly that reason.
-   */
-  --fermata-scrim: oklch(0% 0 0 / 0.62);
-  --fermata-on-scrim: oklch(100% 0 0);
-}
-
-.dark {
-  --fermata-cover-bleed: 0.28;
-}
 
 .app-drag-region {
   -webkit-app-region: drag;
