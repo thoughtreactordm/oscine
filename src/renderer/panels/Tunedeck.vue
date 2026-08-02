@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import ArtistBackdrop from '@renderer/panels/tunedeck/ArtistBackdrop.vue'
+import BackdropCredit from '@renderer/panels/tunedeck/BackdropCredit.vue'
+import DeckBackdrop from '@renderer/panels/tunedeck/DeckBackdrop.vue'
 import { useDeckData } from '@renderer/panels/tunedeck/deckData'
 import { tunedeckRegistry } from '@renderer/panels/tunedeck/panes'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
@@ -61,12 +62,26 @@ function isOpen(groupId: string): boolean {
     as="aside"
     variant="soft"
     class="h-full min-h-0 overflow-hidden rounded-none ring-0"
-    :ui="{ body: 'flex h-full min-h-0 flex-col p-0 sm:p-0' }"
+    :ui="{ body: 'relative isolate flex h-full min-h-0 flex-col p-0 sm:p-0' }"
     aria-label="Tunedeck"
   >
+    <!--
+      The deck's surface, behind the title bar as well as the tabs. `isolate` on
+      the body above is what lets it sit at a negative z-index over the card and
+      under everything in flow without a single sibling opting in — which is also
+      why nothing below needs to know it is there.
+
+      Placed unconditionally rather than per tab: it is the panel's surface, and
+      a tint that came and went with the tabs would read as four panels. See
+      `DeckBackdrop`, and `BackdropCredit` beside it in the bar — the licence is
+      what makes those two a pair rather than two independent decisions.
+    -->
+    <DeckBackdrop />
+
     <header class="flex shrink-0 items-center gap-2 border-b border-default px-3 py-2">
       <UIcon name="i-tabler-device-audio-tape" class="size-4 shrink-0 text-muted" />
       <h2 class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">Tunedeck</h2>
+      <BackdropCredit />
       <UTooltip text="Close Tunedeck">
         <UButton
           variant="ghost"
@@ -87,20 +102,10 @@ function isOpen(groupId: string): boolean {
       one that scrolls the whole deck.
     -->
     <div
-      class="relative isolate flex min-h-0 flex-1 flex-col"
+      class="flex min-h-0 flex-1 flex-col"
       role="tabpanel"
       :aria-label="tunedeck.activeTab?.title"
     >
-      <!--
-        The surface the header stands on, behind the top third of the tab.
-        Tied to the header rather than to a tab id: it is the header that
-        carries the Commons credit, so a backdrop that could outlive one would
-        be an unattributed photograph. `isolate` above is what lets it sit at a
-        negative z-index over the card and under everything in flow without a
-        single sibling opting in.
-      -->
-      <ArtistBackdrop v-if="tunedeck.activeTab?.header" />
-
       <!--
         The tab's standing strip, above every group and outside the accordion.
         Only the Artist tab declares one; the shell neither knows nor cares what

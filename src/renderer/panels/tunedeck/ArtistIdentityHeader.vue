@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { describeIdentity } from '@renderer/panels/tunedeck/artistIdentity'
-import { describeCredit } from '@renderer/panels/tunedeck/imageCredit'
 import ArtistPicker from '@renderer/panels/tunedeck/ArtistPicker.vue'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
-import { useArtistImageStore } from '@renderer/stores/artistImage'
 
 /**
  * Who the deck thinks is playing, and the one control that says otherwise —
@@ -23,30 +21,30 @@ import { useArtistImageStore } from '@renderer/stores/artistImage'
  * ## Why there is no rule under it
  *
  * Every other section boundary in the deck is a hairline, and this one used to
- * be too. It is not a section: `ArtistBackdrop` runs behind this strip and on
- * past it into the first group, and a border here would draw a line across a
+ * be too. It is not a section: `DeckBackdrop` runs behind this strip and on past
+ * it into the first group, and a border here would draw a line across a
  * continuous surface and cut the picture in half. The header is the top of one
  * thing, not the first of several.
  *
- * ## Why the name is the biggest text in the deck
+ * ## Why the name is the biggest text in the deck, with room around it
  *
  * It is the answer to the question the tab asks. Everything below it — the
  * biography, the line-up, the catalogue — is elaboration on this one word, and
- * at the same size and weight as a group heading it read as another label.
+ * at the same size and weight as a group heading it read as another label. The
+ * space is doing the same work from the other side: a name set against the top
+ * of a photograph with a group heading tight beneath it is a caption on the
+ * picture, and the whole point of the backdrop is that it is a surface rather
+ * than something with captions on it.
  *
- * ## Attribution
+ * ## Where the credit went
  *
- * Commons licences require the author and the licence to be named wherever the
- * work is shown, and `describeCredit` composes that from whatever fields the
- * file actually carried. It is a popover rather than a permanent line because
- * the credit for one file is routinely longer than this deck is wide — the
- * alternative is a truncated attribution, which is a worse answer than a
- * complete one behind a control that is always there while the picture is. The
- * summary is also the button's `aria-label`, so it is never *only* visual.
+ * `BackdropCredit`, in the deck's title bar. It was inline with the name here,
+ * which was right while the picture was this tab's and wrong once it became the
+ * panel's: Commons requires the credit wherever the work is shown, and the work
+ * is now behind all four tabs.
  */
 
 const identity = useArtistIdentityStore()
-const images = useArtistImageStore()
 
 const wording = computed(() =>
   describeIdentity(identity.resolution, {
@@ -58,14 +56,12 @@ const wording = computed(() =>
 const headlineClass = computed(() =>
   wording.value.tone === 'resolved' ? 'text-highlighted' : 'text-muted'
 )
-
-const credit = computed(() => (images.image ? describeCredit(images.image.credit) : null))
 </script>
 
 <template>
-  <div class="flex shrink-0 items-center gap-2 px-3 pb-3 pt-4">
+  <div class="flex shrink-0 items-center gap-2 px-4 pb-6 pt-7">
     <div class="min-w-0 flex-1">
-      <div class="flex min-w-0 items-center gap-2">
+      <div class="flex min-w-0 items-center gap-3">
         <UIcon
           :name="identity.resolved ? 'i-tabler-user-check' : 'i-tabler-user-question'"
           class="size-5 shrink-0"
@@ -73,60 +69,9 @@ const credit = computed(() => (images.image ? describeCredit(images.image.credit
           aria-hidden="true"
         />
 
-        <h3 class="truncate text-lg font-bold leading-tight tracking-tight" :class="headlineClass">
+        <h3 class="truncate text-xl font-bold leading-tight tracking-tight" :class="headlineClass">
           {{ wording.headline }}
         </h3>
-
-        <!--
-          Inline with the name rather than in the corner: the credit belongs to
-          the picture the name is standing on, and a licence control parked with
-          the identity controls reads as a third thing to do to the artist.
-        -->
-        <UPopover v-if="credit" :ui="{ content: 'w-64 p-3' }">
-          <UButton
-            variant="ghost"
-            size="xs"
-            icon="i-tabler-info-circle"
-            square
-            class="shrink-0 text-dimmed"
-            :aria-label="credit.summary"
-          />
-
-          <template #content>
-            <p class="text-xs font-medium text-highlighted">Photograph</p>
-            <p v-if="credit.name" class="mt-1 text-xs leading-relaxed text-muted">
-              {{ credit.name }}
-            </p>
-            <p class="mt-2 text-xs leading-relaxed text-dimmed">
-              <!--
-                `target="_blank"` rather than an IPC call, for the reason the
-                biography's licence line gives: main's `setWindowOpenHandler`
-                already routes https to the system browser and denies the window.
-              -->
-              <template v-if="credit.licence">
-                <a
-                  v-if="credit.licenceUrl"
-                  :href="credit.licenceUrl"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="text-muted underline decoration-dotted underline-offset-2 hover:text-default"
-                >
-                  {{ credit.licence }}
-                </a>
-                <span v-else>{{ credit.licence }}</span>
-                ·
-              </template>
-              <a
-                :href="credit.descriptionUrl"
-                target="_blank"
-                rel="noreferrer"
-                class="text-muted underline decoration-dotted underline-offset-2 hover:text-default"
-              >
-                Wikimedia Commons
-              </a>
-            </p>
-          </template>
-        </UPopover>
       </div>
 
       <!--
@@ -135,15 +80,14 @@ const credit = computed(() => (images.image ? describeCredit(images.image.credit
         detail when the headline and the tick have already said everything, and
         a standing line of grey text that never varies is the thing the deck's
         `hint` tooltips exist to have got rid of.
-      -->
-      <!--
+
         `text-muted` rather than `text-dimmed`, which is what it was when this
         line sat on a flat surface. The dimmest step in the ramp is chosen for
         contrast against the panel, and this line no longer sits on the panel —
         it sits on a photograph, which spends part of that margin before the
         text is drawn.
       -->
-      <p v-if="wording.detail || identity.loading" class="truncate ps-7 text-sm text-muted">
+      <p v-if="wording.detail || identity.loading" class="mt-1.5 truncate ps-8 text-sm text-muted">
         {{ identity.loading ? 'Looking…' : wording.detail }}
       </p>
     </div>

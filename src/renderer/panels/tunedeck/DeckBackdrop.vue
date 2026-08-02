@@ -5,25 +5,33 @@ import { useArtistImageStore } from '@renderer/stores/artistImage'
 import { usePlaybackStore } from '@renderer/stores/playback'
 
 /**
- * The picture the artist tab stands on — **D14**'s images, as a surface.
+ * The picture the whole deck stands on — **D14**'s images, as a surface.
  *
- * ## Why it is a panel layer and not part of the header
+ * ## Why it is a panel layer and not part of a header
  *
  * It was a header background first, and the header was the wrong size for it. A
  * photograph confined to a 96px strip with the identity laid over it is a
  * *banner*: it has a top, a bottom and a subject, and the eye reads it as a
  * separate object that the panel happens to contain. Spanning the upper third of
- * the tab and fading out through the first group makes it the panel's own
+ * the panel and fading out through the first group makes it the deck's own
  * surface instead — the header stops being a thing on a picture and becomes text
  * on the deck, which is what "grounded" means here.
  *
- * ## Why it renders only where the credit does
+ * It starts above the deck's own title bar for the same reason. A backdrop that
+ * began under the title rule would have the rule as its top edge, and an edge is
+ * the thing that turns a surface back into a panel.
  *
- * Gated by the shell on the active tab declaring a `header`, which today is the
- * artist tab and tomorrow is whichever tab carries the identity strip. That is
- * not a stylistic choice: Commons licences require the credit to be shown
- * wherever the work is, and the credit lives in that header. A backdrop that
- * outlived its header would be an unattributed photograph.
+ * ## Why it is on every tab
+ *
+ * Because it is the deck's surface and not the artist tab's. Who is playing does
+ * not stop being true when the operator looks at the sample rate, and a tint
+ * that appeared and vanished as the tabs changed would read as four panels
+ * rather than one with four views.
+ *
+ * That is also why `BackdropCredit` sits in the deck's title bar rather than in
+ * the artist strip, where it was while this was: Commons licences require the
+ * credit wherever the work is shown, so a backdrop with panel scope needs a
+ * credit with panel scope. The two are placed by the shell as a pair.
  *
  * ## Why the fallback is blurred and the photograph is not
  *
@@ -69,14 +77,14 @@ const source = computed(() => photo.value?.large ?? cover.value)
 
 <style scoped>
 /*
- * Negative z-index against the tab panel's `isolate`, so this paints above the
- * card's surface and below everything in flow without any sibling needing a
- * z-index of its own.
+ * Negative z-index against the card body's `isolate`, so this paints above the
+ * card's surface and below everything in flow — the title bar and the tab panel
+ * both — without any sibling needing a z-index of its own.
  *
- * 38% of the tab rather than a pixel height: the deck is a resizable column, and
- * a fixed 200px band is a third of a short window and a tenth of a tall one. A
- * fraction keeps the same proportion of the panel covered at every height, which
- * is the thing that was actually chosen.
+ * 38% of the panel rather than a pixel height: the deck is a resizable column,
+ * and a fixed 200px band is a third of a short window and a tenth of a tall one.
+ * A fraction keeps the same proportion covered at every height, which is the
+ * thing that was actually chosen.
  */
 .deck-backdrop {
   position: absolute;
