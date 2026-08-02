@@ -98,11 +98,18 @@ describe('generated from descriptors', () => {
     expect(row?.descriptor.label).toBe('Test only toggle')
   })
 
-  it('gives an empty category a section as soon as a descriptor claims it', () => {
-    // 'network' holds nothing in the shipped registry, so the rail must not be a
-    // list of categories anyone wrote down.
-    expect(buildSettingsCatalog(SETTINGS_REGISTRY).sections.map((s) => s.id)).not.toContain(
-      'network'
+  it('gives a category a section exactly when a descriptor claims it', () => {
+    // The rail is generated, not a list of categories anyone wrote down: a
+    // section exists for a category if and only if a non-internal descriptor
+    // names it. Asserted as a set equality rather than against whichever
+    // category happens to be empty today — 'network' was that category until
+    // W7-6 put the consent toggle in it, and the assertion rotted rather than
+    // caught anything.
+    const claimed = new Set(
+      SETTINGS_REGISTRY.filter((descriptor) => !descriptor.internal).map((d) => d.category)
+    )
+    expect(new Set(buildSettingsCatalog(SETTINGS_REGISTRY).sections.map((s) => s.id))).toEqual(
+      claimed
     )
 
     const withFixture = buildSettingsCatalog(FIXTURE)

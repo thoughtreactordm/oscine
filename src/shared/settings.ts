@@ -15,6 +15,7 @@
 import { AUDIO_SETTINGS } from './settings/audio'
 import { INTERFACE_SETTINGS } from './settings/interface'
 import { LIBRARY_SETTINGS } from './settings/library'
+import { NETWORK_SETTINGS } from './settings/network'
 import { THEME_SETTINGS } from './settings/theme'
 import { VIEW_SETTINGS } from './settings/view'
 import {
@@ -78,6 +79,7 @@ export {
   THEME_SETTINGS
 } from './settings/theme'
 export type { ThemeModePreference } from './settings/theme'
+export { NETWORK_EXTERNAL_LOOKUPS_KEY, NETWORK_SETTINGS } from './settings/network'
 export type { StoredColumnLayout, TabSession } from './settings/view'
 
 /**
@@ -93,6 +95,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = Object.freeze([
   ...LIBRARY_SETTINGS,
   ...INTERFACE_SETTINGS,
   ...THEME_SETTINGS,
+  ...NETWORK_SETTINGS,
   ...VIEW_SETTINGS
 ])
 
