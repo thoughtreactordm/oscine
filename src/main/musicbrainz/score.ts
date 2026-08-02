@@ -29,16 +29,27 @@
  * threshold is what stops a library full of misspelled tags from being confidently
  * matched to whatever MusicBrainz ranked first.
  *
- * ## What we are not doing, and why
+ * ## The third test: corroboration
  *
- * The tiebreaker that would actually settle Nirvana is corroboration: we know
- * which albums this artist has in the local library, and MusicBrainz knows which
- * releases each candidate has. Intersecting the two would identify the right one
- * outright. It is not done here because it costs one request *per candidate*,
- * against a service that permits roughly one request per second — eleven seconds
- * of lookups to answer a question the operator can answer in one click. If R5's
- * correction rate turns out to be high enough to justify that, this is the place
- * it lands, and the revisit trigger is already written down in D14.
+ * Two tests are still not enough, and measurement is what settled it. Scored
+ * against live MusicBrainz replies, "Led Zeppelin", "Pink Floyd", "The Beatles"
+ * and "Radiohead" all come back `ambiguous` — Led Zeppelin because a tribute act
+ * called "Led Zeppelin2" lands nine points behind against a ten-point margin.
+ * The cause is structural rather than a bad constant: every famous artist has
+ * namesakes, tribute bands and covers projects whose names match *exactly*, so
+ * `nameScore` ties at 100 and the whole verdict falls onto the quarter-weighted
+ * relevance figure. Radiohead's runner-up is not even called Radiohead — it is
+ * "On a Friday", which carries "Radiohead" as an alias, and it scores 91.
+ *
+ * So `corroborate` is a third test with an outside source of evidence: we know
+ * which albums this artist has in the local library, and MusicBrainz knows who
+ * it credits those albums to. See `releaseGroups.ts` for why that costs one
+ * request rather than the eleven this comment used to claim.
+ *
+ * It only ever runs when the margin failed, and it can only ever promote a
+ * candidate that already cleared the threshold. That ordering is what keeps
+ * R5's rule intact: this adds evidence rather than lowering a bar, so the
+ * failure direction is still towards *nothing*.
  */
 
 import type { ArtistCandidate } from '@shared/artist'
@@ -246,4 +257,82 @@ export function decide(candidates: readonly ScoredCandidate[]): MatchDecision {
   if (!best || best.score < ARTIST_MATCH_THRESHOLD) return { kind: 'none' }
   if (runnerUp && best.score - runnerUp.score < ARTIST_MATCH_MARGIN) return { kind: 'ambiguous' }
   return { kind: 'accept', match: best }
+}
+
+/**
+ * How closely a MusicBrainz release-group title has to match one of ours.
+ *
+ * High, and it is a filter rather than a score. MusicBrainz's search is a
+ * relevance search: asking for "Led Zeppelin IV" also returns "Anthology of Led
+ * Zeppelin IV", which is a different record by a different act and would
+ * corroborate the wrong candidate. At 0.9 the anthology is excluded and the
+ * bracketed "[Led Zeppelin IV]" — same title, punctuation the compare key
+ * strips — is kept.
+ */
+export const CORROBORATION_TITLE_THRESHOLD = 0.9
+
+/**
+ * How many of our albums MusicBrainz credits to each candidate.
+ *
+ * Distinct *local* titles rather than release groups, because one album has many
+ * release groups — a reissue, a box set, a remaster — and counting those would
+ * let a single corroborated album outvote three.
+ */
+export function countCorroboration(
+  albums: readonly string[],
+  groups: readonly { title: string; artistMbids: readonly string[] }[]
+): Map<string, number> {
+  const keys = albums.map(compareKey).filter((key) => key !== '')
+  const matched = new Map<string, Set<string>>()
+
+  for (const group of groups) {
+    const groupKey = compareKey(group.title)
+    if (groupKey === '') continue
+
+    const album = keys.find((key) => similarity(key, groupKey) >= CORROBORATION_TITLE_THRESHOLD)
+    if (album === undefined) continue
+
+    for (const mbid of group.artistMbids) {
+      const seen = matched.get(mbid) ?? new Set<string>()
+      seen.add(album)
+      matched.set(mbid, seen)
+    }
+  }
+
+  return new Map([...matched].map(([mbid, titles]) => [mbid, titles.size]))
+}
+
+/**
+ * The verdict once corroboration is in, given candidates already sorted by score.
+ *
+ * Three rules, and each is doing work:
+ *
+ * **Only candidates above the threshold are eligible.** Corroboration is a
+ * tiebreaker, not a rescue. A misspelled tag whose right answer sits below the
+ * bar stays `ambiguous` and goes to the picker, exactly as before — otherwise a
+ * single coincidental album title could confidently identify an artist whose
+ * name never matched.
+ *
+ * **A tie stays ambiguous.** Two candidates each credited with the same number
+ * of our albums is a genuinely undecidable case — a split MusicBrainz entry, or
+ * a self-titled record two acts both made — and it is exactly the case R5 says
+ * to hand to the operator rather than guess at.
+ *
+ * **The leader needs strictly more, not merely some.** Three albums against one
+ * is evidence; one against one is a coin flip wearing a number.
+ */
+export function corroborate(
+  candidates: readonly ScoredCandidate[],
+  credited: ReadonlyMap<string, number>
+): MatchDecision {
+  const supported = candidates
+    .filter((candidate) => candidate.score >= ARTIST_MATCH_THRESHOLD)
+    .map((candidate) => ({ candidate, albums: credited.get(candidate.mbid) ?? 0 }))
+    .filter((entry) => entry.albums > 0)
+    .sort((a, b) => b.albums - a.albums || b.candidate.score - a.candidate.score)
+
+  const [best, runnerUp] = supported
+  if (!best) return { kind: 'ambiguous' }
+  if (runnerUp && runnerUp.albums === best.albums) return { kind: 'ambiguous' }
+  return { kind: 'accept', match: best.candidate }
 }

@@ -16,10 +16,22 @@
 
 export { compareKey, escapeLucene, searchCacheKey, searchQuery } from './artistName'
 export {
+  CORROBORATION_ALBUM_LIMIT,
+  parseReleaseGroupSearch,
+  releaseGroupCacheKey,
+  releaseGroupQuery,
+  releaseGroupSearchUrl,
+  searchReleaseGroups,
+  type CreditedReleaseGroup
+} from './releaseGroups'
+export {
   ARTIST_MATCH_MARGIN,
   ARTIST_MATCH_THRESHOLD,
+  CORROBORATION_TITLE_THRESHOLD,
   NAME_WEIGHT,
   combinedScore,
+  corroborate,
+  countCorroboration,
   decide,
   nameScore,
   similarity,

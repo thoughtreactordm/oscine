@@ -35,6 +35,8 @@ export const CACHE_ENTITIES = [
   'musicbrainz.artist-search',
   /** MBID → the artist document, with its relations and outbound links. */
   'musicbrainz.artist',
+  /** Artist name + our album titles → who MusicBrainz credits those albums to. */
+  'musicbrainz.release-group',
   /** MBID or wiki title → the Wikidata entity that links the two worlds. */
   'wikidata.entity',
   /** Wikidata sitelink → the Wikipedia lead extract shown in the deck. */
@@ -93,6 +95,20 @@ export const DEFAULT_CACHE_TTLS: Readonly<Record<CacheEntity, EntityTtl>> = {
    * re-checking weekly rather than treating as permanent.
    */
   'musicbrainz.artist': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
+
+  /**
+   * Thirty days positive, matching the search it disambiguates. The question
+   * being cached — "who does MusicBrainz credit these albums to" — moves only
+   * when a release group is re-credited, which is a curated edit and a rare one.
+   *
+   * Seven days negative, and this one is load-bearing in a way the others are
+   * not: a negative here means MusicBrainz knows none of the albums we hold for
+   * this artist, which is the *normal* state of a bootleg, a local band or a
+   * misfiled folder. Those are also the artists whose name search is ambiguous,
+   * so without the negative entry every play of them would spend two requests
+   * rather than one — the opposite of what corroboration is for.
+   */
+  'musicbrainz.release-group': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
 
   /**
    * Fourteen days. Wikidata is the join between MusicBrainz and Wikipedia and

@@ -251,3 +251,127 @@ export const MALFORMED = document([
     score: 90
   }
 ])
+
+/**
+ * The case that sent the scorer back for a third test.
+ *
+ * Trimmed from a live reply on 2 August 2026, scores and identifiers as
+ * MusicBrainz returned them. Nothing about it is exotic — it is the most
+ * unambiguous band in the fixture set to a human, and the name tests cannot
+ * separate it from a tribute act. "Led Zeppelin2" is one bigram away, so the
+ * name score lands at 96 and the margin sees a nine-point gap where it wants
+ * ten. This is what `corroborate` exists for, and what the album fixture below
+ * settles.
+ */
+export const LED_ZEPPELIN = document([
+  {
+    id: '678d88b2-87b0-403b-b63d-5da7465aecc3',
+    name: 'Led Zeppelin',
+    'sort-name': 'Led Zeppelin',
+    type: 'Group',
+    country: 'GB',
+    disambiguation: null,
+    'life-span': { begin: '1968', end: '1980-09-25', ended: true },
+    aliases: [{ name: 'レッド・ツェッペリン', 'sort-name': 'レッド・ツェッペリン' }],
+    score: 100
+  },
+  {
+    id: '93fc2072-7796-4c60-b937-4e724168e0a1',
+    name: 'Led Zeppelin2',
+    'sort-name': 'Led Zeppelin2',
+    type: 'Group',
+    country: null,
+    disambiguation: null,
+    'life-span': { begin: null, end: null, ended: false },
+    aliases: [{ name: 'Led Zeppelin 2', 'sort-name': 'Led Zeppelin 2' }],
+    score: 76
+  },
+  {
+    id: '37463bf1-d77c-4702-b4db-642af32957a9',
+    name: 'Boot-Led-Zeppelin',
+    'sort-name': 'Boot-Led-Zeppelin',
+    type: 'Group',
+    country: null,
+    disambiguation: null,
+    'life-span': { begin: null, end: null, ended: false },
+    score: 75
+  }
+])
+
+/** A release-group search document, as the web service returns it. */
+export interface ReleaseGroupDocument {
+  created: string
+  count: number
+  offset: number
+  'release-groups': unknown[]
+}
+
+function releaseGroups(groups: unknown[]): ReleaseGroupDocument {
+  return {
+    created: '2026-08-02T00:00:00.000Z',
+    count: groups.length,
+    offset: 0,
+    'release-groups': groups
+  }
+}
+
+/**
+ * The corroborating reply, live on the same day, for a library holding
+ * "Led Zeppelin IV" and "Houses of the Holy".
+ *
+ * Every entry credits the real band and none credits the tribute act, which is
+ * the whole signal. Four of the six are *near* misses rather than hits — an
+ * anthology, two radio documentaries and a remix set — and they are in the
+ * fixture on purpose: MusicBrainz runs a relevance search, so a corroboration
+ * rule that counted every returned row would count "Anthology of Led Zeppelin
+ * IV" as a second album we own. `CORROBORATION_TITLE_THRESHOLD` is what stops
+ * that, and this is the fixture that proves it does.
+ */
+export const LED_ZEPPELIN_RELEASE_GROUPS = releaseGroups([
+  {
+    title: '[Led Zeppelin IV]',
+    score: 100,
+    'artist-credit': [
+      { artist: { id: '678d88b2-87b0-403b-b63d-5da7465aecc3', name: 'Led Zeppelin' } }
+    ]
+  },
+  {
+    title: 'Anthology of Led Zeppelin IV',
+    score: 88,
+    'artist-credit': [
+      { artist: { id: '678d88b2-87b0-403b-b63d-5da7465aecc3', name: 'Led Zeppelin' } }
+    ]
+  },
+  {
+    title: 'Houses of the Holy',
+    score: 85,
+    'artist-credit': [
+      { artist: { id: '678d88b2-87b0-403b-b63d-5da7465aecc3', name: 'Led Zeppelin' } }
+    ]
+  },
+  {
+    title: 'In the Studio: Led Zeppelin IV',
+    score: 83,
+    'artist-credit': [
+      { artist: { id: '678d88b2-87b0-403b-b63d-5da7465aecc3', name: 'Led Zeppelin' } }
+    ]
+  },
+  {
+    title: 'Houses of the Holy: The Revised Versions',
+    score: 74,
+    'artist-credit': [
+      { artist: { id: '678d88b2-87b0-403b-b63d-5da7465aecc3', name: 'Led Zeppelin' } }
+    ]
+  }
+])
+
+/** A reply crediting a tribute act instead — corroboration pointing the wrong way. */
+export const TRIBUTE_RELEASE_GROUPS = releaseGroups([
+  {
+    title: 'Houses of the Holy',
+    score: 90,
+    'artist-credit': [
+      { artist: { id: '93fc2072-7796-4c60-b937-4e724168e0a1', name: 'Led Zeppelin2' } }
+    ]
+  }
+])

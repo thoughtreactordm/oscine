@@ -14,7 +14,15 @@ import {
   type ArtistIdentityService
 } from '../../../src/main/musicbrainz/service'
 import { createArtistIdentityStore } from '../../../src/main/musicbrainz/store'
-import { ABSENT, DAFT_PUNK, NIRVANA, type SearchDocument } from './fixtures'
+import {
+  ABSENT,
+  DAFT_PUNK,
+  LED_ZEPPELIN,
+  LED_ZEPPELIN_RELEASE_GROUPS,
+  NIRVANA,
+  type ReleaseGroupDocument,
+  type SearchDocument
+} from './fixtures'
 
 /**
  * The half of R5 that is not arithmetic: what gets written down, what gets
@@ -51,7 +59,9 @@ interface Harness {
  * simulated instead is the *result* — including `declined`, which is how consent
  * being off reaches this layer.
  */
-function stubClient(answers: (SearchDocument | NetFailure)[]): NetClient {
+type Answer = SearchDocument | ReleaseGroupDocument | NetFailure
+
+function stubClient(answers: Answer[]): NetClient {
   const queue = [...answers]
   return {
     getText: () => Promise.resolve(netFailed<string>({ kind: 'rejected', message: 'unused' })),
@@ -61,15 +71,26 @@ function stubClient(answers: (SearchDocument | NetFailure)[]): NetClient {
       if (next === undefined) {
         throw new Error(`unexpected request: ${request.url}`)
       }
-      return Promise.resolve(
-        'artists' in next ? netOk(next as T) : netFailed<T>(next as NetFailure)
-      )
+      // Discriminated on the failure's own field rather than on each document's,
+      // so a third document shape does not need a third branch here.
+      return Promise.resolve('kind' in next ? netFailed<T>(next) : netOk(next as T))
     }
   }
 }
 
-/** A library with one root, one artist and one track credited to it. */
-function seed(db: Database.Database, name: string): { artistId: number; trackId: number } {
+/**
+ * A library with one root, one artist and one track credited to it.
+ *
+ * `albums` is the corroboration signal: each title becomes an album the artist
+ * fronts, with the track moved onto the first of them. Empty by default, which
+ * is what keeps every test written before corroboration existed making the same
+ * one request it always did.
+ */
+function seed(
+  db: Database.Database,
+  name: string,
+  albums: readonly string[] = []
+): { artistId: number; trackId: number } {
   const rootId = Number(
     db
       .prepare('INSERT INTO roots (label, path, added_at) VALUES (?, ?, ?)')
@@ -78,22 +99,28 @@ function seed(db: Database.Database, name: string): { artistId: number; trackId:
   const artistId = Number(
     db.prepare('INSERT INTO artists (name) VALUES (?)').run(name).lastInsertRowid
   )
+  const albumIds = albums.map((title) =>
+    Number(
+      db.prepare('INSERT INTO albums (title, album_artist_id) VALUES (?, ?)').run(title, artistId)
+        .lastInsertRowid
+    )
+  )
   const trackId = Number(
     db
       .prepare(
-        'INSERT INTO tracks (root_id, rel_path, mtime, size, title, artist_id) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO tracks (root_id, rel_path, mtime, size, title, artist_id, album_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
       )
-      .run(rootId, 'a/one.flac', 1, 1, 'One', artistId).lastInsertRowid
+      .run(rootId, 'a/one.flac', 1, 1, 'One', artistId, albumIds[0] ?? null).lastInsertRowid
   )
   return { artistId, trackId }
 }
 
 function harness(
-  answers: (SearchDocument | NetFailure)[],
-  { name = ARTIST_NAME }: { name?: string } = {}
+  answers: Answer[],
+  { name = ARTIST_NAME, albums = [] }: { name?: string; albums?: readonly string[] } = {}
 ): Harness {
   const { db } = openDatabase(file)
-  const { artistId, trackId } = seed(db, name)
+  const { artistId, trackId } = seed(db, name, albums)
 
   const cacheDb = new Database(':memory:')
   migrate(cacheDb, CACHE_MIGRATIONS)
@@ -114,7 +141,7 @@ function harness(
 
 /** Reopens the library the way a relaunch does, sharing the cache or not. */
 function reopen(
-  answers: (SearchDocument | NetFailure)[],
+  answers: Answer[],
   cache: CacheService
 ): { service: ArtistIdentityService; db: Database.Database } {
   const { db } = openDatabase(file)
@@ -409,5 +436,119 @@ describe('the operator’s correction', () => {
     } finally {
       h.close()
     }
+  })
+
+  /**
+   * The corroboration path, end to end and against live-captured replies.
+   *
+   * This is the user-visible complaint that produced the third test: Led
+   * Zeppelin, of all bands, arriving at the deck as "several artists go by this
+   * name". Two requests settle it and the second only happens once, because the
+   * MBID lands on the row.
+   */
+  describe('corroboration', () => {
+    const ALBUMS = ['Led Zeppelin IV', 'Houses of the Holy']
+    const LED_ZEPPELIN_MBID = '678d88b2-87b0-403b-b63d-5da7465aecc3'
+
+    it('settles an ambiguous name against the albums in the library', async () => {
+      const h = harness([LED_ZEPPELIN, LED_ZEPPELIN_RELEASE_GROUPS], {
+        name: 'Led Zeppelin',
+        albums: ALBUMS
+      })
+      try {
+        const resolution = await h.service.resolve(h.trackId)
+
+        expect(resolution?.status).toBe('resolved')
+        expect(resolution?.mbid).toBe(LED_ZEPPELIN_MBID)
+        // Written down, so the second request is never made again for this
+        // artist however often the deck reopens.
+        expect(mbidOf(h.db, h.artistId)).toEqual({ mbid: LED_ZEPPELIN_MBID, source: 'auto' })
+        expect(requests).toHaveLength(2)
+        expect(requests[1]).toContain('release-group')
+      } finally {
+        h.close()
+      }
+    })
+
+    it('asks the second question only when the first one tied', async () => {
+      // Daft Punk resolves on names alone. A second request here would be one
+      // per artist per library rather than one per ambiguous artist, which is
+      // the traffic pattern R5's secondary risk is about.
+      const h = harness([DAFT_PUNK], { albums: ['Discovery'] })
+      try {
+        expect((await h.service.resolve(h.trackId))?.status).toBe('resolved')
+        expect(requests).toHaveLength(1)
+      } finally {
+        h.close()
+      }
+    })
+
+    it('does not ask when the library has no albums to ask about', async () => {
+      // A release-group search with no title clause matches the artist's whole
+      // discography, so there is nothing to learn and a request would be spent
+      // learning it.
+      const h = harness([NIRVANA], { name: 'Nirvana' })
+      try {
+        expect((await h.service.resolve(h.trackId))?.status).toBe('ambiguous')
+        expect(requests).toHaveLength(1)
+      } finally {
+        h.close()
+      }
+    })
+
+    it('stays ambiguous when MusicBrainz credits our albums to nobody', async () => {
+      const h = harness([NIRVANA, { kind: 'not-found', message: 'nothing' }], {
+        name: 'Nirvana',
+        albums: ['A Bootleg Nobody Has']
+      })
+      try {
+        const resolution = await h.service.resolve(h.trackId)
+        expect(resolution?.status).toBe('ambiguous')
+        // Still offered to the picker: unresolved is a first-class state.
+        expect(resolution?.candidates.length).toBeGreaterThan(0)
+        expect(mbidOf(h.db, h.artistId).mbid).toBeNull()
+      } finally {
+        h.close()
+      }
+    })
+
+    it('stays ambiguous rather than failing when the second request cannot be made', async () => {
+      // Consent switched off between the two requests, or the network dropped.
+      // Either way the name verdict stands and nothing is written down.
+      const h = harness([NIRVANA, { kind: 'offline', message: 'No network.' }], {
+        name: 'Nirvana',
+        albums: ['Nevermind']
+      })
+      try {
+        const resolution = await h.service.resolve(h.trackId)
+        expect(resolution?.status).toBe('ambiguous')
+        expect(resolution?.failure).toBeNull()
+      } finally {
+        h.close()
+      }
+    })
+
+    it('does not repeat either request across a restart', async () => {
+      const h = harness([LED_ZEPPELIN, LED_ZEPPELIN_RELEASE_GROUPS], {
+        name: 'Led Zeppelin',
+        albums: ALBUMS
+      })
+      try {
+        await h.service.resolve(h.trackId)
+        requests = []
+
+        // No answers queued at all: any request now throws.
+        const again = reopen([], h.cache)
+        try {
+          const resolution = await again.service.resolve(h.trackId)
+          expect(resolution?.mbid).toBe(LED_ZEPPELIN_MBID)
+          expect(requests).toEqual([])
+        } finally {
+          again.db.close()
+        }
+      } finally {
+        h.close()
+      }
+    })
   })
 })

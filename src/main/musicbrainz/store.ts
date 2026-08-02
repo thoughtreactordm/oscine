@@ -47,6 +47,16 @@ export interface ArtistIdentityStore {
   setManual(artistId: number, mbid: string | null): void
   /** Drops the correction entirely, so automatic matching resumes. */
   clear(artistId: number): void
+  /**
+   * The albums this artist has in the library, best evidence first.
+   *
+   * The corroboration signal. Albums the artist *fronts* come before albums
+   * they merely appear on, because an album artist credit is a claim about
+   * authorship while a track credit can be one guest verse on a compilation —
+   * and a compilation title searched against MusicBrainz corroborates whoever
+   * happens to have a release group by that name, which is nobody useful.
+   */
+  albumTitles(artistId: number, limit: number): string[]
 }
 
 export function createArtistIdentityStore(db: Database.Database): ArtistIdentityStore {
@@ -87,6 +97,31 @@ export function createArtistIdentityStore(db: Database.Database): ArtistIdentity
     UPDATE artists SET mbid = NULL, mbid_source = NULL WHERE id = ?
   `)
 
+  /**
+   * Albums the artist fronts, then albums they appear on.
+   *
+   * A `LEFT JOIN` with the artist filter in the join condition rather than an
+   * inner join, so that an album whose `album_artist_id` is this artist still
+   * appears when none of its *tracks* carry the credit — a compilation the
+   * artist compiled, or a release tagged only at the album level. Those are the
+   * rows the `OR` in the `WHERE` keeps.
+   *
+   * `COALESCE`, because `album_artist_id` is nullable and `NULL = ?` is `NULL`
+   * rather than false, which would sort a fronted-unknown album alongside the
+   * fronted ones under `DESC`.
+   */
+  const selectAlbums = db.prepare<{ artistId: number; limit: number }>(`
+    SELECT al.title AS title,
+           COALESCE(al.album_artist_id = @artistId, 0) AS fronted,
+           COUNT(t.id) AS tracks
+      FROM albums al
+      LEFT JOIN tracks t ON t.album_id = al.id AND t.artist_id = @artistId
+     WHERE al.album_artist_id = @artistId OR t.id IS NOT NULL
+     GROUP BY al.id
+     ORDER BY fronted DESC, tracks DESC, al.title ASC
+     LIMIT @limit
+  `)
+
   return {
     forTrack(trackId): StoredIdentity | null {
       const row = selectByTrack.get(trackId) as IdentityRow | undefined
@@ -108,6 +143,12 @@ export function createArtistIdentityStore(db: Database.Database): ArtistIdentity
 
     clear(artistId): void {
       clearMbid.run(artistId)
+    },
+
+    albumTitles(artistId, limit): string[] {
+      if (limit <= 0) return []
+      const rows = selectAlbums.all({ artistId, limit }) as { title: string }[]
+      return rows.map((row) => row.title.trim()).filter((title) => title !== '')
     }
   }
 }

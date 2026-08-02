@@ -38,11 +38,25 @@ import type Database from 'better-sqlite3'
 import type { CacheService } from '../cache'
 import type { NetClient } from '../net'
 import { searchCacheKey, searchQuery } from './artistName'
-import { combinedScore, decide, nameScore, type ScoredCandidate } from './score'
+import {
+  CORROBORATION_ALBUM_LIMIT,
+  releaseGroupCacheKey,
+  searchReleaseGroups,
+  type CreditedReleaseGroup
+} from './releaseGroups'
+import {
+  combinedScore,
+  corroborate,
+  countCorroboration,
+  decide,
+  nameScore,
+  type ScoredCandidate
+} from './score'
 import { searchArtists, type SearchedArtist } from './search'
 import { createArtistIdentityStore, type StoredIdentity } from './store'
 
 const SEARCH_ENTITY = 'musicbrainz.artist-search' as const
+const RELEASE_GROUP_ENTITY = 'musicbrainz.release-group' as const
 
 export interface ArtistIdentityService {
   /** What the deck shows for whatever is playing. `null` when the track has no artist. */
@@ -170,6 +184,37 @@ export function createArtistIdentityService({
   }
 
   /**
+   * The second opinion, asked for only when the first one tied.
+   *
+   * One request, and it is the only place in the resolver that reads the
+   * *library* rather than a name — which is the whole reason it can settle what
+   * the name could not. An artist with no albums to offer is answered without a
+   * request at all: there is nothing to corroborate with, and a release-group
+   * search for an empty title list matches everything.
+   */
+  async function corroborateVerdict(
+    identity: StoredIdentity,
+    query: string,
+    candidates: readonly ScoredCandidate[]
+  ): Promise<ReturnType<typeof decide>> {
+    const albums = store.albumTitles(identity.artistId, CORROBORATION_ALBUM_LIMIT)
+    if (albums.length === 0) return { kind: 'ambiguous' }
+
+    const result = await cache.through<CreditedReleaseGroup[]>(
+      RELEASE_GROUP_ENTITY,
+      releaseGroupCacheKey(query, albums),
+      () => searchReleaseGroups(client, query, albums)
+    )
+    // Any failure leaves the verdict where it was. `not-found` means MusicBrainz
+    // credits none of our albums to anybody matching this name, and a network
+    // failure means we did not get to ask — both are "still ambiguous", which is
+    // the state with a picker attached.
+    if (!result.ok) return { kind: 'ambiguous' }
+
+    return corroborate(candidates, countCorroboration(albums, result.value))
+  }
+
+  /**
    * The unsettled path: search, score, and write the verdict back when it is
    * confident enough to be worth keeping.
    */
@@ -184,7 +229,13 @@ export function createArtistIdentityService({
       return build(identity, query, status, [], status === 'unavailable' ? failure : null)
     }
 
-    const verdict = decide(candidates)
+    // Ambiguity is the only verdict worth a second request. `none` has nothing
+    // above the threshold for corroboration to promote, and `accept` is settled.
+    let verdict = decide(candidates)
+    if (verdict.kind === 'ambiguous') {
+      verdict = await corroborateVerdict(identity, query, candidates)
+    }
+
     if (verdict.kind !== 'accept') {
       return build(
         identity,
