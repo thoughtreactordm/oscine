@@ -1,16 +1,16 @@
 ---
 taskId: 01KYWWYMJXQ2472MV9SV4QYJ1Q
 title: 'Reset, revert, and the changed-from-default filter'
-status: in-review
+status: done
 priority: medium
 labels: []
 workstream: W8
 workstreamId: W8-7
 dependsOn:
   - 01KYWWY6TM6XQA3NB7YHQWZZG4
-order: 35
+order: 14
 created: '2026-07-31T20:13:19.835Z'
-updated: '2026-08-01T05:38:49.177Z'
+updated: '2026-08-02T13:14:31.286Z'
 ---
 The pair that makes a large settings surface diagnosable, and the reason "apply immediately with no Cancel" is safe.
 

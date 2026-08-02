@@ -1,16 +1,16 @@
 ---
 taskId: 01KYWX08G2KE1DV8C6RFRYEP5Z
 title: Interface and behaviour settings domain
-status: in-review
+status: done
 priority: low
 labels: []
 workstream: W8
 workstreamId: W8-11
 dependsOn:
   - 01KYWWY6TM6XQA3NB7YHQWZZG4
-order: 38
+order: 16
 created: '2026-07-31T20:14:12.992Z'
-updated: '2026-08-01T17:11:39.663Z'
+updated: '2026-08-02T13:14:31.320Z'
 ---
 The domain that is nearly free once the registry exists, and that a poweruser will notice the absence of immediately.
 

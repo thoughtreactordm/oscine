@@ -1,14 +1,14 @@
 ---
 taskId: 01KYWWVQQB80JQ6KK80HX96KYN
 title: Settings registry and the typed schema
-status: in-review
+status: done
 priority: high
 labels: []
 workstream: W8
 workstreamId: W8-1
-order: 0
+order: 5
 created: '2026-07-31T20:11:44.746Z'
-updated: '2026-08-01T03:03:34.817Z'
+updated: '2026-08-02T13:14:31.093Z'
 ---
 The declarative registry every other card in this stream reads from. Pure data and pure functions — no storage, no IPC, no Vue.
 

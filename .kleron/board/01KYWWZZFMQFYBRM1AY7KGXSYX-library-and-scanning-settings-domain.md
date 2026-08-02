@@ -1,16 +1,16 @@
 ---
 taskId: 01KYWWZZFMQFYBRM1AY7KGXSYX
 title: Library and scanning settings domain
-status: in-review
+status: done
 priority: medium
 labels: []
 workstream: W8
 workstreamId: W8-10
 dependsOn:
   - 01KYWWY6TM6XQA3NB7YHQWZZG4
-order: 4
+order: 12
 created: '2026-07-31T20:14:03.762Z'
-updated: '2026-08-01T16:31:26.851Z'
+updated: '2026-08-02T13:14:31.249Z'
 ---
 Everything about how Fermata reads the disk, gathered into one place — including the root folders, which currently have their own ad-hoc surface.
 

@@ -3,16 +3,16 @@ taskId: 01KYWWY6TM6XQA3NB7YHQWZZG4
 title: >-
   Settings view — category rail, search, and controls generated from the
   registry
-status: in-review
+status: done
 priority: high
 labels: []
 workstream: W8
 workstreamId: W8-6
 dependsOn:
   - 01KYWWX4982WY57N4AYGJGXRJR
-order: 33
+order: 13
 created: '2026-07-31T20:13:05.746Z'
-updated: '2026-08-01T05:18:19.117Z'
+updated: '2026-08-02T13:14:31.267Z'
 ---
 The full settings surface, as a view inside the shell rather than a modal — the library stays reachable, and a setting can be tuned against what it affects.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KYWX10CVYBXTK2DCSXFNVQE1
 title: 'Settings export and import — profiles, and the machine-local exclusion list'
-status: in-review
+status: done
 priority: medium
 labels: []
 workstream: W8
@@ -9,9 +9,9 @@ workstreamId: W8-13
 dependsOn:
   - 01KYWWWA83W72X3CAT388JY932
   - 01KYWWYMJXQ2472MV9SV4QYJ1Q
-order: 40
+order: 17
 created: '2026-07-31T20:14:37.465Z'
-updated: '2026-08-01T20:40:46.670Z'
+updated: '2026-08-02T13:14:31.333Z'
 ---
 Move a configuration between machines, keep a known-good copy, or hand one to someone reproducing a bug.
 

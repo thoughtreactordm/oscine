@@ -1,7 +1,7 @@
 ---
 taskId: 01KYWWX4982WY57N4AYGJGXRJR
 title: Reactive settings store and live propagation
-status: in-review
+status: done
 priority: high
 labels: []
 workstream: W8
@@ -9,9 +9,9 @@ workstreamId: W8-4
 dependsOn:
   - 01KYWWWA83W72X3CAT388JY932
   - 01KYWWWM5AMXSSMHVXN6G86VT2
-order: 2
+order: 8
 created: '2026-07-31T20:12:30.375Z'
-updated: '2026-08-01T04:17:26.181Z'
+updated: '2026-08-02T13:14:31.153Z'
 ---
 Settings apply immediately, everywhere, with no OK/Cancel and no staging buffer. Changing crossfade mid-track changes the next boundary. Changing a theme token repaints. Per-setting revert (W8-7) is the undo.
 
