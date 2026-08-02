@@ -4,6 +4,7 @@ import { countRelatedRows } from './relatedRows'
 import AlbumTracksPane from './AlbumTracksPane.vue'
 import ArtistCatalogPane from './ArtistCatalogPane.vue'
 import ArtistIdentityHeader from './ArtistIdentityHeader.vue'
+import BiographyPane from './BiographyPane.vue'
 import DecodePathPane from './DecodePathPane.vue'
 import FormatPane from './FormatPane.vue'
 import LoudnessPane from './LoudnessPane.vue'
@@ -84,6 +85,18 @@ export const tunedeckRegistry = createTunedeckRegistry([
     // which is a statement about *position*, not about which group is open.
     header: ArtistIdentityHeader,
     groups: [
+      // First, and therefore the group the tab opens on: it is the one that
+      // answers "who is this" in words. The catalog below it answers the same
+      // question in track listings and is the half that works with lookups
+      // declined, which is why it is the one that keeps working rather than the
+      // one that comes first.
+      {
+        id: 'artist-biography',
+        title: 'Biography',
+        icon: 'i-tabler-book',
+        hint: 'From Wikipedia, by way of the artist’s MusicBrainz identity. Fetched only while the deck is open, and only with online lookups turned on.',
+        component: BiographyPane
+      },
       {
         id: 'artist-catalog',
         title: 'In your library',

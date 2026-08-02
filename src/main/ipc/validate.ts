@@ -5,6 +5,7 @@ import {
   type SearchArtistCandidatesRequest,
   type SetArtistMbidRequest
 } from '@shared/artist'
+import type { GetArtistBiographyRequest } from '@shared/biography'
 import { FermataError } from '@shared/errors'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
 import { NET_SCOPES, type CancelNetScopeRequest, type NetScope } from '@shared/net'
@@ -778,6 +779,20 @@ export function assertSetArtistMbidRequest(value: unknown): SetArtistMbidRequest
 }
 
 export function assertClearArtistMbidRequest(value: unknown): ClearArtistMbidRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artistId'])
+  return { artistId: assertPositiveInt(raw.artistId, 'artistId') }
+}
+
+/**
+ * No MBID in the request, deliberately.
+ *
+ * The identifier the two hops start from is read from the `artists` row rather
+ * than accepted here — see `wikipedia/service.ts`. That keeps the biography in
+ * step with the operator's corrections, and it means the value interpolated into
+ * a Wikidata query is one this process wrote.
+ */
+export function assertGetArtistBiographyRequest(value: unknown): GetArtistBiographyRequest {
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['artistId'])
   return { artistId: assertPositiveInt(raw.artistId, 'artistId') }

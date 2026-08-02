@@ -5,6 +5,7 @@ import type {
   SearchArtistCandidatesRequest,
   SetArtistMbidRequest
 } from './artist'
+import type { ArtistBiographyResult, GetArtistBiographyRequest } from './biography'
 import type { ListPlayHistoryQuery, PlayEntry } from './history'
 import type {
   ArtworkVariant,
@@ -444,6 +445,24 @@ export interface IpcContract {
     request: ClearArtistMbidRequest
     response: ArtistResolution
   }
+
+  /**
+   * The artist's biography, by way of Wikidata and Wikipedia (**D14**).
+   *
+   * Keyed on the artist rather than on an MBID, so the identifier the two hops
+   * start from is the one on the `artists` row rather than one the renderer
+   * supplied. A correction made in the picker therefore changes which biography
+   * this answers with, and a renderer that has gone stale cannot ask for a
+   * biography belonging to an artist the operator has already overruled.
+   *
+   * Never throws for a missing article: an artist with no Wikidata item, or with
+   * an item carrying no article in any language we asked for, comes back as
+   * `none`. That is the ordinary state of a great many artists and not a fault.
+   */
+  'artist.biography': {
+    request: GetArtistBiographyRequest
+    response: ArtistBiographyResult
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -555,7 +574,8 @@ export const IPC_CHANNELS = [
   'artist.resolve',
   'artist.searchCandidates',
   'artist.setMbid',
-  'artist.clearMbid'
+  'artist.clearMbid',
+  'artist.biography'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [

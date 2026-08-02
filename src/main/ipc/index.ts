@@ -8,11 +8,13 @@ import type { ArtistIdentityService } from '../musicbrainz'
 import type { NetService } from '../net'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
+import type { ArtistBiographyService } from '../wikipedia'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertAddTracksRequest,
   assertCancelNetScopeRequest,
   assertClearArtistMbidRequest,
+  assertGetArtistBiographyRequest,
   assertResolveArtistQuery,
   assertSearchArtistCandidatesRequest,
   assertSetArtistMbidRequest,
@@ -60,7 +62,8 @@ export function registerIpcHandlers(
   settings: SettingsService,
   history: PlayHistoryService,
   net: NetService,
-  artists: ArtistIdentityService
+  artists: ArtistIdentityService,
+  biographies: ArtistBiographyService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -362,6 +365,13 @@ export function registerIpcHandlers(
 
   handle('artist.clearMbid', (request) =>
     artists.clearMbid(assertClearArtistMbidRequest(request).artistId)
+  )
+
+  // An artist with no article is an ordinary result rather than a `not-found`
+  // throw, which is what lets the pane render an empty state instead of an
+  // error. See the channel's own note in the contract.
+  handle('artist.biography', (request) =>
+    biographies.get(assertGetArtistBiographyRequest(request).artistId)
   )
 
   assertEveryChannelHandled()

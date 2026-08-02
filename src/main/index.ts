@@ -21,6 +21,7 @@ import { SqlitePodcastService } from './podcasts/service'
 import { createArtistIdentityService } from './musicbrainz'
 import { createNetService } from './net'
 import { SqliteSettingsService } from './settings'
+import { createArtistBiographyService } from './wikipedia'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
 import { AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING, type SettingsChange } from '@shared/settings'
@@ -335,6 +336,19 @@ if (!app.requestSingleInstanceLock()) {
     // playlist and trail services use.
     const artists = createArtistIdentityService({ db, client: net.client, cache })
 
+    // D14's second source, downstream of the first: it reads the MBID the
+    // resolver wrote and never searches by name, so a wrong identity produces a
+    // wrong biography and a corrected one produces the right biography, with no
+    // second opinion in between. `locale` is a getter because `app.getLocale()`
+    // is only meaningful after `ready`, which this is inside — but the operator
+    // can change it under a running app, and a captured string would not notice.
+    const biographies = createArtistBiographyService({
+      db,
+      client: net.client,
+      cache,
+      locale: () => app.getLocale()
+    })
+
     // One artwork worker for library albums and podcast covers — a second
     // WorkerArtworkImageProcessor was racing the same native sharp module and
     // silently dropping podcast thumbs.
@@ -403,7 +417,7 @@ if (!app.requestSingleInstanceLock()) {
 
     setTrustedRendererUrl(rendererUrl)
     registerTrackProtocol(library, artworkCachePath(), podcasts)
-    registerIpcHandlers(library, playlists, podcasts, settings, history, net, artists)
+    registerIpcHandlers(library, playlists, podcasts, settings, history, net, artists, biographies)
 
     mainWindow = createWindow(resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors))
     // The other way the answer changes: the OS flips while the preference is

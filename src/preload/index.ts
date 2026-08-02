@@ -238,7 +238,15 @@ const api = {
     setMbid: (artistId: number, mbid: string | null) =>
       request('artist.setMbid', { artistId, mbid }),
     /** Drops the correction; automatic matching resumes immediately. */
-    clearMbid: (artistId: number) => request('artist.clearMbid', { artistId })
+    clearMbid: (artistId: number) => request('artist.clearMbid', { artistId }),
+    /**
+     * The Wikipedia biography, by way of Wikidata.
+     *
+     * Text, a title and a URL — never the response body, and never markup. The
+     * URL is Wikidata's canonical sitelink and exists so the pane can render the
+     * link out that CC BY-SA obliges us to.
+     */
+    biography: (artistId: number) => request('artist.biography', { artistId })
   }
 } as const
 

@@ -201,7 +201,8 @@ export const artists = {
   searchCandidates: (artistId: number) => unwrap(window.fermata.artists.searchCandidates(artistId)),
   setMbid: (artistId: number, mbid: string | null) =>
     unwrap(window.fermata.artists.setMbid(artistId, mbid)),
-  clearMbid: (artistId: number) => unwrap(window.fermata.artists.clearMbid(artistId))
+  clearMbid: (artistId: number) => unwrap(window.fermata.artists.clearMbid(artistId)),
+  biography: (artistId: number) => unwrap(window.fermata.artists.biography(artistId))
 }
 
 export const windowControls = {

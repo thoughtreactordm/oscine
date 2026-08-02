@@ -1,4 +1,5 @@
 import { watch } from 'vue'
+import { useArtistBiographyStore } from '@renderer/stores/artistBiography'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
@@ -44,6 +45,7 @@ export function useDeckData(): void {
   const trail = usePlayHistoryStore()
   const related = useRelatedStore()
   const identity = useArtistIdentityStore()
+  const biography = useArtistBiographyStore()
 
   watch(
     [() => tunedeck.open, () => playback.nowPlaying?.id ?? null],
@@ -59,6 +61,33 @@ export function useDeckData(): void {
       // off, and an artist matched once is answered from the database — so the
       // steady-state cost of this line is a `SELECT`.
       void identity.load(trackId)
+    },
+    { immediate: true }
+  )
+
+  /**
+   * The biography follows the resolved *artist*, not the track.
+   *
+   * A second watcher rather than a line in the first, because its trigger is
+   * different in kind: the identity resolves asynchronously, so at the moment
+   * the track changes there is no artist id to ask about yet, and skipping
+   * between two tracks by the same artist must not re-ask at all. Watching the
+   * store's own output is what makes both true — the biography loads when the
+   * identity arrives, and does not move when the identity does not.
+   *
+   * Gated on the deck being open for `identity.load`'s reason, which is D14
+   * rather than performance. An artist the deck resolved to "none of these"
+   * clears the pane instead of leaving the previous band's history under the new
+   * one's name.
+   */
+  watch(
+    [
+      () => tunedeck.open,
+      () => (identity.resolution?.mbid === null ? null : (identity.resolution?.artistId ?? null))
+    ],
+    ([open, artistId]) => {
+      if (!open) return
+      void biography.load(artistId)
     },
     { immediate: true }
   )
