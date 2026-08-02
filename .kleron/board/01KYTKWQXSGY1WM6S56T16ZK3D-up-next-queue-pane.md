@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTKWQXSGY1WM6S56T16ZK3D
 title: Up-next queue pane
-status: todo
+status: in-review
 priority: high
 labels:
   - M5
@@ -15,9 +15,9 @@ dependsOn:
   - 01KYTKWGS08GKKM5P6HR53HFMK
   - 01KYTWS0VXNMWQFQE9PC4X31CR
   - 01KYTWSJ58G18FTT4B7292NFYW
-order: 7
+order: 1
 created: '2026-07-30T22:56:31.672Z'
-updated: '2026-08-02T13:58:46.969Z'
+updated: '2026-08-02T14:19:22.165Z'
 ---
 ## Scope
 
