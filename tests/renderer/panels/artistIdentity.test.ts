@@ -91,6 +91,40 @@ describe('describeIdentity', () => {
     expect(wording.retryable).toBe(false)
   })
 
+  /**
+   * The common case says nothing, on purpose.
+   *
+   * "Matched on MusicBrainz." was true, permanent and identical for almost every
+   * artist in a library — a line of grey text under the name that the tick
+   * beside it already carried. The header renders no second line at all for it.
+   */
+  it('adds no detail to a plain automatic match', () => {
+    const wording = describeIdentity(
+      resolution({
+        status: 'resolved',
+        mbid: MBID,
+        source: 'auto',
+        candidates: [candidate({ mbid: MBID })]
+      })
+    )
+
+    expect(wording.detail).toBeNull()
+  })
+
+  /** The one line that distinguishes this Nirvana from the other ten. It stays. */
+  it('keeps a disambiguation, which is the detail that varies', () => {
+    const wording = describeIdentity(
+      resolution({
+        status: 'resolved',
+        mbid: MBID,
+        source: 'auto',
+        candidates: [candidate({ mbid: MBID, disambiguation: '1980s–90s US grunge band' })]
+      })
+    )
+
+    expect(wording.detail).toBe('1980s–90s US grunge band')
+  })
+
   it('says whose choice it was when the operator made it', () => {
     const wording = describeIdentity(
       resolution({ status: 'resolved', mbid: MBID, source: 'manual', candidates: [candidate()] })

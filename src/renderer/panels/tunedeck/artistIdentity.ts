@@ -101,11 +101,18 @@ export function describeIdentity(
         // list shows, and D7 keeps it that way on disk.
         headline:
           resolution.candidates.find((c) => c.mbid === resolution.mbid)?.name ?? resolution.name,
+        // No detail for a plain automatic match, which is the common case. The
+        // line there used to say "Matched on MusicBrainz.", which is what the
+        // tick beside the name already says and what the tab is for — a
+        // standing sentence that never varies and carries nothing is exactly
+        // what `panes.ts` moved every group hint behind a tooltip to be rid of.
+        // A disambiguation is different: it is the one line that tells this
+        // Nirvana from the other ten, so it stays.
         detail:
           resolution.source === 'manual'
             ? 'Your choice. Kept until you change it.'
             : (resolution.candidates.find((c) => c.mbid === resolution.mbid)?.disambiguation ??
-              'Matched on MusicBrainz.'),
+              null),
         tone: 'resolved',
         correctable: true,
         retryable: false

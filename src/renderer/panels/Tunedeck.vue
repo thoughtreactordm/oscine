@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ArtistBackdrop from '@renderer/panels/tunedeck/ArtistBackdrop.vue'
 import { useDeckData } from '@renderer/panels/tunedeck/deckData'
 import { tunedeckRegistry } from '@renderer/panels/tunedeck/panes'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
@@ -86,10 +87,20 @@ function isOpen(groupId: string): boolean {
       one that scrolls the whole deck.
     -->
     <div
-      class="flex min-h-0 flex-1 flex-col"
+      class="relative isolate flex min-h-0 flex-1 flex-col"
       role="tabpanel"
       :aria-label="tunedeck.activeTab?.title"
     >
+      <!--
+        The surface the header stands on, behind the top third of the tab.
+        Tied to the header rather than to a tab id: it is the header that
+        carries the Commons credit, so a backdrop that could outlive one would
+        be an unattributed photograph. `isolate` above is what lets it sit at a
+        negative z-index over the card and under everything in flow without a
+        single sibling opting in.
+      -->
+      <ArtistBackdrop v-if="tunedeck.activeTab?.header" />
+
       <!--
         The tab's standing strip, above every group and outside the accordion.
         Only the Artist tab declares one; the shell neither knows nor cares what
