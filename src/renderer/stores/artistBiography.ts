@@ -65,6 +65,17 @@ export const useArtistBiographyStore = defineStore('artistBiography', () => {
     // read in main and a flicker of the loading state here, for the same text.
     if (nextArtistId === artistId.value && result.value !== null && !failed.value) return
 
+    // Dropped before the await, not after it. The alternative — keeping the old
+    // answer until the new one lands — leaves Led Zeppelin's history on screen
+    // under Nirvana's name for as long as the lookup takes, which for an artist
+    // the deck has not seen before is a MusicBrainz round trip rather than a
+    // frame. That is R5's confident-and-wrong failure arriving by a side door,
+    // and it is also the thing that made a track change feel like a glitch.
+    //
+    // Guarded on the id so a `refresh` of the artist already on screen does not
+    // blank the pane it is refreshing.
+    if (nextArtistId !== artistId.value) result.value = null
+
     artistId.value = nextArtistId
     loading.value = true
     failed.value = false

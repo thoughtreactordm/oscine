@@ -70,8 +70,13 @@ describe('attribution', () => {
     expect(pane).toContain('WIKIPEDIA_LICENCE_URL')
     expect(pane).toContain('WIKIPEDIA_LICENCE_NAME')
     expect(pane).toContain('From the Wikipedia article')
-    // The article's own URL, which is Wikidata's canonical sitelink.
-    expect(pane).toContain(':href="biographies.biography.url"')
+
+    // The article's own URL and title, which is Wikidata's canonical sitelink
+    // and the page it points at. Matched loosely on purpose: whether the
+    // component reaches them through the store or through a local computed is
+    // a refactor, and a test that fails on one is a test about naming.
+    expect(pane).toMatch(/:href="[\w.]*\bbiography\.url"/)
+    expect(pane).toMatch(/\{\{ [\w.]*\bbiography\.title \}\}/)
   })
 
   it('points at the version of the licence Wikimedia actually uses', () => {
