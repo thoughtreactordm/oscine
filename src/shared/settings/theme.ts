@@ -8,14 +8,18 @@
  * the one setting not in the Theme section. Migration `008-theme-keys` carries
  * the stored row across.
  *
- * All three are durable. What the app looks like is exactly the kind of thing
+ * All four are durable. What the app looks like is exactly the kind of thing
  * W8-13's export bundle should carry to another machine — more so than most
  * keys, since an operator who has authored a theme has done real work here.
+ *
+ * `theme.reactive` is the fourth and the odd one: a durable key whose *effect*
+ * is deliberately not durable. See its note below.
  */
 
 import { BUILT_IN_THEMES, DEFAULT_THEME_ID, parseOverrides, type ThemeOverrides } from '../theme'
 import {
   acceptValue,
+  booleanValue,
   defineSetting,
   enumValue,
   rejectValue,
@@ -28,6 +32,7 @@ export type ThemeModePreference = 'system' | 'light' | 'dark'
 
 export const THEME_MODE_KEY = 'theme.mode'
 export const THEME_NAME_KEY = 'theme.name'
+export const THEME_REACTIVE_KEY = 'theme.reactive'
 export const THEME_OVERRIDES_KEY = 'theme.overrides'
 
 /**
@@ -98,6 +103,35 @@ export const THEME_SETTINGS: readonly SettingDescriptor[] = [
     help: 'Each theme carries its own light and dark variant.',
     keywords: ['theme', 'palette', 'colours', 'colors', 'appearance', 'high contrast'],
     order: 20
+  }),
+
+  /*
+   * The *toggle* is durable; what it produces is not. The seed itself never
+   * reaches this registry — it lives on `ThemeInputs` in the renderer, because
+   * it is derived from whatever happens to be playing. Persisting it would let
+   * one album overwrite an authored theme and would ship that album's colour to
+   * another machine in the W8-13 bundle as though it had been chosen.
+   */
+  defineSetting<boolean>({
+    key: THEME_REACTIVE_KEY,
+    scope: 'durable',
+    default: false,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'theme',
+    label: 'Reactive colour',
+    help: 'Take the accent from the cover art of whatever is playing. An accent you have set yourself in the token editor still wins.',
+    keywords: [
+      'reactive',
+      'adaptive',
+      'accent',
+      'album art',
+      'cover',
+      'colour',
+      'color',
+      'dynamic'
+    ],
+    order: 25
   }),
 
   /*

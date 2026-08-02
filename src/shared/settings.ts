@@ -74,6 +74,7 @@ export {
   THEME_MODE_KEY,
   THEME_NAME_KEY,
   THEME_OVERRIDES_KEY,
+  THEME_REACTIVE_KEY,
   THEME_SETTINGS
 } from './settings/theme'
 export type { ThemeModePreference } from './settings/theme'
