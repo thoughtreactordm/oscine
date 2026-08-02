@@ -167,7 +167,7 @@ function onSeekInput(value: number | undefined): void {
         />
       </div>
 
-      <div class="flex gap-3">
+      <div v-if="playback.hasTrack" class="flex gap-3">
         <div class="flex justify-between tabular-nums text-xs font-medium text-muted">
           <span>{{ formatTime(playback.currentTime) }}</span>
           <span>&nbsp;/&nbsp;</span>
@@ -253,7 +253,7 @@ function onSeekInput(value: number | undefined): void {
     </Transition>
 
     <div class="flex shrink-0 items-center gap-3">
-      <section class="w-44 flex items-center gap-2">
+      <section class="flex items-center gap-2 volumeSlider overflow-hidden w-42">
         <UIcon name="i-tabler-volume" class="size-5 shrink-0 text-muted" />
         <USlider
           :model-value="playback.volume"
@@ -335,9 +335,7 @@ function onSeekInput(value: number | undefined): void {
             </UBadge>
           </UButton>
 
-          <template #content>
-            <UpNextOverlay />
-          </template>
+          <template #content> <UpNextOverlay /> </template>
         </UPopover>
       </UTooltip>
 

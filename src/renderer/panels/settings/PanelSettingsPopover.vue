@@ -82,7 +82,7 @@ function reveal(key: string): void {
     <UButton
       color="neutral"
       :variant="active ? 'soft' : 'ghost'"
-      size="xs"
+      size="lg"
       :icon="surface.icon"
       :aria-label="`${surface.title} settings`"
       :title="`${surface.title} settings`"
@@ -116,7 +116,8 @@ function reveal(key: string): void {
           v-if="undrawable.length > 0"
           class="border-t border-default px-3 py-2 text-xs text-warning"
         >
-          {{ undrawable.join(', ') }} could not be drawn here.
+          {{ undrawable.join(', ') }}
+          could not be drawn here.
         </p>
       </div>
     </template>
