@@ -1,3 +1,10 @@
+import {
+  isMbid,
+  type ClearArtistMbidRequest,
+  type ResolveArtistQuery,
+  type SearchArtistCandidatesRequest,
+  type SetArtistMbidRequest
+} from '@shared/artist'
 import { FermataError } from '@shared/errors'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
 import { NET_SCOPES, type CancelNetScopeRequest, type NetScope } from '@shared/net'
@@ -731,4 +738,47 @@ export function assertCancelNetScopeRequest(value: unknown): CancelNetScopeReque
     invalid(`scope must be one of: ${NET_SCOPES.join(', ')}.`)
   }
   return { scope: raw.scope as NetScope }
+}
+
+export function assertResolveArtistQuery(value: unknown): ResolveArtistQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['trackId'])
+  return { trackId: assertPositiveInt(raw.trackId, 'trackId') }
+}
+
+export function assertSearchArtistCandidatesRequest(value: unknown): SearchArtistCandidatesRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artistId'])
+  return { artistId: assertPositiveInt(raw.artistId, 'artistId') }
+}
+
+/**
+ * The operator's choice, checked for shape before it becomes durable.
+ *
+ * `mbid: null` is allowed and is not the same as the key being absent — it is
+ * "none of these", which the picker offers and which has to survive a restart.
+ * `assertOnlyKeys` already rejects the absent case, so the two cannot be
+ * confused by a renderer that forgot to send the field.
+ *
+ * The format check is here rather than only in the service because this value
+ * goes into a column other builds will read: an MBID that is not a UUID would
+ * be stored, would never match anything at MusicBrainz, and would look for all
+ * the world like a resolved artist whose biography simply never loads.
+ */
+export function assertSetArtistMbidRequest(value: unknown): SetArtistMbidRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artistId', 'mbid'])
+  const artistId = assertPositiveInt(raw.artistId, 'artistId')
+
+  if (raw.mbid === null) return { artistId, mbid: null }
+  if (typeof raw.mbid !== 'string' || !isMbid(raw.mbid)) {
+    invalid('mbid must be a MusicBrainz identifier, or null.')
+  }
+  return { artistId, mbid: raw.mbid }
+}
+
+export function assertClearArtistMbidRequest(value: unknown): ClearArtistMbidRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artistId'])
+  return { artistId: assertPositiveInt(raw.artistId, 'artistId') }
 }

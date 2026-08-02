@@ -1,4 +1,5 @@
 import { watch } from 'vue'
+import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 import { useRelatedStore } from '@renderer/stores/related'
@@ -42,6 +43,7 @@ export function useDeckData(): void {
   const playback = usePlaybackStore()
   const trail = usePlayHistoryStore()
   const related = useRelatedStore()
+  const identity = useArtistIdentityStore()
 
   watch(
     [() => tunedeck.open, () => playback.nowPlaying?.id ?? null],
@@ -51,6 +53,12 @@ export function useDeckData(): void {
       // second read of five hundred rows.
       void trail.load()
       void related.load(trackId)
+      // The one call here that can leave the machine, and the gate on `open` is
+      // therefore not a performance choice but **D14**: fetching is scoped to a
+      // drawer the operator has opened. Main declines it anyway when consent is
+      // off, and an artist matched once is answered from the database — so the
+      // steady-state cost of this line is a `SELECT`.
+      void identity.load(trackId)
     },
     { immediate: true }
   )

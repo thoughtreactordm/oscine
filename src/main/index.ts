@@ -18,6 +18,7 @@ import { SqliteLibraryService } from './library/sqliteService'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { SqlitePodcastService } from './podcasts/service'
+import { createArtistIdentityService } from './musicbrainz'
 import { createNetService } from './net'
 import { SqliteSettingsService } from './settings'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
@@ -328,6 +329,12 @@ if (!app.requestSingleInstanceLock()) {
     // its callers, never inside it. W7-9 takes both.
     const cache = openCacheService(cacheDatabasePath())
 
+    // R5's resolver, on the library connection and between the two above it. It
+    // owns two columns of `artists` and reads nothing else, so it is its own
+    // service rather than a method on the library — the same arrangement the
+    // playlist and trail services use.
+    const artists = createArtistIdentityService({ db, client: net.client, cache })
+
     // One artwork worker for library albums and podcast covers — a second
     // WorkerArtworkImageProcessor was racing the same native sharp module and
     // silently dropping podcast thumbs.
@@ -396,7 +403,7 @@ if (!app.requestSingleInstanceLock()) {
 
     setTrustedRendererUrl(rendererUrl)
     registerTrackProtocol(library, artworkCachePath(), podcasts)
-    registerIpcHandlers(library, playlists, podcasts, settings, history, net)
+    registerIpcHandlers(library, playlists, podcasts, settings, history, net, artists)
 
     mainWindow = createWindow(resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors))
     // The other way the answer changes: the OS flips while the preference is

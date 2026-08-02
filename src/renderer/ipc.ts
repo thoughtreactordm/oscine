@@ -188,6 +188,22 @@ export const net = {
   cancelScope: (scope: NetScope) => unwrap(window.fermata.net.cancelScope(scope))
 }
 
+/**
+ * **R5**: the artist tag resolved to an identity, and the operator's veto over it.
+ *
+ * Every call here can cause main to fetch, which is why every one of them is
+ * made from the deck and nowhere else — D14 scopes lookups to an open drawer,
+ * and a store elsewhere in the app calling `resolve` on a track change would
+ * defeat that from the other side of the boundary.
+ */
+export const artists = {
+  resolve: (trackId: number) => unwrap(window.fermata.artists.resolve(trackId)),
+  searchCandidates: (artistId: number) => unwrap(window.fermata.artists.searchCandidates(artistId)),
+  setMbid: (artistId: number, mbid: string | null) =>
+    unwrap(window.fermata.artists.setMbid(artistId, mbid)),
+  clearMbid: (artistId: number) => unwrap(window.fermata.artists.clearMbid(artistId))
+}
+
 export const windowControls = {
   minimize: () => unwrap(window.fermata.windowControls.minimize()),
   toggleMaximize: () => unwrap(window.fermata.windowControls.toggleMaximize()),

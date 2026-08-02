@@ -62,7 +62,8 @@ describe('openDatabase', () => {
         'crossfade-cascade',
         'theme-keys',
         'play-history',
-        'track-genre'
+        'track-genre',
+        'artist-mbid'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -103,7 +104,8 @@ describe('openDatabase', () => {
         'crossfade-cascade',
         'theme-keys',
         'play-history',
-        'track-genre'
+        'track-genre',
+        'artist-mbid'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -133,7 +135,8 @@ describe('openDatabase', () => {
         'crossfade-cascade',
         'theme-keys',
         'play-history',
-        'track-genre'
+        'track-genre',
+        'artist-mbid'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
@@ -196,6 +199,31 @@ describe('openDatabase', () => {
       ]) {
         expect(names).toContain(index)
       }
+    } finally {
+      db.close()
+    }
+  })
+
+  /**
+   * R5's identity columns, and the partial index W7-11 will read them backwards
+   * through. Asserted here rather than only in the migration's own tests because
+   * this file is the one place that says what the head schema *is*.
+   */
+  it('carries the artist identity columns and their index', () => {
+    const { db } = openDatabase(file)
+    try {
+      const columns = (db.pragma('table_info(artists)') as { name: string }[]).map(
+        (row) => row.name
+      )
+      expect(columns).toContain('mbid')
+      expect(columns).toContain('mbid_source')
+
+      const index = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get('idx_artists_mbid') as { sql: string } | undefined
+      // Partial: the column is NULL for every artist nothing has resolved yet,
+      // and a full index over mostly-NULL rows is a table copy for nothing.
+      expect(index?.sql).toContain('WHERE mbid IS NOT NULL')
     } finally {
       db.close()
     }

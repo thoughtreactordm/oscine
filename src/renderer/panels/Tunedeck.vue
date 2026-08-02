@@ -90,6 +90,13 @@ function isOpen(groupId: string): boolean {
       role="tabpanel"
       :aria-label="tunedeck.activeTab?.title"
     >
+      <!--
+        The tab's standing strip, above every group and outside the accordion.
+        Only the Artist tab declares one; the shell neither knows nor cares what
+        is in it, which is the same arrangement it has with `badge` and `hint`.
+      -->
+      <component :is="tunedeck.activeTab.header" v-if="tunedeck.activeTab?.header" />
+
       <section
         v-for="group in tunedeck.activeTab?.groups ?? []"
         :key="group.id"

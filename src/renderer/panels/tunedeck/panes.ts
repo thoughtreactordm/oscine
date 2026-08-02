@@ -3,6 +3,7 @@ import { NEIGHBOURHOOD_STRANDS, type RelatedStrand } from '@shared/related'
 import { countRelatedRows } from './relatedRows'
 import AlbumTracksPane from './AlbumTracksPane.vue'
 import ArtistCatalogPane from './ArtistCatalogPane.vue'
+import ArtistIdentityHeader from './ArtistIdentityHeader.vue'
 import DecodePathPane from './DecodePathPane.vue'
 import FormatPane from './FormatPane.vue'
 import LoudnessPane from './LoudnessPane.vue'
@@ -77,6 +78,11 @@ export const tunedeckRegistry = createTunedeckRegistry([
     id: 'artist',
     title: 'Artist',
     icon: 'i-tabler-microphone-2',
+    // R5's correction affordance, and the only thing in the deck outside a
+    // collapsible group. A wrong identity has to be visible and correctable
+    // while the panes below it are asserting things about the wrong artist —
+    // which is a statement about *position*, not about which group is open.
+    header: ArtistIdentityHeader,
     groups: [
       {
         id: 'artist-catalog',

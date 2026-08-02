@@ -4,6 +4,7 @@ import { trackUrl } from '@shared/ipc'
 import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
 import type { PlaylistService } from '../library/playlists/service'
+import type { ArtistIdentityService } from '../musicbrainz'
 import type { NetService } from '../net'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
@@ -11,6 +12,10 @@ import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertAddTracksRequest,
   assertCancelNetScopeRequest,
+  assertClearArtistMbidRequest,
+  assertResolveArtistQuery,
+  assertSearchArtistCandidatesRequest,
+  assertSetArtistMbidRequest,
   assertExportPlaylistRequest,
   assertFeedUrl,
   assertBrowsePodcastCategoryQuery,
@@ -54,7 +59,8 @@ export function registerIpcHandlers(
   podcasts: PodcastService,
   settings: SettingsService,
   history: PlayHistoryService,
-  net: NetService
+  net: NetService,
+  artists: ArtistIdentityService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -338,6 +344,24 @@ export function registerIpcHandlers(
 
   handle('net.cancelScope', (request) =>
     net.cancelScope(assertCancelNetScopeRequest(request).scope)
+  )
+
+  // Null rather than a `not-found` throw, for `library.getRelated`'s reason: the
+  // seed is whatever is playing, and a track with no artist credit is an
+  // ordinary library, not an error.
+  handle('artist.resolve', (request) => artists.resolve(assertResolveArtistQuery(request).trackId))
+
+  handle('artist.searchCandidates', (request) =>
+    artists.searchCandidates(assertSearchArtistCandidatesRequest(request).artistId)
+  )
+
+  handle('artist.setMbid', (request) => {
+    const { artistId, mbid } = assertSetArtistMbidRequest(request)
+    return artists.setMbid(artistId, mbid)
+  })
+
+  handle('artist.clearMbid', (request) =>
+    artists.clearMbid(assertClearArtistMbidRequest(request).artistId)
   )
 
   assertEveryChannelHandled()

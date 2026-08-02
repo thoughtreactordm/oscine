@@ -11,6 +11,9 @@ import {
 } from '@shared/library'
 import {
   assertCancelNetScopeRequest,
+  assertClearArtistMbidRequest,
+  assertSearchArtistCandidatesRequest,
+  assertSetArtistMbidRequest,
   assertExportPlaylistRequest,
   assertListFacetIdsQuery,
   assertListFacetsQuery,
@@ -204,5 +207,67 @@ describe('net scope IPC validation', () => {
     ]) {
       expect(() => assertCancelNetScopeRequest(request)).toThrow(FermataError)
     }
+  })
+})
+
+describe('artist identity IPC validation', () => {
+  const MBID = '5b11f4ce-a62d-471e-81fc-a69a8278c7da'
+
+  it('accepts a chosen identity', () => {
+    expect(assertSetArtistMbidRequest({ artistId: 3, mbid: MBID })).toEqual({
+      artistId: 3,
+      mbid: MBID
+    })
+  })
+
+  /**
+   * "None of these" is a value and not an omission. `assertOnlyKeys` already
+   * rejects a caller that dropped the field, so the two cannot be confused.
+   */
+  it('accepts an explicit null as the operator saying "none of these"', () => {
+    expect(assertSetArtistMbidRequest({ artistId: 3, mbid: null })).toEqual({
+      artistId: 3,
+      mbid: null
+    })
+    expect(() => assertSetArtistMbidRequest({ artistId: 3 })).toThrow(FermataError)
+  })
+
+  /**
+   * The format check is here rather than only in the service because this value
+   * becomes durable: an MBID that is not a UUID would sit on the row looking
+   * like a resolved artist whose biography merely never loads.
+   */
+  it('refuses anything that is not a MusicBrainz identifier', () => {
+    for (const mbid of [
+      'not-a-uuid',
+      '5B11F4CE-A62D-471E-81FC-A69A8278C7DA',
+      `${MBID} `,
+      `${MBID}${MBID}`,
+      '',
+      7
+    ]) {
+      expect(() => assertSetArtistMbidRequest({ artistId: 3, mbid })).toThrow(FermataError)
+    }
+  })
+
+  it('refuses a bad artist id, and an unexpected field', () => {
+    for (const request of [
+      { artistId: 0, mbid: MBID },
+      { artistId: -1, mbid: MBID },
+      { artistId: 1.5, mbid: MBID },
+      { artistId: '3', mbid: MBID },
+      { artistId: 3, mbid: MBID, source: 'manual' }
+    ]) {
+      expect(() => assertSetArtistMbidRequest(request)).toThrow(FermataError)
+    }
+  })
+
+  it('validates the two by-artist requests the same way', () => {
+    expect(assertSearchArtistCandidatesRequest({ artistId: 3 })).toEqual({ artistId: 3 })
+    expect(assertClearArtistMbidRequest({ artistId: 3 })).toEqual({ artistId: 3 })
+    expect(() => assertSearchArtistCandidatesRequest({ artistId: 3, force: true })).toThrow(
+      FermataError
+    )
+    expect(() => assertClearArtistMbidRequest({})).toThrow(FermataError)
   })
 })

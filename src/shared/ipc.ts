@@ -1,3 +1,10 @@
+import type {
+  ArtistResolution,
+  ClearArtistMbidRequest,
+  ResolveArtistQuery,
+  SearchArtistCandidatesRequest,
+  SetArtistMbidRequest
+} from './artist'
 import type { ListPlayHistoryQuery, PlayEntry } from './history'
 import type {
   ArtworkVariant,
@@ -389,6 +396,54 @@ export interface IpcContract {
     request: CancelNetScopeRequest
     response: CancelNetScopeResult
   }
+
+  /**
+   * Who is playing, as an identity rather than as a tag string (**R5**).
+   *
+   * `null` when the track has no artist credit, or has left the library while
+   * the deck was looking at it — the same race `library.getRelated` answers with
+   * `null` for, and the same reason it is not an error.
+   *
+   * Searches only when the `artists` row carries no decision yet. An artist
+   * matched once is answered from the database on every later play, which is the
+   * whole purpose of the MBID column.
+   */
+  'artist.resolve': {
+    request: ResolveArtistQuery
+    response: ArtistResolution | null
+  }
+
+  /**
+   * The disambiguation picker's list, fetched because the operator asked to see
+   * it rather than because something is playing.
+   *
+   * Separate from `resolve` so that an artist whose identity is settled costs no
+   * request until somebody disagrees with it. Adopts nothing: the answer is a
+   * list, and choosing from it is `artist.setMbid`.
+   */
+  'artist.searchCandidates': {
+    request: SearchArtistCandidatesRequest
+    response: ArtistResolution
+  }
+
+  /**
+   * The operator's choice, which is authoritative and durable — **D7**'s
+   * treatment of a tag correction, applied to an identity.
+   *
+   * `mbid: null` is "none of these", which is a decision and not an absence: it
+   * is stored, it survives restart, and it stops the automatic matcher asking
+   * again. Nothing automatic ever overwrites the result.
+   */
+  'artist.setMbid': {
+    request: SetArtistMbidRequest
+    response: ArtistResolution
+  }
+
+  /** Drops a correction so automatic matching resumes, and re-resolves at once. */
+  'artist.clearMbid': {
+    request: ClearArtistMbidRequest
+    response: ArtistResolution
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -496,7 +551,11 @@ export const IPC_CHANNELS = [
   'settings.exportProfile',
   'settings.readProfile',
   'settings.importProfile',
-  'net.cancelScope'
+  'net.cancelScope',
+  'artist.resolve',
+  'artist.searchCandidates',
+  'artist.setMbid',
+  'artist.clearMbid'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [

@@ -152,6 +152,22 @@ export interface TunedeckTab {
   readonly id: string
   readonly title: string
   readonly icon: string
+  /**
+   * A strip drawn above this tab's accordion, outside it, always visible.
+   *
+   * The only thing in the deck that is not inside a collapsible group, and it
+   * exists because **R5** requires one: "every deck header carries a visible
+   * 'not this artist?' affordance". An affordance behind a chevron is not
+   * visible, and the header is where a *wrong* identity has to be correctable —
+   * an operator who cannot see that the deck has picked the wrong Nirvana has no
+   * reason to go looking for the control that fixes it.
+   *
+   * Per tab rather than on the deck's own header, because what it says is
+   * artist-scoped: the deck header is chrome shared with Track, Related and
+   * Playing, and an artist name sitting above the format readout is a caption on
+   * the wrong thing. Optional, and three of the four tabs decline it.
+   */
+  readonly header?: Component
   readonly groups: readonly TunedeckGroup[]
 }
 

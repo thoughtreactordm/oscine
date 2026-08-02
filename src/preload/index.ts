@@ -221,6 +221,24 @@ const api = {
      * saying when it has stopped caring — see `net.cancelScope` in `ipc.ts`.
      */
     cancelScope: (scope: NetScope) => request('net.cancelScope', { scope })
+  },
+  /**
+   * **R5**'s identity surface, and the first thing here that causes a fetch.
+   *
+   * It is still not the renderer opening a socket: these are requests to main to
+   * go and look, which is exactly what D14 puts in main and nowhere else. What
+   * the renderer gets back is a resolution — never a URL, never a response body.
+   */
+  artists: {
+    /** Who is playing. `null` when the track carries no artist credit. */
+    resolve: (trackId: number) => request('artist.resolve', { trackId }),
+    /** The picker's list, fetched because the operator asked to disagree. */
+    searchCandidates: (artistId: number) => request('artist.searchCandidates', { artistId }),
+    /** The operator's choice. `null` is "none of these", and is durable. */
+    setMbid: (artistId: number, mbid: string | null) =>
+      request('artist.setMbid', { artistId, mbid }),
+    /** Drops the correction; automatic matching resumes immediately. */
+    clearMbid: (artistId: number) => request('artist.clearMbid', { artistId })
   }
 } as const
 
