@@ -1,3 +1,4 @@
+import { WAVEFORM_SAMPLE_COUNT } from './AudioEngine'
 import type { StreamingMedia, StreamingPlatform } from './StreamingAudioEngine'
 
 const VOLUME_RAMP_SEC = 0.015
@@ -19,7 +20,8 @@ export interface BrowserStreamingPlatformOptions {
 
 /**
  * Builds the real media graph:
- * `<audio>` → normalization → master volume → destination.
+ * `<audio>` → normalization → master volume → destination,
+ * with a waveform analyser hung off normalization as a sink.
  */
 export function createBrowserStreamingPlatform(
   options: BrowserStreamingPlatformOptions = {}
@@ -34,10 +36,15 @@ export function createBrowserStreamingPlatform(
   options.adoptContext?.(context)
   const normalizationGain = context.createGain()
   const masterGain = context.createGain()
+  const analyser = context.createAnalyser()
+  analyser.fftSize = WAVEFORM_SAMPLE_COUNT
   const source = context.createMediaElementSource(element)
   source.connect(normalizationGain)
   normalizationGain.connect(masterGain)
   masterGain.connect(context.destination)
+  // Ahead of master volume, matching the decoded path so the visualization does
+  // not change shape when R1 sends a long track down this one.
+  normalizationGain.connect(analyser)
 
   const media: StreamingMedia = {
     get currentTime() {
@@ -98,6 +105,10 @@ export function createBrowserStreamingPlatform(
       normalizationGain.gain.setValueAtTime(normalizationGain.gain.value, now)
       normalizationGain.gain.linearRampToValueAtTime(value, now + NORMALIZATION_RAMP_SEC)
     },
+    readWaveform(into) {
+      analyser.getFloatTimeDomainData(into)
+      return true
+    },
     dispose() {
       element.pause()
       element.removeAttribute('src')
@@ -105,6 +116,7 @@ export function createBrowserStreamingPlatform(
       source.disconnect()
       normalizationGain.disconnect()
       masterGain.disconnect()
+      analyser.disconnect()
       void context.close()
     }
   }

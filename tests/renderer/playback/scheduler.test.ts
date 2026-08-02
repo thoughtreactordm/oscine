@@ -202,6 +202,15 @@ class FakeEngine implements AudioEngine {
     this.cancelledFadeCount += 1
   }
 
+  /** Reports a flat line of `waveformLevel`, or nothing when it is null. */
+  waveformLevel: number | null = null
+
+  readWaveform(into: Float32Array): boolean {
+    if (this.waveformLevel === null) return false
+    into.fill(this.waveformLevel)
+    return true
+  }
+
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void
@@ -262,6 +271,30 @@ function harness(
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('PlaybackScheduler', () => {
+  it('taps the active slot alone, never the prefetched one', async () => {
+    const h = harness()
+    await h.scheduler.start(h.order, 1, track(1))
+    await settle()
+
+    const into = new Float32Array(8)
+    // Both slots hold a track and the prefetched one is prepared, so a tap that
+    // read "whichever engine has audio" would find the wrong one.
+    h.engines[0].waveformLevel = 0.4
+    h.engines[1].waveformLevel = 0.9
+
+    expect(h.scheduler.readWaveform(into)).toBe(true)
+    expect(into[0]).toBeCloseTo(0.4)
+
+    h.engines[0].waveformLevel = null
+    expect(h.scheduler.readWaveform(into)).toBe(false)
+  })
+
+  it('reports no waveform before anything has started', () => {
+    const h = harness()
+
+    expect(h.scheduler.readWaveform(new Float32Array(8))).toBe(false)
+  })
+
   it('prefetches exactly one successor after current playback is established', async () => {
     const h = harness()
     await h.scheduler.start(h.order, 1, track(1))

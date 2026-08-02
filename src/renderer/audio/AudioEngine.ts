@@ -93,6 +93,27 @@ export interface PlaybackPosition {
   duration: number
 }
 
+/**
+ * Length of the buffer `readWaveform` fills.
+ *
+ * A power of two because every implementation of this interface is going to be
+ * backed by something with an FFT-shaped window, and a caller that had to ask
+ * how big its buffer should be would be asking about the implementation. 1024
+ * samples is ~21ms at 48kHz: long enough that a bass period fits inside one
+ * frame, short enough that the shape still tracks a transient.
+ */
+export const WAVEFORM_SAMPLE_COUNT = 1024
+
+/**
+ * The buffer `readWaveform` fills.
+ *
+ * Pinned to a plain `ArrayBuffer` rather than the default `ArrayBufferLike`. A
+ * view over shared memory is not something an audio backend can be handed, and
+ * a caller that tried would find out by exception at frame rate. Still a
+ * language type, so the no-Web-Audio rule above holds.
+ */
+export type WaveformBuffer = Float32Array<ArrayBuffer>
+
 export interface AudioEngineEventMap {
   /**
    * Fired on every status transition. A UI that polls `status` instead will
@@ -199,6 +220,31 @@ export interface AudioEngine {
   cancelScheduledStart(): void
   /** Remove outgoing transition automation and restore unity without a step. */
   cancelScheduledFade(): void
+
+  /**
+   * Copy the most recent time-domain samples of whatever is sounding into
+   * `into`, and report whether anything was written.
+   *
+   * `into` must hold `WAVEFORM_SAMPLE_COUNT` floats; the samples land in −1..1.
+   * False means nothing is audible right now — the buffer is left untouched, so
+   * a caller animating from it decays its own state rather than snapping to a
+   * flat line. Callers must not assume a cadence: this is a poll, and reading it
+   * twice inside one render quantum returns the same window twice.
+   *
+   * It is on the interface for the same reason `setDecodePolicy` is. The tap is
+   * a property of *an* engine, not of the Web Audio one — whatever replaces the
+   * decode path still has samples passing through it, and a UI that had to reach
+   * past this line to see them would be naming an `AnalyserNode`, which is
+   * exactly what the file header forbids. A `Float32Array` is a language type,
+   * not a Web Audio one, and it is caller-owned so the poll allocates nothing.
+   *
+   * Implementations tap **after loudness normalization and any transition fade,
+   * but before the master volume**. Normalization and crossfades are things the
+   * track is doing and belong in the picture; the volume slider is something the
+   * operator is doing to the room, and a waveform that collapsed when they
+   * turned it down would read as a fault.
+   */
+  readWaveform(into: WaveformBuffer): boolean
 
   on<K extends keyof AudioEngineEventMap>(
     type: K,

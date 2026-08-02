@@ -38,6 +38,7 @@ export {
   DATE_FORMAT_KEY,
   DURATION_FORMAT_KEY,
   FILE_SIZE_FORMAT_KEY,
+  NOW_PLAYING_WAVEFORM_KEY,
   RESTORE_SESSION_KEY,
   TRACK_ACTIVATION_KEY,
   TRACK_DENSITY_KEY
@@ -73,6 +74,7 @@ export {
   THEME_MODE_KEY,
   THEME_NAME_KEY,
   THEME_OVERRIDES_KEY,
+  THEME_REACTIVE_KEY,
   THEME_SETTINGS
 } from './settings/theme'
 export type { ThemeModePreference } from './settings/theme'

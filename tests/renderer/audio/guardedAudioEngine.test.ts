@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   AudioEngineError,
+  WAVEFORM_SAMPLE_COUNT,
   type AudioEngineEventMap,
   type NormalizationPolicy,
   type PlaybackStatus,
@@ -43,6 +44,8 @@ class FakePath implements AudioPath {
   scheduleAccepted = false
   adoptAccepted = false
   cancelScheduledCount = 0
+  /** What this path claims to be sounding, for the waveform tap. */
+  waveformLevel: number | null = null
 
   readonly listeners = new Map<string, Set<(payload: never) => void>>()
   readonly pending: Array<{ source: TrackAudioSource; resolve: () => void }> = []
@@ -124,6 +127,12 @@ class FakePath implements AudioPath {
   }
 
   cancelScheduledFade(): void {}
+
+  readWaveform(into: Float32Array): boolean {
+    if (this.waveformLevel === null) return false
+    into.fill(this.waveformLevel)
+    return true
+  }
 
   on<K extends keyof AudioEngineEventMap>(
     type: K,
@@ -351,6 +360,35 @@ describe('GuardedAudioEngine', () => {
       false
     )
     expect(h.streaming.scheduledStarts).toHaveLength(0)
+  })
+
+  it('reads the waveform from whichever path won admission', async () => {
+    const h = harness(
+      new Map([
+        [1, track(1)],
+        [2, track(2, { durationSec: 20 * 60 })]
+      ])
+    )
+    h.decoded.waveformLevel = 0.25
+    h.streaming.waveformLevel = 0.75
+    const into = new Float32Array(WAVEFORM_SAMPLE_COUNT)
+
+    // Nothing admitted yet: there is no active path to read from.
+    expect(h.engine.readWaveform(into)).toBe(false)
+
+    await h.engine.load(1)
+    expect(h.engine.readWaveform(into)).toBe(true)
+    expect(into[0]).toBeCloseTo(0.25)
+
+    // The long track falls to streaming, and the tap has to follow it there.
+    // A visualization wired to the decoded context alone would go flat here.
+    await h.engine.load(2)
+    expect(h.engine.readWaveform(into)).toBe(true)
+    expect(into[0]).toBeCloseTo(0.75)
+
+    // A path with no signal reports so rather than leaving stale samples.
+    h.streaming.waveformLevel = null
+    expect(h.engine.readWaveform(into)).toBe(false)
   })
 
   it('does not ask either path to load until metadata resolution completes', async () => {

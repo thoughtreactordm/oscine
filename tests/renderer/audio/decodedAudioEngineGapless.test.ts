@@ -83,12 +83,19 @@ function harness(options: { duration?: number; sampleRate?: number } = {}) {
     gainNodes.push(node)
     return node
   }
+  const analyser = {
+    fftSize: 0,
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    getFloatTimeDomainData: vi.fn()
+  }
   const context = {
     currentTime: 5,
     sampleRate,
     state: 'running',
     destination: {},
     createGain,
+    createAnalyser: () => analyser,
     createBufferSource: () => {
       const created = new FakeSource()
       sources.push(created)
@@ -104,12 +111,63 @@ function harness(options: { duration?: number; sampleRate?: number } = {}) {
     release
   }
   const engine = new DecodedAudioEngine(undefined, lease)
-  return { engine, context, timeline, sources, gains, gainNodes, release }
+  return { engine, context, timeline, sources, gains, gainNodes, analyser, release }
 }
 
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+})
+
+describe('DecodedAudioEngine waveform tap', () => {
+  it('taps ahead of the master gain, so the shape ignores the volume slider', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(new ArrayBuffer(4)))
+    )
+    const h = harness()
+    await h.engine.load(source())
+    h.engine.scheduleSampleAccurateStart({ timeline: h.timeline, timeSec: 6 })
+
+    // Construction order in `#startSource`: transition gain, then normalization.
+    const [master, transition] = h.gainNodes
+    expect(transition.connect).toHaveBeenCalledWith(h.analyser)
+    expect(transition.connect).toHaveBeenCalledWith(master)
+    // The analyser is a leaf. If it were wired onward it would be a second route
+    // to the destination and the track would play twice.
+    expect(h.analyser.connect).not.toHaveBeenCalled()
+
+    h.engine.dispose()
+  })
+
+  it('reports nothing until a source is live, and stops again when paused', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(new ArrayBuffer(4)))
+    )
+    const h = harness()
+    const into = new Float32Array(8)
+
+    expect(h.engine.readWaveform(into)).toBe(false)
+
+    await h.engine.load(source())
+    // Loaded but not started: the buffer exists, nothing is feeding the tap.
+    expect(h.engine.readWaveform(into)).toBe(false)
+
+    h.engine.scheduleSampleAccurateStart({ timeline: h.timeline, timeSec: 6 })
+    h.engine.adoptScheduledStart()
+    expect(h.engine.readWaveform(into)).toBe(true)
+    expect(h.analyser.getFloatTimeDomainData).toHaveBeenCalledWith(into)
+
+    // `pause` tears the source down, which is what makes the ribbon decay.
+    h.engine.pause()
+    expect(h.engine.readWaveform(into)).toBe(false)
+
+    h.engine.dispose()
+    expect(h.engine.readWaveform(into)).toBe(false)
+  })
 })
 
 describe('DecodedAudioEngine gapless planning', () => {

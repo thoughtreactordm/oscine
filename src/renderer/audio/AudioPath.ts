@@ -4,7 +4,8 @@ import type {
   AudioEngineEventMap,
   NormalizationPolicy,
   PlaybackStatus,
-  SampleAccurateTime
+  SampleAccurateTime,
+  WaveformBuffer
 } from './AudioEngine'
 
 /** Metadata and opaque media URL resolved before either playback path loads. */
@@ -39,6 +40,7 @@ export interface AudioPath {
   adoptScheduledStart(): boolean
   cancelScheduledStart(): void
   cancelScheduledFade(): void
+  readWaveform(into: WaveformBuffer): boolean
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void

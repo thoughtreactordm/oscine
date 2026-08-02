@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BUILT_IN_THEMES, DEFAULT_THEME_ID } from '@shared/theme'
+import { BUILT_IN_THEMES, DEFAULT_THEME_ID, rampFromSeed } from '@shared/theme'
 import {
   computeTheme,
   DEFAULT_INPUTS,
@@ -67,6 +67,79 @@ describe('computeTheme', () => {
   it('carries overrides into the resolved custom properties', () => {
     const state = computeTheme(inputs({ overrides: { 'shape.radius': '0px' } }))
     expect(state.resolved.cssVars.get('--fermata-shape-radius')).toBe('0px')
+  })
+})
+
+describe('computeTheme with a reactive seed', () => {
+  const seed = 'oklch(0.68 0.18 264)'
+
+  it('drives the primary ramp from the seed', () => {
+    const plain = computeTheme(inputs())
+    const reactive = computeTheme(inputs({ reactiveSeed: seed }))
+
+    expect(reactive.resolved.cssVars.get('--fermata-color-primary-500')).toBe(
+      rampFromSeed(seed)?.['500']
+    )
+    expect(reactive.resolved.cssVars.get('--fermata-color-primary-500')).not.toBe(
+      plain.resolved.cssVars.get('--fermata-color-primary-500')
+    )
+    expect(reactive.reactiveSeed).toBe(seed)
+  })
+
+  it('is the sanctioned override path and nothing beside it', () => {
+    // Byte-identical to writing the same seed into the token editor. That is
+    // the whole of what reactive colour does — no second mechanism, no token it
+    // can reach that an operator could not.
+    const reactive = computeTheme(inputs({ reactiveSeed: seed }))
+    const manual = computeTheme(inputs({ overrides: { 'color.primary': { mode: 'seed', seed } } }))
+    expect([...reactive.resolved.cssVars]).toEqual([...manual.resolved.cssVars])
+  })
+
+  it('leaves every surface, text and border token where the theme put it', () => {
+    // The scope guarantee, and the reason this was worth keeping to one role:
+    // the contrast pairs the theme already satisfies are pairs of these, so
+    // whatever is playing they stay satisfied. `accent.primary` is expected to
+    // move — it is the accent, which is the point.
+    const plain = computeTheme(inputs())
+    const reactive = computeTheme(inputs({ reactiveSeed: seed }))
+
+    for (const [id, value] of plain.resolved.tokens) {
+      if (id.startsWith('color.primary') || id === 'accent.primary') continue
+      expect(reactive.resolved.tokens.get(id)).toBe(value)
+    }
+  })
+
+  it('yields to an accent the operator set themselves', () => {
+    // An override is a stated preference; artwork is an observation. Merging
+    // them would produce a primary neither of them asked for.
+    const chosen = computeTheme(
+      inputs({
+        reactiveSeed: seed,
+        overrides: { 'color.primary': { mode: 'seed', seed: '#ff0000' } }
+      })
+    )
+    const withoutArt = computeTheme(
+      inputs({ overrides: { 'color.primary': { mode: 'seed', seed: '#ff0000' } } })
+    )
+
+    expect(chosen.resolved.cssVars.get('--fermata-color-primary-500')).toBe(
+      withoutArt.resolved.cssVars.get('--fermata-color-primary-500')
+    )
+    expect(chosen.reactiveSeed).toBeNull()
+  })
+
+  it('is exactly the plain theme when there is no seed', () => {
+    const plain = computeTheme(inputs())
+    expect(plain.reactiveSeed).toBeNull()
+    expect([...plain.resolved.cssVars]).toEqual([...computeTheme(inputs()).resolved.cssVars])
+  })
+
+  it('leaves the theme own primary when the seed will not parse', () => {
+    const plain = computeTheme(inputs())
+    const broken = computeTheme(inputs({ reactiveSeed: 'not a colour' }))
+    expect(broken.resolved.cssVars.get('--fermata-color-primary-500')).toBe(
+      plain.resolved.cssVars.get('--fermata-color-primary-500')
+    )
   })
 })
 

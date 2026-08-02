@@ -3,7 +3,8 @@ import {
   type AudioEngineEventMap,
   type NormalizationPolicy,
   type PlaybackStatus,
-  type SampleAccurateTime
+  type SampleAccurateTime,
+  type WaveformBuffer
 } from './AudioEngine'
 import type { AudioPath, TrackAudioSource } from './AudioPath'
 import { Emitter } from './emitter'
@@ -38,6 +39,16 @@ export interface StreamingPlatform {
   resumeContext(): Promise<void>
   setOutputVolume(gain: number): void
   setNormalizationGain(gain: number, ramp: boolean): void
+  /**
+   * Fill `into` with the latest time-domain window, or report that this platform
+   * has no tap.
+   *
+   * Optional for the same reason `adoptContext` is: a platform is a test seam as
+   * much as a production one, and a fake built to exercise transport has no
+   * business growing an analyser to satisfy a decoration. Absent reads as
+   * silence, which is the honest answer.
+   */
+  readWaveform?(into: WaveformBuffer): boolean
   dispose(): void
 }
 
@@ -115,6 +126,14 @@ export class StreamingAudioEngine implements AudioPath {
   cancelScheduledStart(): void {}
 
   cancelScheduledFade(): void {}
+
+  readWaveform(into: WaveformBuffer): boolean {
+    // The element keeps feeding the graph while paused only in the sense that
+    // the node stays wired; it emits silence. Gating on status spares the caller
+    // a buffer of zeros it would have to recognise as "nothing" anyway.
+    if (this.#disposed || this.#status !== 'playing') return false
+    return this.#platform.readWaveform?.(into) ?? false
+  }
 
   on<K extends keyof AudioEngineEventMap>(
     type: K,

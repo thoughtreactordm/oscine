@@ -64,6 +64,7 @@ export const FILE_SIZE_FORMAT_KEY = 'interface.fileSizeFormat'
 export const TRACK_ACTIVATION_KEY = 'interface.trackActivation'
 export const CONFIRM_PLAYLIST_DELETE_KEY = 'interface.confirmPlaylistDelete'
 export const CONFIRM_ENTRY_REMOVAL_KEY = 'interface.confirmEntryRemoval'
+export const NOW_PLAYING_WAVEFORM_KEY = 'interface.nowPlayingWaveform'
 
 export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
   /*
@@ -252,5 +253,18 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'Removing entries never touches the files on disk either way.',
     keywords: ['confirm', 'remove', 'playlist', 'entries', 'prompt'],
     order: 100
+  }),
+
+  defineSetting<boolean>({
+    key: NOW_PLAYING_WAVEFORM_KEY,
+    scope: 'durable',
+    default: true,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'interface',
+    label: 'Waveform ribbon on the Now Playing view',
+    help: 'A live trace of the audible track, along the bottom of the view. Off costs nothing; on costs one animation frame while a track is sounding.',
+    keywords: ['waveform', 'visualizer', 'visualisation', 'now playing', 'animation', 'ribbon'],
+    order: 110
   })
 ]

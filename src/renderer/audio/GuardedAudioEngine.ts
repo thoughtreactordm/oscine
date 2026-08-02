@@ -7,7 +7,8 @@ import {
   type AudioTransitionPolicy,
   type NormalizationPolicy,
   type PlaybackStatus,
-  type SampleAccurateTime
+  type SampleAccurateTime,
+  type WaveformBuffer
 } from './AudioEngine'
 import type { AudioPath, DecodedAudioPath, TrackAudioSource } from './AudioPath'
 import { Emitter } from './emitter'
@@ -163,6 +164,20 @@ export class GuardedAudioEngine implements AudioEngine {
 
   cancelScheduledFade(): void {
     this.#active?.cancelScheduledFade()
+  }
+
+  /**
+   * Read from whichever path won admission.
+   *
+   * This is the whole reason the tap is on the interface rather than on a
+   * context. There is no node both paths share — decoded slots lease one
+   * `AudioContext` from the pool while each streaming path builds its own, and
+   * nodes cannot be connected across contexts. A caller tapping "the" master
+   * gain would get a visualization that died exactly when R1 sent a long track
+   * to streaming.
+   */
+  readWaveform(into: WaveformBuffer): boolean {
+    return this.#active?.readWaveform(into) ?? false
   }
 
   on<K extends keyof AudioEngineEventMap>(

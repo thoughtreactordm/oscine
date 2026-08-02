@@ -14,6 +14,7 @@ import {
   DEFAULT_THEME_ID,
   findTheme,
   resolveTheme,
+  type RampSpec,
   type ResolvedTheme,
   type ThemeMode,
   type ThemeOverrides
@@ -29,6 +30,18 @@ export interface ThemeInputs {
   /** What the OS reports right now. */
   readonly systemDark: boolean
   readonly systemReducedMotion: boolean
+  /**
+   * The accent read from the current cover, or null when reactive colour is off
+   * and whenever nothing is playing.
+   *
+   * The one input here that is **not** persisted, and must not become so. It is
+   * derived from what happens to be playing, so writing it into
+   * `theme.overrides` would let one album quietly overwrite a theme the operator
+   * authored, and would put that album's colour in the W8-13 export bundle as
+   * though it were a choice. It lives here, beside the two other things the app
+   * observes rather than the operator states.
+   */
+  readonly reactiveSeed: string | null
 }
 
 export interface ThemeState {
@@ -45,6 +58,12 @@ export interface ThemeState {
    * impossible. Same instinct as the unknown-key rule.
    */
   readonly themeMissing: boolean
+  /**
+   * The reactive seed actually driving the primary ramp, which is null both when
+   * there is none and when the operator's own `color.primary` override is
+   * shadowing it. Reported so the settings row can say which of those it is.
+   */
+  readonly reactiveSeed: string | null
 }
 
 export const DEFAULT_INPUTS: ThemeInputs = {
@@ -52,7 +71,29 @@ export const DEFAULT_INPUTS: ThemeInputs = {
   themeId: DEFAULT_THEME_ID,
   overrides: {},
   systemDark: false,
-  systemReducedMotion: false
+  systemReducedMotion: false,
+  reactiveSeed: null
+}
+
+/** The ramp role reactive colour drives, and the only one it may touch. */
+const PRIMARY_RAMP_ID = 'color.primary'
+
+/**
+ * Layer the cover's accent *under* the operator's overrides.
+ *
+ * An explicit `color.primary` override wins outright, and that ordering is the
+ * whole contract: someone who has pasted a brand colour into the token editor
+ * has stated a preference, and artwork is an observation. Merging the two would
+ * produce a primary neither of them asked for.
+ *
+ * Everything else about the theme is untouched — surfaces, text and borders keep
+ * coming from the selected theme, so the contrast pairs the theme already
+ * satisfies stay satisfied whatever is playing.
+ */
+function withReactiveSeed(overrides: ThemeOverrides, seed: string | null): ThemeOverrides {
+  if (seed === null || overrides[PRIMARY_RAMP_ID] !== undefined) return overrides
+  const spec: RampSpec = { mode: 'seed', seed }
+  return { ...overrides, [PRIMARY_RAMP_ID]: spec }
 }
 
 /** Answer `system` from what the OS said. */
@@ -65,17 +106,19 @@ export function computeTheme(inputs: ThemeInputs): ThemeState {
   const mode = resolveMode(inputs.mode, inputs.systemDark)
   const selected = findTheme(inputs.themeId)
   const theme = selected ?? findTheme(DEFAULT_THEME_ID) ?? BUILT_IN_THEMES[0]!
+  const overrides = withReactiveSeed(inputs.overrides, inputs.reactiveSeed)
 
   return {
     resolved: resolveTheme({
       theme,
       mode,
-      overrides: inputs.overrides,
+      overrides,
       reducedMotion: inputs.systemReducedMotion
     }),
     mode,
     themeId: theme.id,
-    themeMissing: selected === undefined
+    themeMissing: selected === undefined,
+    reactiveSeed: overrides === inputs.overrides ? null : inputs.reactiveSeed
   }
 }
 
