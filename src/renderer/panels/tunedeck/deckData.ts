@@ -1,6 +1,7 @@
 import { watch } from 'vue'
 import { useArtistBiographyStore } from '@renderer/stores/artistBiography'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
+import { useArtistRelationsStore } from '@renderer/stores/artistRelations'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 import { useRelatedStore } from '@renderer/stores/related'
@@ -46,6 +47,7 @@ export function useDeckData(): void {
   const related = useRelatedStore()
   const identity = useArtistIdentityStore()
   const biography = useArtistBiographyStore()
+  const relations = useArtistRelationsStore()
 
   watch(
     [() => tunedeck.open, () => playback.nowPlaying?.id ?? null],
@@ -66,19 +68,25 @@ export function useDeckData(): void {
   )
 
   /**
-   * The biography follows the resolved *artist*, not the track.
+   * The biography and the relations follow the resolved *artist*, not the track.
    *
    * A second watcher rather than a line in the first, because its trigger is
    * different in kind: the identity resolves asynchronously, so at the moment
    * the track changes there is no artist id to ask about yet, and skipping
    * between two tracks by the same artist must not re-ask at all. Watching the
-   * store's own output is what makes both true — the biography loads when the
-   * identity arrives, and does not move when the identity does not.
+   * store's own output is what makes both true — the panes load when the
+   * identity arrives, and do not move when the identity does not.
    *
    * Gated on the deck being open for `identity.load`'s reason, which is D14
    * rather than performance. An artist the deck resolved to "none of these"
-   * clears the pane instead of leaving the previous band's history under the new
-   * one's name.
+   * clears both panes instead of leaving the previous band's history, and the
+   * previous band's line-up, under the new one's name.
+   *
+   * Two calls and one watcher, because they are the same trigger and the two
+   * stores are independent of each other: a Wikipedia outage must not stop the
+   * relations loading, and neither lookup blocks the other. Both are idempotent
+   * per artist, so the pair costs one round trip each per new artist and nothing
+   * at all per track.
    */
   watch(
     [
@@ -88,6 +96,7 @@ export function useDeckData(): void {
     ([open, artistId]) => {
       if (!open) return
       void biography.load(artistId)
+      void relations.load(artistId)
     },
     { immediate: true }
   )

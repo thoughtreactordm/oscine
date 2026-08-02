@@ -202,7 +202,8 @@ export const artists = {
   setMbid: (artistId: number, mbid: string | null) =>
     unwrap(window.fermata.artists.setMbid(artistId, mbid)),
   clearMbid: (artistId: number) => unwrap(window.fermata.artists.clearMbid(artistId)),
-  biography: (artistId: number) => unwrap(window.fermata.artists.biography(artistId))
+  biography: (artistId: number) => unwrap(window.fermata.artists.biography(artistId)),
+  relations: (artistId: number) => unwrap(window.fermata.artists.relations(artistId))
 }
 
 export const windowControls = {

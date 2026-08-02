@@ -4,7 +4,7 @@ import { trackUrl } from '@shared/ipc'
 import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
 import type { PlaylistService } from '../library/playlists/service'
-import type { ArtistIdentityService } from '../musicbrainz'
+import type { ArtistIdentityService, ArtistRelationsService } from '../musicbrainz'
 import type { NetService } from '../net'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
@@ -15,6 +15,7 @@ import {
   assertCancelNetScopeRequest,
   assertClearArtistMbidRequest,
   assertGetArtistBiographyRequest,
+  assertGetArtistRelationsRequest,
   assertResolveArtistQuery,
   assertSearchArtistCandidatesRequest,
   assertSetArtistMbidRequest,
@@ -63,7 +64,8 @@ export function registerIpcHandlers(
   history: PlayHistoryService,
   net: NetService,
   artists: ArtistIdentityService,
-  biographies: ArtistBiographyService
+  biographies: ArtistBiographyService,
+  relations: ArtistRelationsService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -372,6 +374,13 @@ export function registerIpcHandlers(
   // error. See the channel's own note in the contract.
   handle('artist.biography', (request) =>
     biographies.get(assertGetArtistBiographyRequest(request).artistId)
+  )
+
+  // Same shape, same reason: an artist MusicBrainz records no connections for is
+  // an empty state rather than an error, and an unresolved one never reaches a
+  // socket at all.
+  handle('artist.relations', (request) =>
+    relations.get(assertGetArtistRelationsRequest(request).artistId)
   )
 
   assertEveryChannelHandled()

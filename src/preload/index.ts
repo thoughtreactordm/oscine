@@ -246,7 +246,16 @@ const api = {
      * URL is Wikidata's canonical sitelink and exists so the pane can render the
      * link out that CC BY-SA obliges us to.
      */
-    biography: (artistId: number) => request('artist.biography', { artistId })
+    biography: (artistId: number) => request('artist.biography', { artistId }),
+    /**
+     * The MusicBrainz relation graph, already intersected with the library.
+     *
+     * Names, identifiers and local row ids — never the response body. The
+     * intersection happens in main because it needs the `artists` table, which
+     * is the same reason the renderer cannot do it: the boundary is where the
+     * filesystem stops.
+     */
+    relations: (artistId: number) => request('artist.relations', { artistId })
   }
 } as const
 

@@ -9,9 +9,12 @@ import DecodePathPane from './DecodePathPane.vue'
 import FormatPane from './FormatPane.vue'
 import LoudnessPane from './LoudnessPane.vue'
 import NeighbourhoodPane from './NeighbourhoodPane.vue'
+import RelationsPane from './RelationsPane.vue'
 import TrailPane from './TrailPane.vue'
 import UpNextPane from './UpNextPane.vue'
+import { countOwnedRelations } from './relationRows'
 import { createTunedeckRegistry } from './tunedeckPanes'
+import { useArtistRelationsStore } from '@renderer/stores/artistRelations'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
@@ -96,6 +99,19 @@ export const tunedeckRegistry = createTunedeckRegistry([
         icon: 'i-tabler-book',
         hint: 'From Wikipedia, by way of the artist’s MusicBrainz identity. Fetched only while the deck is open, and only with online lookups turned on.',
         component: BiographyPane
+      },
+      // Second, and above the catalog for the same reason the biography is: it
+      // is the half that answers "who is this" with something the library alone
+      // could not say. The badge counts what you *own* rather than what
+      // MusicBrainz knows, which is the only number worth putting on a shut
+      // group here — see `countOwnedRelations`.
+      {
+        id: 'artist-relations',
+        title: 'Connections',
+        icon: 'i-tabler-affiliate',
+        hint: 'Members, bands, side projects and collaborations from MusicBrainz, matched against your library. Double-click an artist you own to open them. A match made on the name alone is marked, because two artists can share one.',
+        badge: () => countOwnedRelations(useArtistRelationsStore().result),
+        component: RelationsPane
       },
       {
         id: 'artist-catalog',

@@ -18,7 +18,7 @@ import { SqliteLibraryService } from './library/sqliteService'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { SqlitePodcastService } from './podcasts/service'
-import { createArtistIdentityService } from './musicbrainz'
+import { createArtistIdentityService, createArtistRelationsService } from './musicbrainz'
 import { createNetService } from './net'
 import { SqliteSettingsService } from './settings'
 import { createArtistBiographyService } from './wikipedia'
@@ -349,6 +349,13 @@ if (!app.requestSingleInstanceLock()) {
       locale: () => app.getLocale()
     })
 
+    // D14's third source, and the only one that reads the library back. It is
+    // downstream of the resolver in exactly the way the biography is — the MBID
+    // comes off the `artists` row, never from the renderer — and it needs the
+    // same connection twice over, because the intersection it draws is between
+    // a MusicBrainz document and the `artists` table itself.
+    const relations = createArtistRelationsService({ db, client: net.client, cache })
+
     // One artwork worker for library albums and podcast covers — a second
     // WorkerArtworkImageProcessor was racing the same native sharp module and
     // silently dropping podcast thumbs.
@@ -417,7 +424,17 @@ if (!app.requestSingleInstanceLock()) {
 
     setTrustedRendererUrl(rendererUrl)
     registerTrackProtocol(library, artworkCachePath(), podcasts)
-    registerIpcHandlers(library, playlists, podcasts, settings, history, net, artists, biographies)
+    registerIpcHandlers(
+      library,
+      playlists,
+      podcasts,
+      settings,
+      history,
+      net,
+      artists,
+      biographies,
+      relations
+    )
 
     mainWindow = createWindow(resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors))
     // The other way the answer changes: the OS flips while the preference is

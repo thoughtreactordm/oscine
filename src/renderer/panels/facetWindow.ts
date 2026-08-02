@@ -324,6 +324,8 @@ export function createFacetWindow<T extends { id: number }>(deps: FacetWindowDep
     isSelected: selection.isSelected,
     isSelectedAt: selection.isSelectedAt,
     clearSelection: selection.clear,
+    /** Selects one row by id, for a caller outside the list. See `selectOnly`. */
+    selectOnlyId: selection.selectOnly,
     resolveSelection: selection.resolveSelection,
     cachedPageCount: (): number => pages.size
   }

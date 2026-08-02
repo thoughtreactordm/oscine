@@ -5,6 +5,7 @@ import {
   type SearchArtistCandidatesRequest,
   type SetArtistMbidRequest
 } from '@shared/artist'
+import type { GetArtistRelationsRequest } from '@shared/artistRelations'
 import type { GetArtistBiographyRequest } from '@shared/biography'
 import { FermataError } from '@shared/errors'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
@@ -793,6 +794,20 @@ export function assertClearArtistMbidRequest(value: unknown): ClearArtistMbidReq
  * a Wikidata query is one this process wrote.
  */
 export function assertGetArtistBiographyRequest(value: unknown): GetArtistBiographyRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artistId'])
+  return { artistId: assertPositiveInt(raw.artistId, 'artistId') }
+}
+
+/**
+ * No MBID here either, and the same sentence applies with more force.
+ *
+ * The identifier is read from the `artists` row, so the value interpolated into
+ * a MusicBrainz lookup path is one this process wrote — and, more to the point,
+ * a renderer cannot ask for the relation graph of an artist it merely believes
+ * is playing.
+ */
+export function assertGetArtistRelationsRequest(value: unknown): GetArtistRelationsRequest {
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['artistId'])
   return { artistId: assertPositiveInt(raw.artistId, 'artistId') }

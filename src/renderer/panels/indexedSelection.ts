@@ -251,6 +251,31 @@ export function createIndexedSelection(deps: IndexedSelectionDeps) {
   }
 
   /**
+   * Replaces the selection with one id, chosen by identity rather than by
+   * position.
+   *
+   * Every other way into this module starts from an index, because every other
+   * way in is a click or a keypress on a row that is on screen. This one is for
+   * the case where something *outside* the list names a row — the Tunedeck
+   * relations pane opening an artist you own — and the caller has an id and no
+   * idea where, or whether, it currently sits in the window.
+   *
+   * The index is therefore left unknown rather than guessed at. `focusId` is set
+   * and `focusIndex` is not, which is precisely the state `adopt` is built to
+   * reconcile: whichever page the row turns out to be on will claim it when it
+   * lands, and the row is correctly selected in the meantime because membership
+   * has never been about positions.
+   */
+  function selectOnly(id: number): void {
+    ids.value.clear()
+    ids.value.add(id)
+    focusIndex.value = null
+    focusId.value = id
+    anchorIndex.value = null
+    anchorId.value = id
+  }
+
+  /**
    * Drops every id not in `keep`, leaving the rest selected.
    *
    * For the case where the list a selection was made against narrows under it:
@@ -334,6 +359,7 @@ export function createIndexedSelection(deps: IndexedSelectionDeps) {
     apply,
     moveFocusOnly,
     clear,
+    selectOnly,
     retain,
     adoptPage,
     invalidateIndices,

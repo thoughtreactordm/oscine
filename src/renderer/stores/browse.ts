@@ -218,6 +218,41 @@ export const useBrowseStore = defineStore('browse', () => {
   }
 
   /**
+   * Narrows the library to one artist, named from outside the sidebar.
+   *
+   * W7-11's second acceptance criterion: an artist the relations pane found in
+   * your library has to be openable, and "open" in this app means the song list
+   * filtered to them. The deck knows an `artistId` and nothing else — it has
+   * never seen the facet pane, does not know whether the artist is on the loaded
+   * page, and must not have to.
+   *
+   * ## Why the narrowing above it is cleared
+   *
+   * Both the root and the search, and this is the part worth arguing about. A
+   * reveal that respected the current predicate would silently do nothing
+   * whenever the artist happens to sit outside it — the selection would be
+   * written, `pruneSelection` would drop it on the next tick because main
+   * reports it as not present, and the operator would have clicked a row and
+   * watched the library not change. Failing invisibly is the one outcome worse
+   * than either alternative, so the request wins over the filter: asking to see
+   * an artist is asking to see them.
+   *
+   * The album selection goes with it. It is downstream, it was chosen against a
+   * different artist, and leaving it would filter the song list by albums the
+   * revealed artist did not record — which is an empty list wearing the costume
+   * of a working one.
+   */
+  function revealArtist(artistId: number): void {
+    rootId.value = null
+    searchInput.value = ''
+    activeSearch.value = null
+    searchPending.value = false
+
+    albums.clearSelection()
+    artists.selectOnlyId(artistId)
+  }
+
+  /**
    * The tracks a facet row — or a selection of them — stands for.
    *
    * A right-click on an artist means "everything by them", and *everything* has
@@ -281,6 +316,7 @@ export const useBrowseStore = defineStore('browse', () => {
     albums,
     currentFilters,
     facetTrackIds,
-    reloadFacets
+    reloadFacets,
+    revealArtist
   }
 })

@@ -5,6 +5,7 @@ import type {
   SearchArtistCandidatesRequest,
   SetArtistMbidRequest
 } from './artist'
+import type { ArtistRelationsResult, GetArtistRelationsRequest } from './artistRelations'
 import type { ArtistBiographyResult, GetArtistBiographyRequest } from './biography'
 import type { ListPlayHistoryQuery, PlayEntry } from './history'
 import type {
@@ -463,6 +464,27 @@ export interface IpcContract {
     request: GetArtistBiographyRequest
     response: ArtistBiographyResult
   }
+
+  /**
+   * Who the artist is connected to, intersected with what the library holds.
+   *
+   * Keyed on the artist for `artist.biography`'s reason, and the consequence
+   * here is sharper: the response is a *graph*, and a graph drawn for an
+   * identity the renderer guessed at would be a confident, detailed and entirely
+   * wrong account of somebody else's band.
+   *
+   * The MusicBrainz half is cached under **D14**; the library half is not, and
+   * is recomputed on every call. Ownership changes whenever a folder is scanned,
+   * and a cached intersection would be stale in the most visible way there is.
+   *
+   * Never throws for an artist with no relations: a solo artist MusicBrainz
+   * records no connections for comes back as `none`, which is the ordinary state
+   * of a great many artists and not a fault.
+   */
+  'artist.relations': {
+    request: GetArtistRelationsRequest
+    response: ArtistRelationsResult
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -575,7 +597,8 @@ export const IPC_CHANNELS = [
   'artist.searchCandidates',
   'artist.setMbid',
   'artist.clearMbid',
-  'artist.biography'
+  'artist.biography',
+  'artist.relations'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [
