@@ -20,10 +20,13 @@ import type { Migration } from '../migrate'
  * tracks have no genre and the genre strand is simply absent for them — which
  * is the same thing the pane already renders for a track whose file never
  * carried a genre tag, so no code path is special-cased for the migration. A
- * rescan is `library.scanRoot`; incremental rescan skips unchanged files by
- * mtime, so operators will need a forced rescan to pick genre up on a library
- * that has not changed. That is a real operational cost and it is why W7-5 grew
- * a migration rather than shipping the strand as a stub.
+ * rescan is `library.scanRoot`, which is already a full re-parse — `startScan`
+ * defaults `incremental` to false and only the startup and watcher paths pass
+ * true — so the operator-facing Rescan action fills genre in without needing a
+ * new "force" flag. What it does not do is happen by itself: the automatic
+ * startup scan skips unchanged files by mtime, so a library nobody rescans
+ * keeps a NULL genre column indefinitely. That is the real cost, and it is why
+ * W7-5 grew a migration rather than shipping the strand as a stub.
  *
  * ## Why TEXT rather than a `genres` table
  *
