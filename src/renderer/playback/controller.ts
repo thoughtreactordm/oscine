@@ -13,6 +13,7 @@ import {
   type PlaybackStatus,
   type WaveformBuffer
 } from '../audio/AudioEngine'
+import type { R1AdmissionDecision } from '../audio/r1Admission'
 import type {
   GetTracksByIdsQuery,
   LibraryBrowseFilters,
@@ -277,6 +278,17 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   const normalizationPolicy = audioPreferences.normalization
   const normalizationMode = computed(() => normalizationPolicy.value.mode)
   const nowPlaying = ref<Track | null>(null)
+  /**
+   * R1's verdict on the audible track, mirrored into Vue.
+   *
+   * The scheduler's getter is not reactive — nothing under `audio/` knows what
+   * Vue is, which is the point — so this is pulled across on the two events
+   * that can follow an admission. Both are needed and neither is redundant:
+   * `trackchange` covers the advance the scheduler makes on its own, and
+   * `statuschange` covers the first load of a track started from the UI, where
+   * the status leaves `loading` before any track is announced.
+   */
+  const admission = ref<R1AdmissionDecision | null>(null)
   const error = ref<string | null>(null)
   const prefetchStatus = ref<PrefetchStatus>('idle')
   const prefetchedTrackId = ref<number | null>(null)
@@ -434,6 +446,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     unsubscribes = [
       created.on('statuschange', (next) => {
         status.value = next
+        admission.value = created.admission
       }),
       created.on('timeupdate', (position) => {
         duration.value = position.duration
@@ -445,6 +458,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       created.on('trackchange', ({ track, position: at }) => {
         nowPlaying.value = track
         position.value = at
+        admission.value = created.admission
       }),
       created.on('prefetchchange', applyPrefetch)
     ]
@@ -1081,6 +1095,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     // that has just ended.
     playingPlaylistId.value = null
     nowPlaying.value = null
+    admission.value = null
     error.value = null
     currentTime.value = 0
     duration.value = 0
@@ -1116,6 +1131,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     sessionScope = null
     orderTotal.value = null
     status.value = 'idle'
+    admission.value = null
     applyPrefetch({
       status: 'idle',
       index: null,
@@ -1134,7 +1150,19 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     crossfadeMs,
     defaultCrossfadeMs,
     normalizationMode,
+    /**
+     * The whole loudness policy, not just its mode.
+     *
+     * The transport only ever needed the mode. The signal readout has to say
+     * which gain is *actually applied*, and that is `resolveNormalization`'s
+     * answer given the pre-amp and the untagged-track fallback as well — so it
+     * needs the same value the scheduler was handed, or it would describe a
+     * different decision from the audible one.
+     */
+    normalizationPolicy,
     nowPlaying,
+    /** R1's verdict on the audible track. See the ref for why it is mirrored. */
+    admission,
     orderIndex,
     orderTotal,
     playingPlaylistId,

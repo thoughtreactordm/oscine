@@ -19,7 +19,8 @@ import type {
   ScanProgress,
   ScanSummary,
   Track,
-  TrackAudioMetadata
+  TrackAudioMetadata,
+  TrackFormatDetail
 } from './library'
 import type {
   AddTracksToPlaylistRequest,
@@ -139,6 +140,18 @@ export interface IpcContract {
   'library.getTrackAudioMetadata': {
     request: { trackId: number }
     response: TrackAudioMetadata
+  }
+  /**
+   * Re-reads one file's format block for the Tunedeck's signal readout.
+   *
+   * Separate from `getTrackAudioMetadata` — and from the indexed `Track` — for
+   * the reason given on `TrackFormatDetail`: these fields exist in no column,
+   * are wanted one track at a time, and are cheaper to re-parse than to migrate
+   * and backfill. A control-plane request; no track bytes cross it.
+   */
+  'library.getTrackFormatDetail': {
+    request: { trackId: number }
+    response: TrackFormatDetail
   }
   /**
    * Resolves a track id to an opaque `fermata://track/<id>` URL the renderer can
@@ -369,6 +382,7 @@ export const IPC_CHANNELS = [
   'library.orderTrackIds',
   'library.getTracksByIds',
   'library.getTrackAudioMetadata',
+  'library.getTrackFormatDetail',
   'library.getTrackFileUrl',
   'library.startReplayGain',
   'library.getReplayGainJob',

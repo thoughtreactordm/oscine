@@ -60,11 +60,13 @@ export interface DecodedAudioPath extends AudioPath {
  * `decodePolicy` and its setter join `load` and `transitionPolicy` on the
  * exclusion list, and for the same reason those two are there: admission is the
  * guarded wrapper's job. A path is handed a track that has already been priced
- * and has no business knowing what the budget was.
+ * and has no business knowing what the budget was. `admission` is the strongest
+ * case of all: it is the verdict *about* which path won, so a path that could
+ * read it would be a path that knows whether it is the fallback.
  */
 type MissingPublicMembers = Exclude<
   keyof AudioEngine,
-  keyof AudioPath | 'load' | 'transitionPolicy' | 'decodePolicy' | 'setDecodePolicy'
+  keyof AudioPath | 'load' | 'transitionPolicy' | 'decodePolicy' | 'setDecodePolicy' | 'admission'
 >
 const _allPublicMembersMirrored: MissingPublicMembers extends never ? true : never = true
 void _allPublicMembersMirrored

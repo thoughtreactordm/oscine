@@ -63,6 +63,7 @@ export class GuardedAudioEngine implements AudioEngine {
   #trackId: number | null = null
   #status: PlaybackStatus = 'idle'
   #transitionPolicy: AudioTransitionPolicy = 'hard'
+  #admission: R1AdmissionDecision | null = null
   #volume = 1
   #normalizationPolicy: NormalizationPolicy
   #audioSource: TrackAudioSource | null = null
@@ -138,6 +139,10 @@ export class GuardedAudioEngine implements AudioEngine {
     return this.#transitionPolicy
   }
 
+  get admission(): R1AdmissionDecision | null {
+    return this.#admission
+  }
+
   get sampleAccurateEndTime(): SampleAccurateTime | null {
     if (this.#transitionPolicy !== 'sample-accurate') return null
     return this.#active?.sampleAccurateEndTime ?? null
@@ -198,6 +203,11 @@ export class GuardedAudioEngine implements AudioEngine {
     this.#decoded.unload()
     this.#streaming?.unload()
     this.#trackId = trackId
+    // Cleared before the resolver rather than left standing until the new
+    // verdict arrives: a readout showing the previous track's admission beside
+    // the new track's title is worse than showing nothing, because it is wrong
+    // in a way that reads as right.
+    this.#admission = null
     this.#setStatus('loading')
 
     try {
@@ -219,6 +229,7 @@ export class GuardedAudioEngine implements AudioEngine {
         this.#policy
       )
       this.#diagnostic(decision)
+      this.#admission = decision
       this.#transitionPolicy = decision.transitionPolicy
 
       const path = decision.path === 'decoded' ? this.#decoded : this.#streamingPath()
@@ -244,6 +255,7 @@ export class GuardedAudioEngine implements AudioEngine {
       this.#audioSource = null
       this.#trackId = null
       this.#transitionPolicy = 'hard'
+      this.#admission = null
       this.#setStatus('idle')
       // Path engines emit their own load failure before rejecting. Resolver
       // failures happen above the path seam, so the wrapper emits those.

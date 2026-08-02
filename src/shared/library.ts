@@ -93,6 +93,40 @@ export interface TrackAudioMetadata extends TrackReplayGain {
   channels: number | null
 }
 
+/** Bitrate constancy as the encoder stated it — never as we inferred it. */
+export type BitrateMode = 'constant' | 'variable'
+
+/**
+ * The format facts that are read from the file rather than from the index.
+ *
+ * Everything here could have been columns on `tracks`, and deliberately is not.
+ * Container, bitrate and codec profile are wanted for exactly one track at a
+ * time — the one being looked at in the readout — so a schema migration would
+ * have bought three columns that are NULL for every already-indexed track until
+ * the operator is talked into a full rescan, in exchange for data no query ever
+ * filters or sorts on. Re-parsing one header on demand costs a few milliseconds
+ * and is correct on an existing library the moment the pane opens.
+ *
+ * Distinct from `Track.codec`, which is `normaliseCodec`'s collapsed token: this
+ * carries the parser's own strings, because the point of the readout is to say
+ * what the file actually is rather than which of six buckets it landed in.
+ */
+export interface TrackFormatDetail {
+  /** The wrapper — `FLAC`, `MPEG`, `Ogg`, `WAVE`. */
+  container: string | null
+  /** Undigested: `MPEG 1 Layer 3`, `Vorbis I`, `AAC`. */
+  codec: string | null
+  /** The encoder's own profile string where it states one: `CBR`, `V0`, `LC`. */
+  codecProfile: string | null
+  /** Bits per second, as the parser reports it. */
+  bitrateBps: number | null
+  /** `null` when the format does not say, which is most of them. See notes. */
+  bitrateMode: BitrateMode | null
+  lossless: boolean | null
+  /** The encoder that wrote the file, where it signed its work. */
+  tool: string | null
+}
+
 export const TRACK_SORT_COLUMNS = ['trackNo', 'title', 'artist', 'album', 'durationSec'] as const
 export type TrackSortColumn = (typeof TRACK_SORT_COLUMNS)[number]
 

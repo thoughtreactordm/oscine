@@ -23,9 +23,15 @@ import type {
   ScanProgress,
   ScanSummary,
   Track,
-  TrackAudioMetadata
+  TrackAudioMetadata,
+  TrackFormatDetail
 } from '@shared/library'
-import { readTrackTags, type MetadataReader } from './metadata'
+import {
+  readTrackFormatDetail,
+  readTrackTags,
+  type FormatDetailReader,
+  type MetadataReader
+} from './metadata'
 import type { EmbeddedArtworkReader } from './metadata'
 import { reconcilePaths, scanRoot } from './scanner'
 import { LibraryStore, type RootConflict, type RootRow } from './store'
@@ -57,6 +63,8 @@ export interface SqliteLibraryDeps {
   onNotice?: (notice: LibraryNotice) => void
   /** Overridable so tests need no audio files. */
   readMetadata?: MetadataReader
+  /** The same, for the readout pane's on-demand format lookup. */
+  readFormatDetail?: FormatDetailReader
   /** Enables the derived artwork service. Omitted by tests that do not exercise it. */
   artworkCacheDir?: string
   readArtwork?: EmbeddedArtworkReader
@@ -104,6 +112,7 @@ function toLibraryRoot(row: RootRow, watchMode: LibraryWatchMode): LibraryRoot {
 export class SqliteLibraryService implements LibraryService {
   private readonly store: LibraryStore
   private readonly readMetadata: MetadataReader
+  private readonly readFormatDetail: FormatDetailReader
   private readonly replayGain: ReplayGainJobService
   private readonly watcher: RootDirectoryWatcher
   private readonly artwork: ArtworkCacheService | null
@@ -128,6 +137,7 @@ export class SqliteLibraryService implements LibraryService {
   constructor(private readonly deps: SqliteLibraryDeps) {
     this.store = new LibraryStore(deps.db)
     this.readMetadata = deps.readMetadata ?? readTrackTags
+    this.readFormatDetail = deps.readFormatDetail ?? readTrackFormatDetail
     this.artwork = deps.artworkCacheDir
       ? new ArtworkCacheService({
           store: this.store,
@@ -252,6 +262,16 @@ export class SqliteLibraryService implements LibraryService {
 
   async getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null> {
     return this.store.getTrackAudioMetadata(trackId)
+  }
+
+  async getTrackFormatDetail(trackId: number): Promise<TrackFormatDetail | null> {
+    // The path is resolved here and dropped here. It reaches the parser and
+    // nothing else, which is the same arrangement `registerTrackProtocol` uses
+    // and for the same reason: the renderer asked with an id and gets back
+    // format facts, never a location.
+    const absPath = this.store.resolveTrackPath(trackId)
+    if (absPath === null) return null
+    return this.readFormatDetail(absPath)
   }
 
   async resolveTrackPath(trackId: number): Promise<string | null> {

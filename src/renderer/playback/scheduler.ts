@@ -13,7 +13,7 @@ import {
 } from '../audio/AudioEngine'
 import { Emitter } from '../audio/emitter'
 import { DEFAULT_NORMALIZATION_POLICY, sameNormalizationPolicy } from '../audio/normalization'
-import type { R1Policy } from '../audio/r1Admission'
+import type { R1AdmissionDecision, R1Policy } from '../audio/r1Admission'
 import type { PlayOrder } from './playOrder'
 import { previousIndex, type AdvanceReason, type RepeatMode } from './traversal'
 import {
@@ -207,6 +207,17 @@ export class PlaybackScheduler {
 
   get transitionPolicy(): AudioTransitionPolicy {
     return this.#active?.engine.transitionPolicy ?? 'hard'
+  }
+
+  /**
+   * R1's verdict on the *audible* slot.
+   *
+   * The prefetched slot has one of its own and it is deliberately not reachable
+   * here: the readout describes the track that is playing, and a decision about
+   * the track after it would be the right shape and the wrong subject.
+   */
+  get admission(): R1AdmissionDecision | null {
+    return this.#active?.engine.admission ?? null
   }
 
   get prefetchState(): PrefetchState {

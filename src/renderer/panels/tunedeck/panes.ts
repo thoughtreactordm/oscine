@@ -1,3 +1,4 @@
+import SignalPane from './SignalPane.vue'
 import UpNextPane from './UpNextPane.vue'
 import { createTunedeckRegistry } from './tunedeckPanes'
 
@@ -25,5 +26,11 @@ export const tunedeckRegistry = createTunedeckRegistry([
     title: 'Up next',
     icon: 'i-tabler-playlist',
     component: UpNextPane
+  },
+  {
+    id: 'signal',
+    title: 'Signal',
+    icon: 'i-tabler-wave-sine',
+    component: SignalPane
   }
 ])

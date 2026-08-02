@@ -119,6 +119,15 @@ export function registerIpcHandlers(
     return metadata
   })
 
+  handle('library.getTrackFormatDetail', async (request) => {
+    const { trackId } = assertRecord(request, 'request')
+    const detail = await library.getTrackFormatDetail(assertPositiveInt(trackId, 'trackId'))
+    if (!detail) {
+      throw new FermataError('not-found', 'That track is no longer in the library.')
+    }
+    return detail
+  })
+
   handle('library.getTrackFileUrl', async (request) => {
     const { trackId } = assertRecord(request, 'request')
     const id = assertPositiveInt(trackId, 'trackId')

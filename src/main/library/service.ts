@@ -16,7 +16,8 @@ import type {
   ReplayGainJobProgress,
   ScanSummary,
   Track,
-  TrackAudioMetadata
+  TrackAudioMetadata,
+  TrackFormatDetail
 } from '@shared/library'
 
 /**
@@ -56,6 +57,15 @@ export interface LibraryService {
   getTracksByIds(query: GetTracksByIdsQuery): Promise<Track[]>
   /** Metadata-only lookup used by the renderer's pre-fetch R1 admission guard. */
   getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null>
+  /**
+   * Re-reads one file's format block for the signal readout.
+   *
+   * Goes to the file rather than to the index because these fields are not
+   * indexed — see `TrackFormatDetail`. `null` means the track is no longer in
+   * the library; a file that is indexed but unreadable rejects, because those
+   * are different states and the pane says so.
+   */
+  getTrackFormatDetail(trackId: number): Promise<TrackFormatDetail | null>
   /**
    * Absolute path for a track id, or `null` if unknown.
    *

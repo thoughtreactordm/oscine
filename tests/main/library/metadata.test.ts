@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IAudioMetadata } from 'music-metadata'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { normaliseCodec, readTrackTags, toTrackTags } from '../../../src/main/library/metadata'
+import {
+  normaliseCodec,
+  readTrackFormatDetail,
+  readTrackTags,
+  toTrackFormatDetail,
+  toTrackTags
+} from '../../../src/main/library/metadata'
 
 let dir: string
 
@@ -275,5 +281,83 @@ describe('toTrackTags', () => {
 
   it('converts duration from seconds to the millisecond column', () => {
     expect(toTrackTags(parsed({}, { duration: 312.4567 })).durationMs).toBe(312457)
+  })
+})
+
+describe('toTrackFormatDetail', () => {
+  function parsed(format: object): IAudioMetadata {
+    return {
+      common: {},
+      format,
+      native: {},
+      quality: { warnings: [] }
+    } as unknown as IAudioMetadata
+  }
+
+  it('carries the parser strings through undigested', () => {
+    // The whole point of a separate type: `normaliseCodec` would collapse this
+    // to `mp3`, which is right for the column and wrong for a readout.
+    const detail = toTrackFormatDetail(
+      parsed({
+        container: 'MPEG',
+        codec: 'MPEG 1 Layer 3',
+        codecProfile: 'V0',
+        bitrate: 245_000,
+        lossless: false,
+        tool: 'LAME 3.100'
+      })
+    )
+
+    expect(detail.codec).toBe('MPEG 1 Layer 3')
+    expect(detail.container).toBe('MPEG')
+    expect(detail.codecProfile).toBe('V0')
+    expect(detail.tool).toBe('LAME 3.100')
+    expect(detail.lossless).toBe(false)
+  })
+
+  it('reads constancy off the encoder profile, both ways', () => {
+    expect(toTrackFormatDetail(parsed({ codecProfile: 'CBR' })).bitrateMode).toBe('constant')
+    expect(toTrackFormatDetail(parsed({ codecProfile: 'V2' })).bitrateMode).toBe('variable')
+    expect(toTrackFormatDetail(parsed({ codecProfile: 'ABR' })).bitrateMode).toBe('variable')
+  })
+
+  it('refuses to guess constancy when the file did not say', () => {
+    // `LC` is an AAC object type, not a bitrate mode, and Vorbis states nothing
+    // at all. Neither may be turned into a CBR/VBR claim.
+    expect(toTrackFormatDetail(parsed({ codecProfile: 'LC' })).bitrateMode).toBeNull()
+    expect(toTrackFormatDetail(parsed({ codec: 'Vorbis I' })).bitrateMode).toBeNull()
+  })
+
+  it('leaves a lossless codec unlabelled', () => {
+    // FLAC varies per frame by construction. Calling that VBR beside a V0 MP3
+    // would imply a choice the encoder never offered.
+    const detail = toTrackFormatDetail(parsed({ codecProfile: 'VBR', lossless: true }))
+    expect(detail.bitrateMode).toBeNull()
+  })
+
+  it('rounds the fractional bitrate the parser derives', () => {
+    expect(toTrackFormatDetail(parsed({ bitrate: 320_999.87 })).bitrateBps).toBe(321_000)
+  })
+
+  it('has no bitrate rather than a zero one', () => {
+    expect(toTrackFormatDetail(parsed({ bitrate: 0 })).bitrateBps).toBeNull()
+    expect(toTrackFormatDetail(parsed({ bitrate: Number.NaN })).bitrateBps).toBeNull()
+    expect(toTrackFormatDetail(parsed({})).bitrateBps).toBeNull()
+  })
+})
+
+describe('readTrackFormatDetail, against a real file', () => {
+  it('reports the container, bitrate and losslessness of a WAV', async () => {
+    const file = writeWav('signal.wav', { INAM: 'Silence' })
+
+    const detail = await readTrackFormatDetail(file)
+
+    expect(detail.container).toBe('WAVE')
+    expect(detail.lossless).toBe(true)
+    // 44100 × 2 × 16 — the figure the readout puts beside "Bitrate", derived by
+    // the parser from the same header the scanner reads.
+    expect(detail.bitrateBps).toBe(1_411_200)
+    // Uncompressed PCM states no profile, so the pane draws no mode note.
+    expect(detail.bitrateMode).toBeNull()
   })
 })

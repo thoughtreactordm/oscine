@@ -33,7 +33,7 @@ export {
   type NormalizationDecision,
   type NormalizationPolicy
 } from './normalization'
-export { estimateDecodedBytes, estimateDecodePeakBytes } from './decodedSize'
+export { estimateDecodedBytes, estimateDecodePeakBytes, formatBytes } from './decodedSize'
 export {
   AudioOutputRouter,
   SYSTEM_DEFAULT_OUTPUT_DEVICE,

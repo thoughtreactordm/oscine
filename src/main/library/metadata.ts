@@ -1,5 +1,6 @@
 import { parseFile } from 'music-metadata'
 import type { IAudioMetadata } from 'music-metadata'
+import type { BitrateMode, TrackFormatDetail } from '@shared/library'
 
 /**
  * The `music-metadata` adapter.
@@ -40,6 +41,9 @@ export interface TrackTags {
 
 /** Injection seam: the scanner takes one of these rather than importing a parser. */
 export type MetadataReader = (absPath: string) => Promise<TrackTags>
+
+/** The same seam for the on-demand format readout. Same reason: no fixtures. */
+export type FormatDetailReader = (absPath: string) => Promise<TrackFormatDetail>
 
 export interface EmbeddedArtwork {
   /** Parser order, retained as the deterministic tiebreaker after cover type. */
@@ -174,6 +178,76 @@ export function toTrackTags(metadata: IAudioMetadata): TrackTags {
  */
 export const readTrackTags: MetadataReader = async (absPath) =>
   toTrackTags(await parseFile(absPath, { duration: true, skipCovers: true }))
+
+/**
+ * Bitrate constancy, only when the file says so.
+ *
+ * There is no `format.bitrateMode`, so this reads the encoder's profile string,
+ * which is the one place the fact is actually recorded. LAME writes `CBR` or
+ * `V0`–`V9`; `ABR` appears on average-bitrate encodes, which vary per frame and
+ * are therefore variable however they are marketed.
+ *
+ * The tempting alternative — compare `format.bitrate` against
+ * `size * 8 / duration` and call a mismatch VBR — is rejected. Embedded artwork,
+ * an ID3v2 block and a trailing tag all count toward file size and none of them
+ * is audio, so a CBR MP3 with a large cover reads as variable by that test. A
+ * readout whose job is to be trusted about the file may not guess: `null` here
+ * means "the file did not say", and the pane draws nothing rather than a coin
+ * flip. Lossless codecs are left `null` too — FLAC's bitrate varies by frame by
+ * construction, and labelling it VBR alongside a V0 MP3 implies a choice the
+ * encoder never offered.
+ */
+function bitrateMode(profile: string | null, lossless: boolean | null): BitrateMode | null {
+  if (profile === null || lossless === true) return null
+  const upper = profile.toUpperCase()
+  if (upper === 'CBR') return 'constant'
+  if (upper === 'ABR' || upper === 'VBR' || /^V\d$/.test(upper)) return 'variable'
+  return null
+}
+
+/**
+ * The format block, as a pure function of a parse result.
+ *
+ * Pure half split out from `readTrackFormatDetail` for the same reason
+ * `toTrackTags` is: it is the part with rules in it, and it can be tested
+ * against a synthesised metadata object instead of a binary fixture.
+ */
+export function toTrackFormatDetail(metadata: IAudioMetadata): TrackFormatDetail {
+  const { format } = metadata
+  const profile = text(format.codecProfile)
+  const lossless = typeof format.lossless === 'boolean' ? format.lossless : null
+
+  return {
+    container: text(format.container),
+    codec: text(format.codec),
+    codecProfile: profile,
+    // Rounded because the parser divides by a fractional duration and hands back
+    // 320999.87. Nobody wants that displayed, and no caller wants to round it.
+    bitrateBps: (() => {
+      const bps = finite(format.bitrate)
+      return bps === null || bps <= 0 ? null : Math.round(bps)
+    })(),
+    bitrateMode: bitrateMode(profile, lossless),
+    lossless,
+    tool: text(format.tool)
+  }
+}
+
+/**
+ * Reads one file's format block, on demand, for the readout pane.
+ *
+ * `duration: true` for the same reason `readTrackTags` uses it, and it is the
+ * reason this is worth doing at all: a VBR MP3 with no Xing header states no
+ * bitrate in its first frame, and the parser can only report one after reading
+ * the file. That is the exact case the readout exists to be honest about. FLAC
+ * and friends carry it in the header and pay nothing.
+ *
+ * `skipCovers` matters here more than in the scanner, not less: this runs on
+ * every track change, and decoding a 4 MB embedded JPEG to display a sample
+ * rate would be a per-track allocation nobody asked for.
+ */
+export const readTrackFormatDetail: FormatDetailReader = async (absPath) =>
+  toTrackFormatDetail(await parseFile(absPath, { duration: true, skipCovers: true }))
 
 /**
  * Reads embedded pictures without making them part of every track parse.

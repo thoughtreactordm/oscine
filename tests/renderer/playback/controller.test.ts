@@ -17,7 +17,11 @@ import {
 import { TRANSPORT_REPEAT_KEY } from '../../../src/renderer/playback/transportPreferences'
 import { settingsStoreFixture, storedValue } from '../settings/fixture'
 import { DEFAULT_NORMALIZATION_POLICY } from '../../../src/renderer/audio/normalization'
-import { DEFAULT_R1_POLICY, type R1Policy } from '../../../src/renderer/audio/r1Admission'
+import {
+  DEFAULT_R1_POLICY,
+  type R1AdmissionDecision,
+  type R1Policy
+} from '../../../src/renderer/audio/r1Admission'
 // The contract, not the barrel: these tests compile under the node config,
 // which has no DOM, and the barrel reaches the Web Audio implementation.
 import {
@@ -83,6 +87,7 @@ class FakeEngine implements AudioEngine {
   status: PlaybackStatus = 'idle'
   trackId: number | null = null
   transitionPolicy = 'sample-accurate' as const
+  admission: R1AdmissionDecision | null = null
   sampleAccurateEndTime: SampleAccurateTime | null = null
 
   readonly loaded: number[] = []

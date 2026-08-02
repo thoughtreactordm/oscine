@@ -73,6 +73,8 @@ export const library = {
     unwrap(window.fermata.library.getTracksByIds(query)),
   getTrackAudioMetadata: (trackId: number) =>
     unwrap(window.fermata.library.getTrackAudioMetadata(trackId)),
+  getTrackFormatDetail: (trackId: number) =>
+    unwrap(window.fermata.library.getTrackFormatDetail(trackId)),
   getTrackFileUrl: (trackId: number) => unwrap(window.fermata.library.getTrackFileUrl(trackId)),
   startReplayGain: () => unwrap(window.fermata.library.startReplayGain()),
   getReplayGainJob: () => unwrap(window.fermata.library.getReplayGainJob()),

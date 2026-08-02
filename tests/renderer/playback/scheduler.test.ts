@@ -8,7 +8,11 @@ import {
   type PlaybackStatus,
   type SampleAccurateTime
 } from '../../../src/renderer/audio/AudioEngine'
-import { DEFAULT_R1_POLICY, type R1Policy } from '../../../src/renderer/audio/r1Admission'
+import {
+  DEFAULT_R1_POLICY,
+  type R1AdmissionDecision,
+  type R1Policy
+} from '../../../src/renderer/audio/r1Admission'
 import type { PlayOrder } from '../../../src/renderer/playback/playOrder'
 import {
   DEFAULT_NORMALIZATION_POLICY,
@@ -53,6 +57,7 @@ class FakeEngine implements AudioEngine {
   status: PlaybackStatus = 'idle'
   trackId: number | null = null
   transitionPolicy: AudioTransitionPolicy = 'sample-accurate'
+  admission: R1AdmissionDecision | null = null
   timeline = Symbol('fake-audio-context')
   startTime = 0
   scheduledStart: SampleAccurateTime | null = null

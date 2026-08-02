@@ -193,6 +193,24 @@ export interface AudioEngine {
   /** R2 boundary policy for the loaded track. */
   readonly transitionPolicy: AudioTransitionPolicy
   /**
+   * How R1 priced the loaded track, or `null` before the first admission.
+   *
+   * This is the one place the guard's verdict is legible from above the line,
+   * and it is here rather than in a diagnostic callback because a fallback to
+   * `<audio>` is not a debugging detail — it is the reason a boundary was hard
+   * and a seek was slow, and W7-3 makes it the one thing an operator can look
+   * up. `transitionPolicy` is the same verdict reduced to the single bit the
+   * scheduler acts on; this is the whole of it, for the surface that explains
+   * it. Nothing above may *act* on it: a UI that changed behaviour on `path`
+   * would be a UI that knows which engine won, which is exactly what the note
+   * at the top of this file forbids.
+   *
+   * A plain getter rather than an event because it changes only at `load`, and
+   * `statuschange` already fires there — a second event would be a second thing
+   * to keep in step with the first.
+   */
+  readonly admission: R1AdmissionDecision | null
+  /**
    * Exact end of the currently running decoded source. `null` means this
    * engine is stopped, streaming, or otherwise ineligible for a gapless join.
    */
@@ -255,4 +273,4 @@ export interface AudioEngine {
   dispose(): void
 }
 import type { NormalizationPolicy } from './normalization'
-import type { R1Policy } from './r1Admission'
+import type { R1AdmissionDecision, R1Policy } from './r1Admission'
