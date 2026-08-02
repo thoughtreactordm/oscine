@@ -22,7 +22,7 @@ export type {
   PlaybackPosition,
   PlaybackStatus
 } from './AudioEngine'
-export { AudioEngineError, AUDIO_ERROR_CODES } from './AudioEngine'
+export { AudioEngineError, AUDIO_ERROR_CODES, WAVEFORM_SAMPLE_COUNT } from './AudioEngine'
 export {
   DEFAULT_NORMALIZATION_POLICY,
   NORMALIZATION_MODES,

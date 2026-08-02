@@ -8,7 +8,8 @@ import {
   type NormalizationPolicy,
   type PlaybackPosition,
   type PlaybackStatus,
-  type SampleAccurateTime
+  type SampleAccurateTime,
+  type WaveformBuffer
 } from '../audio/AudioEngine'
 import { Emitter } from '../audio/emitter'
 import { DEFAULT_NORMALIZATION_POLICY, sameNormalizationPolicy } from '../audio/normalization'
@@ -210,6 +211,18 @@ export class PlaybackScheduler {
 
   get prefetchState(): PrefetchState {
     return this.#prefetchState
+  }
+
+  /**
+   * The audible slot's waveform window.
+   *
+   * The active slot only, never a sum of both. During a crossfade the prefetched
+   * slot is also sounding, but it is the outgoing track the transport is still
+   * showing, and a picture that blended the two would disagree with every other
+   * thing on screen at the one moment somebody is looking.
+   */
+  readWaveform(into: WaveformBuffer): boolean {
+    return this.#active?.engine.readWaveform(into) ?? false
   }
 
   on<K extends keyof PlaybackSchedulerEventMap>(

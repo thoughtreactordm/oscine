@@ -1,9 +1,11 @@
 import {
   AudioEngineError,
+  WAVEFORM_SAMPLE_COUNT,
   type AudioEngineEventMap,
   type NormalizationPolicy,
   type PlaybackStatus,
-  type SampleAccurateTime
+  type SampleAccurateTime,
+  type WaveformBuffer
 } from './AudioEngine'
 import type { DecodedAudioPath, TrackAudioSource } from './AudioPath'
 import { DecodedBufferLedger } from './decodedBufferLedger'
@@ -52,6 +54,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
   readonly #context: AudioContext
   readonly #contextLease: DecodedAudioContextLease<AudioContext>
   readonly #gain: GainNode
+  readonly #analyser: AnalyserNode
   readonly #events = new Emitter<AudioEngineEventMap>()
   readonly #decodedBuffers: DecodedBufferLedger
 
@@ -87,6 +90,15 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     this.#gain = this.#context.createGain()
     this.#gain.gain.value = this.#volume
     this.#gain.connect(this.#context.destination)
+    // Per-engine, not per-context: the pool hands both scheduler slots the same
+    // context, so one analyser on it would sum the outgoing and incoming tracks
+    // through a crossfade and report a shape neither of them has.
+    //
+    // Left as a leaf with its output unconnected. Chromium still runs an
+    // analyser that has input, and not wiring it onward is what keeps the tap
+    // from becoming a second route to the destination.
+    this.#analyser = this.#context.createAnalyser()
+    this.#analyser.fftSize = WAVEFORM_SAMPLE_COUNT
     this.#armGestureResume()
   }
 
@@ -428,6 +440,16 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     param.linearRampToValueAtTime(target, now + NORMALIZATION_RAMP_SEC)
   }
 
+  readWaveform(into: WaveformBuffer): boolean {
+    // A live source node is the precise test, and a narrower one than `status`:
+    // `pause` tears the node down, so anything still connected to the analyser
+    // is genuinely feeding it. A scheduled-but-not-yet-started source reads as
+    // silence, which is what it is.
+    if (this.#disposed || !this.#source) return false
+    this.#analyser.getFloatTimeDomainData(into)
+    return true
+  }
+
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true
@@ -443,6 +465,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     this.#releaseGestureHooks?.()
     this.#releaseGestureHooks = null
     this.#gain.disconnect()
+    this.#analyser.disconnect()
     this.#events.clear()
     this.#contextLease.release()
   }
@@ -475,6 +498,9 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     source.connect(normalizationGain)
     normalizationGain.connect(transitionGain)
     transitionGain.connect(this.#gain)
+    // Tap ahead of `#gain`, so the visible shape carries normalization and the
+    // crossfade envelope but not the volume slider — see `readWaveform`.
+    transitionGain.connect(this.#analyser)
     if (fadeInDurationSec > 0) {
       transitionGain.gain.setValueCurveAtTime(EQUAL_POWER_FADE_IN, startAtSec, fadeInDurationSec)
     }

@@ -155,6 +155,10 @@ class FakeEngine implements AudioEngine {
 
   cancelScheduledFade(): void {}
 
+  readWaveform(): boolean {
+    return false
+  }
+
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void

@@ -10,7 +10,8 @@ import {
   type AudioEngine,
   type NormalizationMode,
   type NormalizationPolicy,
-  type PlaybackStatus
+  type PlaybackStatus,
+  type WaveformBuffer
 } from '../audio/AudioEngine'
 import type {
   GetTracksByIdsQuery,
@@ -1193,6 +1194,16 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     setShuffle,
     toggleShuffle,
     stop,
+    /**
+     * Time-domain samples of the audible track, for the waveform ribbon.
+     *
+     * Not reactive, and deliberately so. This is polled from a render loop at
+     * frame rate; routing it through a ref would push a fresh array into Vue's
+     * dependency graph sixty times a second and invalidate every watcher in the
+     * transport along with it. False when no engine has been claimed yet — the
+     * device is not opened until the first play.
+     */
+    readWaveform: (into: WaveformBuffer): boolean => scheduler?.readWaveform(into) ?? false,
     dispose,
     /** Test seam: whether the audio device has actually been claimed yet. */
     hasEngine: (): boolean => scheduler !== null,
