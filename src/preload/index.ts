@@ -28,6 +28,7 @@ import type {
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
+import type { NetScope } from '@shared/net'
 import type {
   BrowsePodcastCategoryQuery,
   EpisodeDownloadProgress,
@@ -210,6 +211,16 @@ const api = {
       request('settings.importProfile', payload),
     onChanged: (listener: (changes: SettingsChange[]) => void) =>
       subscribe('settings.changed', listener)
+  },
+  net: {
+    /**
+     * Abandon main's in-flight and queued work for a scope.
+     *
+     * There is deliberately nothing here that *starts* a request. D14 puts
+     * fetching in main, and the renderer's whole half of that contract is
+     * saying when it has stopped caring — see `net.cancelScope` in `ipc.ts`.
+     */
+    cancelScope: (scope: NetScope) => request('net.cancelScope', { scope })
   }
 } as const
 

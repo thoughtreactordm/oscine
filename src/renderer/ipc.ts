@@ -11,6 +11,7 @@ import type {
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
+import type { NetScope } from '@shared/net'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -173,6 +174,18 @@ export const settings = {
   /** Returns an unsubscribe function. Call it on unmount. */
   onChanged: (listener: (changes: SettingsChange[]) => void) =>
     window.fermata.settings.onChanged(listener)
+}
+
+/**
+ * The renderer's half of D14: it can stop main fetching, and cannot start it.
+ *
+ * Deliberately not shaped like the other bridges. There is no `get` here and
+ * there will not be one — the lookups W7-9 adds answer through their own
+ * channels, so this stays the one call whose job is to say "nobody is looking
+ * any more".
+ */
+export const net = {
+  cancelScope: (scope: NetScope) => unwrap(window.fermata.net.cancelScope(scope))
 }
 
 export const windowControls = {

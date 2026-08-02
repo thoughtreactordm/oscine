@@ -5,7 +5,7 @@ import {
   readCappedText,
   ResponseTooLargeError,
   TransferStalledError
-} from '../../../src/main/podcasts/http'
+} from '../../../src/main/net/http'
 
 /** A body that streams `chunks` and never declares content-length. */
 function streaming(chunks: Uint8Array[]): Response {

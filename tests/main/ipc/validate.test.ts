@@ -10,6 +10,7 @@ import {
   MAX_TRACK_PAGE
 } from '@shared/library'
 import {
+  assertCancelNetScopeRequest,
   assertExportPlaylistRequest,
   assertListFacetIdsQuery,
   assertListFacetsQuery,
@@ -181,5 +182,27 @@ describe('library browse IPC validation', () => {
         limit: 20
       }).searchText
     ).toBe('hemian" OR title:*')
+  })
+})
+
+describe('net scope IPC validation', () => {
+  it('accepts a scope the build knows how to cancel', () => {
+    expect(assertCancelNetScopeRequest({ scope: 'tunedeck' })).toEqual({ scope: 'tunedeck' })
+  })
+
+  it('refuses an unknown scope rather than cancelling nothing quietly', () => {
+    // The failure mode this guards: a typo'd scope leaves in-flight requests
+    // running with nothing to signal it, which is invisible from either side.
+    for (const request of [
+      { scope: 'tunedck' },
+      { scope: '' },
+      { scope: 'Tunedeck' },
+      { scope: 7 },
+      {},
+      // An unknown field is a caller that thinks it is configuring something.
+      { scope: 'tunedeck', force: true }
+    ]) {
+      expect(() => assertCancelNetScopeRequest(request)).toThrow(FermataError)
+    }
   })
 })

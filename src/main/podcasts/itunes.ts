@@ -8,7 +8,7 @@
 
 import { FermataError } from '@shared/errors'
 import type { PodcastCatalogHit } from '@shared/podcasts'
-import { FERMATA_USER_AGENT } from './http'
+import { FERMATA_USER_AGENT } from '../net/http'
 
 const ITUNES_TIMEOUT_MS = 15_000
 /** Apple's root "Podcasts" genre — noise for recommendation weighting. */

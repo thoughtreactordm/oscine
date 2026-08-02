@@ -23,6 +23,7 @@ import type {
   TrackAudioMetadata,
   TrackFormatDetail
 } from './library'
+import type { CancelNetScopeRequest, CancelNetScopeResult } from './net'
 import type { RelatedQuery, RelatedResult } from './related'
 import type {
   AddTracksToPlaylistRequest,
@@ -370,6 +371,24 @@ export interface IpcContract {
     request: ImportSettingsProfileRequest
     response: SettingsImportPlan
   }
+
+  /**
+   * Abandon everything main is fetching on behalf of a scope.
+   *
+   * The renderer calls this when the thing that wanted the data goes away —
+   * the deck closing, in practice. It is a courtesy rather than a guarantee:
+   * main never *needs* to be told, because nothing it fetched will be asked for
+   * again, but a closed drawer that keeps holding rate-limit slots makes the
+   * next open wait behind work nobody wants (**R5**).
+   *
+   * Deliberately not a fetch channel. The lookups themselves arrive with W7-9;
+   * what W7-7 owes the contract is the cancellation half, because it is the
+   * half that has to exist before the first fetch does rather than after.
+   */
+  'net.cancelScope': {
+    request: CancelNetScopeRequest
+    response: CancelNetScopeResult
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -476,7 +495,8 @@ export const IPC_CHANNELS = [
   'settings.reset',
   'settings.exportProfile',
   'settings.readProfile',
-  'settings.importProfile'
+  'settings.importProfile',
+  'net.cancelScope'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [

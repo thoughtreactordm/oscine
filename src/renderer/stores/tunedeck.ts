@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
+import { net } from '@renderer/ipc'
 import { tunedeckRegistry } from '@renderer/panels/tunedeck/panes'
 import {
   resolveGroupId,
@@ -90,6 +91,28 @@ export const useTunedeckStore = defineStore('tunedeck', () => {
   function openGroup(tabId: string, groupId: string): void {
     storedGroups.value = { ...storedGroups.value, [tabId]: groupId }
   }
+
+  /**
+   * Closing the deck stops main fetching for it — **D14**'s drawer scoping.
+   *
+   * Watched here rather than hooked to `close()`, because `close()` is not the
+   * only way the deck shuts: the toggle in the transport bar and a direct write
+   * to the persisted key both go around it, and a cancellation that three of
+   * four paths perform is one that leaks.
+   *
+   * Only on the true→false edge, so the flag arriving as `false` from the view
+   * store during hydration does not send a cancel for a deck that was never
+   * open. Failures are logged and swallowed: cancelling is an optimisation —
+   * nothing is waiting on the reply, and main abandons the work when the window
+   * goes anyway.
+   */
+  watch(open, (isOpen, wasOpen) => {
+    if (wasOpen === true && !isOpen) {
+      void net.cancelScope('tunedeck').catch((err: unknown) => {
+        console.warn('[tunedeck] could not cancel in-flight lookups:', err)
+      })
+    }
+  })
 
   function toggle(): void {
     open.value = !open.value

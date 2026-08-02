@@ -165,6 +165,20 @@ export default tseslint.config(
 
   {
     /*
+     * D14's second rule: every outbound request issues from main. Scoped to the
+     * renderer rather than to `src/`, because main is where the sockets are
+     * supposed to be — the rule would otherwise ban `src/main/net` from doing
+     * its job.
+     */
+    name: 'fermata/renderer-network',
+    files: ['src/renderer/**/*.{ts,vue}'],
+    rules: {
+      'fermata/no-renderer-network': 'error'
+    }
+  },
+
+  {
+    /*
      * M5 exits when swapping a theme touches zero component code, and W8-12
      * says the token layer is not finished if it needs a component edit. One
      * hex in one hover state is invisible until somebody switches to a theme it

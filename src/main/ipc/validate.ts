@@ -1,5 +1,6 @@
 import { FermataError } from '@shared/errors'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
+import { NET_SCOPES, type CancelNetScopeRequest, type NetScope } from '@shared/net'
 import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
 import {
   parseSettingsProfile,
@@ -713,4 +714,21 @@ export function assertImportSettingsProfileRequest(value: unknown): ImportSettin
   for (const key of keys) assertSettingValue(parsed.profile.settings[key].value)
 
   return { profile: parsed.profile, mode: raw.mode as SettingsImportMode }
+}
+
+/**
+ * A scope must be one this build cancels.
+ *
+ * `NET_SCOPES` is a closed list rather than a free string precisely so that a
+ * renderer asking to cancel `"tunedck"` gets an error instead of a silent
+ * no-op — a cancellation that quietly does nothing is worse than one that
+ * fails, because the leak it leaves behind is invisible.
+ */
+export function assertCancelNetScopeRequest(value: unknown): CancelNetScopeRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['scope'])
+  if (typeof raw.scope !== 'string' || !(NET_SCOPES as readonly string[]).includes(raw.scope)) {
+    invalid(`scope must be one of: ${NET_SCOPES.join(', ')}.`)
+  }
+  return { scope: raw.scope as NetScope }
 }

@@ -40,7 +40,7 @@ import {
   readCappedText,
   ResponseTooLargeError,
   TransferStalledError
-} from './http'
+} from '../net/http'
 import { parseOpml } from './opml'
 import { episodeRelPath, podcastDirName, resolveEpisodeAbsPath } from './paths'
 import { parsePodcastRss, RssParseError } from './rss'

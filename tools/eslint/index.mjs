@@ -9,11 +9,13 @@
  */
 
 import { noRawColours } from './no-raw-colours.mjs'
+import { noRendererNetwork } from './no-renderer-network.mjs'
 import { noWindowsPathLiterals } from './no-windows-path-literals.mjs'
 
 export default {
   rules: {
     'no-raw-colours': noRawColours,
+    'no-renderer-network': noRendererNetwork,
     'no-windows-path-literals': noWindowsPathLiterals
   }
 }

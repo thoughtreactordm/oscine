@@ -4,11 +4,13 @@ import { trackUrl } from '@shared/ipc'
 import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
 import type { PlaylistService } from '../library/playlists/service'
+import type { NetService } from '../net'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertAddTracksRequest,
+  assertCancelNetScopeRequest,
   assertExportPlaylistRequest,
   assertFeedUrl,
   assertBrowsePodcastCategoryQuery,
@@ -51,7 +53,8 @@ export function registerIpcHandlers(
   playlists: PlaylistService,
   podcasts: PodcastService,
   settings: SettingsService,
-  history: PlayHistoryService
+  history: PlayHistoryService,
+  net: NetService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -331,6 +334,10 @@ export function registerIpcHandlers(
 
   handle('settings.importProfile', (request) =>
     settings.importProfile(assertImportSettingsProfileRequest(request))
+  )
+
+  handle('net.cancelScope', (request) =>
+    net.cancelScope(assertCancelNetScopeRequest(request).scope)
   )
 
   assertEveryChannelHandled()

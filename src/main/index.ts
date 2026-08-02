@@ -12,6 +12,7 @@ import { SqliteLibraryService } from './library/sqliteService'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { SqlitePodcastService } from './podcasts/service'
+import { createNetService } from './net'
 import { SqliteSettingsService } from './settings'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
@@ -308,6 +309,11 @@ if (!app.requestSingleInstanceLock()) {
       console.warn(`[settings] ${notice.key}: ${notice.reason}`)
     }
 
+    // Built from `settings` rather than given a copy of the consent flag: the
+    // gate reads it live, so switching it off stops fetching without a restart
+    // and without an invalidation path to get wrong. See `net/consent.ts`.
+    const net = createNetService(settings)
+
     // One artwork worker for library albums and podcast covers — a second
     // WorkerArtworkImageProcessor was racing the same native sharp module and
     // silently dropping podcast thumbs.
@@ -367,7 +373,7 @@ if (!app.requestSingleInstanceLock()) {
 
     setTrustedRendererUrl(rendererUrl)
     registerTrackProtocol(library, artworkCachePath(), podcasts)
-    registerIpcHandlers(library, playlists, podcasts, settings, history)
+    registerIpcHandlers(library, playlists, podcasts, settings, history, net)
 
     mainWindow = createWindow(resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors))
     // The other way the answer changes: the OS flips while the preference is

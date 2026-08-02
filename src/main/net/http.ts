@@ -1,10 +1,16 @@
 /**
- * Byte-bounded, stall-guarded HTTP reads for feeds, artwork and episode audio.
+ * Byte-bounded, stall-guarded HTTP reads.
  *
- * Everything downstream of here talks to hosts the user chose but nobody
- * vetted, so two rules hold: a response body is never buffered without a
- * ceiling, and a transfer that stops producing bytes is abandoned rather than
- * waited on forever.
+ * These began under `podcasts/` and moved here when W7-7 made `src/main/net`
+ * the one place in the application that opens a socket. Nothing about them was
+ * ever specific to feeds: a ceiling on a response body and a deadline on a
+ * quiet host are what every remote read wants, and having the metadata client
+ * import them from `podcasts/` would have inverted the layering the move
+ * exists to establish.
+ *
+ * Everything downstream of here talks to hosts nobody vetted, so two rules
+ * hold: a response body is never buffered without a ceiling, and a transfer
+ * that stops producing bytes is abandoned rather than waited on forever.
  *
  * The second rule is why episode downloads do not use `AbortSignal.timeout`.
  * That signal stays attached to the body stream, so it is a deadline on the
@@ -14,17 +20,7 @@
  * bytes, not an elapsed total.
  */
 
-/**
- * The identity Fermata presents to feed hosts, catalogue endpoints and CDNs.
- *
- * One constant rather than a literal per call site: a client that identifies
- * itself differently depending on which of its own requests you look at is the
- * thing feed hosts write rate-limiting rules against. There is deliberately no
- * contact URL — the placeholder that stood here pointed at `github.com` itself,
- * which is worse than saying nothing. Add a real one when the project has a
- * public home; that is the courtesy feed operators actually want.
- */
-export const FERMATA_USER_AGENT = 'Fermata/0.1 (podcast client)'
+export { FERMATA_USER_AGENT } from './userAgent'
 
 export class ResponseTooLargeError extends Error {
   constructor(readonly maxBytes: number) {
