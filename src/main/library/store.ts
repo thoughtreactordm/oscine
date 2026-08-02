@@ -326,6 +326,27 @@ function prepareStatements(db: Database.Database) {
       WHERE root_id = ?
     `),
     deleteTrack: db.prepare('DELETE FROM tracks WHERE root_id = ? AND rel_path = ?'),
+
+    // Removing a root removes its tracks by cascade, and their history and
+    // playlist entries by cascade from those. What no cascade reaches is the
+    // two shared dimension tables: `albums` and `artists` are keyed by name
+    // rather than by root, so a root's departure leaves behind every album and
+    // artist that only it had. They are invisible in the browser — every facet
+    // query is over `tracks` — which is exactly why they need sweeping here
+    // rather than being left for someone to notice.
+    deleteRoot: db.prepare('DELETE FROM roots WHERE id = ?'),
+    deleteOrphanAlbums: db.prepare(`
+      DELETE FROM albums
+      WHERE NOT EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = albums.id)
+    `),
+    // After the albums, because an album is the other thing that can hold an
+    // artist reference alive. An artist who is nobody's performer and nobody's
+    // album artist is not in the library any more.
+    deleteOrphanArtists: db.prepare(`
+      DELETE FROM artists
+      WHERE NOT EXISTS (SELECT 1 FROM tracks t WHERE t.artist_id = artists.id)
+        AND NOT EXISTS (SELECT 1 FROM albums al WHERE al.album_artist_id = artists.id)
+    `),
     findTrackAlbum: db.prepare(
       'SELECT album_id AS albumId FROM tracks WHERE root_id = ? AND rel_path = ?'
     ),
@@ -707,6 +728,50 @@ export class LibraryStore {
   insertRoot(path: string, label: string, addedAt: number): RootRow {
     const { id } = this.statements.insertRoot.get(label, path, addedAt) as { id: number }
     return { id, path, label, addedAt, lastScanAt: null, trackCount: 0 }
+  }
+
+  /**
+   * Forgets a root and everything only it was holding up.
+   *
+   * One transaction, because the intermediate state — a root gone but its
+   * albums still standing — is one a concurrent read could see and would
+   * render as albums with no tracks.
+   *
+   * The prune is "delete what nothing references", not "delete what this root
+   * referenced", and the difference is deliberate in both directions. It has to
+   * be this way round to be correct — an artist two roots share must survive
+   * one of them leaving — and the side effect is that a removal also sweeps any
+   * orphan that was already lying about. Those rows are dead either way: every
+   * facet query is over `tracks`, and the artwork cache already treats an album
+   * with no tracks as unreferenced. Collecting them here costs one extra
+   * `NOT EXISTS` pass and saves inventing a second, scoped prune that would be
+   * wrong in the shared case.
+   *
+   * The two id caches are cleared afterwards and that is not housekeeping: they
+   * memoise name-to-id for the scanner's upserts, and the prune has just
+   * deleted rows they are still holding ids for. A later scan that trusted a
+   * stale entry would attach tracks to an artist that no longer exists, which
+   * SQLite would accept — the column is nullable and the foreign key is not
+   * enforced on a value that never gets re-checked — and the tracks would
+   * simply stop appearing under any artist.
+   *
+   * Returns false when the root was already gone, which is not an error: two
+   * windows, or a double-click, and the second caller wants the same end state
+   * the first one produced.
+   */
+  removeRoot(rootId: number): boolean {
+    const removed = this.db.transaction(() => {
+      if (this.statements.deleteRoot.run(rootId).changes === 0) return false
+      this.statements.deleteOrphanAlbums.run()
+      this.statements.deleteOrphanArtists.run()
+      return true
+    })()
+
+    if (removed) {
+      this.artistIds.clear()
+      this.albumIds.clear()
+    }
+    return removed
   }
 
   markScanned(rootId: number, at: number): void {

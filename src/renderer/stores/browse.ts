@@ -166,6 +166,28 @@ export const useBrowseStore = defineStore('browse', () => {
     () => reloadFacets()
   )
 
+  /**
+   * A removed folder cannot go on being the filter.
+   *
+   * `rootId` outlives the row it names — it is a number in this store, not a
+   * reference — so removing the folder the operator had selected would leave
+   * every query narrowed to a root that no longer exists. That reads as an
+   * empty library rather than as a removed folder, and the select would show a
+   * blank because no item matches its value. Falling back to "All folders" is
+   * the only honest resting place: the narrowing the operator asked for is
+   * genuinely gone.
+   *
+   * Watches the list rather than `version`, because a removal changes what
+   * roots exist without any scan having finished.
+   */
+  watch(
+    () => roots.roots,
+    (list) => {
+      if (rootId.value === null) return
+      if (!list.some((root) => root.id === rootId.value)) rootId.value = null
+    }
+  )
+
   let searchTimer: ReturnType<typeof setTimeout> | null = null
 
   function searchableText(value: string): string | null {

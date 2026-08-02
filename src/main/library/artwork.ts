@@ -191,6 +191,20 @@ export class ArtworkCacheService {
     }
   }
 
+  /**
+   * Drops cache files no album references any more, without re-deriving any.
+   *
+   * `reconcile()` also prunes, but it prunes *after* walking every album to
+   * check its artwork is still valid — which is the right shape when the
+   * library has changed underneath us and the wrong one when it has only
+   * shrunk. Removing a root deletes albums and creates unreferenced files; it
+   * cannot invalidate the artwork of an album that is still there. So this is
+   * the second half of `reconcile` on its own.
+   */
+  async sweep(): Promise<number> {
+    return this.prune()
+  }
+
   private async prune(): Promise<number> {
     const referenced = this.store.listReferencedArtworkHashes()
     let entries

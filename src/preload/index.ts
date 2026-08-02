@@ -102,6 +102,8 @@ const api = {
     addRoot: () => request('library.addRoot', null),
     listRoots: () => request('library.listRoots', null),
     scanRoot: (rootId: number) => request('library.scanRoot', { rootId }),
+    /** Forgets a folder and answers with the roots left. Never touches disk. */
+    removeRoot: (rootId: number) => request('library.removeRoot', { rootId }),
     listArtists: (query: ListFacetsQuery) => request('library.listArtists', query),
     listAlbums: (query: ListFacetsQuery) => request('library.listAlbums', query),
     /** The same two windows, ids only — for range selection and pruning. */

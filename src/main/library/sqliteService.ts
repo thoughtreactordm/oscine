@@ -307,6 +307,49 @@ export class SqliteLibraryService implements LibraryService {
     return this.replayGain.resume(jobId)
   }
 
+  /**
+   * Forgets a library folder. The files on disk are never touched.
+   *
+   * Ordered the way it is because each step depends on the one before:
+   *
+   * 1. Stop watching, *before* the rows go. A watcher that fires against a
+   *    deleted root would reconcile a folder the library no longer has, and
+   *    `queueWatchReconcile` would happily scan it back in.
+   * 2. Wait out any scan already running for this root. Deleting rows from
+   *    under a scan that is mid-transaction is how a half-removed root
+   *    survives a restart — and the wait is bounded, because step 1 means
+   *    nothing new can start one.
+   * 3. Delete, and prune what the cascade cannot reach (see `store.removeRoot`).
+   * 4. Sweep the artwork cache, which is now holding files for albums that no
+   *    longer exist.
+   *
+   * The per-root state maps are cleared last. They are keyed by root id and
+   * SQLite reuses ids, so an entry left behind here is one the *next* folder to
+   * be added could inherit — a new root starting life marked degraded because
+   * the one before it was.
+   */
+  async removeRoot(rootId: number): Promise<LibraryRoot[]> {
+    this.watcher.stopRoot(rootId)
+
+    const running = this.inFlight.get(rootId)
+    if (running) await running.catch(() => {})
+    const queued = this.watchQueues.get(rootId)
+    if (queued) await queued.catch(() => {})
+
+    const removed = this.store.removeRoot(rootId)
+
+    this.watchModes.delete(rootId)
+    this.degradedRoots.delete(rootId)
+    this.watchQueues.delete(rootId)
+    this.inFlight.delete(rootId)
+
+    // Only when something actually went: a no-op removal has created no
+    // unreferenced files, and sweeping the cache is a directory walk.
+    if (removed) await this.artwork?.sweep()
+
+    return this.listRoots()
+  }
+
   async close(): Promise<void> {
     this.closing = true
     this.watcher.close()

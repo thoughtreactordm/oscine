@@ -84,6 +84,11 @@ export function registerIpcHandlers(
     return library.scanRoot(assertPositiveInt(rootId, 'rootId'))
   })
 
+  handle('library.removeRoot', (request) => {
+    const { rootId } = assertRecord(request, 'request')
+    return library.removeRoot(assertPositiveInt(rootId, 'rootId'))
+  })
+
   handle('library.listArtists', (request) => library.listArtists(assertListFacetsQuery(request)))
 
   handle('library.listAlbums', (request) => library.listAlbums(assertListFacetsQuery(request)))

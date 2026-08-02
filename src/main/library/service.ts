@@ -33,6 +33,17 @@ export interface LibraryService {
   addRoot(): Promise<LibraryRoot | null>
   listRoots(): Promise<LibraryRoot[]>
   scanRoot(rootId: number): Promise<ScanSummary>
+  /**
+   * Forgets a library folder and returns the roots that are left.
+   *
+   * Never touches the filesystem. The tracks go, and with them their play
+   * history and any playlist entries pointing at them — all by cascade, which
+   * is why the confirmation in the renderer says so.
+   *
+   * Returns the remaining roots rather than nothing, so a caller that has just
+   * changed the list does not have to ask what it now is.
+   */
+  removeRoot(rootId: number): Promise<LibraryRoot[]>
   listArtists(query: ListFacetsQuery): Promise<ListArtistsResult>
   listAlbums(query: ListFacetsQuery): Promise<ListAlbumsResult>
   /**

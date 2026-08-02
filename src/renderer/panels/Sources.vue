@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { ContextMenuItem } from '@nuxt/ui'
+import type { ContextMenuItem, DropdownMenuItem } from '@nuxt/ui'
 import type { AddTarget } from '@renderer/panels/addToPlaylist'
 import type { FacetDimension, FacetWindow } from '@renderer/panels/facetWindow'
 import FacetList from '@renderer/panels/FacetList.vue'
@@ -65,6 +65,56 @@ const rootItems = computed(() => [
     value: root.id
   }))
 ])
+
+/**
+ * What the kebab beside the folder select offers, for whatever it is pointing at.
+ *
+ * `browse.rootValue` is `0` for "All folders", which is a real selection rather
+ * than an absence — so the menu answers it rather than going empty: rescan
+ * everything, and no removal, because "remove all folders" is not a gesture
+ * anyone makes by accident and should not be one keystroke from a menu.
+ *
+ * Removal goes through `requestRemove` and never through `removeFolder`. The
+ * confirmation is rendered by the title bar, which is the only component still
+ * mounted when this one is not.
+ */
+const folderItems = computed<DropdownMenuItem[][]>(() => {
+  const rootId = browse.rootValue
+  const scanning = roots.scan !== null
+
+  if (rootId === 0) {
+    return [
+      [
+        {
+          label: roots.roots.length > 1 ? 'Rescan all folders' : 'Rescan',
+          icon: 'i-tabler-refresh',
+          disabled: scanning || roots.roots.length === 0,
+          onSelect: () => void roots.rescanAll()
+        }
+      ]
+    ]
+  }
+
+  return [
+    [
+      {
+        label: 'Rescan this folder',
+        icon: 'i-tabler-refresh',
+        disabled: scanning,
+        onSelect: () => void roots.rescan(rootId)
+      }
+    ],
+    [
+      {
+        label: 'Remove this folder…',
+        icon: 'i-tabler-folder-minus',
+        color: 'error' as const,
+        disabled: roots.removing !== null,
+        onSelect: () => roots.requestRemove(rootId)
+      }
+    ]
+  ]
+})
 
 /**
  * The facet row menus: the same verbs the song list offers, aimed a level up.
@@ -181,13 +231,31 @@ const albumMenu = facetMenu<AlbumFacet>({
       </div>
 
       <UFormField label="Library folder" :ui="{ label: 'sr-only' }">
-        <USelect
-          v-model="browse.rootValue"
-          value-key="value"
-          :items="rootItems"
-          class="w-full"
-          aria-label="Library folder"
-        />
+        <div class="flex items-center gap-1">
+          <USelect
+            v-model="browse.rootValue"
+            value-key="value"
+            :items="rootItems"
+            class="min-w-0 flex-1"
+            aria-label="Library folder"
+          />
+          <!--
+            The verbs for whatever the select is pointing at. Here rather than
+            in the title bar's submenus because this is where a folder is
+            already chosen — the operator who wants to rescan the folder they
+            are looking at should not have to pick it a second time from a list.
+          -->
+          <UDropdownMenu :items="folderItems" :content="{ align: 'end' }">
+            <UButton
+              icon="i-tabler-dots-vertical"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              :loading="roots.removing !== null"
+              aria-label="Library folder actions"
+            />
+          </UDropdownMenu>
+        </div>
       </UFormField>
 
       <UFormField label="Search library" :help="browse.searchHelp" :ui="{ label: 'sr-only' }">

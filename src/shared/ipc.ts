@@ -95,6 +95,18 @@ export interface IpcContract {
   'library.addRoot': { request: null; response: LibraryRoot | null }
   'library.listRoots': { request: null; response: LibraryRoot[] }
   'library.scanRoot': { request: { rootId: number }; response: ScanSummary }
+  /**
+   * Forgets a library folder, and answers with the roots that remain.
+   *
+   * The response is the new list rather than `null` because this is the one
+   * library mutation whose result the caller cannot derive: an add returns the
+   * root it added and a scan leaves the list alone, but a removal also prunes
+   * albums and artists, and the renderer has no way to know what survived.
+   *
+   * Nothing is deleted from disk. Ever. The renderer's confirmation says so,
+   * and this channel could not do otherwise if it wanted to.
+   */
+  'library.removeRoot': { request: { rootId: number }; response: LibraryRoot[] }
   'library.listArtists': { request: ListFacetsQuery; response: ListArtistsResult }
   'library.listAlbums': { request: ListFacetsQuery; response: ListAlbumsResult }
   /**
@@ -417,6 +429,7 @@ export const IPC_CHANNELS = [
   'library.orderTrackIds',
   'library.getTracksByIds',
   'library.getRelated',
+  'library.removeRoot',
   'library.getTrackAudioMetadata',
   'library.getTrackFormatDetail',
   'library.getTrackFileUrl',

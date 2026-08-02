@@ -60,6 +60,8 @@ export const library = {
   addRoot: () => unwrap(window.fermata.library.addRoot()),
   listRoots: () => unwrap(window.fermata.library.listRoots()),
   scanRoot: (rootId: number) => unwrap(window.fermata.library.scanRoot(rootId)),
+  /** Forgets a folder and answers with the roots left. Never touches disk. */
+  removeRoot: (rootId: number) => unwrap(window.fermata.library.removeRoot(rootId)),
   listArtists: (query: ListFacetsQuery) => unwrap(window.fermata.library.listArtists(query)),
   listAlbums: (query: ListFacetsQuery) => unwrap(window.fermata.library.listAlbums(query)),
   listArtistIds: (query: ListFacetIdsQuery) => unwrap(window.fermata.library.listArtistIds(query)),

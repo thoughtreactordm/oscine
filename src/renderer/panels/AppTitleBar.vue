@@ -15,13 +15,88 @@ const playback = usePlaybackStore()
 const maximized = ref(false)
 let stopMaximizedListener: (() => void) | null = null
 
-const libraryItems: DropdownMenuItem[] = [
-  {
-    label: 'Add music folder…',
-    icon: 'i-tabler-folder-plus',
-    onSelect: () => void roots.addFolder()
+/**
+ * Add, rescan, remove — the three things you can do to a library folder.
+ *
+ * Rescan and remove are submenus keyed by folder rather than verbs that act on
+ * "the current one", because this bar has no current one: it outlives every tab
+ * and the folder select lives in a sidebar that is not always mounted. Reaching
+ * into `browse.rootValue` from here would make a menu in the frame chrome
+ * depend on which tab the operator happens to be looking at.
+ *
+ * Both submenus disappear rather than grey out when there are no folders. A
+ * disabled "Rescan ▸" with nothing behind it is a promise the menu cannot keep.
+ */
+const libraryItems = computed<DropdownMenuItem[][]>(() => {
+  const folders = roots.roots
+  const groups: DropdownMenuItem[][] = [
+    [
+      {
+        label: 'Add music folder…',
+        icon: 'i-tabler-folder-plus',
+        onSelect: () => void roots.addFolder()
+      }
+    ]
+  ]
+
+  if (folders.length === 0) return groups
+
+  groups.push([
+    {
+      label: 'Rescan',
+      icon: 'i-tabler-refresh',
+      children: [
+        ...folders.map((root) => ({
+          label: root.path,
+          // A scan is already running somewhere, and main de-duplicates per
+          // root anyway — but saying so beats a click that appears to do
+          // nothing because the scan it started was folded into the live one.
+          disabled: roots.scan !== null,
+          onSelect: () => void roots.rescan(root.id)
+        })),
+        ...(folders.length > 1
+          ? [
+              { type: 'separator' as const },
+              {
+                label: 'All folders',
+                disabled: roots.scan !== null,
+                onSelect: () => void roots.rescanAll()
+              }
+            ]
+          : [])
+      ]
+    }
+  ])
+
+  groups.push([
+    {
+      label: 'Remove folder',
+      icon: 'i-tabler-folder-minus',
+      children: folders.map((root) => ({
+        label: root.path,
+        disabled: roots.removing !== null,
+        // Never removes directly. Every path to a removal goes through the one
+        // confirmation the store builds — see `removePrompt`.
+        onSelect: () => roots.requestRemove(root.id)
+      }))
+    }
+  ])
+
+  return groups
+})
+
+/**
+ * The removal confirmation, rendered here and nowhere else.
+ *
+ * The frame chrome is the only thing always mounted, and a removal can be
+ * started from the sidebar as easily as from this menu. See `removePrompt`.
+ */
+const removeOpen = computed({
+  get: () => roots.removePrompt !== null,
+  set: (open: boolean) => {
+    if (!open) roots.cancelRemove()
   }
-]
+})
 
 const playbackItems = computed<DropdownMenuItem[]>(() => [
   {
@@ -121,5 +196,24 @@ async function toggleMaximize(): Promise<void> {
         @click="windowControls.close()"
       />
     </div>
+
+    <!--
+      One dialog for every route into a removal, in the one component that is
+      always mounted. Wording comes from the store so the sidebar and this menu
+      cannot ask for consent to two different things.
+    -->
+    <UModal
+      v-model:open="removeOpen"
+      :title="roots.removePrompt?.title ?? ''"
+      :description="roots.removePrompt?.message ?? ''"
+      :ui="{ footer: 'justify-end' }"
+    >
+      <template #footer>
+        <UButton color="neutral" variant="ghost" @click="roots.cancelRemove()">Keep</UButton>
+        <UButton color="error" icon="i-tabler-folder-minus" @click="roots.confirmRemove()">
+          Remove
+        </UButton>
+      </template>
+    </UModal>
   </header>
 </template>
