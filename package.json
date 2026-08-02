@@ -1,6 +1,6 @@
 {
   "name": "fermata",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A format-first local music player for large libraries",
   "author": {
     "name": "Michael DeLally",
