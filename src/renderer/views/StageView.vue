@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import WaveformRibbon from '@renderer/panels/WaveformRibbon.vue'
 
 /**
  * The Now Playing tab: one record, as large as the window allows.
@@ -87,6 +88,13 @@ const byline = computed(() => {
       </div>
       <p v-else class="text-sm text-dimmed">Nothing playing</p>
     </div>
+
+    <!--
+      Last child, so it stacks over the wash and the record without needing a
+      z-index of its own. It only exists on this route: the loop is bounded by
+      the component's lifetime, and leaving the tab is what stops it.
+    -->
+    <WaveformRibbon />
   </section>
 </template>
 
