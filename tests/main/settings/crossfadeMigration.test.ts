@@ -147,6 +147,6 @@ describe('folding per-playlist crossfade into the cascade', () => {
     migrate(db, MIGRATIONS)
 
     expect(overrideRows(db)).toEqual([])
-    expect(db.pragma('user_version', { simple: true })).toBe(8)
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length)
   })
 })

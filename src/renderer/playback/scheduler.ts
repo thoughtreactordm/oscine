@@ -42,6 +42,20 @@ export interface PrefetchState {
 
 export interface PlaybackSchedulerEventMap extends AudioEngineEventMap {
   trackchange: { track: Track; position: SlotPosition }
+  /**
+   * A track has begun playing. Emitted from the two — and only two — places a
+   * play actually starts: a move inside `#goTo`, and the boundary in
+   * `#onNaturalEnd`.
+   *
+   * Separate from `trackchange` because that event answers "what is the audible
+   * track and where does it sit", and `retarget` restates it for a track that
+   * is already playing when a shuffle toggle permutes the order underneath it.
+   * A consumer counting plays off `trackchange` would count a shuffle as one.
+   * Repeat-one, by contrast, comes back through the boundary and *is* a second
+   * play, so it emits again — which is the behaviour the play-history trail
+   * wants and the reason this is not simply deduplicated by track id.
+   */
+  playstart: { track: Track }
   prefetchchange: PrefetchState
 }
 
@@ -534,6 +548,7 @@ export class PlaybackScheduler {
     // explicit Next has usually consumed the row already — see `take`.
     if (position.queueEntryId !== null) this.#queue?.take(position.queueEntryId)
     this.#events.emit('trackchange', { track, position })
+    this.#events.emit('playstart', { track })
 
     try {
       if (prepared?.load) await prepared.load
@@ -773,6 +788,7 @@ export class PlaybackScheduler {
     // and it is the only advance the controller is not party to.
     if (next.position.queueEntryId !== null) this.#queue?.take(next.position.queueEntryId)
     this.#events.emit('trackchange', { track: next.track, position: next.position })
+    this.#events.emit('playstart', { track: next.track })
     const adoptedScheduled = next.engine.adoptScheduledStart()
     if (!adoptedScheduled) {
       this.#events.emit('statuschange', next.engine.status)

@@ -89,6 +89,12 @@ export const library = {
     window.fermata.library.onReplayGainProgress(listener)
 }
 
+export const history = {
+  record: (trackId: number) => unwrap(window.fermata.history.record(trackId)),
+  list: (limit: number) => unwrap(window.fermata.history.list(limit)),
+  clear: () => unwrap(window.fermata.history.clear())
+}
+
 export const playlists = {
   list: () => unwrap(window.fermata.playlists.list()),
   create: (name: string) => unwrap(window.fermata.playlists.create(name)),

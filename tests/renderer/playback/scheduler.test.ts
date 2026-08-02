@@ -951,4 +951,79 @@ describe('PlaybackScheduler', () => {
     expect(h.engines[1].cancelledCount).toBe(1)
     expect(h.engines[0].cancelledFadeCount).toBe(1)
   })
+  /**
+   * `playstart` is the play-history trail's event (W7-4), and its whole reason
+   * for existing beside `trackchange` is that the two answer different
+   * questions: `trackchange` says what is audible and where it sits, and is
+   * republished when the order moves underneath a track that is already
+   * playing. Counting plays off that would count a shuffle toggle as a listen.
+   */
+  describe('playstart', () => {
+    it('fires once for the track a start commits to', async () => {
+      const h = harness()
+      const plays: number[] = []
+      h.scheduler.on('playstart', ({ track: played }) => plays.push(played.id))
+
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+
+      expect(plays).toEqual([1])
+    })
+
+    it('fires again at a boundary, once per track', async () => {
+      const h = harness()
+      const plays: number[] = []
+      h.scheduler.on('playstart', ({ track: played }) => plays.push(played.id))
+
+      await h.scheduler.start(h.order, 0, track(0))
+      await settle()
+      h.engines[0].end()
+      await settle()
+
+      expect(plays).toEqual([0, 1])
+
+      // The boundary's other half: a stale callback from the freed slot must
+      // not report a second play any more than it advances a second time.
+      h.engines[0].emit('ended', { trackId: 0 })
+      await settle()
+      expect(plays).toEqual([0, 1])
+    })
+
+    it('is silent when retarget republishes a track that is already playing', async () => {
+      const h = harness()
+      const plays: number[] = []
+      const changes: number[] = []
+      h.scheduler.on('playstart', ({ track: played }) => plays.push(played.id))
+      h.scheduler.on('trackchange', ({ track: next }) => changes.push(next.id))
+
+      await h.scheduler.start(h.order, 1, track(1))
+      await settle()
+      expect(plays).toEqual([1])
+
+      // Shuffle on, mid-track. The row keeps playing at a new position.
+      h.scheduler.retarget(h.order, 4)
+      await settle()
+
+      // `trackchange` republishes, because the position genuinely moved.
+      expect(changes).toEqual([1, 1])
+      // `playstart` does not, because nothing started.
+      expect(plays).toEqual([1])
+    })
+
+    it('fires for each pass of repeat-one, because each is a play', async () => {
+      const h = harness(6, 0, 'one')
+      const plays: number[] = []
+      h.scheduler.on('playstart', ({ track: played }) => plays.push(played.id))
+
+      await h.scheduler.start(h.order, 2, track(2))
+      await settle()
+      h.engines[0].end()
+      await settle()
+
+      // The same track twice, and that is the intended reading: the trail's
+      // pane collapses consecutive replays into one counted row rather than
+      // the scheduler pretending the second pass did not happen.
+      expect(plays).toEqual([2, 2])
+    })
+  })
 })

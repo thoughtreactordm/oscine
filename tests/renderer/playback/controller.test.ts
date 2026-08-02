@@ -216,6 +216,7 @@ function harness(
      */
     stallSessionFill?: boolean
     setOutputDevice?: PlaybackControllerDeps['setOutputDevice']
+    onPlayStarted?: PlaybackControllerDeps['onPlayStarted']
   } = {}
 ) {
   const total = options.total ?? 10
@@ -281,6 +282,7 @@ function harness(
     ...(options.createMediaSession ? { createMediaSession: options.createMediaSession } : {}),
     ...(options.settings ? { settings: options.settings } : {}),
     ...(options.setOutputDevice ? { setOutputDevice: options.setOutputDevice } : {}),
+    ...(options.onPlayStarted ? { onPlayStarted: options.onPlayStarted } : {}),
     ...(options.crossfadeMs === undefined ? {} : { crossfadeMs: options.crossfadeMs }),
     ...(options.sessionCap === undefined ? {} : { sessionQueueCap: options.sessionCap }),
     // Fixed by default, so a shuffled traversal is something a test can name.
@@ -2090,6 +2092,193 @@ describe('createPlaybackController', () => {
       // Two rows behind the anchor and nothing invented past the end.
       expect(sessionIds(h.controller)).toEqual([2])
       expect(h.controller.queuedCount.value).toBe(1)
+    })
+  })
+
+  /**
+   * W7-4's jump-back, and the one claim the card makes about it: replaying from
+   * the trail must not corrupt queue state.
+   *
+   * It is a **detour** — §5 rule 1's first arm and nothing else. The rows below
+   * are that read against every piece of state a jump could plausibly have
+   * moved: the playing playlist (rule 3), the anchor (rule 2), and both tiers
+   * (rules 3 and 6).
+   */
+  describe('replaying from the play-history trail', () => {
+    const userIds = (controller: ReturnType<typeof harness>['controller']): number[] =>
+      controller.queuedUserEntries.value.map((entry) => entry.trackId)
+
+    const sessionIds = (controller: ReturnType<typeof harness>['controller']): number[] =>
+      controller.queuedSessionEntries.value.map((entry) => entry.trackId)
+
+    it('plays the track without moving the playing playlist or the anchor', async () => {
+      const h = harness({ playlistTotal: 6 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2 })
+      await settle()
+      expect(h.controller.orderIndex.value).toBe(2)
+
+      // Something heard twenty minutes ago, off the trail. It is not a row of
+      // the playing order and does not become one.
+      await h.controller.replay(track(555))
+
+      expect(h.controller.nowPlaying.value?.id).toBe(555)
+      // Rule 3 is about playing *from* a playlist. This plays from the trail,
+      // so the playing playlist is untouched — and with it the crossfade the
+      // cascade resolves at that playlist.
+      expect(h.controller.playingPlaylistId.value).toBe(7)
+      // Rule 2's anchor: a user detour leaves the resume position where it was.
+      expect(h.controller.orderIndex.value).toBe(2)
+    })
+
+    it('resumes at the row it interrupted when the replayed track ends', async () => {
+      const h = harness({ playlistTotal: 6 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2 })
+      await settle()
+
+      await h.controller.replay(track(555))
+      expect(h.controller.nowPlaying.value?.id).toBe(555)
+
+      // Rule 1's second arm. The detour is over, so the successor is the next
+      // row after the one that was interrupted — not the one after the replayed
+      // track, which has no position in this order at all.
+      await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 3)
+      expect(h.controller.orderIndex.value).toBe(3)
+    })
+
+    it('leaves a hand-built user queue standing, in its order', async () => {
+      const h = harness({ playlistTotal: 6 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
+      h.controller.enqueue([track(90), track(91), track(92)])
+      await settle()
+
+      await h.controller.replay(track(555))
+
+      // The whole reason this is a detour rather than a change of scope: ten
+      // minutes of queue-building is not something a jump-back may discard.
+      expect(userIds(h.controller)).toEqual([90, 91, 92])
+      expect(h.controller.nowPlaying.value?.id).toBe(555)
+    })
+
+    it('leaves the session tier intact, because the anchor did not move', async () => {
+      const h = harness({ total: 8 })
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      await settle()
+      expect(sessionIds(h.controller)).toEqual([1, 2, 3, 4, 5, 6, 7])
+
+      await h.controller.replay(track(555))
+      await settle()
+
+      // `sessionIsStale` measures the tier against the anchor, and a user entry
+      // carries no `orderIndex` of its own — so there is nothing here to
+      // refill, and nothing gets cleared and re-fetched behind the operator.
+      expect(sessionIds(h.controller)).toEqual([1, 2, 3, 4, 5, 6, 7])
+    })
+
+    it('takes only its own row back out of the queue', async () => {
+      const h = harness({ playlistTotal: 6 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
+      h.controller.enqueue([track(90)])
+      await settle()
+
+      await h.controller.replay(track(555))
+
+      // The replayed row is in the queue for exactly as long as it takes to
+      // play it — rule 1's shift — and the queue is not left holding a copy.
+      expect(userIds(h.controller)).toEqual([90])
+      expect(h.controller.queuedEntries.value.some((entry) => entry.trackId === 555)).toBe(false)
+    })
+
+    it('starts a one-track order when nothing is playing', async () => {
+      // The state the trail is in immediately after a restart: history survives
+      // and the transport does not. There is no detour to take and no position
+      // to resume, so the fallback is an ordinary start.
+      const h = harness()
+      expect(h.controller.orderIndex.value).toBeNull()
+
+      await h.controller.replay(track(555))
+
+      expect(h.controller.nowPlaying.value?.id).toBe(555)
+      expect(h.controller.playingPlaylistId.value).toBeNull()
+      expect(h.controller.orderIndex.value).toBe(0)
+      // Nothing invented past the one row it was given.
+      await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe(555)
+    })
+
+    it('replays the audible track without leaving a queue entry behind', async () => {
+      // The pane refuses this gesture on the row marked "Playing", but the
+      // controller is reachable from elsewhere and must not strand an entry.
+      const h = harness({ playlistTotal: 4 })
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 1 })
+      await settle()
+      const playing = h.controller.nowPlaying.value
+
+      await h.controller.replay(playing!)
+
+      expect(h.controller.nowPlaying.value?.id).toBe(playing!.id)
+      expect(userIds(h.controller)).toEqual([])
+      expect(h.controller.orderIndex.value).toBe(1)
+    })
+  })
+
+  /**
+   * The trail's only route out of playback. A sink rather than a store reached
+   * from inside the controller — see `PlaybackControllerDeps.onPlayStarted`.
+   */
+  describe('reporting plays to the trail', () => {
+    it('reports each track as it becomes audible, once', async () => {
+      const plays: number[] = []
+      const h = harness({ total: 6, onPlayStarted: (played) => plays.push(played.id) })
+
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      await settle()
+      await h.controller.next()
+      await h.controller.next()
+
+      expect(plays).toEqual([0, 1, 2])
+    })
+
+    it('reports a skip, which is the case jump-back exists for', async () => {
+      const plays: number[] = []
+      const h = harness({ total: 6, onPlayStarted: (played) => plays.push(played.id) })
+
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      await settle()
+      // Three seconds in, and gone. A listened-threshold would drop this row —
+      // and it is exactly the one an operator goes looking for afterwards.
+      await h.controller.next()
+
+      expect(plays).toEqual([0, 1])
+    })
+
+    it('reports a replay, so the trail head is what is audible', async () => {
+      const plays: number[] = []
+      const h = harness({ playlistTotal: 4, onPlayStarted: (played) => plays.push(played.id) })
+
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 0 })
+      await settle()
+      await h.controller.replay(track(555))
+
+      expect(plays).toEqual([PLAYLIST_TRACK_BASE, 555])
+    })
+
+    it('reports nothing for a shuffle toggle', async () => {
+      const plays: number[] = []
+      const h = harness({ total: 6, onPlayStarted: (played) => plays.push(played.id) })
+
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: 0 })
+      await settle()
+      expect(plays).toEqual([0])
+
+      // The audible row keeps playing at a new position. Nothing started, so
+      // nothing is a play — see `PlaybackSchedulerEventMap.playstart`.
+      h.controller.setShuffle(true)
+      await settle()
+      h.controller.setShuffle(false)
+      await settle()
+
+      expect(plays).toEqual([0])
     })
   })
 })

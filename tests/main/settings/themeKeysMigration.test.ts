@@ -65,9 +65,12 @@ function settingsRows(db: Database.Database, key: string): Row[] {
     .all(key)
 }
 
+/** Head, read from the registry — `migrate` guarantees it is the length. */
+const HEAD = MIGRATIONS.length
+
 function toCurrent(db: Database.Database): void {
   migrate(db, MIGRATIONS)
-  expect(db.pragma('user_version', { simple: true })).toBe(8)
+  expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
 }
 
 describe('moving interface.theme to theme.mode', () => {
@@ -139,8 +142,8 @@ describe('moving interface.theme to theme.mode', () => {
     const after = settingsRows(db, THEME_MODE_KEY)
 
     const again = migrate(db, MIGRATIONS)
-    expect(again.from).toBe(8)
-    expect(again.to).toBe(8)
+    expect(again.from).toBe(HEAD)
+    expect(again.to).toBe(HEAD)
     expect(settingsRows(db, THEME_MODE_KEY)).toEqual(after)
   })
 })

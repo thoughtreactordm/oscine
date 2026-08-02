@@ -1,3 +1,4 @@
+import type { ListPlayHistoryQuery, PlayEntry } from './history'
 import type {
   ArtworkVariant,
   GetTracksByIdsQuery,
@@ -169,6 +170,23 @@ export interface IpcContract {
     request: { jobId: number }
     response: ReplayGainJobProgress
   }
+  /**
+   * Appends one play to the trail. Main stamps the time; see the service.
+   *
+   * Reported by the renderer because only the renderer knows what is audible —
+   * audio lives there by standing invariant. Resolves `null` when the track
+   * left the library between starting and being recorded, which is a race, not
+   * a fault.
+   */
+  'history.record': { request: { trackId: number }; response: PlayEntry | null }
+  /**
+   * The trail, most recent first. Bare array rather than `{ entries, total }`:
+   * `PLAY_HISTORY_CAP` bounds the table, so there is no total the caller does
+   * not already have and no page two to offer.
+   */
+  'history.list': { request: ListPlayHistoryQuery; response: PlayEntry[] }
+  /** Erases the trail. A record of what someone listened to is theirs to drop. */
+  'history.clear': { request: null; response: null }
   /**
    * Every playlist, in tab order. Unpaged: these are tabs, and a user who has
    * made a thousand of them has a different problem than pagination solves.
@@ -388,6 +406,9 @@ export const IPC_CHANNELS = [
   'library.getReplayGainJob',
   'library.cancelReplayGain',
   'library.resumeReplayGain',
+  'history.record',
+  'history.list',
+  'history.clear',
   'playlists.list',
   'playlists.create',
   'playlists.rename',

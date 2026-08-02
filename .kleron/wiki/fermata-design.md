@@ -83,6 +83,8 @@ Each machine scans its own roots and owns its own SQLite database. An explicit e
 
 *Note*: track paths are stored **relative to a named root** regardless (§4). That is cheap insurance and makes the export bundle portable across differing folder layouts.
 
+*Amended 2026-08-02 (W7-4)*: the **play-history trail is excluded** from the bundle. W7-4 was written with this question open on purpose, because it is arguable both ways, and the argument that settles it is what the three things D11 already carries have in common. Playlists, ratings and play counts are all statements **about tracks**, and they are aggregates: two machines' play counts add, two machines' ratings resolve by recency, and a playlist is a set that can be merged or kept separate. A trail is a statement about **a session on one machine at one time**. Merging two of them interleaves listening that never happened into a single false chronology, and whichever rows then fall past `PLAY_HISTORY_CAP` are discarded by an accident of the merge order rather than by age on either machine. There is no merge rule that is right, so there is no import. This is the same shape as D14 excluding `cache.db`, though not the same reason: the cache is derived and deletable without loss, whereas the trail is neither — it is simply not portable. *Revisit when*: a card makes `tracks.play_count` derived from `play_history` rather than a counter in its own right. At that point the trail becomes the source of something the bundle already carries, and carrying the derived value while dropping its source would be the incoherent option.
+
 ### D12 — Playlists: **SQLite rows + m3u8 export**
 
 Real ordering semantics, stable per-entry ids, cheap dedup, and the same track may legitimately appear twice. m3u8 export for interop; import is backlog.
@@ -316,6 +318,28 @@ CREATE INDEX episodes_podcast_pub ON episodes(podcast_id, pub_date DESC);
 
 `guid` is the feed's own identity for an episode, so a re-published item updates in place instead of duplicating. There is deliberately no download-status column: `rel_path` non-NULL means ready and `download_error` means failed, so the persisted state cannot disagree with the filesystem across a crash. Only *downloading* is in-memory, which is correct — a download does not survive a restart, and a status column claiming it did would be a lie the next launch has to clean up.
 
+### Play history (migration 009, W7-4)
+
+Three columns, append-only, capped at `PLAY_HISTORY_CAP` = 500 plays and evicted from the bottom on every write.
+
+```sql
+CREATE TABLE play_history (
+  id        INTEGER PRIMARY KEY,
+  track_id  INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+  played_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_play_history_track ON play_history(track_id);
+```
+
+A **row cap rather than a time window**, because a window's storage is unbounded — a fortnight is a hundred plays for one operator and four thousand for another — while a cap states the disk cost outright. Five hundred is roughly thirty-three hours of listening, which is a session view rather than an archive, and it is small enough that the trail is read whole in one request: there is no page two, because the cap is the page. Eviction is a rowid range (`DELETE FROM play_history WHERE id <= inserted - cap`) rather than a `NOT IN (SELECT … LIMIT cap)`, which is exact here for one reason: nothing is ever deleted from the top, so ids stay monotonic and "older" and "lower id" are the same statement.
+
+The trail is **ordered by `id`, never by `played_at`**. A system clock can go backwards — an NTP correction, a laptop waking in another timezone — and a row id cannot. The two disagree only when the clock was wrong, and the id is the one still right about the sequence. `played_at` is displayed and nothing else, which is why it carries no index.
+
+A row is written the moment the transport commits to a track, **skips included**. That is the definition jump-back needs: the track skipped three seconds in is precisely the one an operator goes looking for afterwards, and a listened-threshold would drop it. It is also why nothing here writes `tracks.play_count` or `tracks.last_played_at` — those two want the other definition, and inflating them with skips to save an event would make the number D11's bundle carries a lie. They stay unwritten until a card owns them.
+
+`ON DELETE CASCADE`, because a trail row that cannot be played is not worth keeping. The cascade is quiet in practice — an incremental rescan upserts `tracks` on `(root_id, rel_path)` and deletes only when a file is genuinely gone — but a file *moved* between folders reads as a delete plus an insert, so its history goes with it. That is the accepted cost of not denormalising a title into every row. The index is the child side of the reference; without it every track deletion during a scan is a full scan of this table.
+
 ## 5. Queue semantics (D5)
 
 State: `viewedPlaylistId` and `playingPlaylistId` are **separate** — browsing a different tab must not disturb playback. The up-next queue is an ordered list of track ids in two tiers: a **user tier**, put there by hand, and a **session tier**, materialized from the scope a play session started in. The user tier always sits above the session tier.
@@ -342,6 +366,16 @@ Two consequences fall out and neither is optional:
 - **A session entry moves the anchor.** `SlotPosition.index` is the position traversal *resumes* at, and a queue entry inherits it unchanged, because a queued track is a detour from the row it interrupted. That is right for a user entry and wrong for a session entry: a session tier holding the scope's rows 1..N against an anchor still at 0 replays the scope from row 1 the moment it drains. Session entries therefore carry their own order index. This is what makes a capped session tier correct rather than merely truncated — draining the cap resumes at the row after the last one materialized.
 
 *Revisit when*: the session tier's cap is reached often enough to be noticed, or the Tunedeck's up-next pane (W7-2) wants to render the untruncated scope. Projecting the order tail through a paged `PlayOrder.slice()` is the alternative that was not taken and remains available; it needs no cap, because it materializes nothing.
+
+### Note — 2026-08-02: jump-back from the play-history trail (W7-4)
+
+The trail's jump-back is a new way to change what plays next, so it was checked against all seven rules. **It needed no amendment**, and recording why is the point of this note: it is rule 1's first arm and nothing more.
+
+Jumping back inserts the row at the head of the **user tier** and plays it out of turn. Rule 1 then does the rest of the work: a user entry is a detour, so the resume position stays where it was and playback returns to the interrupted row when the replayed track ends. Rule 2 holds because a detour moves neither `playingPlaylistId` nor the anchor. Rule 3 is not engaged at all — it governs playing *from a playlist*, and this plays from the trail — so the playing playlist keeps its identity and, with it, the crossfade the cascade resolves at it. The session tier survives untouched for a mechanical reason worth stating: staleness is measured against the anchor, and a user entry carries no order index of its own, so there is nothing to invalidate.
+
+The reading **not** taken was "re-enter the scope this track played from, at the position it played at". It is the more literal sense of "go back", and it is worse in three ways: it would set `playingPlaylistId`, rebuild the order and replace the session tier, so a jump back to something heard twenty minutes ago would silently discard a queue the operator had spent ten minutes building; it needs a scope stored per history row, which goes stale the moment a playlist is edited and needs reconciling when one is deleted; and it is not what anyone who just wanted to hear a thing again was asking for. `play_history` therefore stores no scope — see §4.
+
+*Revisit when*: the trail grows a "resume from here" gesture distinct from "play this again". That would be the scope-re-entry reading, and it wants to be a second verb rather than a change to this one.
 
 ## 6. Process architecture
 

@@ -132,6 +132,13 @@ const api = {
     onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
       subscribe('library.replayGainProgress', listener)
   },
+  history: {
+    /** One play, at the moment the transport committed to it. Main stamps the time. */
+    record: (trackId: number) => request('history.record', { trackId }),
+    /** The trail, most recent first. Bounded by `PLAY_HISTORY_CAP`. */
+    list: (limit: number) => request('history.list', { limit }),
+    clear: () => request('history.clear', null)
+  },
   playlists: {
     /** Every playlist, in tab order. */
     list: () => request('playlists.list', null),

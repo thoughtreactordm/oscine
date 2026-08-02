@@ -5,6 +5,17 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MIGRATIONS, migrate, openDatabase } from '../../../src/main/db'
 
+/**
+ * The head schema version, read from the registry rather than written down.
+ *
+ * `migrate` already refuses a registry whose versions are not contiguous, so
+ * the length *is* the head version and an assertion restating it as a literal
+ * only buys four files to edit per migration. The ordered list of names below
+ * is the assertion worth having: it says which migrations ran, and in what
+ * order, which the length cannot.
+ */
+const HEAD = MIGRATIONS.length
+
 let dir: string
 let file: string
 
@@ -40,7 +51,7 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(0)
-      expect(migration.to).toBe(8)
+      expect(migration.to).toBe(HEAD)
       expect(migration.applied.map((m) => m.name)).toEqual([
         'schema-v1',
         'index-track-order',
@@ -49,9 +60,10 @@ describe('openDatabase', () => {
         'podcasts',
         'settings',
         'crossfade-cascade',
-        'theme-keys'
+        'theme-keys',
+        'play-history'
       ])
-      expect(db.pragma('user_version', { simple: true })).toBe(8)
+      expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
       db.close()
     }
@@ -63,8 +75,8 @@ describe('openDatabase', () => {
 
     const { db, migration } = openDatabase(file)
     try {
-      expect(migration.from).toBe(8)
-      expect(migration.to).toBe(8)
+      expect(migration.from).toBe(HEAD)
+      expect(migration.to).toBe(HEAD)
       expect(migration.applied).toEqual([])
     } finally {
       db.close()
@@ -80,7 +92,7 @@ describe('openDatabase', () => {
     const { db, migration } = openDatabase(file)
     try {
       expect(migration.from).toBe(1)
-      expect(migration.to).toBe(8)
+      expect(migration.to).toBe(HEAD)
       expect(migration.applied.map((m) => m.name)).toEqual([
         'index-track-order',
         'replaygain-jobs',
@@ -88,7 +100,8 @@ describe('openDatabase', () => {
         'podcasts',
         'settings',
         'crossfade-cascade',
-        'theme-keys'
+        'theme-keys',
+        'play-history'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -116,7 +129,8 @@ describe('openDatabase', () => {
         'podcasts',
         'settings',
         'crossfade-cascade',
-        'theme-keys'
+        'theme-keys',
+        'play-history'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()

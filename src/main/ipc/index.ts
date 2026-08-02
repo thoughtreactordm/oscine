@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { FermataError } from '@shared/errors'
 import { trackUrl } from '@shared/ipc'
+import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
 import type { PlaylistService } from '../library/playlists/service'
 import type { PodcastService } from '../podcasts/service'
@@ -15,6 +16,7 @@ import {
   assertListEpisodesQuery,
   assertListFacetIdsQuery,
   assertListFacetsQuery,
+  assertListPlayHistoryQuery,
   assertListPlaylistEntriesQuery,
   assertListPlaylistEntryGroupsQuery,
   assertListPlaylistEntryIdsQuery,
@@ -47,7 +49,8 @@ export function registerIpcHandlers(
   library: LibraryService,
   playlists: PlaylistService,
   podcasts: PodcastService,
-  settings: SettingsService
+  settings: SettingsService,
+  history: PlayHistoryService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -153,6 +156,18 @@ export function registerIpcHandlers(
   handle('library.resumeReplayGain', (request) => {
     const { jobId } = assertRecord(request, 'request')
     return library.resumeReplayGain(assertPositiveInt(jobId, 'jobId'))
+  })
+
+  handle('history.record', (request) => {
+    const { trackId } = assertRecord(request, 'request')
+    return history.record(assertPositiveInt(trackId, 'trackId'))
+  })
+
+  handle('history.list', (request) => history.list(assertListPlayHistoryQuery(request)))
+
+  handle('history.clear', async () => {
+    await history.clear()
+    return null
   })
 
   handle('playlists.list', () => playlists.list())

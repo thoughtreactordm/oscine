@@ -5,6 +5,7 @@ import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMed
 import { createPlaybackController } from '@renderer/playback/controller'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
 import { useSettings } from '@renderer/settings'
+import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 
 /**
  * Playback state for the whole app: what is loaded, where it has reached, and
@@ -29,6 +30,10 @@ export const usePlaybackStore = defineStore('playback', () => {
   // Resolved once: absent means the runtime has no Media Session API, and the
   // controller simply runs unbound.
   const mediaSessionPlatform = createBrowserMediaSessionPlatform()
+  // The trail's recorder. Resolved here rather than inside the sink so the
+  // dependency is visible at the wiring, and one-directional: the trail store
+  // knows nothing about playback.
+  const playHistory = usePlayHistoryStore()
 
   return createPlaybackController({
     createEngine: audio.createEngine,
@@ -40,6 +45,11 @@ export const usePlaybackStore = defineStore('playback', () => {
     // shuffle case affordable.
     fetchTrackIds: (query) => library.listTrackIds(query),
     fetchTracksByIds: (query) => library.getTracksByIds(query),
+    // W7-4's trail. Every play, at the moment the transport commits to it,
+    // skips included — see `shared/history.ts` for why that and not a
+    // listened-threshold. Voided rather than awaited: nothing about a track
+    // change may wait on a database write.
+    onPlayStarted: (track) => void playHistory.record(track),
     // Both scopes, live. Shuffle and repeat survive a restart and the shuffle
     // sequence does not; the global crossfade is durable and reaches the
     // scheduler at the next boundary rather than at the next launch.

@@ -7,6 +7,7 @@ import { podcasts } from './005-podcasts'
 import { settings } from './006-settings'
 import { crossfadeCascade } from './007-crossfade-cascade'
 import { themeKeys } from './008-theme-keys'
+import { playHistory } from './009-play-history'
 
 /**
  * Every migration, in order.
@@ -25,5 +26,6 @@ export const MIGRATIONS: readonly Migration[] = [
   podcasts,
   settings,
   crossfadeCascade,
-  themeKeys
+  themeKeys,
+  playHistory
 ]

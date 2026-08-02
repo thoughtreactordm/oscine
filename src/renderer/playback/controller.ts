@@ -179,6 +179,19 @@ export interface PlaybackControllerDeps {
    * driving five thousand advances.
    */
   sessionQueueCap?: number
+  /**
+   * Called once per play, at the moment the transport commits to a track.
+   *
+   * The play-history trail's only route out of playback. A sink rather than a
+   * store reached from in here, for the reason everything else in this file is
+   * injected: the trail is a main-process table behind IPC, and a controller
+   * that reached for it could not be driven under the node test config.
+   *
+   * Fire-and-forget by construction — it returns nothing and is never awaited.
+   * Recording a play must not be able to delay, fail or reorder the audio that
+   * caused it.
+   */
+  onPlayStarted?: (track: Track) => void
 }
 
 export interface PlayFromListParams {
@@ -459,6 +472,9 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
         nowPlaying.value = track
         position.value = at
         admission.value = created.admission
+      }),
+      created.on('playstart', ({ track }) => {
+        deps.onPlayStarted?.(track)
       }),
       created.on('prefetchchange', applyPrefetch)
     ]
@@ -817,6 +833,41 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       },
       entry
     )
+  }
+
+  /**
+   * Jump back to a track off the play-history trail (W7-4).
+   *
+   * **A detour, not a change of scope.** The row goes to the head of the user
+   * tier and is played out of turn, which makes it §5 rule 1's first arm and
+   * nothing more: `playingPlaylistId` does not move (rule 3 is about *playing
+   * from* a playlist, and this plays from the trail), the anchor does not move
+   * because a user entry carries no `orderIndex` of its own, and the session
+   * tier is not stale by `sessionIsStale`'s reckoning because the anchor it is
+   * measured against is unchanged. When the jumped-back track ends, rule 1's
+   * second arm resumes at the row that was interrupted. Nothing about what is
+   * playing changes except that one track cuts in front of it.
+   *
+   * Deliberately not "re-enter the scope this played from at the position it
+   * played at". That reading would set `playingPlaylistId`, rebuild the order
+   * and replace the session tier — a jump back to something heard twenty
+   * minutes ago would silently discard the queue the operator has built since —
+   * and it would need a scope stored per row that goes stale the moment a
+   * playlist is edited. It is also not what "go back" means to anyone who just
+   * wanted to hear a thing again.
+   *
+   * With nothing playing there is no detour to take and no position to resume,
+   * so this starts a one-track order instead — which is the state the trail is
+   * in immediately after a restart, and the trail survives restarts.
+   */
+  async function replay(track: Track): Promise<void> {
+    if (position.value === null) {
+      await playTracks({ tracks: [track], index: 0 })
+      return
+    }
+    const [entry] = queue.enqueueNext([track])
+    if (!entry) return
+    await playQueued(entry.id)
   }
 
   async function previous(): Promise<void> {
@@ -1205,6 +1256,8 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     clearQueue: queue.clear,
     /** Plays a queued entry now, shifting it out of the queue (§5 rule 1). */
     playQueued,
+    /** Jump-back off the play-history trail. A detour — see the function. */
+    replay,
     next,
     previous,
     resume,

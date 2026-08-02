@@ -1,4 +1,5 @@
 import { FermataError } from '@shared/errors'
+import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
 import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
 import {
   parseSettingsProfile,
@@ -303,6 +304,26 @@ export function assertOrderTrackIdsQuery(value: unknown): OrderTrackIdsQuery {
  * has no way back to the playlist. The length bound exists so a paste accident
  * cannot write a megabyte into a tab label.
  */
+/**
+ * The trail request: a limit, and nothing else.
+ *
+ * No offset, because there is no page two — `PLAY_HISTORY_CAP` bounds the whole
+ * table. The ceiling is refused here rather than clamped, following every other
+ * window in this file: a caller asking for more than the trail can hold has a
+ * wrong belief about the cap, and silently serving it fewer rows leaves that
+ * belief in place.
+ */
+export function assertListPlayHistoryQuery(value: unknown): ListPlayHistoryQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['limit'])
+  const limit = raw.limit
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0) {
+    invalid('limit must be a positive integer.')
+  }
+  if (limit > PLAY_HISTORY_CAP) invalid(`limit must not exceed ${PLAY_HISTORY_CAP}.`)
+  return { limit }
+}
+
 export function assertPlaylistName(value: unknown): string {
   if (typeof value !== 'string') invalid('name must be a string.')
   const name = value.trim()

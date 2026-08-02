@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import type { LibraryNotice, ReplayGainJobProgress, ScanProgress } from '@shared/library'
 import { openDatabase } from './db'
 import { artworkCachePath, libraryDatabasePath, podcastsDirectoryPath } from './db/location'
+import { SqlitePlayHistoryService } from './history/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { SqliteLibraryService } from './library/sqliteService'
@@ -330,6 +331,10 @@ if (!app.requestSingleInstanceLock()) {
     // library layer never touches, and the library owns the rest.
     const playlists = new SqlitePlaylistService({ db, pickExportFile: pickPlaylistExportFile })
 
+    // And the same again for the trail, which owns one table and reads the
+    // library's tracks only through the shared projection.
+    const history = new SqlitePlayHistoryService({ db })
+
     const podcasts = new SqlitePodcastService({
       db,
       podcastsRoot: podcastsDirectoryPath(),
@@ -362,7 +367,7 @@ if (!app.requestSingleInstanceLock()) {
 
     setTrustedRendererUrl(rendererUrl)
     registerTrackProtocol(library, artworkCachePath(), podcasts)
-    registerIpcHandlers(library, playlists, podcasts, settings)
+    registerIpcHandlers(library, playlists, podcasts, settings, history)
 
     mainWindow = createWindow(resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors))
     // The other way the answer changes: the OS flips while the preference is

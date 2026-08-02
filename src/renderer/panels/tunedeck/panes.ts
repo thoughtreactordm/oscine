@@ -1,4 +1,5 @@
 import SignalPane from './SignalPane.vue'
+import TrailPane from './TrailPane.vue'
 import UpNextPane from './UpNextPane.vue'
 import { createTunedeckRegistry } from './tunedeckPanes'
 
@@ -32,5 +33,13 @@ export const tunedeckRegistry = createTunedeckRegistry([
     title: 'Signal',
     icon: 'i-tabler-wave-sine',
     component: SignalPane
+  },
+  // After Signal rather than before it: the deck reads forwards from what is
+  // about to play, through what is playing, to what already did.
+  {
+    id: 'trail',
+    title: 'Trail',
+    icon: 'i-tabler-history',
+    component: TrailPane
   }
 ])
