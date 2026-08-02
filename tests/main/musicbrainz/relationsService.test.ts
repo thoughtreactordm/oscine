@@ -59,6 +59,7 @@ function stubClient(answer: unknown | NetFailure): NetClient {
 
   return {
     getText: () => Promise.resolve(netFailed<string>({ kind: 'rejected', message: 'unused' })),
+    getBytes: () => Promise.resolve(netFailed<Uint8Array>({ kind: 'rejected', message: 'unused' })),
     getJson<T>(request: NetGetRequest): Promise<NetResult<T>> {
       requests.push(request.url)
       return Promise.resolve(failed ? netFailed<T>(answer as NetFailure) : netOk(answer as T))

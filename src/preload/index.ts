@@ -255,7 +255,16 @@ const api = {
      * is the same reason the renderer cannot do it: the boundary is where the
      * filesystem stops.
      */
-    relations: (artistId: number) => request('artist.relations', { artistId })
+    relations: (artistId: number) => request('artist.relations', { artistId }),
+    /**
+     * The Commons photograph, by way of Wikidata's image claim.
+     *
+     * Two `fermata://artwork/…` routes and a credit — never bytes, and never a
+     * remote URL to load. The picture is already in the same thumbnail cache
+     * album art comes from by the time this resolves, so the renderer loads it
+     * from the same privileged scheme and the same handler.
+     */
+    image: (artistId: number) => request('artist.image', { artistId })
   }
 } as const
 

@@ -71,6 +71,14 @@ export interface SqliteLibraryDeps {
   artworkCacheDir?: string
   readArtwork?: EmbeddedArtworkReader
   artworkProcessor?: ArtworkImageProcessor
+  /**
+   * Thumbnail hashes referenced from outside `library.db`.
+   *
+   * W7-13's artist photographs share the artwork directory but are referenced
+   * from `cache.db`, so the prune has to be told about them or it deletes them
+   * on the next reconcile. Passed straight through; see `ArtworkCacheDeps`.
+   */
+  externalArtworkReferences?: () => Iterable<string>
   /** Cross-platform watcher test seam. */
   watchAdapter?: DirectoryWatchAdapter
   watchDebounceMs?: number
@@ -145,7 +153,10 @@ export class SqliteLibraryService implements LibraryService {
           store: this.store,
           cacheDir: deps.artworkCacheDir,
           ...(deps.readArtwork ? { readArtwork: deps.readArtwork } : {}),
-          ...(deps.artworkProcessor ? { processor: deps.artworkProcessor } : {})
+          ...(deps.artworkProcessor ? { processor: deps.artworkProcessor } : {}),
+          ...(deps.externalArtworkReferences
+            ? { externalReferences: deps.externalArtworkReferences }
+            : {})
         })
       : null
     this.replayGain = new ReplayGainJobService({

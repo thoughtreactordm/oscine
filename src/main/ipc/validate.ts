@@ -7,6 +7,7 @@ import {
 } from '@shared/artist'
 import type { GetArtistRelationsRequest } from '@shared/artistRelations'
 import type { GetArtistBiographyRequest } from '@shared/biography'
+import type { GetArtistImageRequest } from '@shared/artistImage'
 import { FermataError } from '@shared/errors'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
 import { NET_SCOPES, type CancelNetScopeRequest, type NetScope } from '@shared/net'
@@ -808,6 +809,21 @@ export function assertGetArtistBiographyRequest(value: unknown): GetArtistBiogra
  * is playing.
  */
 export function assertGetArtistRelationsRequest(value: unknown): GetArtistRelationsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artistId'])
+  return { artistId: assertPositiveInt(raw.artistId, 'artistId') }
+}
+
+/**
+ * And once more, for the photograph.
+ *
+ * No file name and no Commons URL in the request, which is the version of the
+ * rule that matters here: this is the one lookup that ends in a fetch of
+ * arbitrary bytes, and the address it fetches is derived from a Wikidata claim
+ * about an identifier this process wrote. A renderer-supplied URL would make the
+ * main process a general-purpose downloader on the renderer's behalf.
+ */
+export function assertGetArtistImageRequest(value: unknown): GetArtistImageRequest {
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['artistId'])
   return { artistId: assertPositiveInt(raw.artistId, 'artistId') }

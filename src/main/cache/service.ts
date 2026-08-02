@@ -82,6 +82,16 @@ const NOT_FOUND = {
 export interface CacheService {
   /** The entry for a key, fresh or stale, or `null` if there is none. */
   read<T>(entity: CacheEntity, key: string): CachedEntry<T> | null
+  /**
+   * Every value held under an entity, fresh or stale, negatives excluded.
+   *
+   * Not a general query facility — there is exactly one caller and one reason
+   * for it. W7-13 stores an artist photograph in the artwork cache and its
+   * reference here, so the thing that prunes that directory has to be able to
+   * ask this database which files are still spoken for. Damaged rows are
+   * skipped rather than thrown over, for `read`'s reason.
+   */
+  values<T>(entity: CacheEntity): T[]
   /** Stores an answer under the entity's positive TTL. */
   writeValue<T>(entity: CacheEntity, key: string, value: T): void
   /** Records that the service had nothing, under the entity's negative TTL. */
@@ -137,6 +147,20 @@ export function createCacheService({
         // make a damaged cache an unusable app.
         return null
       }
+    },
+
+    values<T>(entity: CacheEntity): T[] {
+      const out: T[] = []
+      for (const payload of store.listPayloads(entity)) {
+        try {
+          out.push(JSON.parse(payload) as T)
+        } catch {
+          // Unreadable row. Skipping it means prune treats whatever it
+          // referenced as unreferenced, which deletes a file that will be
+          // regenerated on the next lookup — the disposable outcome.
+        }
+      }
+      return out
     },
 
     writeValue<T>(entity: CacheEntity, key: string, value: T): void {
@@ -205,6 +229,7 @@ export function createCacheService({
 export function createNullCacheService(): CacheService {
   return {
     read: () => null,
+    values: () => [],
     writeValue: () => {},
     writeNegative: () => {},
     through: (_entity, _key, fetch) => fetch(),

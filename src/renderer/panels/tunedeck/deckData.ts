@@ -1,6 +1,7 @@
 import { watch } from 'vue'
 import { useArtistBiographyStore } from '@renderer/stores/artistBiography'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
+import { useArtistImageStore } from '@renderer/stores/artistImage'
 import { useArtistRelationsStore } from '@renderer/stores/artistRelations'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
@@ -48,6 +49,7 @@ export function useDeckData(): void {
   const identity = useArtistIdentityStore()
   const biography = useArtistBiographyStore()
   const relations = useArtistRelationsStore()
+  const image = useArtistImageStore()
 
   watch(
     [() => tunedeck.open, () => playback.nowPlaying?.id ?? null],
@@ -82,11 +84,11 @@ export function useDeckData(): void {
    * clears both panes instead of leaving the previous band's history, and the
    * previous band's line-up, under the new one's name.
    *
-   * Two calls and one watcher, because they are the same trigger and the two
+   * Three calls and one watcher, because they are the same trigger and the three
    * stores are independent of each other: a Wikipedia outage must not stop the
-   * relations loading, and neither lookup blocks the other. Both are idempotent
-   * per artist, so the pair costs one round trip each per new artist and nothing
-   * at all per track.
+   * relations loading, a Commons outage must not stop either, and no lookup
+   * blocks another. All three are idempotent per artist, so the set costs one
+   * round trip each per new artist and nothing at all per track.
    */
   watch(
     [
@@ -97,6 +99,7 @@ export function useDeckData(): void {
       if (!open) return
       void biography.load(artistId)
       void relations.load(artistId)
+      void image.load(artistId)
     },
     { immediate: true }
   )

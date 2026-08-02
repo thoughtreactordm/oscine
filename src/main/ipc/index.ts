@@ -8,13 +8,14 @@ import type { ArtistIdentityService, ArtistRelationsService } from '../musicbrai
 import type { NetService } from '../net'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
-import type { ArtistBiographyService } from '../wikipedia'
+import type { ArtistBiographyService, ArtistImageService } from '../wikipedia'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertAddTracksRequest,
   assertCancelNetScopeRequest,
   assertClearArtistMbidRequest,
   assertGetArtistBiographyRequest,
+  assertGetArtistImageRequest,
   assertGetArtistRelationsRequest,
   assertResolveArtistQuery,
   assertSearchArtistCandidatesRequest,
@@ -65,7 +66,8 @@ export function registerIpcHandlers(
   net: NetService,
   artists: ArtistIdentityService,
   biographies: ArtistBiographyService,
-  relations: ArtistRelationsService
+  relations: ArtistRelationsService,
+  images: ArtistImageService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -382,6 +384,11 @@ export function registerIpcHandlers(
   handle('artist.relations', (request) =>
     relations.get(assertGetArtistRelationsRequest(request).artistId)
   )
+
+  // And again for the photograph, which has one more ordinary way of being
+  // absent than the other two: a Commons file that no longer exists, or one the
+  // artwork processor could not decode. Both are "no picture", not an error.
+  handle('artist.image', (request) => images.get(assertGetArtistImageRequest(request).artistId))
 
   assertEveryChannelHandled()
 }

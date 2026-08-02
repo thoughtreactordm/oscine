@@ -284,3 +284,73 @@ describe('ArtworkCacheService', () => {
     expect(albumHash('Album')).toBe(hash('embedded'))
   })
 })
+
+/**
+ * W7-13's eviction acceptance, which is a property of *this* file rather than
+ * of the image service: the artist photograph shares this directory, and the
+ * only thing standing between it and the prune is `externalReferences`.
+ *
+ * The second half — "does not preferentially evict album art" — is not a
+ * weighting to test but the absence of one. Prune keeps what is referenced and
+ * drops what is not; there is no budget for the two to compete over, so the
+ * assertion is that each survives exactly its own reference and neither
+ * survives the other's.
+ */
+describe('artwork shared with the metadata cache', () => {
+  it('keeps a hash referenced from outside library.db', async () => {
+    const track = addTrack('Album/01.flac', 'Album', 'Artist')
+    const processor = new FakeProcessor()
+    const artistHash = hash('artist-photo')
+    // The image service's row, standing in as the one thing that knows about it.
+    const external = new Set([artistHash])
+
+    const service = new ArtworkCacheService({
+      store,
+      cacheDir,
+      processor,
+      readArtwork: reader(new Map([[track, [picture('album-cover')]]])),
+      externalReferences: () => external
+    })
+
+    await service.reconcile(undefined, true)
+    await processor.generate(cacheDir, artistHash, Buffer.from('artist-photo'))
+
+    // A reconcile after the photograph landed. Without the thunk this is the
+    // moment it would be deleted.
+    await service.reconcile(undefined, true)
+    expect(await processor.validate(cacheDir, artistHash)).toBe(true)
+    expect(await processor.validate(cacheDir, hash('album-cover'))).toBe(true)
+
+    // The cache row expired, or the operator cleared it. The file goes; the
+    // album art beside it does not notice.
+    external.delete(artistHash)
+    const metrics = await service.reconcile(undefined, true)
+
+    expect(await processor.validate(cacheDir, artistHash)).toBe(false)
+    expect(await processor.validate(cacheDir, hash('album-cover'))).toBe(true)
+    expect(metrics.prunedFiles).toBe(2)
+  })
+
+  it('drops album art whose album has gone while keeping the photograph', async () => {
+    const track = addTrack('Album/01.flac', 'Album', 'Artist')
+    const processor = new FakeProcessor()
+    const artistHash = hash('artist-photo')
+
+    const service = new ArtworkCacheService({
+      store,
+      cacheDir,
+      processor,
+      readArtwork: reader(new Map([[track, [picture('album-cover')]]])),
+      externalReferences: () => [artistHash]
+    })
+
+    await service.reconcile(undefined, true)
+    await processor.generate(cacheDir, artistHash, Buffer.from('artist-photo'))
+
+    store.removeRoot(rootId)
+    await service.sweep()
+
+    expect(await processor.validate(cacheDir, hash('album-cover'))).toBe(false)
+    expect(await processor.validate(cacheDir, artistHash)).toBe(true)
+  })
+})

@@ -65,6 +65,7 @@ function stubClient(answers: Answer[]): NetClient {
   const queue = [...answers]
   return {
     getText: () => Promise.resolve(netFailed<string>({ kind: 'rejected', message: 'unused' })),
+    getBytes: () => Promise.resolve(netFailed<Uint8Array>({ kind: 'rejected', message: 'unused' })),
     getJson<T>(request: NetGetRequest): Promise<NetResult<T>> {
       requests.push(request.url)
       const next = queue.shift()

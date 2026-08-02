@@ -14,6 +14,7 @@ import {
 import { SqlitePlayHistoryService } from './history/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
+import { createDerivedArtworkStore } from './library/derivedArtwork'
 import { SqliteLibraryService } from './library/sqliteService'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
@@ -21,7 +22,7 @@ import { SqlitePodcastService } from './podcasts/service'
 import { createArtistIdentityService, createArtistRelationsService } from './musicbrainz'
 import { createNetService } from './net'
 import { SqliteSettingsService } from './settings'
-import { createArtistBiographyService } from './wikipedia'
+import { createArtistBiographyService, createArtistImageService } from './wikipedia'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
 import { AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING, type SettingsChange } from '@shared/settings'
@@ -361,10 +362,31 @@ if (!app.requestSingleInstanceLock()) {
     // silently dropping podcast thumbs.
     const artworkProcessor = new WorkerArtworkImageProcessor()
 
+    // D14's fourth source, and the only one that writes outside `cache.db`. The
+    // picture goes into the shared thumbnail cache below; only its hash and its
+    // Commons credit are cached here, which is what keeps this a decoration the
+    // operator can delete rather than a second blob store.
+    const images = createArtistImageService({
+      db,
+      client: net.client,
+      cache,
+      artwork: createDerivedArtworkStore({
+        cacheDir: artworkCachePath(),
+        processor: artworkProcessor
+      }),
+      locale: () => app.getLocale()
+    })
+
     const library = new SqliteLibraryService({
       db,
       artworkCacheDir: artworkCachePath(),
       artworkProcessor,
+      // The half of the arrangement above that the library owns: its prune
+      // walks the thumbnail directory and deletes what nothing references, and
+      // an artist photograph is referenced from a database it cannot see. Built
+      // before the library so this is a plain function reference rather than a
+      // late-bound hole.
+      externalArtworkReferences: () => images.referencedHashes(),
       pickFolder: pickMusicFolder,
       onProgress: broadcastScanProgress,
       onNotice: broadcastLibraryNotice,
@@ -433,7 +455,8 @@ if (!app.requestSingleInstanceLock()) {
       net,
       artists,
       biographies,
-      relations
+      relations,
+      images
     )
 
     mainWindow = createWindow(resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors))

@@ -7,6 +7,7 @@ import type {
 } from './artist'
 import type { ArtistRelationsResult, GetArtistRelationsRequest } from './artistRelations'
 import type { ArtistBiographyResult, GetArtistBiographyRequest } from './biography'
+import type { ArtistImageResult, GetArtistImageRequest } from './artistImage'
 import type { ListPlayHistoryQuery, PlayEntry } from './history'
 import type {
   ArtworkVariant,
@@ -485,6 +486,25 @@ export interface IpcContract {
     request: GetArtistRelationsRequest
     response: ArtistRelationsResult
   }
+
+  /**
+   * The artist's photograph, by way of Wikidata's P18 claim and Commons.
+   *
+   * Keyed on the artist for `artist.biography`'s reason. What comes back is not
+   * the picture: it is two `fermata://artwork/…` routes into the same
+   * content-hashed thumbnail cache album art lives in, plus the credit Commons
+   * requires be shown with it. The bytes never cross this boundary, and the
+   * renderer never learns where they are on disk.
+   *
+   * Never throws for a missing picture. An artist with no Wikidata item, an item
+   * with no image claim, a file deleted from Commons since the claim was made,
+   * and bytes the artwork processor could not decode all come back as `none` —
+   * which is the ordinary state of most of a library.
+   */
+  'artist.image': {
+    request: GetArtistImageRequest
+    response: ArtistImageResult
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -598,7 +618,8 @@ export const IPC_CHANNELS = [
   'artist.setMbid',
   'artist.clearMbid',
   'artist.biography',
-  'artist.relations'
+  'artist.relations',
+  'artist.image'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [

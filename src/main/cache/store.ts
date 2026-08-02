@@ -39,6 +39,17 @@ export interface CacheStats {
 export interface CacheStore {
   read(entity: CacheEntity, key: string, now: number): StoredRow | null
   /**
+   * Every non-negative payload stored under an entity, as raw JSON text.
+   *
+   * Expiry is deliberately not applied. The one caller is the artwork prune,
+   * which is asking "which files are still spoken for" — and a row that has
+   * gone stale is still a row, still readable under stale-if-error, and still
+   * the thing that will be refreshed rather than refetched. Filtering by expiry
+   * here would delete the thumbnails of every artist nobody played this month
+   * and then re-download them the moment somebody did.
+   */
+  listPayloads(entity: CacheEntity): string[]
+  /**
    * Upserts an entry and evicts if that put the cache over its cap.
    *
    * Returns false when the payload is too large to be worth keeping — the caller
@@ -88,6 +99,10 @@ export function createCacheStore(db: Database.Database, policy: CachePolicy): Ca
        size_bytes = excluded.size_bytes,
        stored_at  = excluded.stored_at,
        expires_at = excluded.expires_at`
+  )
+
+  const selectPayloads = db.prepare<[string]>(
+    'SELECT payload FROM cache_entries WHERE entity = ? AND payload IS NOT NULL'
   )
 
   const deleteExpired = db.prepare<[number]>('DELETE FROM cache_entries WHERE expires_at <= ?')
@@ -177,6 +192,11 @@ export function createCacheStore(db: Database.Database, policy: CachePolicy): Ca
       }
 
       return row
+    },
+
+    listPayloads(entity): string[] {
+      const rows = selectPayloads.all(entity) as Array<{ payload: string }>
+      return rows.map((row) => row.payload)
     },
 
     write(entity, key, payload, expiresAt, now): boolean {

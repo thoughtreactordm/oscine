@@ -75,6 +75,7 @@ function isFailure(answer: unknown): answer is NetFailure {
 function stubClient(routes: Route[]): NetClient {
   return {
     getText: () => Promise.resolve(netFailed<string>({ kind: 'rejected', message: 'unused' })),
+    getBytes: () => Promise.resolve(netFailed<Uint8Array>({ kind: 'rejected', message: 'unused' })),
     getJson<T>(request: NetGetRequest): Promise<NetResult<T>> {
       requests.push(request.url)
       const route = routes.find((candidate) => request.url.includes(candidate.match))

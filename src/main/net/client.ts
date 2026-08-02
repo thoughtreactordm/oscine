@@ -32,7 +32,7 @@
 
 import { netFailed, netOk, type NetFailure, type NetResult, type NetScope } from '@shared/net'
 import type { NetworkConsent } from './consent'
-import { readCappedText, ResponseTooLargeError } from './http'
+import { readCappedBytes, readCappedText, ResponseTooLargeError } from './http'
 import type { RateLimiter } from './rateLimiter'
 import { RequestTimeoutError, ScopeCancelledError, type ScopeRegistry } from './scopes'
 import { FERMATA_USER_AGENT } from './userAgent'
@@ -73,6 +73,20 @@ export interface NetGetRequest {
 export interface NetClient {
   getText(request: NetGetRequest): Promise<NetResult<string>>
   getJson<T>(request: NetGetRequest): Promise<NetResult<T>>
+  /**
+   * The same request, kept as bytes.
+   *
+   * Every rule above applies unchanged — this is the reader at the end of the
+   * pipeline swapped, not a second path to a socket. W7-13's artist photograph
+   * is the only caller: it arrives from Commons as an image and is handed
+   * straight to the artwork processor, so decoding it as UTF-8 on the way
+   * through would be a corruption rather than a conversion.
+   *
+   * `maxBytes` matters more here than for the two above. The default ceiling is
+   * sized for a metadata document; an image needs its own, and a caller that
+   * forgets gets a `malformed` rather than a surprise.
+   */
+  getBytes(request: NetGetRequest): Promise<NetResult<Uint8Array>>
 }
 
 export interface NetClientOptions {
@@ -151,10 +165,21 @@ export function parseRetryAfter(header: string | null, now: number): number | nu
 }
 
 /** What one attempt concluded: an answer, or a reason with a verdict on retrying. */
-type Attempt =
-  | { outcome: 'ok'; body: string }
+type Attempt<T> =
+  | { outcome: 'ok'; body: T }
   | { outcome: 'give-up'; failure: NetFailure }
   | { outcome: 'retry'; failure: NetFailure; afterMs: number | null }
+
+/**
+ * How an accepted response becomes a value.
+ *
+ * The one thing that differs between `getText` and `getBytes`, and it is
+ * deliberately the *last* thing: consent, the limiter, the deadline, the status
+ * mapping and the retry ladder are all upstream of it and identical for both. A
+ * second `get*` that reimplemented any of those would be a second set of rules
+ * to keep in step with these.
+ */
+type BodyReader<T> = (response: Response, maxBytes: number) => Promise<T>
 
 /**
  * Map an abort reason onto a failure.
@@ -192,12 +217,13 @@ export function createNetClient({
     clearTimeout(handle as ReturnType<typeof setTimeout>)
   }
 }: NetClientOptions): NetClient {
-  async function attemptOnce(
+  async function attemptOnce<T>(
     request: NetGetRequest,
     host: string,
     accept: string,
-    scopeSignal: AbortSignal
-  ): Promise<Attempt> {
+    scopeSignal: AbortSignal,
+    read: BodyReader<T>
+  ): Promise<Attempt<T>> {
     const timeoutMs = request.timeoutMs ?? defaultTimeoutMs
     const maxBytes = request.maxBytes ?? defaultMaxBytes
 
@@ -309,7 +335,7 @@ export function createNetClient({
     }
 
     try {
-      const body = await readCappedText(response, maxBytes)
+      const body = await read(response, maxBytes)
       return { outcome: 'ok', body }
     } catch (err) {
       const aborted = attempt.signal.aborted
@@ -331,7 +357,11 @@ export function createNetClient({
     }
   }
 
-  async function getText(request: NetGetRequest, accept: string): Promise<NetResult<string>> {
+  async function get<T>(
+    request: NetGetRequest,
+    accept: string,
+    read: BodyReader<T>
+  ): Promise<NetResult<T>> {
     if (!consent.granted()) return netFailed(DECLINED)
 
     let host: string
@@ -348,7 +378,7 @@ export function createNetClient({
         // the operator switched the toggle off must not outlive the decision.
         if (!consent.granted()) return netFailed(DECLINED)
 
-        const result = await attemptOnce(request, host, accept, entry.signal)
+        const result = await attemptOnce(request, host, accept, entry.signal, read)
         if (result.outcome === 'ok') return netOk(result.body)
         if (result.outcome === 'give-up') return netFailed(result.failure)
         if (attempt >= maxAttempts) return netFailed(result.failure)
@@ -367,10 +397,12 @@ export function createNetClient({
   }
 
   return {
-    getText: (request) => getText(request, request.accept ?? '*/*'),
+    getText: (request) => get(request, request.accept ?? '*/*', readCappedText),
+
+    getBytes: (request) => get(request, request.accept ?? '*/*', readCappedBytes),
 
     async getJson<T>(request: NetGetRequest): Promise<NetResult<T>> {
-      const text = await getText(request, request.accept ?? 'application/json')
+      const text = await get(request, request.accept ?? 'application/json', readCappedText)
       if (!text.ok) return text
       try {
         return netOk(JSON.parse(text.value) as T)

@@ -39,6 +39,9 @@ export const WIKIDATA_API = 'https://www.wikidata.org/w/api.php'
 /** Wikidata's "MusicBrainz artist ID" property. The join between the two worlds. */
 export const MUSICBRAINZ_ARTIST_PROPERTY = 'P434'
 
+/** Wikidata's "image" property. A Commons file name, not a URL. */
+export const IMAGE_PROPERTY = 'P18'
+
 /** One language's article, as Wikidata knows about it. */
 export interface Sitelink {
   /** The language subtag, recovered from the site id — `enwiki` gives `en`. */
@@ -200,4 +203,84 @@ export async function resolveEntity(
   if (!entity.ok) return entity
 
   return netOk({ entityId, sitelinks: parseEntitySitelinks(entity.value, entityId, languages) })
+}
+
+/**
+ * The P18 claim for one item.
+ *
+ * `wbgetclaims` rather than widening `entitySitelinksUrl`'s `props`, and the
+ * reason is the cache rather than the wire. `wikidata.entity` holds a document
+ * whose shape is `{ entityId, sitelinks }` and whose rows live for a fortnight;
+ * adding a field to it would mean every row written before this card parses
+ * back with the field missing, which is indistinguishable from "this artist has
+ * no photograph". A separate request under a separate entity has no such
+ * fortnight of silent wrong answers, and it is only made when the deck actually
+ * wants a picture.
+ *
+ * The item id is already known by then — the biography's first hop resolved it
+ * and cached it — so this costs one request rather than two.
+ */
+export function entityImageUrl(entityId: string): string {
+  const params = new URLSearchParams({
+    action: 'wbgetclaims',
+    format: 'json',
+    formatversion: '2',
+    entity: entityId,
+    property: IMAGE_PROPERTY
+  })
+  return `${WIKIDATA_API}?${params.toString()}`
+}
+
+/**
+ * The Commons file name from a claims reply. `null` when there is no image.
+ *
+ * The first claim with a normal rank and a string value. Wikidata permits
+ * several P18s — a band with a photograph per era, an artist with a portrait
+ * and a signature — and offers no ordering beyond rank, so "the first one" is
+ * as principled as this gets. Deprecated claims are skipped because that is
+ * what the rank means: somebody looked at it and said it was wrong.
+ */
+export function parseEntityImage(body: unknown): string | null {
+  const claims = asRecord(asRecord(body)?.claims)?.[IMAGE_PROPERTY]
+  if (!Array.isArray(claims)) return null
+
+  for (const claim of claims) {
+    const record = asRecord(claim)
+    if (asString(record?.rank) === 'deprecated') continue
+    const snak = asRecord(record?.mainsnak)
+    // `novalue` and `somevalue` snaks carry no datavalue at all — "known to
+    // have no image" and "has one we cannot name". Both are no picture.
+    if (asString(snak?.snaktype) !== 'value') continue
+    const file = asString(asRecord(snak?.datavalue)?.value)
+    if (file) return file
+  }
+  return null
+}
+
+/**
+ * The artist's photograph, as a Commons file name.
+ *
+ * `not-found` rather than an empty success when the item carries no P18, unlike
+ * `resolveEntity`'s empty sitelinks. The two look similar and are not: an item
+ * with no article is still an answer about the article we asked for, whereas
+ * this is the whole of what was asked. Routing it to the negative cache is what
+ * makes an artist with no photograph — most of a library — cost one request a
+ * week instead of one per play.
+ */
+export async function fetchEntityImage(
+  client: NetClient,
+  entityId: string
+): Promise<NetResult<string>> {
+  const claims = await client.getJson<unknown>({
+    url: entityImageUrl(entityId),
+    scope: 'tunedeck',
+    accept: 'application/json'
+  })
+  if (!claims.ok) return claims
+
+  const file = parseEntityImage(claims.value)
+  if (file === null) {
+    return netFailed({ kind: 'not-found', message: 'The service has nothing for this.' })
+  }
+  return netOk(file)
 }

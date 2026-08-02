@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto'
 import { readFile, readdir, rm, stat } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { readEmbeddedArtwork, type EmbeddedArtworkReader } from './metadata'
 import { WorkerArtworkImageProcessor, type ArtworkImageProcessor } from './artworkProcessor'
+import { createDerivedArtworkStore, type StoredArtwork } from './derivedArtwork'
 import type { ArtworkAlbum, LibraryStore } from './store'
 
 const RECONCILE_CONCURRENCY = 2
@@ -44,6 +44,20 @@ export interface ArtworkCacheDeps {
   readArtwork?: EmbeddedArtworkReader
   processor?: ArtworkImageProcessor
   now?: () => number
+  /**
+   * Hashes referenced by something outside `library.db`.
+   *
+   * W7-13's artist photographs live in the same directory as album art but are
+   * referenced from a `cache.db` row, because they are derived external
+   * metadata that D14 says must be deletable without loss. Prune has to be able
+   * to see them or the next reconcile deletes every one — and, read the other
+   * way, an operator who clears the metadata cache gets the disk back without
+   * anything else needing to be told.
+   *
+   * A thunk rather than a set, because prune runs long after construction and
+   * the answer changes underneath it.
+   */
+  externalReferences?: () => Iterable<string>
 }
 
 /**
@@ -59,15 +73,18 @@ export class ArtworkCacheService {
   private readonly store: LibraryStore
   private readonly readArtwork: EmbeddedArtworkReader
   private readonly processor: ArtworkImageProcessor
+  private readonly derived: ReturnType<typeof createDerivedArtworkStore>
   private readonly now: () => number
-  private readonly generating = new Map<string, Promise<boolean>>()
+  private readonly externalReferences: () => Iterable<string>
 
   constructor(deps: ArtworkCacheDeps) {
     this.store = deps.store
     this.cacheDir = deps.cacheDir
     this.readArtwork = deps.readArtwork ?? readEmbeddedArtwork
     this.processor = deps.processor ?? new WorkerArtworkImageProcessor()
+    this.derived = createDerivedArtworkStore({ cacheDir: this.cacheDir, processor: this.processor })
     this.now = deps.now ?? Date.now
+    this.externalReferences = deps.externalReferences ?? (() => [])
   }
 
   async reconcile(albumIds?: readonly number[], force = false): Promise<ArtworkCacheMetrics> {
@@ -128,7 +145,7 @@ export class ArtworkCacheService {
   private async selectArtwork(
     album: ArtworkAlbum,
     noteRead: () => void
-  ): Promise<{ hash: string; generated: boolean } | null> {
+  ): Promise<StoredArtwork | null> {
     // Embedded pictures are authoritative. Search every album track before
     // considering a folder image so one untagged first track cannot mask a
     // valid embedded cover on a later track.
@@ -142,7 +159,7 @@ export class ArtworkCacheService {
         continue
       }
       for (const picture of pictures) {
-        const selected = await this.processCandidate(
+        const selected = await this.derived.store(
           picture.bytes,
           `picture ${picture.index} in track ${track.trackId}`
         )
@@ -160,35 +177,10 @@ export class ArtworkCacheService {
         console.warn(`[artwork] skipped sidecar ${path}: ${describe(error)}`)
         continue
       }
-      const selected = await this.processCandidate(bytes, `sidecar ${path}`)
+      const selected = await this.derived.store(bytes, `sidecar ${path}`)
       if (selected) return selected
     }
     return null
-  }
-
-  private async processCandidate(
-    bytes: Uint8Array,
-    description: string
-  ): Promise<{ hash: string; generated: boolean } | null> {
-    if (bytes.byteLength === 0) return null
-    const hash = createHash('sha256').update(bytes).digest('hex')
-    let generation: Promise<boolean> | undefined
-    try {
-      // `generate` is also validation. It writes nothing final until sharp
-      // has decoded the source and produced a complete temporary file.
-      generation = this.generating.get(hash)
-      if (!generation) {
-        generation = this.processor.generate(this.cacheDir, hash, bytes)
-        this.generating.set(hash, generation)
-      }
-      const generated = await generation
-      return { hash, generated }
-    } catch (error) {
-      console.warn(`[artwork] malformed ${description}: ${describe(error)}`)
-      return null
-    } finally {
-      if (generation && this.generating.get(hash) === generation) this.generating.delete(hash)
-    }
   }
 
   /**
@@ -205,8 +197,20 @@ export class ArtworkCacheService {
     return this.prune()
   }
 
+  /**
+   * Deletes every file no live reference names.
+   *
+   * There is no byte budget and no least-recently-used ordering here, which is
+   * what makes W7-13's "does not preferentially evict album art" true by
+   * construction rather than by a weighting somebody has to keep correct.
+   * Nothing competes: album art lives exactly as long as an album with tracks
+   * references it, a podcast cover as long as its show, and an artist
+   * photograph as long as the `cache.db` row that names it — three independent
+   * lifetimes, none of which can shorten another's.
+   */
   private async prune(): Promise<number> {
     const referenced = this.store.listReferencedArtworkHashes()
+    for (const hash of this.externalReferences()) referenced.add(hash)
     let entries
     try {
       entries = await readdir(this.cacheDir, { withFileTypes: true })

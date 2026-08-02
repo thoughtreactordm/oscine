@@ -245,6 +245,58 @@ describe('cache service', () => {
     })
   })
 
+  /**
+   * The one query in this layer that is not keyed, and the one caller for it.
+   *
+   * W7-13 puts an artist photograph in the *artwork* cache and its hash in a row
+   * here, so the thing that prunes that directory has to be able to ask this
+   * database which files are still spoken for. The two properties that matter
+   * are that it is scoped to an entity — a prune that saw MusicBrainz documents
+   * as artwork references would keep every file forever — and that expiry does
+   * not filter it, because an expired row is still a row and its file is still
+   * the one the next refresh would reuse.
+   */
+  describe('listing what an entity holds', () => {
+    it('returns one entity’s values and nobody else’s', () => {
+      const { cache } = harness()
+      cache.writeValue('commons.image', 'Q1', { hash: 'aaa' })
+      cache.writeValue('commons.image', 'Q2', { hash: 'bbb' })
+      cache.writeValue('musicbrainz.artist', 'mbid', { hash: 'not-artwork' })
+
+      const hashes = cache.values<{ hash: string }>('commons.image').map((row) => row.hash)
+      expect(hashes.sort()).toEqual(['aaa', 'bbb'])
+    })
+
+    it('excludes negative entries, which name no file', () => {
+      const { cache } = harness()
+      cache.writeValue('commons.image', 'Q1', { hash: 'aaa' })
+      cache.writeNegative('commons.image', 'Q2')
+
+      expect(cache.values('commons.image')).toEqual([{ hash: 'aaa' }])
+    })
+
+    it('still lists a value whose TTL has passed', () => {
+      const { cache, advance } = harness()
+      cache.writeValue('commons.image', 'Q1', { hash: 'aaa' })
+      advance(90 * DAY)
+
+      // Stale, and its thumbnails must not be deleted out from under a refresh
+      // that is about to reuse them.
+      expect(cache.read('commons.image', 'Q1')?.fresh).toBe(false)
+      expect(cache.values('commons.image')).toEqual([{ hash: 'aaa' }])
+    })
+
+    it('is empty once the operator clears the cache', () => {
+      const { cache } = harness()
+      cache.writeValue('commons.image', 'Q1', { hash: 'aaa' })
+      cache.clear()
+
+      // Which is what makes "clear the cache" also give the disk back: the
+      // artwork prune then sees no reference and removes the files.
+      expect(cache.values('commons.image')).toEqual([])
+    })
+  })
+
   describe('the null cache', () => {
     it('misses everything, keeps nothing, and fetches every time', async () => {
       const cache = createNullCacheService()
@@ -257,6 +309,7 @@ describe('cache service', () => {
       await expect(cache.through('musicbrainz.artist', 'k', fetch)).resolves.toEqual(netOk('value'))
       await expect(cache.through('musicbrainz.artist', 'k', fetch)).resolves.toEqual(netOk('value'))
       expect(fetch).toHaveBeenCalledTimes(2)
+      expect(cache.values('commons.image')).toEqual([])
       expect(cache.stats()).toEqual({ entries: 0, bytes: 0, negatives: 0 })
     })
   })

@@ -40,7 +40,20 @@ export const CACHE_ENTITIES = [
   /** MBID or wiki title → the Wikidata entity that links the two worlds. */
   'wikidata.entity',
   /** Wikidata sitelink → the Wikipedia lead extract shown in the deck. */
-  'wikipedia.extract'
+  'wikipedia.extract',
+  /**
+   * Wikidata item → the artist photograph, as a thumbnail-cache hash and the
+   * credit it has to be shown with.
+   *
+   * The row is a few hundred bytes of JSON; the picture itself is in the
+   * artwork cache, which is what D14's "artist images reuse it rather than
+   * adding a second blob store" means in practice. That the *reference* lives
+   * here rather than in `library.db` is the other half of the same decision: a
+   * photograph is derived external metadata, so clearing this cache has to be
+   * able to take it away, and `ArtworkCacheService.prune` reads these rows for
+   * exactly that reason.
+   */
+  'commons.image'
 ] as const
 
 export type CacheEntity = (typeof CACHE_ENTITIES)[number]
@@ -124,7 +137,29 @@ export const DEFAULT_CACHE_TTLS: Readonly<Record<CacheEntity, EntityTtl>> = {
    * biography that still describes a band as active two years after they split
    * is the kind of staleness an operator reads as the app being wrong.
    */
-  'wikipedia.extract': { freshMs: 14 * DAY_MS, negativeMs: 7 * DAY_MS }
+  'wikipedia.extract': { freshMs: 14 * DAY_MS, negativeMs: 7 * DAY_MS },
+
+  /**
+   * Thirty days, the longest here, and the only entry whose expiry costs disk
+   * rather than saving it.
+   *
+   * A P18 claim is one of the most stable things Wikidata holds — an artist's
+   * photograph changes when somebody uploads a better one, which is a matter of
+   * years — and the refresh is the most expensive lookup Fermata makes: three
+   * requests and a decode, against one request for prose. Matching the
+   * biography's fourteen days would triple the traffic for a picture that is
+   * almost never different.
+   *
+   * Expiring at all still matters, and not for freshness. The row is what keeps
+   * the file in the artwork cache; a photograph nobody has looked at in a month
+   * lets go of its thumbnails on the next prune, which is how a decoration
+   * stops accumulating disk against a library it decorates.
+   *
+   * Seven days negative, with the rest. An artist with no photograph is the
+   * ordinary case for most of a library, and it must cost one request a week
+   * rather than one per play.
+   */
+  'commons.image': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS }
 }
 
 /**
