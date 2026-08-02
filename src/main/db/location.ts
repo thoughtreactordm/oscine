@@ -1,9 +1,20 @@
 import { app } from 'electron'
 import { join } from 'node:path'
+import {
+  ARTWORK_CACHE_ARTIFACT,
+  CACHE_DATABASE_ARTIFACT,
+  LIBRARY_DATABASE_ARTIFACT,
+  PODCASTS_ARTIFACT
+} from './artifacts'
 
-export const DATABASE_FILENAME = 'library.db'
-export const ARTWORK_CACHE_DIRECTORY = 'artwork-cache-v1'
-export const PODCASTS_DIRECTORY = 'podcasts'
+// Re-exported rather than written here: `artifacts.ts` is the one place a name
+// under `userData` is decided, because it is also where that name's side of D11
+// is decided, and two lists would eventually disagree about the second while
+// agreeing about the first.
+export const DATABASE_FILENAME = LIBRARY_DATABASE_ARTIFACT.name
+export const CACHE_DATABASE_FILENAME = CACHE_DATABASE_ARTIFACT.name
+export const ARTWORK_CACHE_DIRECTORY = ARTWORK_CACHE_ARTIFACT.name
+export const PODCASTS_DIRECTORY = PODCASTS_ARTIFACT.name
 
 /**
  * Where the library lives on this machine.
@@ -17,6 +28,18 @@ export const PODCASTS_DIRECTORY = 'podcasts'
  */
 export function libraryDatabasePath(): string {
   return join(app.getPath('userData'), DATABASE_FILENAME)
+}
+
+/**
+ * D14's external-metadata cache — beside the library, never inside it.
+ *
+ * A sibling file rather than more tables in `library.db`, and the separation is
+ * the whole point: a second file can be deleted by the operator, rebuilt by the
+ * app after a bad upgrade, and excluded from a backup by name. None of those are
+ * available to a table.
+ */
+export function cacheDatabasePath(): string {
+  return join(app.getPath('userData'), CACHE_DATABASE_FILENAME)
 }
 
 /** Derived, disposable display thumbnails; never exposed as a renderer path. */

@@ -3,8 +3,14 @@ import type BetterSqlite3 from 'better-sqlite3'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { LibraryNotice, ReplayGainJobProgress, ScanProgress } from '@shared/library'
+import { openCacheService } from './cache'
 import { openDatabase } from './db'
-import { artworkCachePath, libraryDatabasePath, podcastsDirectoryPath } from './db/location'
+import {
+  artworkCachePath,
+  cacheDatabasePath,
+  libraryDatabasePath,
+  podcastsDirectoryPath
+} from './db/location'
 import { SqlitePlayHistoryService } from './history/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
@@ -314,6 +320,14 @@ if (!app.requestSingleInstanceLock()) {
     // and without an invalidation path to get wrong. See `net/consent.ts`.
     const net = createNetService(settings)
 
+    // Opened here rather than lazily on the first lookup so that a cache which
+    // has to be rebuilt is rebuilt at startup, where the log line is next to the
+    // library's, instead of in the middle of the operator opening a deck.
+    //
+    // Not passed to `createNetService`: the cache sits between the client and
+    // its callers, never inside it. W7-9 takes both.
+    const cache = openCacheService(cacheDatabasePath())
+
     // One artwork worker for library albums and podcast covers — a second
     // WorkerArtworkImageProcessor was racing the same native sharp module and
     // silently dropping podcast thumbs.
@@ -366,6 +380,15 @@ if (!app.requestSingleInstanceLock()) {
         })
         .finally(() => {
           db.close()
+          // After the library and inside its own guard. The disposable database
+          // must not be able to skip the close that matters, and it must not be
+          // able to hang the quit either — a cache that will not shut cleanly is
+          // a file we would delete anyway.
+          try {
+            cache.close()
+          } catch (error) {
+            console.warn('[cache] close failed:', error)
+          }
           readyToQuit = true
           app.quit()
         })
