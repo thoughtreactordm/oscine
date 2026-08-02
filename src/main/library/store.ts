@@ -22,8 +22,10 @@ import type {
   TrackSortColumn
 } from '@shared/library'
 import { artworkUrl } from '@shared/ipc'
+import type { RelatedAlbum } from '@shared/related'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
 import type { TrackTags } from './metadata'
+import type { RelatedQueries, RelatedSeed } from './related'
 import { fileStem, type AudioFile } from './walk'
 
 /**
@@ -364,11 +366,11 @@ function prepareStatements(db: Database.Database) {
     upsertTrack: db.prepare(`
       INSERT INTO tracks (
         root_id, rel_path, mtime, size, duration_ms, codec, sample_rate, channels,
-        bit_depth, title, artist_id, album_id, track_no, disc_no,
+        bit_depth, title, artist_id, album_id, track_no, disc_no, genre,
         rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, rg_source
       ) VALUES (
         @rootId, @relPath, @mtime, @size, @durationMs, @codec, @sampleRate, @channels,
-        @bitDepth, @title, @artistId, @albumId, @trackNo, @discNo,
+        @bitDepth, @title, @artistId, @albumId, @trackNo, @discNo, @genre,
         @rgTrackGain, @rgTrackPeak, @rgAlbumGain, @rgAlbumPeak, @rgSource
       )
       ON CONFLICT(root_id, rel_path) DO UPDATE SET
@@ -377,7 +379,7 @@ function prepareStatements(db: Database.Database) {
         channels = excluded.channels, bit_depth = excluded.bit_depth,
         title = excluded.title, artist_id = excluded.artist_id,
         album_id = excluded.album_id, track_no = excluded.track_no,
-        disc_no = excluded.disc_no,
+        disc_no = excluded.disc_no, genre = excluded.genre,
         rg_track_gain = CASE
           WHEN excluded.rg_source IS NULL AND tracks.rg_source = 'computed'
             THEN tracks.rg_track_gain
@@ -433,6 +435,187 @@ function prepareStatements(db: Database.Database) {
       FROM json_each(@ids) page
       JOIN tracks t ON t.id = page.value
       ${TRACK_JOINS}
+    `),
+
+    // ---- W7-5, the related pane ------------------------------------------
+    //
+    // Every strand below takes its own `@limit` and none of them joins to a
+    // browse filter. That is deliberate: relatedness is a property of the seed
+    // track, not of whatever the operator happens to have typed in the search
+    // box, and a pane that quietly hid an artist's other albums because a
+    // filter was active would be answering a question nobody asked.
+
+    /** Everything the strands need about the seed, in one lookup. */
+    relatedSeed: db.prepare(`
+      SELECT t.id            AS trackId,
+             t.root_id       AS rootId,
+             t.rel_path      AS relPath,
+             t.album_id      AS albumId,
+             t.artist_id     AS artistId,
+             t.genre         AS genre,
+             al.album_artist_id AS albumArtistId,
+             al.title        AS albumTitle,
+             al.year         AS year,
+             ar.name         AS artistName,
+             aa.name         AS albumArtistName
+      FROM tracks t
+      ${TRACK_JOINS}
+      WHERE t.id = @trackId
+    `),
+
+    /**
+     * The rest of the seed's album, in playing order.
+     *
+     * Disc before track before title, so a multi-disc album reads the way it is
+     * pressed rather than interleaved. `NULLS LAST` is spelled as the `IS NULL`
+     * sort key because SQLite orders NULL first by default and an untagged
+     * track would otherwise head the album.
+     */
+    relatedAlbumTracks: db.prepare(`
+      SELECT ${TRACK_PROJECTION}
+      FROM tracks t
+      ${TRACK_JOINS}
+      WHERE t.album_id = @albumId AND t.id <> @trackId
+      ORDER BY t.disc_no IS NULL, t.disc_no,
+               t.track_no IS NULL, t.track_no,
+               t.title
+      LIMIT @limit
+    `),
+
+    /** The discography: albums credited to the seed's album artist. */
+    relatedArtistAlbums: db.prepare(`
+      SELECT al.id      AS albumId,
+             al.title   AS title,
+             aa.name    AS artist,
+             al.year    AS year,
+             COUNT(t.id) AS trackCount
+      FROM albums al
+      LEFT JOIN artists aa ON aa.id = al.album_artist_id
+      JOIN tracks t ON t.album_id = al.id
+      WHERE al.album_artist_id = @artistId AND al.id IS NOT @albumId
+      GROUP BY al.id
+      ORDER BY al.year IS NULL, al.year, al.title
+      LIMIT @limit
+    `),
+
+    /**
+     * Compilations: albums the artist plays on without being credited for.
+     *
+     * `album_artist_id IS NOT @artistId` is the whole definition, and it is why
+     * this is a separate strand rather than more rows on the discography — an
+     * album where the artist *is* the album artist is their record, and one
+     * where they are a track artist on someone else's record is an appearance.
+     * `IS NOT` rather than `<>` because an album with no album artist at all
+     * would drop out of a comparison against NULL.
+     *
+     * Served by `idx_tracks_artist_album`, which already existed.
+     */
+    relatedCompilations: db.prepare(`
+      SELECT al.id      AS albumId,
+             al.title   AS title,
+             aa.name    AS artist,
+             al.year    AS year,
+             COUNT(t.id) AS trackCount
+      FROM albums al
+      LEFT JOIN artists aa ON aa.id = al.album_artist_id
+      JOIN tracks t ON t.album_id = al.id
+      WHERE al.id IN (
+              SELECT t2.album_id
+              FROM tracks t2
+              WHERE t2.artist_id = @artistId AND t2.album_id IS NOT NULL
+              GROUP BY t2.album_id
+              LIMIT @limit
+            )
+        AND al.album_artist_id IS NOT @artistId
+        AND al.id IS NOT @albumId
+      GROUP BY al.id
+      ORDER BY al.year IS NULL, al.year, al.title
+      LIMIT @limit
+    `),
+
+    /**
+     * The genre neighbourhood.
+     *
+     * The inner `GROUP BY ... LIMIT` is load-bearing rather than defensive: a
+     * broad genre over a 100k-track library matches tens of thousands of rows,
+     * and aggregating all of them to display fifty albums is the difference
+     * between a pane that opens within the frame budget and one that does not.
+     * `idx_tracks_genre_album` (migration 10) lets SQLite satisfy the grouping
+     * from the index in order and stop as soon as the limit is met.
+     *
+     * Newest first here, unlike the discography: a genre is a browsing surface
+     * rather than a body of work, and chronological order from 1954 is not what
+     * anyone wants to read first.
+     */
+    relatedSameGenre: db.prepare(`
+      SELECT al.id      AS albumId,
+             al.title   AS title,
+             aa.name    AS artist,
+             al.year    AS year,
+             COUNT(t.id) AS trackCount
+      FROM albums al
+      LEFT JOIN artists aa ON aa.id = al.album_artist_id
+      JOIN tracks t ON t.album_id = al.id
+      WHERE al.id IN (
+              SELECT album_id
+              FROM tracks
+              WHERE genre = @genre AND album_id IS NOT NULL AND album_id IS NOT @albumId
+              GROUP BY album_id
+              LIMIT @limit
+            )
+      GROUP BY al.id
+      ORDER BY al.year IS NULL, al.year DESC, al.title
+      LIMIT @limit
+    `),
+
+    /** The year neighbourhood. Straight off `idx_albums_year`. */
+    relatedSameYear: db.prepare(`
+      SELECT al.id      AS albumId,
+             al.title   AS title,
+             aa.name    AS artist,
+             al.year    AS year,
+             COUNT(t.id) AS trackCount
+      FROM albums al
+      LEFT JOIN artists aa ON aa.id = al.album_artist_id
+      JOIN tracks t ON t.album_id = al.id
+      WHERE al.year = @year AND al.id IS NOT @albumId
+      GROUP BY al.id
+      ORDER BY al.title
+      LIMIT @limit
+    `),
+
+    /**
+     * The folder neighbourhood: albums sitting under the seed's parent folder.
+     *
+     * A half-open range over `rel_path` rather than the `substr(...)` prefix
+     * test `listAlbumsUnderDirectory` uses. Both are correct; only this one is
+     * sargable, and the difference matters because this runs on every track
+     * change while that runs once per artwork reconciliation. `@prefixEnd` is
+     * the prefix with its final byte incremented, so the range covers exactly
+     * the subtree — see `folderNeighbourhood` for how it is derived and why
+     * paths are safe to compare as bytes here.
+     */
+    relatedSameFolder: db.prepare(`
+      SELECT al.id      AS albumId,
+             al.title   AS title,
+             aa.name    AS artist,
+             al.year    AS year,
+             COUNT(t.id) AS trackCount
+      FROM albums al
+      LEFT JOIN artists aa ON aa.id = al.album_artist_id
+      JOIN tracks t ON t.album_id = al.id
+      WHERE al.id IN (
+              SELECT album_id
+              FROM tracks
+              WHERE root_id = @rootId
+                AND rel_path >= @prefix AND rel_path < @prefixEnd
+                AND album_id IS NOT NULL AND album_id IS NOT @albumId
+              GROUP BY album_id
+              LIMIT @limit
+            )
+      GROUP BY al.id
+      ORDER BY al.year IS NULL, al.year, al.title
+      LIMIT @limit
     `)
   }
 }
@@ -629,6 +812,7 @@ export class LibraryStore {
       albumId,
       trackNo: tags.trackNo,
       discNo: tags.discNo,
+      genre: tags.genre,
       rgTrackGain: gain?.trackGainDb ?? null,
       rgTrackPeak: gain?.trackPeak ?? null,
       rgAlbumGain: gain?.albumGainDb ?? null,
@@ -795,6 +979,34 @@ export class LibraryStore {
       .map((id) => byId.get(id))
       .filter((row): row is TrackRow => row !== undefined)
       .map(toTrack)
+  }
+
+  /**
+   * The related pane's six strands, as data access and nothing else.
+   *
+   * Handed out as an interface rather than composed here because the composition
+   * — which strands to run, in what order, and which of them a better
+   * implementation may replace — is W7-5's seam and lives in `./related`. That
+   * module is then testable against a hand-written `RelatedQueries` with no
+   * database at all, which is the whole reason the split is worth a method.
+   */
+  relatedQueries(): RelatedQueries {
+    const s = this.statements
+    return {
+      seed: (trackId) => (s.relatedSeed.get({ trackId }) as RelatedSeed | undefined) ?? null,
+      albumTracks: ({ albumId, trackId, limit }) =>
+        (s.relatedAlbumTracks.all({ albumId, trackId, limit }) as TrackRow[]).map(toTrack),
+      artistAlbums: ({ artistId, albumId, limit }) =>
+        s.relatedArtistAlbums.all({ artistId, albumId, limit }) as RelatedAlbum[],
+      compilations: ({ artistId, albumId, limit }) =>
+        s.relatedCompilations.all({ artistId, albumId, limit }) as RelatedAlbum[],
+      sameGenre: ({ genre, albumId, limit }) =>
+        s.relatedSameGenre.all({ genre, albumId, limit }) as RelatedAlbum[],
+      sameYear: ({ year, albumId, limit }) =>
+        s.relatedSameYear.all({ year, albumId, limit }) as RelatedAlbum[],
+      sameFolder: ({ rootId, prefix, prefixEnd, albumId, limit }) =>
+        s.relatedSameFolder.all({ rootId, prefix, prefixEnd, albumId, limit }) as RelatedAlbum[]
+    }
   }
 
   listArtists(query: ListFacetsQuery): ListArtistsResult {

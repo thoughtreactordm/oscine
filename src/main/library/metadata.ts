@@ -35,6 +35,8 @@ export interface TrackTags {
   sampleRate: number | null
   channels: number | null
   bitDepth: number | null
+  /** The first named genre, or `null`. See `primaryGenre`. */
+  genre: string | null
   /** `null` when the file carries no `REPLAYGAIN_*` tags at all. */
   replayGain: ReplayGain | null
 }
@@ -97,6 +99,33 @@ function releaseYear(metadata: IAudioMetadata): number | null {
   if (!fromDate) return null
   const year = Number(fromDate[1])
   return year > 0 && year < 3000 ? year : null
+}
+
+/**
+ * The first genre a file names, verbatim.
+ *
+ * Genre is multi-valued in every tag format that has it, and the related pane's
+ * neighbourhood strand is a single equality over one indexed column — so
+ * something has to collapse the list, and the choices are "first", "join them"
+ * or "normalise them". Only the first is defensible without inventing rules:
+ * joining produces a value that matches nothing else in the library, and
+ * normalising means owning a synonym table for a dimension W7-5 already calls
+ * the weak half.
+ *
+ * Not split on `/` or `;` either, however tempting a `Rock; Pop` tag makes it.
+ * `Folk/Rock` is one genre in some libraries and two in others, and a scanner
+ * that guesses wrong writes the wrong thing to disk-backed state for every file
+ * it touches. The honest reading of a list is its first element.
+ *
+ * When M3's FTS5 work lands and the strand stops being an equality, this is the
+ * function that gets to be cleverer — see the seam note in `library/related.ts`.
+ */
+export function primaryGenre(genres: readonly string[] | undefined): string | null {
+  for (const candidate of genres ?? []) {
+    const value = text(candidate)
+    if (value !== null) return value
+  }
+  return null
 }
 
 /**
@@ -163,6 +192,7 @@ export function toTrackTags(metadata: IAudioMetadata): TrackTags {
     sampleRate: positiveInt(format.sampleRate),
     channels: positiveInt(format.numberOfChannels),
     bitDepth: positiveInt(format.bitsPerSample),
+    genre: primaryGenre(common.genre),
     replayGain: toReplayGain(common)
   }
 }

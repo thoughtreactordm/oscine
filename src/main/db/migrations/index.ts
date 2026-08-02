@@ -8,6 +8,7 @@ import { settings } from './006-settings'
 import { crossfadeCascade } from './007-crossfade-cascade'
 import { themeKeys } from './008-theme-keys'
 import { playHistory } from './009-play-history'
+import { trackGenre } from './010-track-genre'
 
 /**
  * Every migration, in order.
@@ -27,5 +28,6 @@ export const MIGRATIONS: readonly Migration[] = [
   settings,
   crossfadeCascade,
   themeKeys,
-  playHistory
+  playHistory,
+  trackGenre
 ]

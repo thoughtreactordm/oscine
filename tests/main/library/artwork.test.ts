@@ -98,6 +98,7 @@ function tags(album: string, artist: string): TrackTags {
     sampleRate: 44_100,
     channels: 2,
     bitDepth: 16,
+    genre: null,
     replayGain: null
   }
 }

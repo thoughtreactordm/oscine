@@ -215,6 +215,28 @@ describe('toTrackTags', () => {
     return { common, format, native: {}, quality: { warnings: [] } } as unknown as IAudioMetadata
   }
 
+  it('takes the first genre a file names', () => {
+    expect(toTrackTags(parsed({ genre: ['IDM', 'Electronic'] })).genre).toBe('IDM')
+  })
+
+  it('leaves genre null when the file names none', () => {
+    // The same value a track indexed before migration 10 carries. Both mean the
+    // genre strand is absent for that track rather than empty.
+    expect(toTrackTags(parsed({})).genre).toBeNull()
+    expect(toTrackTags(parsed({ genre: [] })).genre).toBeNull()
+  })
+
+  it('skips a blank leading genre rather than reading it as a value', () => {
+    expect(toTrackTags(parsed({ genre: ['   ', 'Ambient'] })).genre).toBe('Ambient')
+  })
+
+  it('does not split a compound genre tag', () => {
+    // `Folk/Rock` is one genre in some libraries and two in others, and the
+    // scanner writes to disk-backed state for every file it touches — so it
+    // reads the list, and does not invent one.
+    expect(toTrackTags(parsed({ genre: ['Folk/Rock'] })).genre).toBe('Folk/Rock')
+  })
+
   it('takes gain in dB and peak as a ratio', () => {
     const tags = toTrackTags(
       parsed({

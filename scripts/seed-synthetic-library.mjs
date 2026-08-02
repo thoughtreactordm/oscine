@@ -189,6 +189,30 @@ const SECOND = [
 ]
 const CODECS = ['flac', 'mp3', 'vorbis', 'opus']
 
+/**
+ * Deliberately few, so each one is broad.
+ *
+ * Genre is the related pane's weak strand and its most expensive query: it is
+ * an equality over a low-cardinality column, so in a real library one genre
+ * matches a large fraction of everything. A dozen genres over 100,000 tracks
+ * reproduces that — a synthetic library with a thousand distinct genres would
+ * make the strand look far cheaper than it is.
+ */
+const GENRES = [
+  'Ambient',
+  'Breakbeat',
+  'Classical',
+  'Dub',
+  'Electronic',
+  'Folk',
+  'IDM',
+  'Jazz',
+  'Post-Rock',
+  'Shoegaze',
+  'Techno',
+  'Trip-Hop'
+]
+
 function phrase() {
   return `${pick(FIRST)} ${pick(SECOND)}`
 }
@@ -213,10 +237,10 @@ const albumId = db.prepare('SELECT id FROM albums WHERE title = ? AND album_arti
 const insertTrack = db.prepare(
   `INSERT INTO tracks (
      root_id, rel_path, mtime, size, duration_ms, codec, sample_rate, channels,
-     bit_depth, title, artist_id, album_id, track_no, disc_no
+     bit_depth, title, artist_id, album_id, track_no, disc_no, genre
    ) VALUES (
      @rootId, @relPath, @mtime, @size, @durationMs, @codec, @sampleRate, @channels,
-     @bitDepth, @title, @artistId, @albumId, @trackNo, @discNo
+     @bitDepth, @title, @artistId, @albumId, @trackNo, @discNo, @genre
    )`
 )
 
@@ -231,19 +255,38 @@ const seedAll = db.transaction(() => {
     artistIds.push(artistId.get(name))
   }
 
+  // The owning artist's *index* is retained alongside each album, because the
+  // track layout below has to put an album's files under its artist's folder.
+  // Without that correspondence the folder strand of the related pane could
+  // never match anything here, and a synthetic library that cannot exercise a
+  // query is not evidence about it.
   const albumIds = []
+  const albumOwners = []
   for (let index = 0; index < ALBUM_COUNT; index++) {
     const title = `${phrase()} ${index}`
-    const owner = pick(artistIds)
-    insertAlbum.run(title, owner, 1970 + Math.floor(random() * 55))
-    albumIds.push(albumId.get(title, owner))
+    const ownerIndex = Math.floor(random() * artistIds.length)
+    insertAlbum.run(title, artistIds[ownerIndex], 1970 + Math.floor(random() * 55))
+    albumIds.push(albumId.get(title, artistIds[ownerIndex]))
+    albumOwners.push(ownerIndex)
   }
 
   for (let index = 0; index < count; index++) {
     const untagged = random() < UNTAGGED_SHARE
+    const albumIndex = Math.floor(random() * albumIds.length)
     insertTrack.run({
       rootId,
-      relPath: `synthetic/${String(index).padStart(7, '0')}.flac`,
+      // `artist-N/album-N/track.flac`, mirroring how a library is actually laid
+      // out — two directories deep, which is what gives a track a *parent*
+      // folder to have neighbours in. The previous flat `synthetic/N.flac` was
+      // one level, so every track's folder neighbourhood was the whole root and
+      // the strand declined to answer. Indices rather than the generated names:
+      // these are path segments, and the phrase vocabulary is not constrained
+      // to characters that are legal on both platforms.
+      relPath: untagged
+        ? `loose/${String(index).padStart(7, '0')}.flac`
+        : `artist-${String(albumOwners[albumIndex]).padStart(4, '0')}/` +
+          `album-${String(albumIndex).padStart(4, '0')}/` +
+          `${String(index).padStart(7, '0')}.flac`,
       mtime: now,
       size: 4_000_000 + Math.floor(random() * 40_000_000),
       durationMs: 45_000 + Math.floor(random() * 555_000),
@@ -252,10 +295,19 @@ const seedAll = db.transaction(() => {
       channels: 2,
       bitDepth: 16,
       title: `${phrase()} ${index}`,
-      artistId: untagged ? null : pick(artistIds),
-      albumId: untagged ? null : pick(albumIds),
+      // Mostly the album's own artist, occasionally someone else — which is
+      // what a compilation looks like, and what the appearances strand reads.
+      artistId: untagged
+        ? null
+        : random() < 0.05
+          ? pick(artistIds)
+          : artistIds[albumOwners[albumIndex]],
+      albumId: untagged ? null : albumIds[albumIndex],
       trackNo: untagged ? null : 1 + Math.floor(random() * 18),
-      discNo: 1
+      discNo: 1,
+      // Untagged tracks have no genre either: "untagged" means the file told us
+      // nothing, and a genre would be the one tag it somehow kept.
+      genre: untagged ? null : pick(GENRES)
     })
   }
 })

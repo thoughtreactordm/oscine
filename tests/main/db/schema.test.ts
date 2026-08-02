@@ -61,7 +61,8 @@ describe('openDatabase', () => {
         'settings',
         'crossfade-cascade',
         'theme-keys',
-        'play-history'
+        'play-history',
+        'track-genre'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -101,7 +102,8 @@ describe('openDatabase', () => {
         'settings',
         'crossfade-cascade',
         'theme-keys',
-        'play-history'
+        'play-history',
+        'track-genre'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -130,7 +132,8 @@ describe('openDatabase', () => {
         'settings',
         'crossfade-cascade',
         'theme-keys',
-        'play-history'
+        'play-history',
+        'track-genre'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()

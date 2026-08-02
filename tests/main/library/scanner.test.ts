@@ -60,6 +60,7 @@ function tags(overrides: Partial<TrackTags> = {}): TrackTags {
     sampleRate: 44100,
     channels: 2,
     bitDepth: 16,
+    genre: null,
     replayGain: null,
     ...overrides
   }
