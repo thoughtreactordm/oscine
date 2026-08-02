@@ -34,6 +34,7 @@ import {
   TRACK_SORT_COLUMNS,
   type TrackSortColumn
 } from '@shared/library'
+import type { RelatedQuery } from '@shared/related'
 import {
   MAX_PLAYLIST_BATCH,
   MAX_PLAYLIST_ENTRY_ID_PAGE,
@@ -273,6 +274,21 @@ export function assertGetTracksByIdsQuery(value: unknown): GetTracksByIdsQuery {
   for (const id of ids) assertPositiveInt(id, 'ids entry')
 
   return { ids: ids as number[] }
+}
+
+/**
+ * The related pane's only request (W7-5).
+ *
+ * One id and nothing else — no limit, no strand selection, no filters. The
+ * per-section cap is `RELATED_SECTION_LIMIT` and it is main's to choose: a
+ * caller-supplied limit would be a knob whose only effect is how much work the
+ * database does on the renderer's say-so, which is the shape of request this
+ * boundary exists to refuse.
+ */
+export function assertRelatedQuery(value: unknown): RelatedQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['trackId'])
+  return { trackId: assertPositiveInt(raw.trackId, 'trackId') }
 }
 
 /**

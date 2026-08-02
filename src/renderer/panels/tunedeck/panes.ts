@@ -1,3 +1,4 @@
+import RelatedPane from './RelatedPane.vue'
 import SignalPane from './SignalPane.vue'
 import TrailPane from './TrailPane.vue'
 import UpNextPane from './UpNextPane.vue'
@@ -41,5 +42,16 @@ export const tunedeckRegistry = createTunedeckRegistry([
     title: 'Trail',
     icon: 'i-tabler-history',
     component: TrailPane
+  },
+  // Last, and outside the forwards reading of the three above it. Up next,
+  // signal and trail are all about *this* session — what will play, what is
+  // playing, what did. Related is the one pane that looks away from the session
+  // and back at the library, so it reads better as the thing after the sequence
+  // than as an interruption inside it.
+  {
+    id: 'related',
+    title: 'Related',
+    icon: 'i-tabler-affiliate',
+    component: RelatedPane
   }
 ])

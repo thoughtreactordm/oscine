@@ -115,6 +115,8 @@ const api = {
     orderTrackIds: (query: OrderTrackIdsQuery) => request('library.orderTrackIds', query),
     /** Display rows for an id list the caller already ordered. */
     getTracksByIds: (query: GetTracksByIdsQuery) => request('library.getTracksByIds', query),
+    /** Catalog and neighbourhood relations for one track. Local index only. */
+    getRelated: (trackId: number) => request('library.getRelated', { trackId }),
     /** Metadata-only lookup for the audio admission guard. */
     getTrackAudioMetadata: (trackId: number) =>
       request('library.getTrackAudioMetadata', { trackId }),

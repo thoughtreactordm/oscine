@@ -23,6 +23,7 @@ import type {
   TrackAudioMetadata,
   TrackFormatDetail
 } from './library'
+import type { RelatedQuery, RelatedResult } from './related'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -133,6 +134,22 @@ export interface IpcContract {
    * a page nobody sized for.
    */
   'library.getTracksByIds': { request: GetTracksByIdsQuery; response: Track[] }
+  /**
+   * Catalog and neighbourhood relations for one track — the Tunedeck's related
+   * pane (W7-5).
+   *
+   * Reads the local index and nothing else. That is a property of the card
+   * rather than of the transport, but it is worth stating at the boundary: the
+   * MusicBrainz artist-relations pane is a different notion of "related", it
+   * arrives in M7, and when it does it will be its own channel rather than a
+   * flag on this one. Two sources of truth that disagree should not share a
+   * response type.
+   *
+   * `null` when the seed track has left the library; sections are omitted
+   * rather than returned empty, so an absent strand and a strand with no
+   * matches are the same thing to the pane.
+   */
+  'library.getRelated': { request: RelatedQuery; response: RelatedResult | null }
   /**
    * Supplies only the fields needed to price a decode. This is deliberately a
    * separate metadata request: the R1 guard must decide before it fetches any
@@ -399,6 +416,7 @@ export const IPC_CHANNELS = [
   'library.listTrackGroups',
   'library.orderTrackIds',
   'library.getTracksByIds',
+  'library.getRelated',
   'library.getTrackAudioMetadata',
   'library.getTrackFormatDetail',
   'library.getTrackFileUrl',

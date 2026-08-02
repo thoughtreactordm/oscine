@@ -26,6 +26,8 @@ import type {
   TrackAudioMetadata,
   TrackFormatDetail
 } from '@shared/library'
+import type { RelatedQuery, RelatedResult } from '@shared/related'
+import { buildRelated } from './related'
 import {
   readTrackFormatDetail,
   readTrackTags,
@@ -242,6 +244,17 @@ export class SqliteLibraryService implements LibraryService {
 
   async getTracksByIds(query: GetTracksByIdsQuery): Promise<Track[]> {
     return this.store.getTracksByIds(query)
+  }
+
+  /**
+   * W7-5. Composition and strategy live in `./related`; this is the wiring.
+   *
+   * The default neighbourhood strategy is applied by `buildRelated` rather than
+   * named here, so the day a better one lands there is one call site to change
+   * and it is not this one.
+   */
+  async getRelated(query: RelatedQuery): Promise<RelatedResult | null> {
+    return buildRelated(this.store.relatedQueries(), query.trackId)
   }
 
   async listArtists(query: ListFacetsQuery): Promise<ListArtistsResult> {

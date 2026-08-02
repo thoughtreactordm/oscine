@@ -27,6 +27,7 @@ import {
   assertMoveEntriesRequest,
   assertGetSettingOverridesRequest,
   assertGetTracksByIdsQuery,
+  assertRelatedQuery,
   assertImportSettingsProfileRequest,
   assertOpmlXml,
   assertOrderTrackIdsQuery,
@@ -112,6 +113,13 @@ export function registerIpcHandlers(
   handle('library.getTracksByIds', (request) =>
     library.getTracksByIds(assertGetTracksByIdsQuery(request))
   )
+
+  // Null rather than a `not-found` throw, unlike the two handlers below it. The
+  // seed here is whatever is playing, and a track can legitimately leave the
+  // library while its own row is on screen — the pane's answer to that is the
+  // same empty state it shows for a track that relates to nothing, so making it
+  // an error would mean the store catching an exception on a normal race.
+  handle('library.getRelated', (request) => library.getRelated(assertRelatedQuery(request)))
 
   handle('library.getTrackAudioMetadata', async (request) => {
     const { trackId } = assertRecord(request, 'request')

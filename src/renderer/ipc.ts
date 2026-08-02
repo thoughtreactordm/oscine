@@ -71,6 +71,8 @@ export const library = {
   orderTrackIds: (query: OrderTrackIdsQuery) => unwrap(window.fermata.library.orderTrackIds(query)),
   getTracksByIds: (query: GetTracksByIdsQuery) =>
     unwrap(window.fermata.library.getTracksByIds(query)),
+  /** Catalog and neighbourhood relations for one track. Local index only. */
+  getRelated: (trackId: number) => unwrap(window.fermata.library.getRelated(trackId)),
   getTrackAudioMetadata: (trackId: number) =>
     unwrap(window.fermata.library.getTrackAudioMetadata(trackId)),
   getTrackFormatDetail: (trackId: number) =>

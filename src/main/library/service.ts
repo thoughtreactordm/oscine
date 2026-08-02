@@ -19,6 +19,7 @@ import type {
   TrackAudioMetadata,
   TrackFormatDetail
 } from '@shared/library'
+import type { RelatedQuery, RelatedResult } from '@shared/related'
 
 /**
  * Everything the IPC layer needs from the library, and nothing more.
@@ -55,6 +56,15 @@ export interface LibraryService {
   orderTrackIds(query: OrderTrackIdsQuery): Promise<number[]>
   /** Display rows for an id list the caller already ordered. */
   getTracksByIds(query: GetTracksByIdsQuery): Promise<Track[]>
+  /**
+   * Catalog and neighbourhood relations for one track (W7-5).
+   *
+   * `null` means the seed track is gone; a result with no sections means it is
+   * present and genuinely relates to nothing, which the pane renders
+   * differently. Local index only — this channel reaches no network, and in
+   * phase 1 there is none to reach.
+   */
+  getRelated(query: RelatedQuery): Promise<RelatedResult | null>
   /** Metadata-only lookup used by the renderer's pre-fetch R1 admission guard. */
   getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null>
   /**
