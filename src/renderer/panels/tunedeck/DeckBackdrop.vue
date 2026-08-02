@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { hasArtwork } from '@shared/ipc'
 import { useArtistImageStore } from '@renderer/stores/artistImage'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useTunedeckStore } from '@renderer/stores/tunedeck'
 
 /**
  * The picture the whole deck stands on — **D14**'s images, as a surface.
@@ -21,17 +22,32 @@ import { usePlaybackStore } from '@renderer/stores/playback'
  * began under the title rule would have the rule as its top edge, and an edge is
  * the thing that turns a surface back into a panel.
  *
- * ## Why it is on every tab
+ * ## Why it is on every tab, and quieter on three of them
  *
- * Because it is the deck's surface and not the artist tab's. Who is playing does
- * not stop being true when the operator looks at the sample rate, and a tint
- * that appeared and vanished as the tabs changed would read as four panels
- * rather than one with four views.
+ * It is on every tab because it is the deck's surface and not the artist tab's.
+ * Who is playing does not stop being true when the operator looks at the sample
+ * rate, and a tint that appeared and vanished as the tabs changed would read as
+ * four panels rather than one with four views.
  *
- * That is also why `BackdropCredit` sits in the deck's title bar rather than in
- * the artist strip, where it was while this was: Commons licences require the
+ * It is *fainter* on three of them because only one of them is about the person
+ * in the picture. On the artist tab the photograph is subject matter that
+ * happens to be rendered as a surface; on format, related and playing it is
+ * decoration behind a readout, and decoration that competes with a sample rate
+ * has misjudged which of the two the operator opened the tab for. Recessed keeps
+ * the deck feeling like one panel — the tint is still there, still the right
+ * colour — while giving the tab that earned the picture the stronger version.
+ *
+ * The predicate is the tab declaring a `header`, not a tab id. That is the same
+ * rule the shell uses to decide whether to render an identity strip at all, so
+ * "the tab that is about the artist" has one definition and the registry owns
+ * it.
+ *
+ * `BackdropCredit` sits in the deck's title bar rather than in the artist strip,
+ * where it was while this was scoped to one tab: Commons licences require the
  * credit wherever the work is shown, so a backdrop with panel scope needs a
- * credit with panel scope. The two are placed by the shell as a pair.
+ * credit with panel scope. The two are placed by the shell as a pair. Recessing
+ * changes how loud the picture is, never whether it is there, so it has no
+ * bearing on that.
  *
  * ## Why the fallback is blurred and the photograph is not
  *
@@ -45,8 +61,12 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 
 const images = useArtistImageStore()
 const playback = usePlaybackStore()
+const tunedeck = useTunedeckStore()
 
 const photo = computed(() => images.image)
+
+/** True on every tab that is not the one carrying the identity strip. */
+const recessed = computed(() => tunedeck.activeTab?.header === undefined)
 
 /** `large` rather than `small`: it is scaled well past its own size, and the blur hides it. */
 const cover = computed(() => {
@@ -68,7 +88,7 @@ const source = computed(() => photo.value?.large ?? cover.value)
       v-if="source"
       :key="source"
       class="deck-backdrop"
-      :class="photo ? 'deck-backdrop-photo' : 'deck-backdrop-cover'"
+      :class="[photo ? 'deck-backdrop-photo' : 'deck-backdrop-cover', { recessed }]"
       :style="{ backgroundImage: `url('${source}')` }"
       aria-hidden="true"
     />
@@ -113,6 +133,7 @@ const source = computed(() => photo.value?.large ?? cover.value)
    * the hue, so these are "opaque" and "clear" rather than colours.
    */
   mask-image: linear-gradient(to bottom, black 0%, black 33%, transparent 100%);
+  transition: opacity 260ms ease;
 }
 
 /*
@@ -138,7 +159,7 @@ const source = computed(() => photo.value?.large ?? cover.value)
  * photograph that survives being this faint.
  */
 .deck-backdrop-photo {
-  opacity: 0.42;
+  opacity: calc(0.42 * var(--deck-backdrop-strength, 1));
   filter: brightness(0.5) saturate(1.35);
 }
 
@@ -160,7 +181,27 @@ const source = computed(() => photo.value?.large ?? cover.value)
 .deck-backdrop-cover {
   filter: blur(var(--fermata-cover-blur)) saturate(2.2) brightness(0.55);
   transform: scale(1.4);
-  opacity: calc(var(--fermata-cover-bleed) * 1.1);
+  opacity: calc(var(--fermata-cover-bleed) * 1.1 * var(--deck-backdrop-strength, 1));
+}
+
+/*
+ * How loud the picture is away from the tab it belongs to.
+ *
+ * A multiplier on a custom property rather than a second pair of `opacity`
+ * declarations, and the reason is the dissolve above rather than tidiness. The
+ * enter and leave classes set `opacity: 0` at one class of specificity; a
+ * `.deck-backdrop-photo.recessed` override would sit at two and win, so a
+ * backdrop that changed while a non-artist tab was open would cut instead of
+ * fading. Setting an input to the existing `calc` leaves exactly one `opacity`
+ * declaration per variant, which is what keeps the transition able to beat it.
+ *
+ * The transition on the base class is for the tab change itself: recessing is a
+ * property of what the operator is looking at, and a tint that snapped between
+ * two strengths as they moved along the tab bar would draw attention to the one
+ * thing here that is meant not to.
+ */
+.recessed {
+  --deck-backdrop-strength: 0.38;
 }
 
 .deck-backdrop-enter-active,
