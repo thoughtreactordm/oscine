@@ -1,4 +1,4 @@
-import DeckIntroPane from './DeckIntroPane.vue'
+import UpNextPane from './UpNextPane.vue'
 import { createTunedeckRegistry } from './tunedeckPanes'
 
 /**
@@ -13,12 +13,17 @@ import { createTunedeckRegistry } from './tunedeckPanes'
  * whose only purpose is a side effect is an import a bundler is entitled to
  * drop. A pane that vanished from a production build and not a dev one would be
  * a bad afternoon.
+ *
+ * `DeckIntroPane` is gone, deleted rather than grown into: it existed to prove
+ * the seam with a component that imported nothing at all, and W7-1 said the
+ * first real pane should remove it. Adding this one changed this file and no
+ * other, which is what the seam was for.
  */
 export const tunedeckRegistry = createTunedeckRegistry([
   {
-    id: 'intro',
-    title: 'Deck',
-    icon: 'i-tabler-device-audio-tape',
-    component: DeckIntroPane
+    id: 'up-next',
+    title: 'Up next',
+    icon: 'i-tabler-playlist',
+    component: UpNextPane
   }
 ])

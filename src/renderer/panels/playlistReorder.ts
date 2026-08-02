@@ -13,30 +13,38 @@ import { ref } from 'vue'
 export type DropSide = 'before' | 'after'
 
 /**
- * The insertion point, expressed the way both reorder verbs read it.
+ * The insertion point, expressed the way every reorder verb here reads it.
  *
- * `PlaylistStore.reorder` and `playlists.moveOpen` splice the moved item out
- * first, so `toIndex` is an index into the list *without* it. Computing the
- * insertion point in the visible list and handing that over unadjusted is the
- * off-by-one this function exists to stop: it only bites when dragging towards
- * the end, so it survives casual testing.
+ * `PlaylistStore.reorder`, `playlists.moveOpen` and `UpNextQueue.move` all
+ * splice the moved item out first, so `toIndex` is an index into the list
+ * *without* it. Computing the insertion point in the visible list and handing
+ * that over unadjusted is the off-by-one this function exists to stop: it only
+ * bites when dragging towards the end, so it survives casual testing.
  *
  * `null` means the gesture is a no-op — dropped on itself, or dropped into the
  * gap it already occupies, which is what "after my previous neighbour" is.
+ *
+ * Takes indices rather than ids because the up-next pane already knows both —
+ * its rows are built from the array this indexes — and `dragover` fires
+ * continuously, so a variant that searched an id array per event would search a
+ * few thousand session rows twice a frame for an answer the caller had.
  */
+export function insertionIndex(from: number, target: number, side: DropSide): number | null {
+  if (from === -1 || target === -1) return null
+
+  const insertAt = side === 'before' ? target : target + 1
+  const toIndex = insertAt - (from < insertAt ? 1 : 0)
+  return toIndex === from ? null : toIndex
+}
+
+/** `insertionIndex` for a list the caller identifies by id rather than by position. */
 export function destinationIndex(
   order: readonly number[],
   draggedId: number,
   targetId: number,
   side: DropSide
 ): number | null {
-  const from = order.indexOf(draggedId)
-  const target = order.indexOf(targetId)
-  if (from === -1 || target === -1) return null
-
-  const insertAt = side === 'before' ? target : target + 1
-  const toIndex = insertAt - (from < insertAt ? 1 : 0)
-  return toIndex === from ? null : toIndex
+  return insertionIndex(order.indexOf(draggedId), order.indexOf(targetId), side)
 }
 
 /**

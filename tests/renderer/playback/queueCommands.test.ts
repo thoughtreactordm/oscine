@@ -61,6 +61,7 @@ function harness(options: { chunkSize?: number; missing?: number[] } = {}) {
       enqueue: queue.enqueue,
       enqueueNext: queue.enqueueNext,
       remove: queue.remove,
+      move: queue.move,
       clearUser: queue.clearUser,
       clear: queue.clear,
       play: (entryId) => {
@@ -161,6 +162,22 @@ describe('queue commands', () => {
 
     commands.clear()
     expect(queue.count.value).toBe(0)
+  })
+
+  it('reorders through the queue, so the tier clamp is not reimplemented above it', async () => {
+    const { commands, queue } = harness()
+
+    await commands.addToQueue(queueIds([1, 2, 3]))
+    queue.fillSession([{ track: track(9), orderIndex: 0 }])
+
+    commands.move(queue.entries.value[0]!.id, 2)
+    expect(titles(queue)).toEqual(['Song 2', 'Song 3', 'Song 1', 'Song 9'])
+
+    // Past the boundary, and clamped back inside it by the queue rather than by
+    // the caller — W7-2's pane refuses the gesture, and this is what it would
+    // otherwise be relying on.
+    commands.move(queue.entries.value[0]!.id, 3)
+    expect(titles(queue)).toEqual(['Song 3', 'Song 1', 'Song 2', 'Song 9'])
   })
 })
 

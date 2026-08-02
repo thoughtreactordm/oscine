@@ -45,6 +45,8 @@ export interface QueueCommandsQueue {
   enqueue: (tracks: readonly Track[]) => unknown
   enqueueNext: (tracks: readonly Track[]) => unknown
   remove: (entryId: string) => unknown
+  /** Moves one row within its own tier. `toIndex` indexes the queue as a whole. */
+  move: (entryId: string, toIndex: number) => unknown
   /** Clears the hand-queued rows only. See `clearUser` below. */
   clearUser: () => unknown
   clear: () => unknown
@@ -105,6 +107,15 @@ export function createQueueCommands(deps: QueueCommandsDeps) {
     /** Appends, after everything already queued. */
     addToQueue: (target: QueueTarget): Promise<number> => add(target, false),
     remove: (entryId: string): void => void deps.queue.remove(entryId),
+    /**
+     * Reorder, added by W7-2's pane and put here rather than in it.
+     *
+     * The overlay has no reorder gesture and the pane does, but the verb is
+     * still the queue's rather than either surface's: `move` clamps to the
+     * mover's tier, and a second call site that reimplemented that clamp is
+     * exactly the drift this module exists to prevent.
+     */
+    move: (entryId: string, toIndex: number): void => void deps.queue.move(entryId, toIndex),
     /**
      * Clears what the operator put there, and only that.
      *

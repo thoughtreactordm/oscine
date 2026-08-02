@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTKWGS08GKKM5P6HR53HFMK
 title: Tunedeck shell — drawer host and panel island
-status: todo
+status: in-review
 priority: high
 labels:
   - M5
@@ -9,9 +9,9 @@ labels:
   - ui
 workstream: W7
 workstreamId: W7-1
-order: 6
+order: 0
 created: '2026-07-30T22:56:24.351Z'
-updated: '2026-07-30T22:56:24.351Z'
+updated: '2026-08-02T13:42:55.077Z'
 ---
 ## Scope
 
