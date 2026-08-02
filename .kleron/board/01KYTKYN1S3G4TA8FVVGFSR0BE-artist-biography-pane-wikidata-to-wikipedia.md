@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTKYN1S3G4TA8FVVGFSR0BE
 title: Artist biography pane — Wikidata to Wikipedia
-status: todo
+status: in-review
 priority: medium
 labels:
   - M7
@@ -13,7 +13,7 @@ dependsOn:
   - 01KYTKYEBY8CPQ08PBS15WGN9R
 order: 15
 created: '2026-07-30T22:57:34.264Z'
-updated: '2026-07-30T22:57:34.264Z'
+updated: '2026-08-02T22:01:13.872Z'
 ---
 ## Scope
 
