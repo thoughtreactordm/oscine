@@ -332,7 +332,7 @@ describe('the library intersection', () => {
     const result = intersectRelations(
       1,
       [
-        relation({ kind: 'other', mbid: DAVE, name: 'Aardvark' }),
+        relation({ kind: 'alias', mbid: DAVE, name: 'Aardvark' }),
         relation({ kind: 'member', mbid: NIRVANA, name: 'Zeb', ended: true }),
         relation({ kind: 'member', mbid: KURT, name: 'Wendy' }),
         relation({ kind: 'member', mbid: KRIST, name: 'Krist Novoselic' })
@@ -342,7 +342,7 @@ describe('the library intersection', () => {
 
     expect(result.relations.map((entry) => entry.name)).toEqual([
       // Owned first inside the current members, then the unowned one, then the
-      // former member, and the `other` bucket last.
+      // former member, and the kind furthest from a line-up last.
       'Krist Novoselic',
       'Wendy',
       'Zeb',

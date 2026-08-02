@@ -60,18 +60,18 @@ export interface ArtistRelationsServiceOptions {
 /**
  * The order the kinds are drawn in, and therefore the order truncation keeps.
  *
- * Membership first because it is the question the pane is opened for, and the
- * two directions adjacent because they are one relationship. `other` last
- * because it is the bucket, and a bucket that can push a side project off the
- * end of a truncated list is a bucket in the wrong place.
+ * Membership first because it is the question the pane is opened for — it is
+ * what the group is named after — and the two directions adjacent because they
+ * are one relationship. The rest descend by how far they are from that
+ * question: a side project is a band by another name, a collaboration is a
+ * looser one, and an alias is not another act at all.
  */
 const KIND_ORDER: Readonly<Record<ArtistRelationKind, number>> = {
   member: 0,
   group: 1,
   'side-project': 2,
   collaboration: 3,
-  alias: 4,
-  other: 5
+  alias: 4
 }
 
 /**

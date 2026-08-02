@@ -40,12 +40,15 @@ export type RelationSection = `${ArtistRelationKind}:${'current' | 'ended'}`
  * reason: the rows under it are bands, and a heading that describes the
  * *relationship* leaves the operator parsing a verb before they can read a name.
  *
- * `other` has no ended form worth naming — a sibling who is no longer a sibling
- * is not a thing — so both of its tenses land on one label and the section
- * splitting simply produces one of them.
+ * "Current line-up" and not "Members", which is what it said first. The deck
+ * group is itself called Members, and a section heading repeating its parent
+ * verbatim — same word, same icon, a count beside each — reads as a rendering
+ * bug rather than as structure. Observed in the built app, and the fix belongs
+ * here rather than in a rule about suppressing a header that matches its group:
+ * the two headings are answering different questions and should say so.
  */
 const SECTION_LABELS: Readonly<Record<RelationSection, string>> = {
-  'member:current': 'Members',
+  'member:current': 'Current line-up',
   'member:ended': 'Former members',
   'group:current': 'Bands and groups',
   'group:ended': 'Former bands',
@@ -54,9 +57,7 @@ const SECTION_LABELS: Readonly<Record<RelationSection, string>> = {
   'collaboration:current': 'Collaborations',
   'collaboration:ended': 'Past collaborations',
   'alias:current': 'Also known as',
-  'alias:ended': 'Formerly known as',
-  'other:current': 'Other connections',
-  'other:ended': 'Other connections'
+  'alias:ended': 'Formerly known as'
 }
 
 const SECTION_ICONS: Readonly<Record<ArtistRelationKind, string>> = {
@@ -64,8 +65,7 @@ const SECTION_ICONS: Readonly<Record<ArtistRelationKind, string>> = {
   group: 'i-tabler-microphone-2',
   'side-project': 'i-tabler-git-branch',
   collaboration: 'i-tabler-arrows-join',
-  alias: 'i-tabler-mask',
-  other: 'i-tabler-link'
+  alias: 'i-tabler-mask'
 }
 
 export type RelationRow =
@@ -91,8 +91,6 @@ export type RelationRow =
     }
 
 function sectionOf(relation: ArtistRelation): RelationSection {
-  // `other` is never drawn as a past tense — see the note on `SECTION_LABELS`.
-  if (relation.kind === 'other') return 'other:current'
   return `${relation.kind}:${relation.ended ? 'ended' : 'current'}`
 }
 
@@ -123,16 +121,15 @@ export function relationYears(relation: ArtistRelation): string | null {
 }
 
 /**
- * The second column: what kind of connection this is, and when.
+ * The second column: what this artist did, and when.
  *
- * MusicBrainz's own relationship type leads for `other` rows and only for them.
- * Everywhere else the heading has already said it, and repeating "member of
- * band" on every row of a section called Members is noise in the one column that
- * has room for something else — the instruments.
+ * Never the relationship type. The heading above the row has already said that,
+ * and repeating "member of band" on every row of a section called Members is
+ * noise in the one column that has room for the thing the heading cannot say —
+ * which instrument they played.
  */
 export function relationDetail(relation: ArtistRelation): string | null {
   const parts: string[] = []
-  if (relation.kind === 'other') parts.push(relation.type)
   if (relation.attributes.length > 0) parts.push(relation.attributes.join(', '))
   else if (relation.disambiguation) parts.push(relation.disambiguation)
 

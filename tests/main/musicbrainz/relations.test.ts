@@ -71,11 +71,12 @@ describe('relationKind', () => {
     expect(relationKind('legal name', 'backward')).toBe('alias')
   })
 
-  it('keeps an unmapped type rather than dropping it', () => {
-    // The point of `other`: a relationship type MusicBrainz adds next year shows
-    // up as itself instead of disappearing.
-    expect(relationKind('sibling', 'forward')).toBe('other')
-    expect(relationKind('teacher', null)).toBe('other')
+  it('declines a type the pane has no heading for', () => {
+    // MusicBrainz records `sibling`, `teacher`, `married` and thirty more. Every
+    // one is a fact about two people rather than about their music, and the pane
+    // is a 380px column that has better things to spend a row on.
+    expect(relationKind('sibling', 'forward')).toBeNull()
+    expect(relationKind('teacher', null)).toBeNull()
   })
 })
 
@@ -107,6 +108,16 @@ describe('parseArtistRelations', () => {
     )
 
     expect(parsed).toHaveLength(1)
+  })
+
+  it('drops a relation whose type the pane does not draw', () => {
+    // Dropped at the parse rather than filtered later, so nothing downstream
+    // has to know the vocabulary a second time.
+    const parsed = parseArtistRelations(
+      document(member(), member({ type: 'sibling', artist: { id: DAVE, name: 'A Sibling' } }))
+    )
+
+    expect(parsed.map((relation) => relation.name)).toEqual(['Kurt Cobain'])
   })
 
   it('drops a relation with no usable identifier or name', () => {

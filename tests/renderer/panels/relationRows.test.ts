@@ -82,11 +82,11 @@ describe('relationDetail', () => {
     expect(relationDetail(relation({ disambiguation: 'US drummer' }))).toBe('US drummer')
   })
 
-  it("names MusicBrainz's own relationship type, and only on an `other` row", () => {
+  it("never names MusicBrainz's own relationship type", () => {
     // The heading has already said "Members"; repeating "member of band" on
     // every row under it spends the one column that could hold the instruments.
-    expect(relationDetail(relation({ kind: 'other', type: 'sibling' }))).toBe('sibling')
-    expect(relationDetail(relation({ kind: 'member' }))).toBeNull()
+    expect(relationDetail(relation({ type: 'member of band' }))).toBeNull()
+    expect(relationDetail(relation({ kind: 'alias', type: 'is person' }))).toBeNull()
   })
 })
 
@@ -132,7 +132,7 @@ describe('buildRelationRows', () => {
     )
 
     expect(rows.map((row) => (row.kind === 'header' ? row.label : row.relation.name))).toEqual([
-      'Members',
+      'Current line-up',
       'Krist Novoselic',
       'Former members',
       'Chad Channing'
@@ -152,15 +152,15 @@ describe('buildRelationRows', () => {
     // rows: section boundaries are read off the sequence, never computed.
     const rows = buildRelationRows(
       ready(
-        relation({ kind: 'other', type: 'sibling', name: 'Zeb' }),
+        relation({ kind: 'alias', type: 'is person', name: 'Zeb' }),
         relation({ kind: 'member', mbid: DAVE, name: 'Aaron' })
       )
     )
 
     expect(rows.map((row) => (row.kind === 'header' ? row.label : row.relation.name))).toEqual([
-      'Other connections',
+      'Also known as',
       'Zeb',
-      'Members',
+      'Current line-up',
       'Aaron'
     ])
   })

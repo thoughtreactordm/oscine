@@ -105,11 +105,18 @@ export const tunedeckRegistry = createTunedeckRegistry([
       // could not say. The badge counts what you *own* rather than what
       // MusicBrainz knows, which is the only number worth putting on a shut
       // group here — see `countOwnedRelations`.
+      //
+      // "Members" rather than "Connections", which is what it was called first.
+      // The generic word was accurate and told an operator nothing: the group
+      // leads with a line-up, the sections under it are all bands by another
+      // name, and the id stays `artist-relations` because that is still what the
+      // data is. A heading names what you are about to read, not the shape of
+      // the query behind it.
       {
         id: 'artist-relations',
-        title: 'Connections',
-        icon: 'i-tabler-affiliate',
-        hint: 'Members, bands, side projects and collaborations from MusicBrainz, matched against your library. Double-click an artist you own to open them. A match made on the name alone is marked, because two artists can share one.',
+        title: 'Members',
+        icon: 'i-tabler-users',
+        hint: 'Line-ups, bands, side projects and collaborations from MusicBrainz, matched against your library. Double-click an artist you own to open them. A match made on the name alone is marked, because two artists can share one.',
         badge: () => countOwnedRelations(useArtistRelationsStore().result),
         component: RelationsPane
       },

@@ -62,10 +62,14 @@ function asString(value: unknown): string | null {
  * bands; one entry with one kind would put a drummer under a heading that says
  * "Members" on the drummer's own page.
  *
- * Deliberately short. Every type absent from here is an `other` row carrying
- * MusicBrainz's own wording, which is a better outcome than a mapping table
- * nobody maintains — a relationship type added to MusicBrainz next year shows up
- * as itself rather than as nothing.
+ * Deliberately short, and closed: a relationship type absent from here is
+ * dropped rather than bucketed. MusicBrainz records `sibling`, `teacher`,
+ * `married`, `named after` and thirty more, and every one of them is a fact
+ * about two people rather than about their music — a pane listing them spends
+ * the operator's attention on the least useful thing the service knows. The cost
+ * of the table being closed is that a genuinely musical relationship type added
+ * to MusicBrainz next year needs a line here; that is a line, and it is worth
+ * paying for a pane that does not fill with trivia in the meantime.
  */
 const KIND_BY_TYPE: Readonly<
   Record<string, { readonly forward: ArtistRelationKind; readonly backward: ArtistRelationKind }>
@@ -87,16 +91,17 @@ const KIND_BY_TYPE: Readonly<
 }
 
 /**
- * Which of the six a relationship type and direction is.
+ * Which of the five a relationship type and direction is, or `null` for one the
+ * pane does not draw.
  *
  * Exported because it is the part of this file worth testing on its own: the
  * direction handling is the subtle half, and a test that has to build a whole
  * MusicBrainz document to assert that a drummer's band lands under `group` is a
  * test about JSON.
  */
-export function relationKind(type: string, direction: string | null): ArtistRelationKind {
+export function relationKind(type: string, direction: string | null): ArtistRelationKind | null {
   const mapped = KIND_BY_TYPE[type.toLowerCase()]
-  if (!mapped) return 'other'
+  if (!mapped) return null
   return direction === 'backward' ? mapped.backward : mapped.forward
 }
 
@@ -186,8 +191,13 @@ export function parseArtistRelations(body: unknown): ParsedRelation[] {
     const type = asString(record.type)
     if (!type) continue
 
+    // A relationship type the pane has no heading for. Dropped here rather than
+    // filtered later, so nothing downstream has to know the vocabulary twice.
+    const kind = relationKind(type, asString(record.direction))
+    if (kind === null) continue
+
     relations.push({
-      kind: relationKind(type, asString(record.direction)),
+      kind,
       type,
       mbid,
       name,

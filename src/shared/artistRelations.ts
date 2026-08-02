@@ -19,12 +19,14 @@ import type { NetFailure } from './net'
 /**
  * The shapes a connection comes in, as the pane groups them.
  *
- * Six and not MusicBrainz's forty, because a deck pane is a column 380px wide
- * and a heading per relationship type is a taxonomy rather than an answer. The
- * five the card names map onto the first five; everything MusicBrainz knows that
- * these do not cover lands in `other`, which is *kept* rather than dropped —
- * `type` carries MusicBrainz's own words for it, so an "is the sibling of" row
- * reads as itself instead of being silently thrown away.
+ * Five and not MusicBrainz's forty, and the five are exactly the ones the card
+ * names. A deck pane is a column 380px wide; a heading per relationship type is
+ * a taxonomy rather than an answer, and there is no catch-all bucket underneath
+ * them — a `sibling` or a `teacher` relation is a fact about two people rather
+ * than about their music, and a pane that listed it would be spending the
+ * operator's attention on the least useful thing MusicBrainz knows. Everything
+ * outside these five is dropped at the parse, which is why `relationKind`
+ * answers `null` rather than falling back.
  *
  * Direction is baked in where it changes the noun. `member` and `group` are the
  * same MusicBrainz relationship seen from its two ends, and they have to be
@@ -41,9 +43,7 @@ export const ARTIST_RELATION_KINDS = [
   /** A one-off or standing joint act, and the artists in it. */
   'collaboration',
   /** The person behind a performing name, or the name in front of a person. */
-  'alias',
-  /** Everything else MusicBrainz records. Labelled with `type`, never hidden. */
-  'other'
+  'alias'
 ] as const
 
 export type ArtistRelationKind = (typeof ARTIST_RELATION_KINDS)[number]
@@ -94,9 +94,11 @@ export interface ArtistRelation {
    * MusicBrainz's own relationship type, verbatim — `member of band`,
    * `subgroup`, `is person`.
    *
-   * Kept for every kind and not only for `other`, because it is the only honest
-   * label an `other` row can carry and because a mapping bug is much easier to
-   * see when the thing that was mapped is still on the row.
+   * Not drawn anywhere: the heading above a row has already said what kind of
+   * connection it is. It is carried because a mapping bug is much easier to see
+   * when the thing that was mapped is still on the row, and because a relation
+   * that reaches the renderer under the wrong heading is otherwise
+   * indistinguishable from one MusicBrainz filed wrongly.
    */
   type: string
   /** The artist at the other end. Always present: relations without one are dropped. */
