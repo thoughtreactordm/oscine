@@ -22,6 +22,7 @@ import {
   defineSetting,
   recordValue,
   rejectValue,
+  stringValue,
   type SettingDescriptor,
   type SettingValidator
 } from './kernel'
@@ -190,6 +191,51 @@ export const VIEW_SETTINGS: readonly SettingDescriptor[] = [
     category: 'interface',
     label: 'Tunedeck open',
     help: 'Whether the Tunedeck is showing beside the library on this machine.',
+    internal: true
+  }),
+
+  /**
+   * Which Tunedeck tab is showing, and which group is open inside each.
+   *
+   * Two keys rather than one object, because they change on different gestures
+   * and the write debounce coalesces per key: clicking through four tabs should
+   * not keep rewriting a record of open groups that did not move.
+   *
+   * Both validate *shape* and not membership, per the note at the top of this
+   * file. Whether `'artist'` names a tab this build still has is a question only
+   * the deck's registry can answer, and it answers it at the point of use —
+   * `resolveTabId` and `resolveGroupId` fall forward to the first entry rather
+   * than stranding the operator on a blank panel. A validator that rejected
+   * unknown ids here would instead discard the setting of anyone switching
+   * between branches that name their groups differently, which is exactly what
+   * the per-key storage above exists to prevent.
+   *
+   * The tab default is empty and resolved on read for the same reason the pane
+   * sizes are: naming a default tab here would restate `panes.ts`'s ordering in
+   * a second place that can disagree with it.
+   */
+  defineSetting<string>({
+    key: 'view.tunedeckTab',
+    scope: 'view',
+    default: '',
+    validate: stringValue({ maxLength: 64, allowEmpty: true }),
+    category: 'interface',
+    label: 'Tunedeck tab',
+    help: 'Which Tunedeck tab was last showing on this machine.',
+    internal: true
+  }),
+
+  defineSetting<Record<string, string>>({
+    key: 'view.tunedeckGroups',
+    scope: 'view',
+    default: {},
+    // Per tab, so that returning to a tab returns to what you left open in it.
+    // A dropped entry costs that tab its first group, which is the same place a
+    // tab opened for the first time starts.
+    validate: recordValue(stringValue({ maxLength: 64 })),
+    category: 'interface',
+    label: 'Tunedeck groups',
+    help: 'Which group was last open in each Tunedeck tab on this machine.',
     internal: true
   }),
 

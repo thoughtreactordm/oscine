@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { RelatedStrand } from '@shared/related'
 import { visibleRange } from '@renderer/panels/listViewport'
 import { buildRelatedRows, type RelatedRow } from '@renderer/panels/tunedeck/relatedRows'
@@ -7,38 +7,38 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import { useRelatedStore } from '@renderer/stores/related'
 
 /**
- * What else in the library connects to what is playing (W7-5).
+ * A virtualized list over some of what the library connects to the current
+ * track (W7-5).
  *
- * The deck's third dimension. Up-next says what happens next, the trail says
- * what already did, and this says what the current track sits *among* — which
- * is the axis that turns a player into a way of getting back into a library you
- * stopped being able to hold in your head.
+ * Not a deck group itself — the three groups that show relations are thin
+ * components that each name a strand set and delegate here. That indirection
+ * exists because "more by this artist" now lives under the Artist tab while
+ * "same genre" lives under Related, and the alternative to one shared list was
+ * three copies of the same virtualization, the same four states and the same
+ * enqueue-not-jump rule, drifting apart at their own pace.
  *
- * ## Two halves, and the pane says which is which
+ * ## One query, three readers
  *
- * The catalog strands are derived from identity: this album, this artist's
- * records, the compilations they turn up on. The neighbourhood strands are
- * derived from coincidence — a shared genre string, a shared year, a shared
- * parent folder — and any of the three can be an accident of how the files were
- * tagged or downloaded. They appear under their own heading, below, with the
- * reason stated once. Ranking them into a single list would have implied a
- * confidence the weaker half has not earned.
- *
- * ## Local only
- *
- * Nothing here reaches the network, and in phase 1 there is nothing to reach.
- * The MusicBrainz artist-relations pane is a different notion of "related" —
- * a claim about the world rather than about these files — and it lands in M7 on
- * its own channel.
+ * The store holds one `RelatedResult` for one seed and this filters it. Nothing
+ * here asks for the seed — `useDeckData` keeps it in step with the transport
+ * for the whole deck, because the badge on a shut group has to be right before
+ * anyone opens it. This component is a pure reader of what is already there.
  *
  * ## Queueing, not jumping
  *
  * Double-click adds to the end of the up-next queue rather than playing. This
  * is a browsing surface: the operator is reading it *while* something plays,
  * and a pane where a stray double-click cuts off the current track is one they
- * will stop opening. Enqueueing is the non-destructive verb, and the footnote
- * says so before anyone has to find out.
+ * will stop opening. Enqueueing is the non-destructive verb, and it is said on
+ * the group header's tooltip rather than in a standing footnote under the list.
  */
+
+const props = defineProps<{
+  /** Which of the six strands this list draws. Order comes from the result. */
+  strands: readonly RelatedStrand[]
+  /** What to say when the query answered, and answered with nothing. */
+  empty: string
+}>()
 
 const playback = usePlaybackStore()
 const related = useRelatedStore()
@@ -61,27 +61,15 @@ const STRAND_ICONS: Record<RelatedStrand, string> = {
   folder: 'i-tabler-folder'
 }
 
-/**
- * The seed follows the transport.
- *
- * `immediate`, because the deck is opened mid-track far more often than it is
- * open at the moment one starts — without it the pane would be blank until the
- * next track change, which reads as broken rather than as loading.
- */
-watch(
-  () => playback.nowPlaying?.id ?? null,
-  (trackId) => void related.load(trackId),
-  { immediate: true }
-)
-
 onMounted(() => {
-  // The watcher above covers the seed, but not the case where the pane is
-  // remounted while the same track is still playing and a previous mount's
-  // query failed. Cheap, and it makes a transient failure self-healing.
+  // `useDeckData` covers the seed, but not the case where a group is opened —
+  // which is a mount, under a strict accordion — while the same track is still
+  // playing and an earlier query for it failed. Cheap, and it makes a transient
+  // failure self-healing on the next click rather than on the next track.
   if (related.failed) void related.refresh()
 })
 
-const rows = computed(() => buildRelatedRows(related.result))
+const rows = computed(() => buildRelatedRows(related.result, props.strands))
 
 const visible = computed(() =>
   visibleRange({
@@ -144,17 +132,17 @@ function rowTitle(row: RelatedRow): string {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-1.5">
+  <div class="flex h-full min-h-0 flex-col">
     <!--
       Virtualized from the first commit, per the standing invariant. Every row
-      kind — heading, divider, track, album — is `ROW_PX` tall, which is what
-      keeps `visibleRange` arithmetic instead of a measurement pass. See
+      kind — heading, track, album — is `ROW_PX` tall, which is what keeps
+      `visibleRange` arithmetic instead of a measurement pass. See
       `relatedRows.ts` for why the sections are one flat list.
     -->
     <div
       v-if="rows.length > 0"
       :ref="measure"
-      class="max-h-112 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
       @scroll.passive="onScroll"
     >
       <div :style="{ height: `${visible.topPx}px` }" aria-hidden="true" />
@@ -174,14 +162,7 @@ function rowTitle(row: RelatedRow): string {
           @dblclick="activate(row)"
           @keydown.enter="activate(row)"
         >
-          <!-- The caveat for the weaker half, stated once rather than per section. -->
-          <template v-if="row.kind === 'group'">
-            <span class="flex-1 border-t border-default pt-1 text-xs text-dimmed">
-              {{ row.label }} — {{ row.hint }}
-            </span>
-          </template>
-
-          <template v-else-if="row.kind === 'header'">
+          <template v-if="row.kind === 'header'">
             <UIcon
               :name="STRAND_ICONS[row.strand]"
               class="size-3.5 shrink-0 text-dimmed"
@@ -233,9 +214,11 @@ function rowTitle(row: RelatedRow): string {
       query is still running", "the query failed" and "the library genuinely
       holds nothing related" are different facts, and collapsing them into one
       grey sentence is exactly the pane-that-looks-broken the card rules out.
+      These are the pane's only content when they show, so they are not the
+      helper text the tooltips replaced — they are the answer.
     -->
     <p v-else-if="related.seedId === null" class="px-1 py-4 text-center text-xs text-muted">
-      Nothing playing. This pane follows the current track.
+      Nothing playing. This follows the current track.
     </p>
 
     <div v-else-if="related.failed" class="flex flex-col items-center gap-2 px-1 py-4">
@@ -251,14 +234,6 @@ function rowTitle(row: RelatedRow): string {
 
     <p v-else-if="related.loading" class="px-1 py-4 text-center text-xs text-dimmed">Looking…</p>
 
-    <p v-else class="px-1 py-4 text-center text-xs text-muted">
-      Nothing in the library connects to this track — no other tracks on its album, nothing else by
-      its artist, and no shared genre, year or folder.
-    </p>
-
-    <!-- Which verb this is, before anyone finds out by clicking. -->
-    <p v-if="rows.length > 0" class="shrink-0 text-xs text-dimmed">
-      Double-click to add to the end of the queue. Nothing here interrupts what is playing.
-    </p>
+    <p v-else class="px-1 py-4 text-center text-xs text-muted">{{ empty }}</p>
   </div>
 </template>

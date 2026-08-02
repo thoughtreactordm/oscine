@@ -170,34 +170,14 @@ function indicatorFor(row: UpNextRow): DropSide | null {
 
 <template>
   <!--
-    `h-full` is what makes the pane fill a host that has a height and stop
-    growing at `max-h-112` in one that does not. The deck stacks it in a section
-    sized by its content, so the ceiling is what bounds it there; the popover
-    gives it a definite height, and without this the scroller would take its
-    full 448 inside a 332px box and clip the footnote off the bottom — which is
-    the one line rule 5 has.
+    `h-full` is what makes the pane fill the host it is given. Both hosts now
+    give it a definite height — the popover a fixed one, the deck's accordion
+    the whole of what the shut groups leave — so the `max-h-112` ceiling that
+    used to sit on the scroller is gone. It was there for the old deck, which
+    stacked every pane in a column sized by its content; under the accordion it
+    stopped being a safety net and became a 448px cap with dead space under it.
   -->
   <div class="flex h-full min-h-0 flex-col gap-1.5">
-    <div v-if="playback.queuedCount > 0" class="flex shrink-0 items-center gap-2">
-      <span class="text-xs tabular-nums text-muted">
-        {{ playback.queuedCount.toLocaleString() }} queued
-      </span>
-      <!--
-        Clears the hand-queued rows and not the scope. The session tier is not
-        the operator's to lose — it comes back on the next click, so a Clear
-        that wiped it would be a button that undoes nothing it did.
-      -->
-      <UButton
-        v-if="playback.queuedUserCount > 0"
-        label="Clear"
-        size="xs"
-        color="neutral"
-        variant="ghost"
-        class="ml-auto"
-        @click="commands.clearUser()"
-      />
-    </div>
-
     <!--
       §5 rule 7, said out loud. Repeat-one overrides everything including the
       queue, and the only symptom without this line is a queue that sits there
@@ -220,7 +200,7 @@ function indicatorFor(row: UpNextRow): DropSide | null {
     <div
       v-if="rows.length > 0"
       :ref="measure"
-      class="max-h-112 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
       @scroll.passive="onScroll"
       @dragend="reorder.end()"
     >
@@ -324,18 +304,16 @@ function indicatorFor(row: UpNextRow): DropSide | null {
       <div :style="{ height: `${visible.bottomPx}px` }" aria-hidden="true" />
     </div>
 
+    <!--
+      The empty state stays prose, because when it shows it *is* the pane —
+      it is the answer, not a caption on one. §5 rule 5 (the queue does not
+      survive a quit) used to be a standing line under the list here; it is now
+      the tooltip on the deck's "Up next" header, which is where a fact about
+      the feature belongs rather than under every row of it.
+    -->
     <p v-else class="px-1 py-4 text-center text-xs text-muted">
       Nothing queued. Use <span class="text-default">Play next</span> or
       <span class="text-default">Add to queue</span> on any selection.
-    </p>
-
-    <!--
-      §5 rule 5, which is a decision and not an omission: playlists persist and
-      the queue does not. Said here because it is otherwise indistinguishable
-      from a bug, and only when there is something to lose.
-    -->
-    <p v-if="playback.queuedCount > 0" class="shrink-0 text-xs text-dimmed">
-      The queue empties when Fermata quits.
     </p>
   </div>
 </template>

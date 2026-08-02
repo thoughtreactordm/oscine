@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { PLAY_HISTORY_CAP } from '@shared/history'
 import { visibleRange } from '@renderer/panels/listViewport'
 import { buildTrailRows, type TrailRow } from '@renderer/panels/tunedeck/playTrail'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -117,25 +116,6 @@ function rowLabel(row: TrailRow): string {
 
 <template>
   <div class="flex h-full min-h-0 flex-col gap-1.5">
-    <div v-if="rows.length > 0" class="flex shrink-0 items-center gap-2">
-      <span class="text-xs tabular-nums text-muted">
-        {{ trail.entries.length.toLocaleString() }} played
-      </span>
-      <!--
-        A record of what someone listened to is theirs to drop. Nothing else in
-        the app reads this table, so erasing it costs no other feature anything
-        — which is also the argument for it being out of D11's bundle.
-      -->
-      <UButton
-        label="Clear"
-        size="xs"
-        color="neutral"
-        variant="ghost"
-        class="ml-auto"
-        @click="trail.clear()"
-      />
-    </div>
-
     <!--
       Virtualized from the first commit, per the standing invariant. The trail
       is in memory and bounded by `PLAY_HISTORY_CAP`, so — as with the up-next
@@ -144,7 +124,7 @@ function rowLabel(row: TrailRow): string {
     <div
       v-if="rows.length > 0"
       :ref="measure"
-      class="max-h-112 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
       @scroll.passive="onScroll"
     >
       <div :style="{ height: `${visible.topPx}px` }" aria-hidden="true" />
@@ -200,18 +180,15 @@ function rowLabel(row: TrailRow): string {
       <div :style="{ height: `${visible.bottomPx}px` }" aria-hidden="true" />
     </div>
 
+    <!--
+      The empty state stays prose: when it shows it is the pane's whole content,
+      not a caption on it. Which of the two readings of "go back" a double-click
+      is — it cuts in, then playback resumes where it was — moved to the tooltip
+      on the deck's "Trail" header. It is a fact about the gesture, and it was
+      being restated under the list on every render.
+    -->
     <p v-else class="px-1 py-4 text-center text-xs text-muted">
       Nothing played yet. Everything you play lands here, newest first.
-    </p>
-
-    <!--
-      Which of the two readings of "go back" this is. An operator holding a
-      queue they have spent ten minutes on should not have to click to find out
-      whether jumping back keeps it.
-    -->
-    <p v-if="rows.length > 1" class="shrink-0 text-xs text-dimmed">
-      Double-click to play a track again — it cuts in, then playback resumes where it was. The last
-      {{ PLAY_HISTORY_CAP.toLocaleString() }} plays are kept.
     </p>
   </div>
 </template>

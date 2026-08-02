@@ -7,13 +7,20 @@ import {
 import { SIDEBAR_PANE } from '../../../src/renderer/shell/shellLayout'
 import {
   createTunedeckRegistry,
+  resolveGroupId,
+  resolveTabId,
+  TUNEDECK_GROUPS_KEY,
+  TUNEDECK_OPEN_KEY,
   TUNEDECK_PANE,
-  type TunedeckPane
+  TUNEDECK_TAB_KEY,
+  type TunedeckGroup,
+  type TunedeckTab
 } from '../../../src/renderer/panels/tunedeck/tunedeckPanes'
+import { settingsInScope } from '../../../src/shared/settings'
 
 /**
- * The registry's rules and the deck's bounds — the two parts of W7-1 that can
- * be wrong without a DOM.
+ * The registry's rules, the tab and group resolvers, and the deck's bounds —
+ * the parts of W7-1 that can be wrong without a DOM.
  *
  * Nothing here imports a `.vue` file, and it cannot: Vitest runs under plain
  * Node with no Vue plugin. That constraint is why `tunedeckPanes.ts` and
@@ -21,47 +28,157 @@ import {
  * side is what stops them being merged back later.
  */
 
-/** A pane whose component is a stand-in — the registry never renders one. */
-function pane(id: string, title = id): TunedeckPane {
+/** A group whose component is a stand-in — the registry never renders one. */
+function group(id: string, title = id): TunedeckGroup {
   return { id, title, icon: 'i-tabler-circle', component: {} }
 }
 
-describe('the pane registry', () => {
+function tab(id: string, groups: readonly TunedeckGroup[] = [group(`${id}-only`)]): TunedeckTab {
+  return { id, title: id, icon: 'i-tabler-circle', groups }
+}
+
+describe('the tab registry', () => {
   it('keeps the order it was given', () => {
-    // The deck stacks them top to bottom, so the list is the arrangement. A
+    // The deck shows them left to right, so the list is the arrangement. A
     // registry that sorted by id would be inventing one.
-    const registry = createTunedeckRegistry([pane('queue'), pane('signal'), pane('history')])
-    expect(registry.panes.map((entry) => entry.id)).toEqual(['queue', 'signal', 'history'])
+    const registry = createTunedeckRegistry([tab('artist'), tab('track'), tab('playing')])
+    expect(registry.tabs.map((entry) => entry.id)).toEqual(['artist', 'track', 'playing'])
   })
 
-  it('finds a pane by id', () => {
-    const registry = createTunedeckRegistry([pane('queue'), pane('signal')])
-    expect(registry.byId('signal')?.title).toBe('signal')
-    expect(registry.byId('nexus')).toBeUndefined()
+  it('finds a tab and a group by id', () => {
+    const registry = createTunedeckRegistry([tab('track', [group('format'), group('decode')])])
+    expect(registry.tabById('track')?.groups).toHaveLength(2)
+    expect(registry.groupById('decode')?.title).toBe('decode')
+    expect(registry.tabById('nexus')).toBeUndefined()
+    expect(registry.groupById('nexus')).toBeUndefined()
   })
 
-  it('refuses two panes with the same id', () => {
-    // Two files disagreeing about who owns a name. Left alone it surfaces much
-    // later, as one pane's stored arrangement applied to the other.
-    expect(() => createTunedeckRegistry([pane('queue'), pane('queue', 'Up next')])).toThrow(
-      /duplicate tunedeck pane id: queue/
+  it('refuses two tabs with the same id', () => {
+    expect(() => createTunedeckRegistry([tab('track'), tab('track')])).toThrow(
+      /duplicate tunedeck tab id: track/
     )
   })
 
-  it('refuses a pane with no id', () => {
-    expect(() => createTunedeckRegistry([pane('  ')])).toThrow(/no id/)
+  it('refuses two groups with the same id even in different tabs', () => {
+    // Group ids key one flat persisted record of what is open. Scoping the
+    // uniqueness check to a tab would let two tabs share one boolean, which
+    // surfaces later as opening a group in one tab opening it in the other.
+    expect(() =>
+      createTunedeckRegistry([tab('track', [group('format')]), tab('related', [group('format')])])
+    ).toThrow(/duplicate tunedeck group id: format/)
+  })
+
+  it('refuses a tab with no groups', () => {
+    // A heading that opens onto nothing. This is the check that would have
+    // caught an "arrives in M7" placeholder tab shipping empty.
+    expect(() => createTunedeckRegistry([tab('artist', [])])).toThrow(
+      /tunedeck tab has no groups: artist/
+    )
+  })
+
+  it('refuses a tab or a group with no id', () => {
+    expect(() => createTunedeckRegistry([tab('  ')])).toThrow(/tunedeck tab has no id/)
+    expect(() => createTunedeckRegistry([tab('track', [group('  ')])])).toThrow(
+      /tunedeck group has no id/
+    )
+  })
+
+  it('carries a group s header action through, callable', () => {
+    // The freeze in `createTunedeckRegistry` is shallow on purpose. A copy that
+    // spread the action into a new object would hand the header two functions
+    // closed over nothing, and the button would render and do nothing — the
+    // failure this catches is silent in the app.
+    let cleared = 0
+    const trail: TunedeckGroup = {
+      ...group('trail'),
+      action: {
+        label: 'Clear the trail',
+        icon: 'i-tabler-eraser',
+        available: () => true,
+        run: () => {
+          cleared += 1
+        }
+      }
+    }
+    const found = createTunedeckRegistry([tab('playing', [trail])]).groupById('trail')
+    expect(found?.action?.label).toBe('Clear the trail')
+    expect(found?.action?.available()).toBe(true)
+    found?.action?.run()
+    expect(cleared).toBe(1)
+  })
+
+  it('leaves a group with no action without one', () => {
+    // Seven of the eight headers draw no button at all, and the shell decides
+    // that by asking `action?.available()`. An action defaulted to a no-op
+    // would put a dead control on every one of them.
+    expect(createTunedeckRegistry([tab('track')]).groupById('track-only')?.action).toBeUndefined()
   })
 
   it('does not hand out a list the caller can add to', () => {
     // The seam is `panes.ts`. A registry that could be appended to at runtime
     // would be a second way in, and the one that survives a bundler dropping a
     // side-effect import is the static list.
-    const registry = createTunedeckRegistry([pane('queue')])
-    expect(() => (registry.panes as TunedeckPane[]).push(pane('signal'))).toThrow()
+    const registry = createTunedeckRegistry([tab('track')])
+    expect(() => (registry.tabs as TunedeckTab[]).push(tab('related'))).toThrow()
+    expect(() => (registry.tabs[0]!.groups as TunedeckGroup[]).push(group('extra'))).toThrow()
   })
 
   it('accepts an empty deck', () => {
-    expect(createTunedeckRegistry([]).panes).toEqual([])
+    expect(createTunedeckRegistry([]).tabs).toEqual([])
+  })
+})
+
+describe('the deck s view settings', () => {
+  it('registers every key the deck stores', () => {
+    // `createViewSettings` throws `unknown view setting` for a key with no
+    // descriptor, and it throws inside a Pinia store setup — which surfaces as
+    // the entire app failing to mount, with the real cause only visible in the
+    // renderer console. Nothing else in the suite reaches the registry through
+    // the deck, so without this the two halves can be added separately and the
+    // first launch is a blank window.
+    const registered = new Set(settingsInScope('view').map((entry) => entry.key))
+    for (const key of [TUNEDECK_OPEN_KEY, TUNEDECK_TAB_KEY, TUNEDECK_GROUPS_KEY]) {
+      expect(registered).toContain(key)
+    }
+  })
+})
+
+describe('resolving what was persisted', () => {
+  const registry = createTunedeckRegistry([
+    tab('artist'),
+    tab('track', [group('format'), group('decode')])
+  ])
+
+  it('honours a stored id that still exists', () => {
+    expect(resolveTabId(registry, 'track')).toBe('track')
+    expect(resolveGroupId(registry.tabById('track')!, 'decode')).toBe('decode')
+  })
+
+  it('falls forward when a stored id no longer names anything', () => {
+    // Settings outlive the build that wrote them. A deck that honoured a
+    // retired id would open on a blank panel with no tab lit and no way back
+    // except clearing settings.
+    expect(resolveTabId(registry, 'nexus')).toBe('artist')
+    expect(resolveGroupId(registry.tabById('track')!, 'loudness')).toBe('format')
+  })
+
+  it('falls forward on anything that is not a string', () => {
+    // `view.tunedeckGroups` is a record read straight off storage. A malformed
+    // or half-written entry is a downgrade away, not a hypothetical.
+    for (const stored of [undefined, null, 42, {}, []]) {
+      expect(resolveTabId(registry, stored)).toBe('artist')
+      expect(resolveGroupId(registry.tabById('track')!, stored)).toBe('format')
+    }
+  })
+
+  it('always leaves exactly one group open in a tab', () => {
+    // "Strict accordion" and "everything shut" look identical on arrival, and
+    // nothing on a tab of four collapsed headings suggests how to get out of it.
+    for (const entry of registry.tabs) {
+      expect(entry.groups.some((candidate) => candidate.id === resolveGroupId(entry, null))).toBe(
+        true
+      )
+    }
   })
 })
 

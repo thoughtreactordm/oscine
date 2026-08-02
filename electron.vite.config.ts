@@ -157,6 +157,29 @@ export default defineConfig({
             tip: 'i-tabler-bulb',
             upload: 'i-tabler-upload',
             warning: 'i-tabler-alert-triangle'
+          },
+          // Nuxt UI's tooltip is a single-line pill: `h-6` on the content and
+          // `truncate` on the text. That is right for a label restating a
+          // button's name and wrong for every explanatory tooltip in the app —
+          // constrain the width and the sentence ellipsises instead of
+          // wrapping, so the caveat you hovered to read is the half you cannot
+          // see.
+          //
+          // `text-clip` rather than `whitespace-normal` to undo it: `truncate`
+          // is three declarations behind one class, and tailwind-merge only
+          // drops it for another member of its own group. `whitespace-normal`
+          // sits in a different group, so both would survive the merge and
+          // which one won would come down to Tailwind's emission order.
+          //
+          // `h-auto` only replaces the fixed height; the default `py-1` and
+          // `text-xs` line box still add up to the same 24px for a one-line
+          // tooltip, so the hundred short ones in the app are unchanged and
+          // only a hint long enough to wrap grows.
+          tooltip: {
+            slots: {
+              content: 'h-auto max-w-72 text-pretty',
+              text: 'text-clip'
+            }
           }
         },
         // Without clientBundle the Iconify runtime fetches icon data from

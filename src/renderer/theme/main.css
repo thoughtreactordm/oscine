@@ -3,6 +3,17 @@
 @import './bridge.css';
 
 /*
+ * Tailwind's automatic source detection is rooted at the renderer, which is
+ * this app's Vite root — so the Nuxt UI theme overrides in
+ * `electron.vite.config.ts` sit outside it and their utilities are never
+ * emitted. The override still *applies* (it is a class string handed to
+ * tailwind-merge at runtime), so the failure is silent and one-sided: a slot
+ * override that only removes a default class works, and one that adds a new
+ * utility does nothing at all.
+ */
+@source '../../../electron.vite.config.ts';
+
+/*
  * D9's token layer, made real by W8-12.
  *
  * The tokens themselves are no longer declared here. `src/shared/theme/`

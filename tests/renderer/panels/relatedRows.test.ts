@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { albumMeta, buildRelatedRows } from '../../../src/renderer/panels/tunedeck/relatedRows'
+import {
+  albumMeta,
+  buildRelatedRows,
+  countRelatedRows
+} from '../../../src/renderer/panels/tunedeck/relatedRows'
 import type { Track } from '../../../src/shared/library'
-import type { RelatedAlbum, RelatedResult, RelatedSection } from '../../../src/shared/related'
+import type {
+  RelatedAlbum,
+  RelatedResult,
+  RelatedSection,
+  RelatedStrand
+} from '../../../src/shared/related'
 
 /**
  * The related pane's flattening, tested without a browser.
@@ -68,9 +77,42 @@ describe('albumMeta', () => {
   })
 })
 
+/** The six strands as the deck's three groups now split them. */
+const ARTIST: readonly RelatedStrand[] = ['artist-albums', 'compilations']
+const ALBUM: readonly RelatedStrand[] = ['album-tracks']
+const NEIGHBOURHOOD: readonly RelatedStrand[] = ['genre', 'year', 'folder']
+const ALL: readonly RelatedStrand[] = [...ARTIST, ...ALBUM, ...NEIGHBOURHOOD]
+
+/** One result carrying a section from each half, for the filtering tests. */
+function mixed(): RelatedResult {
+  return result([
+    {
+      kind: 'tracks',
+      strand: 'album-tracks',
+      detail: 'Album',
+      truncated: false,
+      tracks: [track(1, 'One')]
+    },
+    {
+      kind: 'albums',
+      strand: 'artist-albums',
+      detail: 'Artist',
+      truncated: false,
+      albums: [album(2, 'B')]
+    },
+    {
+      kind: 'albums',
+      strand: 'genre',
+      detail: 'IDM',
+      truncated: false,
+      albums: [album(3, 'C')]
+    }
+  ])
+}
+
 describe('buildRelatedRows', () => {
   it('is empty for no result at all', () => {
-    expect(buildRelatedRows(null)).toEqual([])
+    expect(buildRelatedRows(null, ALL)).toEqual([])
   })
 
   it('emits a heading row before each section', () => {
@@ -83,84 +125,50 @@ describe('buildRelatedRows', () => {
           truncated: false,
           albums: [album(1, 'A')]
         }
-      ])
+      ]),
+      ARTIST
     )
     expect(rows.map((row) => row.kind)).toEqual(['header', 'album'])
   })
 
-  it('emits the group divider once, before the first neighbourhood section', () => {
-    const rows = buildRelatedRows(
-      result([
-        {
-          kind: 'albums',
-          strand: 'artist-albums',
-          detail: null,
-          truncated: false,
-          albums: [album(1, 'A')]
-        },
-        {
-          kind: 'albums',
-          strand: 'genre',
-          detail: 'IDM',
-          truncated: false,
-          albums: [album(2, 'B')]
-        },
-        {
-          kind: 'albums',
-          strand: 'year',
-          detail: '1998',
-          truncated: false,
-          albums: [album(3, 'C')]
-        }
-      ])
-    )
-    expect(rows.filter((row) => row.kind === 'group')).toHaveLength(1)
-    expect(rows.map((row) => row.kind)).toEqual([
-      'header',
-      'album',
-      'group',
-      'header',
-      'album',
-      'header',
-      'album'
+  it('draws only the strands the group asked for', () => {
+    // The query still answers all six in one round trip; the split is in the
+    // drawing. A group that leaked a strand from another tab would put "same
+    // year" under Artist, which is the merge the tabs exist to undo.
+    expect(buildRelatedRows(mixed(), ARTIST).map((row) => row.key)).toEqual([
+      'header:artist-albums',
+      'album:artist-albums:2'
+    ])
+    expect(buildRelatedRows(mixed(), ALBUM).map((row) => row.key)).toEqual([
+      'header:album-tracks',
+      'track:1'
+    ])
+    expect(buildRelatedRows(mixed(), NEIGHBOURHOOD).map((row) => row.key)).toEqual([
+      'header:genre',
+      'album:genre:3'
     ])
   })
 
-  it('emits the divider even when there is no catalog half above it', () => {
-    // A track with only neighbourhood relations still needs the caveat — the
-    // rule is "before the first one" rather than "between the halves".
-    const rows = buildRelatedRows(
-      result([
-        {
-          kind: 'albums',
-          strand: 'genre',
-          detail: 'IDM',
-          truncated: false,
-          albums: [album(1, 'A')]
-        }
-      ])
+  it('accounts for every row exactly once across the three groups', () => {
+    // The three groups partition the six strands. A strand in neither list is
+    // one the operator can no longer reach; a strand in two is one they see
+    // twice under different headings.
+    const whole = buildRelatedRows(mixed(), ALL).map((row) => row.key)
+    const split = [ARTIST, ALBUM, NEIGHBOURHOOD].flatMap((strands) =>
+      buildRelatedRows(mixed(), strands).map((row) => row.key)
     )
-    expect(rows[0].kind).toBe('group')
+    expect([...split].sort()).toEqual([...whole].sort())
   })
 
-  it('emits no divider when there is no neighbourhood half', () => {
-    const rows = buildRelatedRows(
-      result([
-        {
-          kind: 'tracks',
-          strand: 'album-tracks',
-          detail: 'Album',
-          truncated: false,
-          tracks: [track(1, 'T')]
-        }
-      ])
-    )
-    expect(rows.some((row) => row.kind === 'group')).toBe(false)
+  it('emits nothing at all for a group whose strands did not answer', () => {
+    // Distinct from "no result": the query ran and this group is simply empty,
+    // which is what the component's own empty state says.
+    expect(buildRelatedRows(mixed(), ['folder'])).toEqual([])
   })
 
   it('keys album rows by strand as well as by album', () => {
-    // The same album is legitimately both a 1998 record by the artist and a
-    // 1998 record — and a duplicate `:key` silently drops the second row.
+    // The same album is legitimately both a record by the artist and a 1998
+    // record — and a duplicate `:key` silently drops the second row.
     const rows = buildRelatedRows(
       result([
         {
@@ -177,7 +185,8 @@ describe('buildRelatedRows', () => {
           truncated: false,
           albums: [album(7, 'Same')]
         }
-      ])
+      ]),
+      ALL
     )
     const keys = rows.map((row) => row.key)
     expect(new Set(keys).size).toBe(keys.length)
@@ -193,7 +202,8 @@ describe('buildRelatedRows', () => {
           truncated: true,
           albums: [album(1, 'A'), album(2, 'B')]
         }
-      ])
+      ]),
+      NEIGHBOURHOOD
     )
     const header = rows.find((row) => row.kind === 'header')
     expect(header?.kind === 'header' && header.count).toBe('2+')
@@ -209,37 +219,78 @@ describe('buildRelatedRows', () => {
           truncated: false,
           albums: [album(1, 'A'), album(2, 'B')]
         }
-      ])
+      ]),
+      NEIGHBOURHOOD
     )
     const header = rows.find((row) => row.kind === 'header')
     expect(header?.kind === 'header' && header.count).toBe('2')
   })
 
   it('preserves the order the strands arrived in', () => {
+    // The result's section order is authoritative, not the group's strand list
+    // — otherwise the same two strands could read in two orders.
     const rows = buildRelatedRows(
       result([
-        {
-          kind: 'tracks',
-          strand: 'album-tracks',
-          detail: 'Album',
-          truncated: false,
-          tracks: [track(1, 'One'), track(2, 'Two')]
-        },
         {
           kind: 'albums',
           strand: 'compilations',
           detail: 'Artist',
           truncated: false,
           albums: [album(9, 'Comp')]
+        },
+        {
+          kind: 'albums',
+          strand: 'artist-albums',
+          detail: 'Artist',
+          truncated: false,
+          albums: [album(8, 'Solo')]
         }
-      ])
+      ]),
+      ['artist-albums', 'compilations']
     )
     expect(rows.map((row) => row.key)).toEqual([
-      'header:album-tracks',
-      'track:1',
-      'track:2',
       'header:compilations',
-      'album:compilations:9'
+      'album:compilations:9',
+      'header:artist-albums',
+      'album:artist-albums:8'
     ])
+  })
+})
+
+describe('countRelatedRows', () => {
+  it('counts items and not the headings above them', () => {
+    // The badge answers "is this worth opening". Counting heading rows would
+    // report three albums as six.
+    expect(countRelatedRows(mixed(), NEIGHBOURHOOD)).toBe('1')
+    expect(countRelatedRows(mixed(), ALL)).toBe('3')
+  })
+
+  it('is null rather than zero for a group with nothing in it', () => {
+    // A zero on a header is noisier than a bare header, and the absence of a
+    // badge already says the same thing.
+    expect(countRelatedRows(mixed(), ['folder'])).toBeNull()
+    expect(countRelatedRows(null, ALL)).toBeNull()
+  })
+
+  it('carries the plus through from a capped strand', () => {
+    // A capped strand reported as exact is the badge quietly lying about how
+    // much is behind the header.
+    const capped = result([
+      {
+        kind: 'albums',
+        strand: 'genre',
+        detail: 'IDM',
+        truncated: true,
+        albums: [album(1, 'A'), album(2, 'B')]
+      },
+      {
+        kind: 'albums',
+        strand: 'year',
+        detail: '1998',
+        truncated: false,
+        albums: [album(3, 'C')]
+      }
+    ])
+    expect(countRelatedRows(capped, NEIGHBOURHOOD)).toBe('3+')
   })
 })
