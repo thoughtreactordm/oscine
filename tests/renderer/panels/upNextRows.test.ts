@@ -100,6 +100,17 @@ describe('the up-next rows', () => {
     const rows = buildUpNextRows(stocked(0, 2).entries.value).filter((row) => row.kind === 'entry')
     expect(rows[0]?.isNext).toBe(true)
   })
+
+  it('points each label at the first entry of the tier it labels', () => {
+    // A label is 36 pixels a drag can be over, and "just above the first row of
+    // this tier" is where a hand aims to put something at the top of one. The
+    // pane resolves a drag over a label to `firstId`, so a band of the list
+    // that would otherwise do nothing does the obvious thing instead.
+    const entries = stocked(2, 3).entries.value
+    const headers = buildUpNextRows(entries).filter((row) => row.kind === 'header')
+
+    expect(headers.map((row) => row.firstId)).toEqual([entries[0]!.id, entries[2]!.id])
+  })
 })
 
 describe('a drop inside the queue', () => {
@@ -175,6 +186,29 @@ describe('the reorder gesture', () => {
     reorder.drop()
 
     expect(ids(queue.entries.value)).toEqual(before)
+  })
+
+  it('lands a row at the top of its tier when dropped on that tier label', () => {
+    // What the pane does with a label: resolve it to its `firstId` and a
+    // `before`. Asserted through the drag model rather than by reading the
+    // header, because the claim is that the gesture completes.
+    const queue = stocked(1, 3)
+    const rows = buildUpNextRows(queue.entries.value)
+    const sessionLabel = rows
+      .filter((row) => row.kind === 'header')
+      .find((row) => row.origin === 'session')!
+    const last = queue.sessionEntries.value[2]!
+
+    const reorder = createQueueReorder(() => queue.entries.value, queue.move)
+    reorder.begin(last.id)
+    expect(reorder.over(sessionLabel.firstId, 'before')).toBe(true)
+    reorder.drop()
+
+    expect(queue.sessionEntries.value.map((entry) => entry.track.title)).toEqual([
+      'Session 3',
+      'Session 1',
+      'Session 2'
+    ])
   })
 
   it('does not claim a drag this pane did not start', () => {

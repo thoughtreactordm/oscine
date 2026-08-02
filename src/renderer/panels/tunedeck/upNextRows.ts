@@ -39,6 +39,16 @@ export type UpNextRow =
       readonly origin: QueueOrigin
       readonly label: string
       readonly count: number
+      /**
+       * The first entry of the tier this labels.
+       *
+       * A label is a row, so it is 36 pixels a drag can be over, and "just above
+       * the first row of this tier" is exactly where a hand aims to put
+       * something at the top of one. Without this the label is a band where
+       * nothing happens, which is the same defect as a gap between rows and
+       * reads the same way — as a drop that did not work.
+       */
+      readonly firstId: string
     }
   | {
       readonly kind: 'entry'
@@ -74,7 +84,8 @@ export function buildUpNextRows(entries: readonly QueueEntry[]): UpNextRow[] {
         key: `h:${index}:${origin}`,
         origin,
         label: TIER_LABEL[origin],
-        count: countFrom(entries, index)
+        count: countFrom(entries, index),
+        firstId: entry.id
       })
     }
     position += 1

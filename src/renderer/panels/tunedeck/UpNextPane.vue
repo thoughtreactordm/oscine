@@ -2,7 +2,11 @@
 import { computed, ref } from 'vue'
 import { visibleRange } from '@renderer/panels/listViewport'
 import type { DropSide } from '@renderer/panels/playlistReorder'
-import { buildUpNextRows, createQueueReorder } from '@renderer/panels/tunedeck/upNextRows'
+import {
+  buildUpNextRows,
+  createQueueReorder,
+  type UpNextRow
+} from '@renderer/panels/tunedeck/upNextRows'
 import { queueEntryLabel } from '@renderer/playback/queueCommands'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
@@ -75,6 +79,9 @@ const reorder = createQueueReorder(
   (entryId, toIndex) => commands.move(entryId, toIndex)
 )
 
+/** Which row is visibly being dragged. Trails `reorder.dragId` — see `onDragStart`. */
+const dragging = ref<string | null>(null)
+
 function onScroll(): void {
   const element = list.value
   if (element === null) return
@@ -87,28 +94,77 @@ function measure(element: unknown): void {
   if (list.value !== null) viewportPx.value = list.value.clientHeight
 }
 
-/** Which side of the row's midpoint the pointer fell on decides which edge it drops against. */
-function sideOf(event: DragEvent, element: HTMLElement): DropSide {
+/**
+ * Which row a drag is over, and which of its edges.
+ *
+ * **The whole row, and every pixel of it.** The first version hung the drag off
+ * an inner box that `items-center` kept at 24px inside a 36px row, which left a
+ * six-pixel dead band above and below every entry — a twelve-pixel gutter
+ * between neighbours where `dragover` reached no handler, so nothing called
+ * `preventDefault` and Chromium refused the drop outright. That gutter is
+ * precisely where a hand aims when dropping *between* two rows, so a third of
+ * the list swallowed drops and the gesture read as flaky rather than as broken.
+ * The row is the drag surface now, and rows are contiguous.
+ *
+ * A tier label is a row too, and resolves to the first entry of the tier it
+ * labels, for the same reason: no band of the list may do nothing.
+ */
+function targetOf(event: DragEvent, row: UpNextRow): { id: string; side: DropSide } | null {
+  const element = event.currentTarget
+  if (!(element instanceof HTMLElement)) return null
+  if (row.kind === 'header') return { id: row.firstId, side: 'before' }
+
   const box = element.getBoundingClientRect()
-  return event.clientY < box.top + box.height / 2 ? 'before' : 'after'
+  return { id: row.entry.id, side: event.clientY < box.top + box.height / 2 ? 'before' : 'after' }
 }
 
-function onDragStart(event: DragEvent, entryId: string): void {
-  reorder.begin(entryId)
+function onDragStart(event: DragEvent, row: UpNextRow): void {
+  if (row.kind !== 'entry') return
+  reorder.begin(row.entry.id)
+  // Deferred a frame because Chromium snapshots the drag image from the element
+  // as it stands when this handler returns; dimming it here would dim the ghost
+  // the operator is carrying rather than the row it came from.
+  requestAnimationFrame(() => {
+    dragging.value = reorder.dragId.value
+  })
   if (event.dataTransfer === null) return
   event.dataTransfer.effectAllowed = 'move'
   // Chromium cancels a drag that carries no payload at all.
-  event.dataTransfer.setData('text/plain', entryId)
+  event.dataTransfer.setData('text/plain', row.entry.id)
 }
 
-function onDragOver(event: DragEvent, entryId: string): void {
-  const element = event.currentTarget
-  if (!(element instanceof HTMLElement)) return
+function onDragOver(event: DragEvent, row: UpNextRow): void {
+  const target = targetOf(event, row)
+  if (target === null) return
   // Claimed only when this pane started the drag, so a track selection dragged
   // in from the library falls through rather than being read as a reorder.
-  if (!reorder.over(entryId, sideOf(event, element))) return
+  if (!reorder.over(target.id, target.side)) return
   event.preventDefault()
   if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
+}
+
+function onDragEnd(): void {
+  reorder.end()
+  dragging.value = null
+}
+
+function activate(row: UpNextRow): void {
+  if (row.kind === 'entry') commands.jumpTo(row.entry.id)
+}
+
+function isDragging(row: UpNextRow): boolean {
+  return row.kind === 'entry' && dragging.value === row.entry.id
+}
+
+/**
+ * A tier label never draws the edge itself.
+ *
+ * A drag over one resolves to "before the first entry of that tier", so the
+ * line belongs on the top of that entry — which is the row immediately below
+ * the label, and therefore exactly where the drop is about to happen.
+ */
+function indicatorFor(row: UpNextRow): DropSide | null {
+  return row.kind === 'entry' ? reorder.indicator(row.entry.id) : null
 }
 </script>
 
@@ -170,11 +226,34 @@ function onDragOver(event: DragEvent, entryId: string): void {
     >
       <div :style="{ height: `${visible.topPx}px` }" aria-hidden="true" />
       <ul class="m-0 list-none p-0">
+        <!--
+          Every handler is on the row, and the row is the full `ROW_PX`. Rows are
+          contiguous, so there is nowhere in the list a drag can be that is not
+          over exactly one of them — see `targetOf` for what the earlier
+          arrangement cost.
+        -->
         <li
           v-for="row in drawn"
           :key="row.key"
-          class="group relative flex items-center gap-1.5"
+          class="group relative flex cursor-default items-center gap-1.5 rounded-sm px-1 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
           :style="{ height: `${ROW_PX}px` }"
+          :class="[
+            isDragging(row) ? 'opacity-50' : row.kind === 'entry' ? 'hover:bg-elevated/60' : '',
+            indicatorFor(row) === 'before'
+              ? 'shadow-[inset_0_2px_0_0_var(--ui-primary)]'
+              : indicatorFor(row) === 'after'
+                ? 'shadow-[inset_0_-2px_0_0_var(--ui-primary)]'
+                : ''
+          ]"
+          :draggable="row.kind === 'entry'"
+          :tabindex="row.kind === 'entry' ? 0 : -1"
+          :title="row.kind === 'entry' ? queueEntryLabel(row.entry) : undefined"
+          @dragstart="onDragStart($event, row)"
+          @dragover="onDragOver($event, row)"
+          @drop.prevent="reorder.drop()"
+          @dragend="onDragEnd()"
+          @dblclick="activate(row)"
+          @keydown.enter="activate(row)"
         >
           <!--
             A tier label is a row like any other, which is what keeps one set of
@@ -196,73 +275,49 @@ function onDragOver(event: DragEvent, entryId: string): void {
           </template>
 
           <template v-else>
-            <div
-              class="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1 transition-colors"
-              :class="[
-                reorder.dragId.value === row.entry.id
-                  ? 'opacity-50'
-                  : 'hover:bg-elevated/60 focus-within:bg-elevated/60',
-                reorder.indicator(row.entry.id) === 'before'
-                  ? 'shadow-[inset_0_2px_0_0_var(--ui-primary)]'
-                  : reorder.indicator(row.entry.id) === 'after'
-                    ? 'shadow-[inset_0_-2px_0_0_var(--ui-primary)]'
-                    : ''
-              ]"
-              draggable="true"
-              @dragstart="onDragStart($event, row.entry.id)"
-              @dragover="onDragOver($event, row.entry.id)"
-              @drop.prevent="reorder.drop()"
-              @dragend="reorder.end()"
-            >
-              <UIcon
-                name="i-tabler-grip-vertical"
-                class="size-3.5 shrink-0 cursor-grab text-dimmed opacity-0 group-hover:opacity-100"
-                aria-hidden="true"
-              />
-              <span class="w-4 shrink-0 text-right text-xs tabular-nums text-dimmed">
-                {{ row.position }}
+            <UIcon
+              name="i-tabler-grip-vertical"
+              class="size-3.5 shrink-0 cursor-grab text-dimmed opacity-0 group-hover:opacity-100"
+              aria-hidden="true"
+            />
+            <span class="w-4 shrink-0 text-right text-xs tabular-nums text-dimmed">
+              {{ row.position }}
+            </span>
+            <!--
+              The row is the jump, on double-click rather than click, because it
+              is also the thing being dragged around — a single click that
+              started audio would fire on every failed grab. Plain text and not
+              a nested button: a control inside the drag surface is one more
+              thing that has to agree about who owns the gesture.
+            -->
+            <span class="min-w-0 flex-1 truncate text-sm text-default">
+              {{ row.entry.track.title }}
+              <span v-if="row.entry.track.artist !== null" class="text-muted">
+                · {{ row.entry.track.artist }}
               </span>
-              <!--
-                The row is the jump. A queued entry is something to play, and
-                double-click rather than click because the pane is also a list
-                being dragged around — a single click that started audio would
-                fire on every failed grab.
-              -->
-              <button
-                type="button"
-                class="min-w-0 flex-1 cursor-default truncate text-left text-sm text-default outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
-                :title="queueEntryLabel(row.entry)"
-                @dblclick="commands.jumpTo(row.entry.id)"
-                @keydown.enter="commands.jumpTo(row.entry.id)"
-              >
-                {{ row.entry.track.title }}
-                <span v-if="row.entry.track.artist !== null" class="text-muted">
-                  · {{ row.entry.track.artist }}
-                </span>
-              </button>
-              <!--
-                §5 rule 1's first arm: the queue head is what plays next, ahead
-                of the playing playlist's own upcoming order. Withdrawn under
-                repeat-one, which is rule 7 overriding it.
-              -->
-              <UBadge
-                v-if="row.isNext && !queueSuspended"
-                label="Next"
-                size="sm"
-                color="primary"
-                variant="subtle"
-                class="shrink-0"
-              />
-              <UButton
-                icon="i-tabler-x"
-                size="xs"
-                color="neutral"
-                variant="ghost"
-                class="shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
-                :aria-label="`Remove ${row.entry.track.title} from the queue`"
-                @click="commands.remove(row.entry.id)"
-              />
-            </div>
+            </span>
+            <!--
+              §5 rule 1's first arm: the queue head is what plays next, ahead
+              of the playing playlist's own upcoming order. Withdrawn under
+              repeat-one, which is rule 7 overriding it.
+            -->
+            <UBadge
+              v-if="row.isNext && !queueSuspended"
+              label="Next"
+              size="sm"
+              color="primary"
+              variant="subtle"
+              class="shrink-0"
+            />
+            <UButton
+              icon="i-tabler-x"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              class="shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+              :aria-label="`Remove ${row.entry.track.title} from the queue`"
+              @click="commands.remove(row.entry.id)"
+            />
           </template>
         </li>
       </ul>
