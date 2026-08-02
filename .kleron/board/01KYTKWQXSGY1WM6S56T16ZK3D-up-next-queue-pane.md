@@ -186,3 +186,62 @@ pass, 19 new.
   a screenful means scrolling first. That is the playlist rail's existing
   behaviour rather than something this introduces.
 - Verified on Linux only.
+
+---
+
+## Fixed — `fd3bbf6`, reported against `8bc6c8c`
+
+**"Drag and drop is incredibly flaky. Most drops just flat out do not work."**
+It was, and the cause was geometry rather than the drag model. Worth recording
+because everything above was verified and none of it caught this.
+
+The row is 36 px. The element carrying `draggable` and the four handlers was a
+`flex-1` child of a `flex items-center` row — and `items-center` does not
+stretch a child, so it was **24 px, centred, with a 6 px dead band above and
+below every entry**. Measured in the app by walking `elementFromPoint` down the
+list: of 144 consecutive pixels, 48 hit no drag handler at all.
+
+In those bands `dragover` reached nothing, so `preventDefault` was never called
+and Chromium refused the drop outright — no drop event, no move, no feedback of
+any kind. Two adjacent bands form a **12 px gutter between neighbouring rows**,
+which is exactly where a hand aims when dropping *between* two rows. So a third
+of the list swallowed drops, and the third it swallowed was the part people aim
+at. That is the difference between "broken" and "flaky": the gesture worked
+whenever the pointer happened to land in the middle 24 px.
+
+`sideOf` had the same fault in quieter form — it split at the midpoint of the
+24 px box rather than of the row the operator sees, so even a live drop decided
+before/after against a boundary six pixels off from the visible one.
+
+**The row is the drag surface now.** Rows are contiguous, so there is nowhere in
+the list a drag can be that is not over exactly one of them. Re-measured: all
+144 pixels hit a draggable row, and drops driven at 1 px and 35 px into a 36 px
+row — both previously dead — land on the correct side of the midpoint.
+
+Three things went with it:
+
+- **The title is plain text, not a nested `<button>`.** A control inside the
+  drag surface is one more thing that has to agree about who owns the gesture,
+  and it covered most of the row. Activation moved to the row itself:
+  double-click, or Enter on a focused row, which is `PlaylistRail`'s idiom.
+  Verified both live, and that a jump still takes only its own row.
+- **A tier label is a drop target,** resolving to "before the first entry of
+  that tier" (`UpNextRow.firstId`). It is 36 px a drag can be over and the top
+  of a tier is a place people aim; a label that did nothing was the same defect
+  in smaller form. The indicator draws on the first entry rather than on the
+  label, because that is where the row is about to go.
+- **The dragged row dims a frame later.** Chromium snapshots the drag image from
+  the element as the handler returns, so dimming it synchronously dimmed the
+  ghost being carried rather than the row it came from.
+
+Re-verified live afterwards, so the fix did not cost what was already working:
+the cross-tier refusal still refuses and moves nothing, remove still removes
+one, jump takes its own row, the footnote is still in frame, and the DOM stays
+flat. Two new tests — the label's `firstId`, and a drop on a label landing at
+the top of its tier. 1,634 pass.
+
+**One thing found and left alone.** `playQueued` returns early when nothing is
+playing (`position.value` is null), so a jump on a queue built before the first
+Play silently does nothing. That is W5-5's controller behaviour rather than the
+pane's, §5 does not speak to it, and inventing an answer here would put the
+decision in the wrong file. Worth a triage card.
