@@ -3,14 +3,10 @@
  *
  * ## Provenance
  *
- * > **Not yet registered.** The pair below is empty, and until it is filled in
- * > this build can only scrobble for an operator who supplies their own key in
- * > Settings › Network. Registering it is a real-world step, not a code change:
- * > sign in at <https://www.last.fm/api/account/create>, register an application
- * > named Fermata, and paste the `API key` and `Shared secret` it issues into the
- * > two constants below — replacing this note with the account the application
- * > was registered under and the date, so the next person to wonder where these
- * > came from can find out rather than guess.
+ * > Registered at <https://www.last.fm/api/account/create> on **Monday 3 August
+ * > 2026, 23:38**, under the Last.fm account **`mdelally`**. Rotating, revoking
+ * > or raising a quota on this pair means signing in as that account — there is
+ * > no other route to it, which is the whole reason this paragraph exists.
  *
  * That block is the deliverable, not decoration. A shipped credential with no
  * record of whose account it belongs to is a credential nobody can rotate,
@@ -41,11 +37,21 @@
 import { LASTFM_API_KEY, LASTFM_API_SECRET } from '@shared/settings'
 import type { SettingsService } from '../../settings'
 
-/** The registered application's key. Empty until the account above exists. */
-export const SHIPPED_LASTFM_API_KEY = ''
+/**
+ * The registered application's key. Identifies Fermata; scrobbles for nobody.
+ *
+ * Annotated `: string` rather than left to inference, and not as a style
+ * preference: without it TypeScript narrows this to its own literal type and the
+ * `=== ''` guard in `resolveLastfmAppKey` becomes a compile error for comparing
+ * two types with no overlap. The guard has to stay live, because the state it
+ * checks for is reachable — a build made after this key is withdrawn blanks
+ * these two lines and nothing else, and it must degrade to "no application key
+ * configured" rather than to a signature failure against a dead key.
+ */
+export const SHIPPED_LASTFM_API_KEY: string = '471404f0fbcd043e841af5712343851d'
 
-/** Its shared secret. Empty until the account above exists. */
-export const SHIPPED_LASTFM_API_SECRET = ''
+/** Its shared secret — the other half of *which application*, not of *who*. */
+export const SHIPPED_LASTFM_API_SECRET: string = '3476522a884403ee5f069064b5426bbb'
 
 export interface LastfmAppKey {
   readonly apiKey: string

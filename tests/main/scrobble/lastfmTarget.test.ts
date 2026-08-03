@@ -238,21 +238,24 @@ describe('createLastfmTarget', () => {
     })
 
     describe('before anything leaves the machine', () => {
-      it('refuses when there is no application key, and opens no browser', async () => {
+      /**
+       * A half-filled override, which is the only way a build that ships a
+       * registered pair can end up with no usable key.
+       *
+       * Both fields empty resolves to the shipped pair now that one exists — see
+       * `lastfmAppKey.test.ts`. The refusal itself is not dead code: it is what a
+       * build whose key had been withdrawn and blanked would do, and it is the
+       * reason a half-filled override does not silently fall back.
+       */
+      it('refuses a half-filled override, and opens no browser', async () => {
         const transport = fakeTransport()
-        const result = await target(transport, fakeSettings('', '')).authorize()
+        const result = await target(transport, fakeSettings('only-a-key', '')).authorize()
 
         expect(result.ok).toBe(false)
         expect(result.ok === false && result.failure.kind).toBe('declined')
+        expect(result.ok === false && result.failure.message).toMatch(/both/i)
         expect(harness.opened).toHaveLength(0)
         expect(transport.calls).toHaveLength(0)
-      })
-
-      it('refuses a half-filled override rather than falling back to the shipped key', async () => {
-        const result = await target(fakeTransport(), fakeSettings('only-a-key', '')).authorize()
-
-        expect(result.ok).toBe(false)
-        expect(result.ok === false && result.failure.message).toMatch(/both/i)
       })
 
       it('refuses when there is nowhere secure to put the credential', async () => {

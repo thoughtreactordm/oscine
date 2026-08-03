@@ -26,7 +26,20 @@ function settings(apiKey: string, apiSecret: string): AppKeySettingsSource {
   }
 }
 
-const shipped = SHIPPED_LASTFM_API_KEY !== '' && SHIPPED_LASTFM_API_SECRET !== ''
+describe('the shipped pair', () => {
+  /**
+   * That a release ships a usable key is an acceptance criterion, not a detail.
+   *
+   * A build with these blanked still compiles, still passes every other test in
+   * this file, and connects for nobody who has not registered their own
+   * application — which is precisely the failure that would ship unnoticed.
+   */
+  it('is configured, so this build can connect out of the box', () => {
+    expect(SHIPPED_LASTFM_API_KEY).toMatch(/^[0-9a-f]{32}$/)
+    expect(SHIPPED_LASTFM_API_SECRET).toMatch(/^[0-9a-f]{32}$/)
+    expect(SHIPPED_LASTFM_API_KEY).not.toBe(SHIPPED_LASTFM_API_SECRET)
+  })
+})
 
 describe('resolveLastfmAppKey', () => {
   it('prefers a complete override', () => {
@@ -53,20 +66,12 @@ describe('resolveLastfmAppKey', () => {
   })
 
   it('falls back to the shipped pair when both fields are empty', () => {
-    const resolved = resolveLastfmAppKey(settings('', ''))
-    if (shipped) {
-      expect(resolved).toEqual({
-        apiKey: SHIPPED_LASTFM_API_KEY,
-        apiSecret: SHIPPED_LASTFM_API_SECRET,
-        fromOverride: false
-      })
-    } else {
-      // This build has no registered application yet — see `appKey.ts`. The
-      // assertion is conditional rather than absent so that the day the pair is
-      // filled in, this test starts checking the other branch instead of
-      // quietly needing an edit.
-      expect(resolved).toBeNull()
-    }
+    // The overwhelmingly common case: nobody has typed anything into Settings.
+    expect(resolveLastfmAppKey(settings('', ''))).toEqual({
+      apiKey: SHIPPED_LASTFM_API_KEY,
+      apiSecret: SHIPPED_LASTFM_API_SECRET,
+      fromOverride: false
+    })
   })
 })
 

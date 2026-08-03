@@ -50,11 +50,16 @@ export const LASTFM_API_ROOT = 'https://ws.audioscrobbler.com/2.0/'
 /**
  * Statuses whose body is a Last.fm error document rather than a refusal.
  *
- * `403` is the one Last.fm actually uses for its numbered errors; `400` and
- * `401` are listed because the gateway has been observed to use them for the
- * same envelope and reading it costs nothing. `404` is *not* listed: a 404 from
- * this endpoint means the API root moved, which is a Fermata bug and not a
- * message for the operator.
+ * Measured against the live API rather than guessed at, and it uses more than
+ * one: `auth.getSession` with a signature it accepts and a token nobody has
+ * approved answers **403** with error 14, while the same call with a wrong
+ * signature answers **400** with error 13. Those two are the auth flow's wait
+ * and its stop, so a list that covered only 403 would turn a mis-signed request
+ * into a bare `rejected` — the exact failure this stream is meant not to spend a
+ * day on. `401` is included for the same envelope; it costs nothing to read.
+ *
+ * `404` is deliberately absent: a 404 from this endpoint means the API root
+ * moved, which is a Fermata bug rather than a message for the operator.
  */
 const LASTFM_ERROR_STATUSES = [400, 401, 403] as const
 

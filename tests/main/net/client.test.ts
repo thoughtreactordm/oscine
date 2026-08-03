@@ -196,6 +196,20 @@ describe('acceptStatuses', () => {
     expect(result).toEqual({ ok: true, value: { error: 14 } })
   })
 
+  it('reads more than one listed status, which is why it is a list', async () => {
+    // Last.fm answers error 14 with 403 and error 13 with 400 — measured, not
+    // assumed. A caller that listed only the status it happened to see first
+    // would lose the other one to a bare `rejected`.
+    const { client } = harness([reply('{"error":13}', { status: 400 })])
+    const result = await client.getJson<{ error: number }>({
+      url: URL_UNDER_TEST,
+      scope: 'scrobble',
+      acceptStatuses: [400, 401, 403]
+    })
+
+    expect(result).toEqual({ ok: true, value: { error: 13 } })
+  })
+
   it('leaves an unlisted status alone', async () => {
     const { client } = harness([reply('{"error":14}', { status: 403 })])
     const result = await client.getText({ url: URL_UNDER_TEST, scope: 'scrobble' })
