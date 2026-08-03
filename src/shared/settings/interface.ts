@@ -56,12 +56,26 @@ export type FileSizeFormat = 'binary' | 'decimal'
 /** What double-clicking a track — or pressing Enter on it — does. */
 export type TrackActivation = 'play' | 'playNext' | 'queue' | 'addToViewedPlaylist'
 
+/**
+ * The same gesture on an artist or an album row in the Library sidebar.
+ *
+ * A separate key rather than a second reading of `TrackActivation`, because the
+ * two rows are not the same size of thing. A double-clicked song is one song; a
+ * double-clicked artist is however many hundred tracks they recorded, and an
+ * operator who is happy for the first to start playing immediately is not
+ * necessarily happy for the second to. `none` exists for exactly that operator —
+ * it is what the facet panes did before this setting, where a double-click was
+ * only ever a second click on a row that had already been selected.
+ */
+export type FacetActivation = TrackActivation | 'none'
+
 export const TRACK_DENSITY_KEY = 'view.trackListDensity'
 export const RESTORE_SESSION_KEY = 'view.restoreSession'
 export const DURATION_FORMAT_KEY = 'interface.durationFormat'
 export const DATE_FORMAT_KEY = 'interface.dateFormat'
 export const FILE_SIZE_FORMAT_KEY = 'interface.fileSizeFormat'
 export const TRACK_ACTIVATION_KEY = 'interface.trackActivation'
+export const FACET_ACTIVATION_KEY = 'interface.facetActivation'
 export const CONFIRM_PLAYLIST_DELETE_KEY = 'interface.confirmPlaylistDelete'
 export const CONFIRM_ENTRY_REMOVAL_KEY = 'interface.confirmEntryRemoval'
 export const NOW_PLAYING_WAVEFORM_KEY = 'interface.nowPlayingWaveform'
@@ -93,6 +107,34 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'Also what Enter does on the focused row. With no playlist open in Curate, adding to one plays instead.',
     keywords: ['double click', 'enter', 'activate', 'queue', 'play next'],
     order: 20
+  }),
+
+  defineSetting<FacetActivation>({
+    key: FACET_ACTIVATION_KEY,
+    scope: 'durable',
+    default: 'play',
+    validate: enumValue<FacetActivation>([
+      'play',
+      'playNext',
+      'queue',
+      'addToViewedPlaylist',
+      'none'
+    ]),
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'play', label: 'Play all of it now' },
+        { value: 'playNext', label: 'Play all of it next' },
+        { value: 'queue', label: 'Add all of it to the queue' },
+        { value: 'addToViewedPlaylist', label: 'Add all of it to the open playlist' },
+        { value: 'none', label: 'Nothing — just select the row' }
+      ]
+    },
+    category: 'interface',
+    label: 'Double-clicking an artist or album',
+    help: 'In the Library sidebar, and also what Enter does on the focused row. "All of it" is that row under the current folder and search, in the song list’s sort — and starts from a random track when shuffle is on.',
+    keywords: ['double click', 'enter', 'activate', 'artist', 'album', 'facet', 'sidebar'],
+    order: 25
   }),
 
   defineSetting<TrackDensity>({

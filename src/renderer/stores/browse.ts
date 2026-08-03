@@ -253,6 +253,36 @@ export const useBrowseStore = defineStore('browse', () => {
   }
 
   /**
+   * The predicate a facet row — or a selection of them — stands for.
+   *
+   * The one *above* the pane, never the one below it. Right-clicking or
+   * double-clicking an artist means their tracks under the current root and
+   * search, and not narrowed by whatever albums happen to be ticked in the pane
+   * underneath — the album pane is downstream, and letting it filter here would
+   * make an artist row mean something different depending on a selection in
+   * another list. It is the same rule `artistFilters` and `albumFilters`
+   * already state for what each pane *lists*, pointed at what a row *contains*.
+   *
+   * The dimension's own selection is replaced rather than merged, because the
+   * gesture is about the rows that were clicked and those are not always the
+   * rows that are selected — see `TrackList`'s "act on the selection, or on this
+   * row" rule, which the facet panes now share.
+   *
+   * Separate from `facetTrackIds` because the two verbs want the same predicate
+   * in different shapes: the queue verbs want the ids it matches, and playing
+   * wants the predicate itself, so that a `PlayOrder` can resolve one position
+   * at a time the way a click in the song list does. Two derivations of the
+   * same rule would be one to forget.
+   */
+  function facetFilters(
+    dimension: FacetDimension,
+    facetIds: readonly number[]
+  ): LibraryBrowseFilters {
+    const upstream = dimension === 'artistIds' ? artistFilters.value : albumFilters.value
+    return plainBrowseFilters({ ...upstream, [dimension]: [...facetIds] })
+  }
+
+  /**
    * The tracks a facet row — or a selection of them — stands for.
    *
    * A right-click on an artist means "everything by them", and *everything* has
@@ -260,20 +290,7 @@ export const useBrowseStore = defineStore('browse', () => {
    * asking main is the only way to learn what those are. This is where the
    * sidebar's verbs cross from facet identity to track identity.
    *
-   * ## Which predicate applies
-   *
-   * The one *above* the pane, never the one below it. Right-clicking an artist
-   * gives their tracks under the current root and search, and not narrowed by
-   * whatever albums happen to be ticked in the pane underneath — the album pane
-   * is downstream, and letting it filter here would make an artist row mean
-   * something different depending on a selection in another list. It is the same
-   * rule `artistFilters` and `albumFilters` already state for what each pane
-   * *lists*, pointed at what a row *contains*.
-   *
-   * The dimension's own selection is replaced rather than merged, because the
-   * gesture is about the rows that were right-clicked and those are not always
-   * the rows that are selected — see `TrackList`'s "act on the selection, or on
-   * this row" rule, which the facet panes now share.
+   * Which predicate applies is `facetFilters`' to say, above.
    *
    * ## Ordering and paging
    *
@@ -291,8 +308,7 @@ export const useBrowseStore = defineStore('browse', () => {
     facetIds: readonly number[]
   ): Promise<number[]> {
     if (facetIds.length === 0) return []
-    const upstream = dimension === 'artistIds' ? artistFilters.value : albumFilters.value
-    const filters = plainBrowseFilters({ ...upstream, [dimension]: [...facetIds] })
+    const filters = facetFilters(dimension, facetIds)
 
     return collectPagedIds(MAX_TRACK_ID_PAGE, (offset, limit) =>
       library.listTrackIds({
@@ -315,6 +331,7 @@ export const useBrowseStore = defineStore('browse', () => {
     artists,
     albums,
     currentFilters,
+    facetFilters,
     facetTrackIds,
     reloadFacets,
     revealArtist

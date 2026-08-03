@@ -2,18 +2,23 @@
 import { computed } from 'vue'
 import type { ContextMenuItem, DropdownMenuItem } from '@nuxt/ui'
 import type { AddTarget } from '@renderer/panels/addToPlaylist'
+import { createFacetActivation } from '@renderer/panels/facetActivation'
 import type { FacetDimension, FacetWindow } from '@renderer/panels/facetWindow'
 import FacetList from '@renderer/panels/FacetList.vue'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import { queueCommandLabel, queueIds } from '@renderer/playback/queueCommands'
+import { useSettings } from '@renderer/settings'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
 import { SOURCES_ARTISTS_PANE } from '@renderer/shell/shellLayout'
 import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
 import { useBrowseStore } from '@renderer/stores/browse'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
+import { usePlaybackStore } from '@renderer/stores/playback'
+import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { useShellStore } from '@renderer/stores/shell'
+import { useTrackListStore } from '@renderer/stores/trackList'
 import { MAX_SEARCH_LENGTH, type AlbumFacet, type ArtistFacet } from '@shared/library'
 
 const ARTIST_ROW_HEIGHT = 32
@@ -46,6 +51,9 @@ const browse = useBrowseStore()
 const shell = useShellStore()
 const queue = useQueueCommandsStore()
 const addToPlaylist = useAddToPlaylistStore()
+const playback = usePlaybackStore()
+const playlists = usePlaylistsStore()
+const trackList = useTrackListStore()
 
 /**
  * The Artists/Albums divide, dragged and remembered.
@@ -129,7 +137,7 @@ const folderItems = computed<DropdownMenuItem[][]>(() => {
  * dimension, a noun and where the name comes from. Two copies would be two
  * places to forget that a right-click keeps an existing selection.
  */
-interface FacetMenuSpec<T extends { id: number }> {
+interface FacetPaneSpec<T extends { id: number }> {
   model: FacetWindow<T>
   dimension: FacetDimension
   /** Plural, for the wording. `count` of one never uses it. */
@@ -138,7 +146,36 @@ interface FacetMenuSpec<T extends { id: number }> {
   nameOf: (item: T) => string
 }
 
-function facetMenu<T extends { id: number }>(spec: FacetMenuSpec<T>) {
+/**
+ * What double-clicking a facet row does, which `interface.facetActivation`
+ * decides.
+ *
+ * One instance for both panes, because it is one setting: an operator who wants
+ * a double-clicked artist queued rather than played wants the same of an album.
+ * What differs between the panes is the *target*, and that is built per row in
+ * `facetPane` below.
+ *
+ * The row menu's own verbs still go straight to the queue. A verb the operator
+ * named is not the gesture the setting is about — the same split `LibraryView`
+ * and `PlaylistContents` already make for songs.
+ */
+const activation = createFacetActivation({
+  settings: useSettings(),
+  playNext: (trackIds) => queue.playNext(queueIds(trackIds)),
+  addToQueue: (trackIds) => queue.addToQueue(queueIds(trackIds)),
+  viewedPlaylistId: () => playlists.viewedPlaylistId,
+  // Through `addTo`, so a double-click reports what it did the same way the
+  // menu does: same wording, same failure text, same toast. The ids are already
+  // resolved by the time this is called, so `count` can be the honest track
+  // count rather than the menu's "3 artists".
+  addToViewedPlaylist: (playlistId, trackIds) =>
+    addToPlaylist.addTo(playlistId, {
+      trackIds: () => Promise.resolve(trackIds),
+      count: trackIds.length
+    })
+})
+
+function facetPane<T extends { id: number }>(spec: FacetPaneSpec<T>) {
   /**
    * What the right-click is about: the selection when the row is in it, that row
    * alone when it is not — the rule `FacetList` has just applied to the
@@ -167,7 +204,7 @@ function facetMenu<T extends { id: number }>(spec: FacetMenuSpec<T>) {
     }
   }
 
-  return (index: number): ContextMenuItem[] => {
+  function menu(index: number): ContextMenuItem[] {
     const target = targetFor(index)
     // A row whose page has not arrived has no id to act on. Saying so beats an
     // empty menu, and beats verbs that would quietly do nothing.
@@ -188,16 +225,45 @@ function facetMenu<T extends { id: number }>(spec: FacetMenuSpec<T>) {
       addToPlaylist.menuItem(target)
     ]
   }
+
+  /**
+   * A double-click, aimed at the one row under the pointer.
+   *
+   * Never the selection, which is what separates this from the menu above: the
+   * `mousedown` that opened the double-click has already collapsed the
+   * selection to this row, so "act on the selection" and "act on this row" have
+   * the same answer — and reading the selection anyway would make the gesture
+   * depend on a race between two handlers for the same click.
+   *
+   * Playing goes through `playFromList` and not through `trackIds`, so the
+   * traversal is the library order narrowed to the row: paged and resolved a
+   * position at a time, exactly as clicking a song is. No index, because the
+   * gesture names a set and not a row — see `startOrder`, which is what makes
+   * shuffle choose the opener rather than start at the top.
+   */
+  function activate(item: T): void {
+    void activation.activate({
+      play: () =>
+        void playback.playFromList({
+          sort: trackList.sort,
+          direction: trackList.direction,
+          filters: browse.facetFilters(spec.dimension, [item.id])
+        }),
+      trackIds: () => browse.facetTrackIds(spec.dimension, [item.id])
+    })
+  }
+
+  return { menu, activate }
 }
 
-const artistMenu = facetMenu<ArtistFacet>({
+const artistPane = facetPane<ArtistFacet>({
   model: browse.artists,
   dimension: 'artistIds',
   unit: 'artists',
   nameOf: (artist) => artist.name
 })
 
-const albumMenu = facetMenu<AlbumFacet>({
+const albumPane = facetPane<AlbumFacet>({
   model: browse.albums,
   dimension: 'albumIds',
   unit: 'albums',
@@ -340,7 +406,8 @@ const albumMenu = facetMenu<AlbumFacet>({
           :model="browse.artists"
           :row-height="ARTIST_ROW_HEIGHT"
           label="Artists"
-          :menu="artistMenu"
+          :menu="artistPane.menu"
+          @activate="artistPane.activate"
         >
           <template #row="{ item }">
             <span class="truncate">{{ item?.name ?? 'Loading…' }}</span>
@@ -401,7 +468,8 @@ const albumMenu = facetMenu<AlbumFacet>({
           :model="browse.albums"
           :row-height="ALBUM_ROW_HEIGHT"
           label="Albums"
-          :menu="albumMenu"
+          :menu="albumPane.menu"
+          @activate="albumPane.activate"
         >
           <template #row="{ item }">
             <UAvatar

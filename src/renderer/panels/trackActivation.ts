@@ -2,6 +2,7 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import { TRACK_ACTIVATION_KEY, type TrackActivation } from '@shared/settings'
 import type { Track } from '@shared/library'
 import type { SettingsReader } from '../settings/reader'
+import { activationChoice } from './activationFallback'
 
 /**
  * What double-clicking a song does.
@@ -19,12 +20,8 @@ import type { SettingsReader } from '../settings/reader'
  *
  * ## When there is nowhere to add to
  *
- * `addToViewedPlaylist` needs a playlist open in Curate, and the operator can
- * double-click a song while there is not one. Doing nothing would read as a
- * broken list — the gesture is the most-used one in the app and silence is
- * indistinguishable from a hang — so it falls back to playing, which is the verb
- * the row would have had if the setting had never been touched. `hint` says so
- * where a surface has room to.
+ * See `activationFallback.ts`, which holds that rule for this module and for
+ * the facet panes' copy of the same setting.
  */
 
 export interface TrackActivationDeps {
@@ -44,20 +41,12 @@ export interface TrackActivationDeps {
 export function createTrackActivation(deps: TrackActivationDeps) {
   const { settings } = deps
 
-  const action = computed(() => settings.get<TrackActivation>(TRACK_ACTIVATION_KEY))
   const viewedPlaylistId = computed(() => toValue(deps.viewedPlaylistId))
 
-  /** The verb that will actually run, after the fallback above. */
-  const effective = computed<TrackActivation>(() =>
-    action.value === 'addToViewedPlaylist' && viewedPlaylistId.value === null
-      ? 'play'
-      : action.value
-  )
-
-  const hint = computed<string | null>(() =>
-    action.value === 'addToViewedPlaylist' && viewedPlaylistId.value === null
-      ? 'Open a playlist in Curate to add to it. Until then, double-clicking plays.'
-      : null
+  const { action, effective, hint } = activationChoice<TrackActivation>(
+    computed(() => settings.get<TrackActivation>(TRACK_ACTIVATION_KEY)),
+    viewedPlaylistId,
+    'play'
   )
 
   async function activate(track: Track, index: number): Promise<void> {

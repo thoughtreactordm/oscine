@@ -38,6 +38,7 @@ export {
   CONFIRM_PLAYLIST_DELETE_KEY,
   DATE_FORMAT_KEY,
   DURATION_FORMAT_KEY,
+  FACET_ACTIVATION_KEY,
   FILE_SIZE_FORMAT_KEY,
   NOW_PLAYING_WAVEFORM_KEY,
   RESTORE_SESSION_KEY,
@@ -48,6 +49,7 @@ export type {
   AlbumArtSize,
   DateFormat,
   DurationFormat,
+  FacetActivation,
   FileSizeFormat,
   TrackActivation,
   TrackDensity
