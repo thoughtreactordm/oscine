@@ -43,10 +43,13 @@ import { useRelatedStore } from '@renderer/stores/related'
  * no arrangement for them, so this is filling a gap rather than reopening a
  * decision.
  *
- * Within a tab exactly one group is open at a time (see `resolveGroupId`).
- * That is what buys back the vertical space the tab bar costs, and it is why
- * every group carries a `badge`: a shut group has to be able to say whether it
- * is worth opening.
+ * A tab's groups are all revealed at once and share its column (see
+ * `isGroupOpen`). The accordion under the tabs was strict for a while, on the
+ * theory that it had to earn back the tab bar's height; what it actually earned
+ * was empty space under whichever group was open, because splitting eight panes
+ * across four tabs had already done the work. Collapsing survives as the
+ * operator's way of giving one group the column, which is why every group still
+ * carries a `badge`: a shut group has to be able to say what is in it.
  *
  * ## Where the helper text went
  *
@@ -88,7 +91,7 @@ export const tunedeckRegistry = createTunedeckRegistry([
     // which is a statement about *position*, not about which group is open.
     header: ArtistIdentityHeader,
     groups: [
-      // First, and therefore the group the tab opens on: it is the one that
+      // First, at the top of the column: it is the one that
       // answers "who is this" in words. The catalog below it answers the same
       // question in track listings and is the half that works with lookups
       // declined, which is why it is the one that keeps working rather than the

@@ -7,7 +7,7 @@ import {
 import { SIDEBAR_PANE } from '../../../src/renderer/shell/shellLayout'
 import {
   createTunedeckRegistry,
-  resolveGroupId,
+  isGroupOpen,
   resolveTabId,
   TUNEDECK_GROUPS_KEY,
   TUNEDECK_OPEN_KEY,
@@ -149,35 +149,52 @@ describe('resolving what was persisted', () => {
     tab('track', [group('format'), group('decode')])
   ])
 
-  it('honours a stored id that still exists', () => {
+  it('honours a stored tab id that still exists', () => {
     expect(resolveTabId(registry, 'track')).toBe('track')
-    expect(resolveGroupId(registry.tabById('track')!, 'decode')).toBe('decode')
   })
 
-  it('falls forward when a stored id no longer names anything', () => {
+  it('falls forward when a stored tab id no longer names anything', () => {
     // Settings outlive the build that wrote them. A deck that honoured a
     // retired id would open on a blank panel with no tab lit and no way back
     // except clearing settings.
     expect(resolveTabId(registry, 'nexus')).toBe('artist')
-    expect(resolveGroupId(registry.tabById('track')!, 'loudness')).toBe('format')
   })
 
   it('falls forward on anything that is not a string', () => {
-    // `view.tunedeckGroups` is a record read straight off storage. A malformed
-    // or half-written entry is a downgrade away, not a hypothetical.
     for (const stored of [undefined, null, 42, {}, []]) {
       expect(resolveTabId(registry, stored)).toBe('artist')
-      expect(resolveGroupId(registry.tabById('track')!, stored)).toBe('format')
     }
   })
 
-  it('always leaves exactly one group open in a tab', () => {
-    // "Strict accordion" and "everything shut" look identical on arrival, and
-    // nothing on a tab of four collapsed headings suggests how to get out of it.
+  it('reveals every group in a tab until one is shut', () => {
+    // The deck's arrival state, and the thing a record of *open* groups could
+    // not express: nothing has been persisted, and everything shows.
     for (const entry of registry.tabs) {
-      expect(entry.groups.some((candidate) => candidate.id === resolveGroupId(entry, null))).toBe(
-        true
-      )
+      for (const candidate of entry.groups) {
+        expect(isGroupOpen({}, candidate.id)).toBe(true)
+      }
+    }
+  })
+
+  it('honours a group that was shut, and only that group', () => {
+    expect(isGroupOpen({ format: false }, 'format')).toBe(false)
+    expect(isGroupOpen({ format: false }, 'decode')).toBe(true)
+    expect(isGroupOpen({ format: true }, 'format')).toBe(true)
+  })
+
+  it('reveals a group the stored record has never heard of', () => {
+    // The reason the record holds what is shut. A group added in a later build
+    // is absent from every record written before it existed, and the operator
+    // who has collapsed something else must not be the one who never sees it.
+    expect(isGroupOpen({ format: false }, 'relations')).toBe(true)
+  })
+
+  it('reveals everything on anything that is not a record of booleans', () => {
+    // `view.tunedeckGroups` is read straight off storage. The strings are not
+    // hypothetical: that is the shape the one-open-group build wrote, and it is
+    // one downgrade away from being written again.
+    for (const stored of [undefined, null, 42, [], 'format', { format: 'decode' }]) {
+      expect(isGroupOpen(stored, 'format')).toBe(true)
     }
   })
 })

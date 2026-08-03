@@ -27,9 +27,21 @@ import { useTunedeckStore } from '@renderer/stores/tunedeck'
  * The deck used to render every registered pane in one scrolling column. Four
  * cards' worth of panes later that was 380 pixels wide and several screens
  * tall, answering four unrelated questions at once and separating them with
- * nothing stronger than a hairline. Tabs put one subject on screen at a time;
- * the strict accordion inside a tab puts one *part* of that subject on screen
- * at a time, which is what pays for the tab bar's own height.
+ * nothing stronger than a hairline. Tabs put one subject on screen at a time,
+ * which is the split that did the work.
+ *
+ * The accordion under the tabs was strict at first — one open group per tab —
+ * on the assumption that it had to buy back the tab bar's height. It did not:
+ * once a tab holds two or three groups instead of eight, the column has room
+ * for all of them, and what the accordion was actually buying was empty space
+ * below whichever group happened to be open. So every group is revealed by
+ * default and the open ones share the column equally; collapsing is how an
+ * operator gives one of them the room, not the state the deck starts in.
+ *
+ * Equal shares rather than natural heights, because the panes that need a
+ * definite height to virtualize against are the ones whose natural height is
+ * unbounded. Sizing to content would let a long biography take the column and
+ * leave the list beneath it nothing to resolve against.
  *
  * The arrangement still comes from the registry rather than from markup here. A
  * new group is a component plus a line in `tunedeck/panes.ts`; this file does
@@ -50,11 +62,6 @@ const tunedeck = useTunedeckStore()
 // the panes because a shut group's badge is read from a store the shut group
 // would otherwise have been the one to fill. See `deckData.ts`.
 useDeckData()
-
-function isOpen(groupId: string): boolean {
-  const tab = tunedeck.activeTab
-  return tab !== undefined && tunedeck.openGroupId(tab) === groupId
-}
 </script>
 
 <template>
@@ -95,11 +102,12 @@ function isOpen(groupId: string): boolean {
     </header>
 
     <!--
-      The accordion column. Shut headers are `shrink-0` and the open region
-      takes the rest, so a virtualized list inside a group is given a definite
-      height to resolve against rather than falling back to its own ceiling —
-      which is the difference between a queue that scrolls inside its group and
-      one that scrolls the whole deck.
+      The group column. Shut groups are `shrink-0` and the open ones divide what
+      is left, so a virtualized list inside a group is given a definite height to
+      resolve against rather than falling back to its own ceiling — which is the
+      difference between a queue that scrolls inside its group and one that
+      scrolls the whole deck. It is also why nothing here scrolls: the column
+      cannot overflow if every child is sized from it.
     -->
     <div
       class="flex min-h-0 flex-1 flex-col"
@@ -107,9 +115,9 @@ function isOpen(groupId: string): boolean {
       :aria-label="tunedeck.activeTab?.title"
     >
       <!--
-        The tab's standing strip, above every group and outside the accordion.
-        Only the Artist tab declares one; the shell neither knows nor cares what
-        is in it, which is the same arrangement it has with `badge` and `hint`.
+        The tab's standing strip, above every group and outside them. Only the
+        Artist tab declares one; the shell neither knows nor cares what is in
+        it, which is the same arrangement it has with `badge` and `hint`.
       -->
       <component :is="tunedeck.activeTab.header" v-if="tunedeck.activeTab?.header" />
 
@@ -117,38 +125,38 @@ function isOpen(groupId: string): boolean {
         v-for="group in tunedeck.activeTab?.groups ?? []"
         :key="group.id"
         class="flex min-h-0 flex-col border-b border-default last:border-b-0"
-        :class="isOpen(group.id) ? 'flex-1' : 'shrink-0'"
+        :class="tunedeck.groupOpen(group.id) ? 'flex-1' : 'shrink-0'"
       >
         <h3 class="flex shrink-0 items-center">
           <button
             type="button"
             class="flex min-w-0 flex-1 cursor-default items-center gap-2 px-3 py-2 text-left outline-none transition-colors hover:bg-elevated/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
-            :aria-expanded="isOpen(group.id)"
+            :aria-expanded="tunedeck.groupOpen(group.id)"
             :aria-controls="`tunedeck-group-${group.id}`"
-            @click="tunedeck.openGroup(tunedeck.activeTabId, group.id)"
+            @click="tunedeck.toggleGroup(group.id)"
           >
             <UIcon
               name="i-tabler-chevron-right"
               class="size-3.5 shrink-0 text-dimmed transition-transform"
-              :class="isOpen(group.id) ? 'rotate-90' : ''"
+              :class="tunedeck.groupOpen(group.id) ? 'rotate-90' : ''"
               aria-hidden="true"
             />
             <UIcon
               :name="group.icon"
               class="size-3.5 shrink-0"
-              :class="isOpen(group.id) ? 'text-primary' : 'text-dimmed'"
+              :class="tunedeck.groupOpen(group.id) ? 'text-primary' : 'text-dimmed'"
               aria-hidden="true"
             />
             <span
               class="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wide"
-              :class="isOpen(group.id) ? 'text-highlighted' : 'text-muted'"
+              :class="tunedeck.groupOpen(group.id) ? 'text-highlighted' : 'text-muted'"
             >
               {{ group.title }}
             </span>
             <!--
-              What is inside, while it is shut. Without this the accordion trades
-              a wall of information for a row of closed doors, and deciding which
-              to open means opening all of them.
+              What is inside, while it is shut. Drawn open as well as shut: the
+              count is a fact about the group rather than a stand-in for it, and
+              a badge that vanished on reveal would flicker on every toggle.
             -->
             <UBadge
               v-if="group.badge?.()"
@@ -199,7 +207,7 @@ function isOpen(groupId: string): boolean {
         </h3>
 
         <div
-          v-if="isOpen(group.id)"
+          v-if="tunedeck.groupOpen(group.id)"
           :id="`tunedeck-group-${group.id}`"
           class="min-h-0 flex-1 overflow-y-auto px-3 pb-3"
         >

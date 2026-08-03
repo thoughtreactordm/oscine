@@ -3,7 +3,7 @@ import { computed, watch } from 'vue'
 import { net } from '@renderer/ipc'
 import { tunedeckRegistry } from '@renderer/panels/tunedeck/panes'
 import {
-  resolveGroupId,
+  isGroupOpen,
   resolveTabId,
   TUNEDECK_GROUPS_KEY,
   TUNEDECK_OPEN_KEY,
@@ -44,7 +44,7 @@ export const useTunedeckStore = defineStore('tunedeck', () => {
   const width = useShellStore().paneSize(TUNEDECK_PANE)
 
   /**
-   * Which tab is showing, and which group is open inside each.
+   * Which tab is showing, and which groups the operator has collapsed.
    *
    * Both are stored raw and resolved on read rather than validated on write,
    * because the thing that invalidates them is a *build*, not a click: a group
@@ -53,12 +53,12 @@ export const useTunedeckStore = defineStore('tunedeck', () => {
    * read means a stale id costs a fallback rather than a blank deck, and the
    * stale entry is simply overwritten the next time that tab is used.
    *
-   * The open-group record is keyed by tab id so that returning to a tab returns
-   * to what you left open in it. One global id would collapse the group you
-   * were reading every time you glanced at another tab.
+   * The group record holds what is *shut*, so absent is open — see
+   * `isGroupOpen`. A record of what is open would have to name groups that did
+   * not exist when it was written for a new group to arrive revealed.
    */
   const storedTab = useViewSettings().value<string>(TUNEDECK_TAB_KEY)
-  const storedGroups = useViewSettings().value<Record<string, string>>(TUNEDECK_GROUPS_KEY)
+  const storedGroups = useViewSettings().value<Record<string, boolean>>(TUNEDECK_GROUPS_KEY)
 
   const activeTabId = computed(() => resolveTabId(tunedeckRegistry, storedTab.value))
 
@@ -66,9 +66,9 @@ export const useTunedeckStore = defineStore('tunedeck', () => {
     tunedeckRegistry.tabById(activeTabId.value)
   )
 
-  /** The open group within a given tab. Always one — see `resolveGroupId`. */
-  function openGroupId(tab: TunedeckTab): string {
-    return resolveGroupId(tab, storedGroups.value?.[tab.id])
+  /** Whether a group is revealed. Open unless it was shut — see `isGroupOpen`. */
+  function groupOpen(groupId: string): boolean {
+    return isGroupOpen(storedGroups.value, groupId)
   }
 
   function selectTab(tabId: string): void {
@@ -76,20 +76,18 @@ export const useTunedeckStore = defineStore('tunedeck', () => {
   }
 
   /**
-   * Opens one group and shuts the tab's others.
+   * Reveals or collapses one group, leaving its neighbours where they are.
    *
-   * Clicking the group that is already open is a no-op rather than a close.
-   * Strict accordions that allow zero-open have a state where the tab shows
-   * nothing but headings, which reads as an empty tab rather than as a tidy
-   * one, and there is no affordance that would obviously get you back out of
-   * it.
+   * Every group in a tab may be open at once, and every group in a tab may be
+   * shut: the chevron a group closes on is the chevron it reopens on, so there
+   * is no state this can reach that it cannot obviously leave.
    *
    * Writes a fresh record rather than mutating: the view store's value is
    * compared by reference to decide whether to persist, so an in-place edit is
    * a change that never reaches disk.
    */
-  function openGroup(tabId: string, groupId: string): void {
-    storedGroups.value = { ...storedGroups.value, [tabId]: groupId }
+  function toggleGroup(groupId: string): void {
+    storedGroups.value = { ...storedGroups.value, [groupId]: !groupOpen(groupId) }
   }
 
   /**
@@ -127,9 +125,9 @@ export const useTunedeckStore = defineStore('tunedeck', () => {
     width,
     activeTabId,
     activeTab,
-    openGroupId,
+    groupOpen,
     selectTab,
-    openGroup,
+    toggleGroup,
     toggle,
     close
   }

@@ -25,12 +25,16 @@ export const TUNEDECK_OPEN_KEY = 'view.tunedeckOpen'
 export const TUNEDECK_TAB_KEY = 'view.tunedeckTab'
 
 /**
- * The open group per tab, as a `{ [tabId]: groupId }` record.
+ * The collapsed groups, as a `{ [groupId]: boolean }` record.
  *
- * Per tab rather than one global id, because the deck is four separate
- * questions and returning to a tab should return to the answer you left open in
- * it. One id would mean every tab switch also collapsed the group you were
- * reading, which is the thing that makes a tabbed pane feel like it forgot you.
+ * Records what has been *shut* rather than what is open, because the deck
+ * reveals every group in a tab by default: absent means open, and a group added
+ * in a later build therefore arrives revealed rather than hidden behind a
+ * chevron nobody knows to click.
+ *
+ * Keyed by group rather than by tab, which is what it was when a tab had exactly
+ * one open group and the record's job was to say *which*. Group ids are unique
+ * across the deck, so the tab is not part of the question any more.
  */
 export const TUNEDECK_GROUPS_KEY = 'view.tunedeckGroups'
 
@@ -97,8 +101,8 @@ export const TUNEDECK_PANE: PaneSpec = {
  * The one verb a group may put on its own header.
  *
  * "Clear" was a full-width row above the list holding a single right-aligned
- * button — a 28px band of empty space, in a column where the accordion exists
- * to buy vertical space back. The header already runs the width of the deck and
+ * button — a 28px band of empty space, in a column that now divides itself
+ * between every group in the tab. The header already runs the width of the deck and
  * already carries two other affordances, so the button costs nothing there.
  *
  * Icon and tooltip rather than a label, matching the info button beside it: a
@@ -153,7 +157,7 @@ export interface TunedeckTab {
   readonly title: string
   readonly icon: string
   /**
-   * A strip drawn above this tab's accordion, outside it, always visible.
+   * A strip drawn above this tab's groups, outside them, always visible.
    *
    * The only thing in the deck that is not inside a collapsible group, and it
    * exists because **R5** requires one: "every deck header carries a visible
@@ -238,16 +242,26 @@ export function resolveTabId(registry: TunedeckRegistry, stored: unknown): strin
 }
 
 /**
- * The open group within a tab, given whatever was persisted for it.
+ * Whether a group is revealed, given whatever was persisted for the deck.
  *
- * Defaults to the tab's first group rather than to nothing, because "strict
- * accordion" and "everything shut" look identical on arrival — a tab that opens
- * onto four collapsed headings has answered no question at all. Every tab
- * therefore always has exactly one group open, which is also what makes the
- * chevron the only affordance needed: clicking the open one does nothing rather
- * than closing it.
+ * Open unless the record explicitly says otherwise. The deck ran as a strict
+ * accordion first — one group per tab, chosen by the stored id — and the tab bar
+ * turned out to pay for the vertical space that arrangement was buying: with
+ * four subjects split across four tabs, a tab holds two or three groups and the
+ * column has room for all of them. What the accordion cost instead was that
+ * every answer but one was behind a click, and a badge saying "12" is not the
+ * twelve rows.
+ *
+ * So collapsing is now the operator's exception rather than the deck's default,
+ * and a tab may have all of its groups shut. That state was the argument against
+ * a zero-open accordion, and it does not survive independent toggles: with one
+ * open group the chevrons all mean "swap to me" and nothing means "put it back",
+ * whereas a group that closes on its own chevron reopens on the same one.
+ *
+ * Takes `unknown` for the reason `resolveTabId` does: this is read straight off
+ * storage, which outlives the build that wrote it.
  */
-export function resolveGroupId(tab: TunedeckTab, stored: unknown): string {
-  if (typeof stored === 'string' && tab.groups.some((group) => group.id === stored)) return stored
-  return tab.groups[0]?.id ?? ''
+export function isGroupOpen(stored: unknown, groupId: string): boolean {
+  if (stored === null || typeof stored !== 'object' || Array.isArray(stored)) return true
+  return (stored as Record<string, unknown>)[groupId] !== false
 }

@@ -195,20 +195,21 @@ export const VIEW_SETTINGS: readonly SettingDescriptor[] = [
   }),
 
   /**
-   * Which Tunedeck tab is showing, and which group is open inside each.
+   * Which Tunedeck tab is showing, and which groups are collapsed.
    *
    * Two keys rather than one object, because they change on different gestures
    * and the write debounce coalesces per key: clicking through four tabs should
-   * not keep rewriting a record of open groups that did not move.
+   * not keep rewriting a record of collapsed groups that did not move.
    *
    * Both validate *shape* and not membership, per the note at the top of this
    * file. Whether `'artist'` names a tab this build still has is a question only
    * the deck's registry can answer, and it answers it at the point of use —
-   * `resolveTabId` and `resolveGroupId` fall forward to the first entry rather
-   * than stranding the operator on a blank panel. A validator that rejected
-   * unknown ids here would instead discard the setting of anyone switching
-   * between branches that name their groups differently, which is exactly what
-   * the per-key storage above exists to prevent.
+   * `resolveTabId` falls forward to the first tab rather than stranding the
+   * operator on a blank panel, and an entry naming a retired group is simply a
+   * key nothing asks about. A validator that rejected unknown ids here would
+   * instead discard the setting of anyone switching between branches that name
+   * their groups differently, which is exactly what the per-key storage above
+   * exists to prevent.
    *
    * The tab default is empty and resolved on read for the same reason the pane
    * sizes are: naming a default tab here would restate `panes.ts`'s ordering in
@@ -225,17 +226,34 @@ export const VIEW_SETTINGS: readonly SettingDescriptor[] = [
     internal: true
   }),
 
-  defineSetting<Record<string, string>>({
+  /**
+   * Which Tunedeck groups have been collapsed, keyed by group id.
+   *
+   * An *override* record and not a state record: absent means open, because the
+   * deck reveals every group in a tab by default. That is what makes a group
+   * added in a later build arrive open rather than silently shut for everyone
+   * who has ever touched a chevron — the alternative shape, a list of the groups
+   * that are open, would have to name a group that did not exist when it was
+   * written.
+   *
+   * Keyed by group and not by tab because the registry already forbids two
+   * groups sharing an id across the whole deck. It was keyed by tab when a tab
+   * had exactly one open group and the question was *which*; the question is now
+   * per group and has nothing to do with which tab is showing.
+   *
+   * Values written by the one-open-group build are `{ [tabId]: groupId }` —
+   * strings, which `booleanValue` drops entry by entry, leaving `{}`. A deck
+   * that opens with everything revealed is exactly where a first-run deck opens,
+   * so the shape change needs no version bump to land somewhere sensible.
+   */
+  defineSetting<Record<string, boolean>>({
     key: 'view.tunedeckGroups',
     scope: 'view',
     default: {},
-    // Per tab, so that returning to a tab returns to what you left open in it.
-    // A dropped entry costs that tab its first group, which is the same place a
-    // tab opened for the first time starts.
-    validate: recordValue(stringValue({ maxLength: 64 })),
+    validate: recordValue(booleanValue()),
     category: 'interface',
     label: 'Tunedeck groups',
-    help: 'Which group was last open in each Tunedeck tab on this machine.',
+    help: 'Which Tunedeck groups are collapsed on this machine.',
     internal: true
   }),
 

@@ -15,12 +15,12 @@ import { useTunedeckStore } from '@renderer/stores/tunedeck'
  *
  * It used to be: `TrailPane` loaded the history on mount and `RelatedPane`
  * watched the transport for a seed. That worked when every pane was mounted at
- * once. With one group open per tab it does not — the badge on a *shut* group
- * is read from the same store the shut group would have filled, so a collapsed
- * Trail would report an empty history until you opened it, and then report the
- * truth. A number that only becomes correct once you have looked inside is
- * worse than no number, because it is the number you use to decide whether to
- * look inside.
+ * once. Once a group could be collapsed it does not — the badge on a *shut*
+ * group is read from the same store the shut group would have filled, so a
+ * collapsed Trail would report an empty history until you opened it, and then
+ * report the truth. A number that only becomes correct once you have looked
+ * inside is worse than no number, because it is the number you use to decide
+ * whether to look inside.
  *
  * So the loading moved up to the one thing that is mounted regardless of which
  * group is open. The panes are now pure readers, which is also the arrangement
