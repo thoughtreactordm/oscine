@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTKZ93BBNWDPQDGQVP2RCGC
 title: Artist images through the existing artwork cache
-status: todo
+status: in-review
 priority: medium
 labels:
   - M7
@@ -13,9 +13,9 @@ workstreamDependsOn:
   - W2
 dependsOn:
   - 01KYTKYEBY8CPQ08PBS15WGN9R
-order: 18
+order: 3
 created: '2026-07-30T22:57:54.794Z'
-updated: '2026-07-30T22:57:54.794Z'
+updated: '2026-08-03T00:18:36.955Z'
 ---
 ## Scope
 
