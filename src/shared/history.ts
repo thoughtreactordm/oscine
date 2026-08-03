@@ -14,8 +14,15 @@ import type { Track } from './library'
  * That is also why nothing here writes `tracks.play_count` or
  * `tracks.last_played_at`. Those two columns want the other definition — a play
  * you actually listened to — and inflating them with skips to save a second
- * event would make the number D11's export bundle carries a lie. They stay
- * unwritten until a card owns them.
+ * event would make the number D11's export bundle carries a lie.
+ *
+ * D17 gave them that other definition, and W10-5 wrote it down: they are caches
+ * of the `listens` log (migration 014), maintained by the listen commit and
+ * rebuildable by `stats.rebuildCounters`. See `@shared/stats`. The trail's
+ * relationship to them is unchanged and is the whole point of there being two
+ * records — a skip is a row *here* and no row there, so a track jumped past
+ * three seconds in remains reachable without ever having been counted as
+ * listened to.
  *
  * ## D11
  *

@@ -79,6 +79,7 @@ import type {
   SettingsProfileExportResult,
   SettingsProfileFile
 } from './settings'
+import type { RebuildCountersResult } from './stats'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -252,6 +253,20 @@ export interface IpcContract {
    * common case costs a round trip rather than the timeout.
    */
   'listens.flushed': { request: null; response: null }
+  /**
+   * Recomputes `tracks.play_count` and `tracks.last_played_at` from `listens`.
+   *
+   * The repair for the two columns D17 makes caches of the log. Main runs it
+   * itself after a migration that touches `listens` and after a D11 import; this
+   * channel is the on-demand third, offered in Settings because a cache the
+   * operator cannot rebuild is a cache they have to believe.
+   *
+   * Whole-library and unconditional — there is one definition of what the
+   * columns mean, and a cheaper partial repair would be a second one. It writes
+   * only the rows that were wrong, so the answer over a healthy database is
+   * `tracksChanged: 0` and no writes at all.
+   */
+  'stats.rebuildCounters': { request: null; response: RebuildCountersResult }
   /**
    * Every playlist, in tab order. Unpaged: these are tabs, and a user who has
    * made a thousand of them has a different problem than pagination solves.
@@ -616,6 +631,7 @@ export const IPC_CHANNELS = [
   'history.clear',
   'listens.record',
   'listens.flushed',
+  'stats.rebuildCounters',
   'playlists.list',
   'playlists.create',
   'playlists.rename',

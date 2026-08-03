@@ -55,6 +55,8 @@ function syntheticLibrary(total = LIBRARY_SIZE) {
         sampleRateHz: 44100,
         channels: 2,
         bitDepth: 16,
+        playCount: 0,
+        lastPlayedAt: null,
         artwork: {
           small: 'fermata://artwork/missing/small',
           large: 'fermata://artwork/missing/large'

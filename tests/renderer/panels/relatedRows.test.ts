@@ -48,6 +48,8 @@ function track(id: number, title: string): Track {
     sampleRateHz: 44100,
     channels: 2,
     bitDepth: 16,
+    playCount: 0,
+    lastPlayedAt: null,
     artwork: { small: '', large: '' },
     rgTrackGainDb: null,
     rgTrackPeak: null,

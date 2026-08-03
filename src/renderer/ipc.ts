@@ -108,6 +108,10 @@ export const listens = {
   onFlushRequested: (listener: () => void) => window.fermata.listens.onFlushRequested(listener)
 }
 
+export const stats = {
+  rebuildCounters: () => unwrap(window.fermata.stats.rebuildCounters())
+}
+
 export const playlists = {
   list: () => unwrap(window.fermata.playlists.list()),
   create: (name: string) => unwrap(window.fermata.playlists.create(name)),

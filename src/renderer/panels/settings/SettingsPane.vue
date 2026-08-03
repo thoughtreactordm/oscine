@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { buildSettingsCatalog, SETTING_ROW_PX } from '@renderer/panels/settings/catalog'
 import { visibleRange } from '@renderer/panels/listViewport'
+import RebuildCountersAction from '@renderer/panels/settings/RebuildCountersAction.vue'
 import SettingRow from '@renderer/panels/settings/SettingRow.vue'
 import { useSettings } from '@renderer/settings'
 import { useSettingsNavStore } from '@renderer/stores/settingsNav'
@@ -163,6 +164,14 @@ watch(
           from what Fermata ships with
         </span>
       </div>
+
+      <!--
+        The Library section's one maintenance action. Here rather than as a
+        generated row because it has no stored value to be a row of — see the
+        component. Hidden while a query or the changed filter spans sections,
+        like everything else in this header that is about one section.
+      -->
+      <RebuildCountersAction v-if="!catalog.spanning && section?.id === 'library'" />
 
       <!--
         Not behind a confirmation, unlike Reset all. A section is a scope the

@@ -13,6 +13,8 @@ import {
 } from './db/location'
 import { SqlitePlayHistoryService } from './history/service'
 import { SqliteListenService } from './listens/service'
+import { rebuildTrackCounters } from './stats/counters'
+import { SqliteStatsService } from './stats/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { createDerivedArtworkStore } from './library/derivedArtwork'
@@ -270,11 +272,13 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     const filePath = libraryDatabasePath()
     let db: BetterSqlite3.Database
+    let listensMoved: boolean
 
     try {
       const opened = openDatabase(filePath)
       db = opened.db
       const { from, to, applied } = opened.migration
+      listensMoved = applied.some((migration) => migration.touchesListens === true)
       console.info(
         applied.length === 0
           ? `[db] ${filePath} — schema v${to}, up to date`
@@ -414,6 +418,24 @@ if (!app.requestSingleInstanceLock()) {
     // renderer-facing half of the quit-time flush handed in — see `before-quit`.
     const listens = new SqliteListenService({ db, requestFlush: requestListenFlush })
 
+    // The statistics engine, and today the one thing in it that is not a query:
+    // the rebuild of the two counter columns that cache the log.
+    const stats = new SqliteStatsService({ db })
+
+    // A migration is the one moment `listens` can move without the listen commit
+    // maintaining the cache alongside it, so the flag it declares is honoured
+    // here, at startup, before the window can sort by a stale play count.
+    // Synchronous and blocking on purpose: it is one grouped pass, and a window
+    // that opened first would render the numbers this is about to correct.
+    if (listensMoved) {
+      const repaired = rebuildTrackCounters(db)
+      console.info(
+        `[stats] counters rebuilt after a listens migration — ` +
+          `${repaired.tracksChanged} of ${repaired.tracksScanned} tracks corrected ` +
+          `from ${repaired.listensCounted} listens`
+      )
+    }
+
     const podcasts = new SqlitePodcastService({
       db,
       podcastsRoot: podcastsDirectoryPath(),
@@ -472,6 +494,7 @@ if (!app.requestSingleInstanceLock()) {
       settings,
       history,
       listens,
+      stats,
       net,
       artists,
       biographies,

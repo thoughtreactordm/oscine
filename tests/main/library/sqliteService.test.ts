@@ -7,6 +7,7 @@ import type { ScanProgress } from '../../../src/shared/library'
 import { openDatabase } from '../../../src/main/db'
 import type { MetadataReader, TrackTags } from '../../../src/main/library/metadata'
 import { SqliteLibraryService } from '../../../src/main/library/sqliteService'
+import { SqliteListenService } from '../../../src/main/listens/service'
 
 /**
  * The add-root flow, driven exactly as `library.addRoot` drives it.
@@ -364,6 +365,68 @@ describe('listTracks', () => {
       'Selected Ambient Works',
       'Shouting at the Ground'
     ])
+  })
+
+  /**
+   * W10-5's "done when": sorting by Plays reflects real listening.
+   *
+   * Driven through the real listen commit rather than by writing `play_count` by
+   * hand, because the claim is end-to-end — the commit maintains the cache, the
+   * projection carries it, and the ORDER BY reads it. Setting the column
+   * directly would prove only the last of the three.
+   *
+   * The never-listened track is the interesting row in both directions. It sorts
+   * last descending because zero is the smallest count, and *also* last
+   * ascending under `lastPlayedAt`, where its `NULL` is nulls-last rather than a
+   * value: a "recently played" list must not open with the tracks that never
+   * were.
+   */
+  it('sorts by play count and last played, from the listens log', async () => {
+    await seed()
+    const listens = new SqliteListenService({ db })
+
+    const all = await service.listTracks({ sort: 'title', direction: 'asc', offset: 0, limit: 10 })
+    const [anthem, beacon, cirrus] = all.tracks
+
+    await listens.record({ trackId: beacon.id, startedAt: 5_000, msListened: 90_000 })
+    await listens.record({ trackId: beacon.id, startedAt: 15_000, msListened: 90_000 })
+    await listens.record({ trackId: beacon.id, startedAt: 25_000, msListened: 90_000 })
+    await listens.record({ trackId: anthem.id, startedAt: 40_000, msListened: 90_000 })
+
+    const byPlays = await service.listTracks({
+      sort: 'playCount',
+      direction: 'desc',
+      offset: 0,
+      limit: 10
+    })
+    expect(byPlays.tracks.map((track) => [track.title, track.playCount])).toEqual([
+      ['Beacon', 3],
+      ['Anthem', 1],
+      ['Cirrus', 0]
+    ])
+
+    const byRecency = await service.listTracks({
+      sort: 'lastPlayedAt',
+      direction: 'desc',
+      offset: 0,
+      limit: 10
+    })
+    expect(byRecency.tracks.map((track) => [track.title, track.lastPlayedAt])).toEqual([
+      ['Anthem', 40_000],
+      ['Beacon', 25_000],
+      ['Cirrus', null]
+    ])
+
+    const oldestFirst = await service.listTracks({
+      sort: 'lastPlayedAt',
+      direction: 'asc',
+      offset: 0,
+      limit: 10
+    })
+    expect(oldestFirst.tracks.map((track) => track.title)).toEqual(['Beacon', 'Anthem', 'Cirrus'])
+
+    // Untouched by any of it, and the reason the two records are separate.
+    expect(cirrus.playCount).toBe(0)
   })
 
   it('pages without dropping or repeating a row', async () => {

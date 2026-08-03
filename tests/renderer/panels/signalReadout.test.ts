@@ -63,6 +63,8 @@ function track(overrides: Partial<Track> = {}): Track {
     sampleRateHz: 44100,
     channels: 2,
     bitDepth: 16,
+    playCount: 0,
+    lastPlayedAt: null,
     artwork: { small: 'fermata://artwork/1/small', large: 'fermata://artwork/1/large' },
     rgTrackGainDb: null,
     rgTrackPeak: null,

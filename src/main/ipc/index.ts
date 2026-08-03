@@ -9,6 +9,7 @@ import type { ArtistIdentityService, ArtistRelationsService } from '../musicbrai
 import type { NetService } from '../net'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
+import type { StatsService } from '../stats/service'
 import type { ArtistBiographyService, ArtistImageService } from '../wikipedia'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
@@ -66,6 +67,7 @@ export function registerIpcHandlers(
   settings: SettingsService,
   history: PlayHistoryService,
   listens: ListenService,
+  stats: StatsService,
   net: NetService,
   artists: ArtistIdentityService,
   biographies: ArtistBiographyService,
@@ -208,6 +210,8 @@ export function registerIpcHandlers(
     listens.acknowledgeFlush()
     return null
   })
+
+  handle('stats.rebuildCounters', () => stats.rebuildCounters())
 
   handle('playlists.list', () => playlists.list())
 

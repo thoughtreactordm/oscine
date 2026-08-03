@@ -156,6 +156,15 @@ const api = {
         listener()
       })
   },
+  stats: {
+    /**
+     * Recomputes `play_count` and `last_played_at` from the log, for every track.
+     *
+     * The repair, offered on demand. Main runs the same thing itself after a
+     * migration that moved `listens`.
+     */
+    rebuildCounters: () => request('stats.rebuildCounters', null)
+  },
   playlists: {
     /** Every playlist, in tab order. */
     list: () => request('playlists.list', null),

@@ -455,6 +455,14 @@ function cellText(row: TrackTableRow, key: TrackColumnKey): string | undefined {
       return formatChannels(track.channels)
     case 'encodedBytes':
       return formats.fileSize(track.encodedBytes)
+    // Zero is written out rather than dashed, unlike every nullable column
+    // above. "Never listened to" is a fact the log is certain about, and a dash
+    // would say the opposite — that we do not know. `lastPlayedAt` is the one
+    // that genuinely does not know, and gets the dash.
+    case 'playCount':
+      return String(track.playCount)
+    case 'lastPlayedAt':
+      return track.lastPlayedAt === null ? '—' : formats.date(track.lastPlayedAt)
   }
 }
 

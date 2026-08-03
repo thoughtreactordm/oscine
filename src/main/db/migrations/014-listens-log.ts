@@ -95,6 +95,12 @@ import type { Migration } from '../migrate'
 export const listensLog: Migration = {
   version: 14,
   name: 'listens-log',
+  // The first migration to set it, and a no-op here by construction: the table
+  // is created empty, so the rebuild it triggers finds nothing to change. Set
+  // anyway, because the flag is a statement about what the migration touched
+  // rather than about what the rebuild will find, and a convention that only
+  // starts being followed once it matters is one that will not be.
+  touchesListens: true,
   sql: `
 CREATE TABLE listens (
   id                INTEGER PRIMARY KEY,

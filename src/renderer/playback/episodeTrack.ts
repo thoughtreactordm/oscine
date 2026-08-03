@@ -26,6 +26,12 @@ export function episodeAsTrack(episode: Episode, podcast: Podcast): Track {
     sampleRateHz: null,
     channels: null,
     bitDepth: null,
+    // Zero and never, always. An episode has no row in `tracks` for a counter to
+    // cache and no row in `listens` to derive one from — W9 keeps its own play
+    // state on the episode. Reporting anything else here would put a podcast in
+    // a chart that is about the music library.
+    playCount: 0,
+    lastPlayedAt: null,
     artwork: podcast.artwork,
     rgTrackGainDb: null,
     rgTrackPeak: null,

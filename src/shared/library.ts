@@ -76,6 +76,22 @@ export interface Track extends TrackReplayGain {
   sampleRateHz: number | null
   channels: number | null
   bitDepth: number | null
+  /**
+   * Listens this track has crossed the threshold on — **a cache, not a counter**.
+   *
+   * Derived from the `listens` log (D17) and maintained by the listen commit;
+   * `stats.rebuildCounters` recomputes it. It is on the display row because
+   * sorting a hundred thousand tracks by it cannot be a `GROUP BY` over the
+   * largest table in the database, and it is honest about being a cache because
+   * the log can always settle an argument. See `@shared/stats`.
+   *
+   * Not nullable: a track that has never been listened to has been listened to
+   * zero times, and a `null` here would make every consumer decide again what
+   * that meant.
+   */
+  playCount: number
+  /** UTC ms of the most recent listen, or `null` for a track never listened to. */
+  lastPlayedAt: number | null
   artwork: ArtworkUrls
 }
 
@@ -127,7 +143,24 @@ export interface TrackFormatDetail {
   tool: string | null
 }
 
-export const TRACK_SORT_COLUMNS = ['trackNo', 'title', 'artist', 'album', 'durationSec'] as const
+/**
+ * The closed set of columns main will put in an ORDER BY.
+ *
+ * `playCount` and `lastPlayedAt` sort on the cached columns rather than on an
+ * aggregate over `listens`, which is the entire reason the cache exists. They
+ * are unindexed, like `durationSec` and for the same reason: a sort is a
+ * one-off, an index is a cost on every write, and the first of these to be
+ * *measured* slow is the one that earns one.
+ */
+export const TRACK_SORT_COLUMNS = [
+  'trackNo',
+  'title',
+  'artist',
+  'album',
+  'durationSec',
+  'playCount',
+  'lastPlayedAt'
+] as const
 export type TrackSortColumn = (typeof TRACK_SORT_COLUMNS)[number]
 
 export type SortDirection = 'asc' | 'desc'

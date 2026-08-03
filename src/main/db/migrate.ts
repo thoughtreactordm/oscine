@@ -30,6 +30,24 @@ export interface Migration {
    * filesystem or the network belongs in a rescan, not here.
    */
   backfill?: (db: Database.Database) => void
+  /**
+   * Declares that this migration changed the `listens` log, in any way.
+   *
+   * `tracks.play_count` and `tracks.last_played_at` are caches of that table
+   * (D17), maintained incrementally by the listen commit. A migration is the one
+   * moment the log can move without the commit path noticing — rows added,
+   * removed, re-attributed, a column redefined — and a cache nobody rebuilt
+   * after that is a cache that is quietly wrong for the rest of the library's
+   * life.
+   *
+   * Declared here rather than remembered at the call site for the reason
+   * `portable` is declared on a setting rather than listed in the exporter: the
+   * caller walks `applied` and reads this, so a future migration cannot be
+   * forgotten by whoever wired the rebuild. The rebuild itself is not run here —
+   * `main/db` is the persistence primitive and `main/stats` sits above it, and
+   * this file is not the place to reverse that.
+   */
+  touchesListens?: boolean
 }
 
 export interface MigrationResult {

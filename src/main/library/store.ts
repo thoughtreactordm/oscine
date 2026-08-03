@@ -128,7 +128,20 @@ const SORT_KEYS: Record<TrackSortColumn, readonly SortKey[]> = {
     { expr: 't.album_id', fixed: true },
     ...PLAYING_ORDER.map((key) => ({ ...key, fixed: true }))
   ],
-  durationSec: [{ expr: 't.duration_ms' }]
+  durationSec: [{ expr: 't.duration_ms' }],
+  // The cached columns, not `COUNT(*)` over `listens`. Sorting a hundred
+  // thousand tracks by an aggregate over the fastest-growing table in the
+  // database on every header click is the thing the cache exists to avoid, and
+  // the cache is only worth having if the query that wants it actually reads it.
+  //
+  // `play_count` is `NOT NULL DEFAULT 0` (migration 001), hence `notNull`: a
+  // nulls-last prefix over a column that cannot be NULL is a CASE evaluated a
+  // hundred thousand times to answer no. `last_played_at` is genuinely nullable
+  // — never listened to — and keeps the prefix, so the tracks with no answer
+  // sort to the end in both directions rather than crowding the top of a
+  // descending "most recent" list.
+  playCount: [{ expr: 't.play_count', notNull: true }],
+  lastPlayedAt: [{ expr: 't.last_played_at' }]
 }
 
 /**
@@ -256,6 +269,8 @@ export const TRACK_PROJECTION = `
   t.sample_rate  AS sampleRate,
   t.channels     AS channels,
   t.bit_depth    AS bitDepth,
+  t.play_count     AS playCount,
+  t.last_played_at AS lastPlayedAt,
   al.artwork_hash AS artworkHash,
   t.rg_track_gain AS rgTrackGain,
   t.rg_track_peak AS rgTrackPeak,
@@ -280,6 +295,8 @@ export interface TrackRow {
   sampleRate: number | null
   channels: number | null
   bitDepth: number | null
+  playCount: number | null
+  lastPlayedAt: number | null
   artworkHash: string | null
   rgTrackGain: number | null
   rgTrackPeak: number | null
@@ -1600,6 +1617,12 @@ export function toTrack(row: TrackRow): Track {
     sampleRateHz: row.sampleRate,
     channels: row.channels,
     bitDepth: row.bitDepth,
+    // `NOT NULL DEFAULT 0` since migration 001, so the fallback is for a row a
+    // hand-edited or partially-migrated database produced — the same defence
+    // `title` gets above. Zero is also the honest answer for one: an unknown
+    // play count and no play count are the same statement about the log.
+    playCount: row.playCount ?? 0,
+    lastPlayedAt: row.lastPlayedAt,
     artwork: artworkUrls(row.artworkHash),
     rgTrackGainDb: row.rgTrackGain,
     rgTrackPeak: row.rgTrackPeak,
