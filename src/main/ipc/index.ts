@@ -3,6 +3,7 @@ import { FermataError } from '@shared/errors'
 import { trackUrl } from '@shared/ipc'
 import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
+import type { ListenService } from '../listens/service'
 import type { PlaylistService } from '../library/playlists/service'
 import type { ArtistIdentityService, ArtistRelationsService } from '../musicbrainz'
 import type { NetService } from '../net'
@@ -45,6 +46,7 @@ import {
   assertPlaylistName,
   assertPositiveInt,
   assertRecord,
+  assertRecordListenRequest,
   assertRemoveEntriesRequest,
   assertResetSettingsRequest,
   assertSetSettingRequest,
@@ -63,6 +65,7 @@ export function registerIpcHandlers(
   podcasts: PodcastService,
   settings: SettingsService,
   history: PlayHistoryService,
+  listens: ListenService,
   net: NetService,
   artists: ArtistIdentityService,
   biographies: ArtistBiographyService,
@@ -196,6 +199,13 @@ export function registerIpcHandlers(
 
   handle('history.clear', async () => {
     await history.clear()
+    return null
+  })
+
+  handle('listens.record', (request) => listens.record(assertRecordListenRequest(request)))
+
+  handle('listens.flushed', () => {
+    listens.acknowledgeFlush()
     return null
   })
 

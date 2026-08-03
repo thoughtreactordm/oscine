@@ -40,6 +40,7 @@ import type {
   ListTracksResult,
   Track
 } from '../../../src/shared/library'
+import type { RecordListenRequest } from '../../../src/shared/listens'
 import type {
   ListPlaylistEntriesQuery,
   ListPlaylistEntriesResult
@@ -217,6 +218,9 @@ function harness(
     stallSessionFill?: boolean
     setOutputDevice?: PlaybackControllerDeps['setOutputDevice']
     onPlayStarted?: PlaybackControllerDeps['onPlayStarted']
+    onListenDeparted?: PlaybackControllerDeps['onListenDeparted']
+    /** The listen accumulator's clock, so a `startedAt` is something to assert. */
+    now?: PlaybackControllerDeps['now']
   } = {}
 ) {
   const total = options.total ?? 10
@@ -283,6 +287,8 @@ function harness(
     ...(options.settings ? { settings: options.settings } : {}),
     ...(options.setOutputDevice ? { setOutputDevice: options.setOutputDevice } : {}),
     ...(options.onPlayStarted ? { onPlayStarted: options.onPlayStarted } : {}),
+    ...(options.onListenDeparted ? { onListenDeparted: options.onListenDeparted } : {}),
+    ...(options.now ? { now: options.now } : {}),
     ...(options.crossfadeMs === undefined ? {} : { crossfadeMs: options.crossfadeMs }),
     ...(options.sessionCap === undefined ? {} : { sessionQueueCap: options.sessionCap }),
     // Fixed by default, so a shuffled traversal is something a test can name.
@@ -2344,6 +2350,282 @@ describe('createPlaybackController', () => {
       await settle()
 
       expect(plays).toEqual([0])
+    })
+  })
+
+  /**
+   * D17's other record, and W10-4's whole claim: a row at *departure*, and only
+   * for a play that was actually listened to.
+   *
+   * The fixture track is 120 seconds, so its threshold is sixty — half the
+   * duration, under the four-minute cap. Every test below either crosses that
+   * or deliberately does not.
+   */
+  describe('committing listens at departure', () => {
+    /**
+     * Library position 1, whose fixture id is 1.
+     *
+     * Not position 0. The fixture numbers its rows from zero and a listen needs
+     * a real `tracks` rowid, which SQLite numbers from one — the recorder
+     * declines to open a listen for a non-positive id because that is how a
+     * podcast episode arrives. Naming the row here rather than working around
+     * it in each test keeps that distinction visible.
+     */
+    const LISTENABLE = 1
+
+    /** A clock a test can name. Advances a second per reading, so it is ordered. */
+    function clock(from = 1_700_000_000_000): () => number {
+      let at = from
+      return () => {
+        at += 1_000
+        return at
+      }
+    }
+
+    function listenHarness(
+      options: Parameters<typeof harness>[0] = {}
+    ): ReturnType<typeof harness> & { listens: RecordListenRequest[] } {
+      const listens: RecordListenRequest[] = []
+      const h = harness({
+        total: 6,
+        now: clock(),
+        ...options,
+        onListenDeparted: (entry) => listens.push(entry)
+      })
+      return { ...h, listens }
+    }
+
+    /** Starts the listenable row playing and lets the first decode settle. */
+    async function play(h: ReturnType<typeof listenHarness>): Promise<void> {
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc', index: LISTENABLE })
+      await settle()
+    }
+
+    /**
+     * Plays the engine's playhead forward in ticks the accumulator will credit.
+     *
+     * The status is announced first because that is what the real engine does
+     * and what the accumulator reads: audible time is what accrued while the
+     * transport said `playing`, and a tick outside that window is not listening.
+     */
+    function playThrough(engine: FakeEngine, toSeconds: number, stepSeconds = 1): void {
+      engine.emit('statuschange', 'playing')
+      for (let at = stepSeconds; at <= toSeconds; at += stepSeconds) {
+        engine.emit('timeupdate', { currentTime: at, duration: 120 })
+      }
+    }
+
+    it('commits one listen when a track ends, carrying the audible time', async () => {
+      const h = listenHarness()
+      await play(h)
+
+      // A hundred ticks, of which the first only establishes the baseline.
+      playThrough(h.engine, 100)
+      // Departure, not threshold-crossing: nothing was written at sixty seconds.
+      expect(h.listens).toEqual([])
+
+      h.engine.emit('ended', { trackId: LISTENABLE })
+      await settle()
+
+      expect(h.listens).toEqual([
+        { trackId: LISTENABLE, startedAt: 1_700_000_001_000, msListened: 99_000 }
+      ])
+    })
+
+    it('commits nothing for a skip, which is what separates it from the trail', async () => {
+      const plays: number[] = []
+      const h = listenHarness({ onPlayStarted: (played) => plays.push(played.id) })
+      await play(h)
+
+      // Three seconds in, and gone.
+      playThrough(h.engine, 3)
+      await h.controller.next()
+      await settle()
+
+      // The trail has it; the log does not. Two records, two questions.
+      expect(plays).toEqual([LISTENABLE, LISTENABLE + 1])
+      expect(h.listens).toEqual([])
+    })
+
+    it('commits the outgoing track when the transport moves on past threshold', async () => {
+      const h = listenHarness()
+      await play(h)
+
+      playThrough(h.engine, 75)
+      await h.controller.next()
+      await settle()
+
+      expect(h.listens).toEqual([
+        { trackId: LISTENABLE, startedAt: 1_700_000_001_000, msListened: 74_000 }
+      ])
+    })
+
+    it('commits on stop, and once', async () => {
+      const h = listenHarness()
+      await play(h)
+
+      playThrough(h.engine, 90)
+      h.controller.stop()
+      await settle()
+
+      expect(h.listens).toEqual([
+        { trackId: LISTENABLE, startedAt: 1_700_000_001_000, msListened: 89_000 }
+      ])
+
+      // The accumulator is empty afterwards, so a second stop is not a second row.
+      h.controller.stop()
+      expect(h.listens).toHaveLength(1)
+    })
+
+    it('commits nothing on a stop below the threshold', async () => {
+      const h = listenHarness()
+      await play(h)
+
+      playThrough(h.engine, 20)
+      h.controller.stop()
+
+      expect(h.listens).toEqual([])
+    })
+
+    it('flushes an in-flight listen without stopping playback — the quit path', async () => {
+      const h = listenHarness()
+      await play(h)
+
+      playThrough(h.engine, 65)
+      h.controller.flushListen()
+
+      expect(h.listens).toEqual([
+        { trackId: LISTENABLE, startedAt: 1_700_000_001_000, msListened: 64_000 }
+      ])
+      // The engine was never touched. A quit that had to silence the app to
+      // save a row would be a worse trade than losing the row.
+      expect(h.engine.pauseCount).toBe(0)
+      expect(h.engine.disposed).toBe(false)
+      expect(h.controller.nowPlaying.value?.id).toBe(LISTENABLE)
+    })
+
+    it('flushes nothing when the in-flight listen has not crossed', async () => {
+      const h = listenHarness()
+      await play(h)
+
+      playThrough(h.engine, 10)
+      h.controller.flushListen()
+
+      expect(h.listens).toEqual([])
+    })
+
+    it('does not double-commit a flush that turned out not to precede a quit', async () => {
+      const h = listenHarness()
+      await play(h)
+
+      playThrough(h.engine, 65)
+      h.controller.flushListen()
+      // Playback carried on. The accumulator starts again from where it stands,
+      // so the tail earns its own listen rather than being counted twice.
+      playThrough(h.engine, 120, 5)
+      h.controller.stop()
+
+      expect(h.listens).toHaveLength(1)
+    })
+
+    it('commits on dispose, so closing the window is a departure', async () => {
+      const h = listenHarness()
+      await play(h)
+
+      playThrough(h.engine, 70)
+      h.controller.dispose()
+
+      expect(h.listens).toEqual([
+        { trackId: LISTENABLE, startedAt: 1_700_000_001_000, msListened: 69_000 }
+      ])
+    })
+
+    it('does not count paused time, and does not credit a seek made while paused', async () => {
+      const h = listenHarness()
+      await play(h)
+
+      playThrough(h.engine, 30)
+      h.engine.emit('statuschange', 'paused')
+      // The playhead moves while paused. None of it was audible.
+      h.engine.emit('timeupdate', { currentTime: 95, duration: 120 })
+      playThrough(h.engine, 100)
+
+      h.controller.stop()
+      // Twenty-nine seconds before the pause plus the ninety-nine ticked after
+      // it — each run's first tick buys the baseline rather than credit, which is
+      // the honest direction to be wrong in — and not one millisecond of the gap
+      // the seek jumped.
+      expect(h.listens).toEqual([
+        { trackId: LISTENABLE, startedAt: 1_700_000_001_000, msListened: 128_000 }
+      ])
+    })
+
+    it('cannot be scrobbled by scrubbing through the track', async () => {
+      const h = listenHarness()
+      await play(h)
+
+      // Dragged end to end, several times over. Every jump is past the seek
+      // epsilon, so every one of them earns nothing.
+      h.engine.emit('statuschange', 'playing')
+      for (let pass = 0; pass < 5; pass++) {
+        for (const at of [10, 40, 70, 100, 115]) {
+          h.engine.emit('timeupdate', { currentTime: at, duration: 120 })
+        }
+      }
+      h.controller.stop()
+
+      expect(h.listens).toEqual([])
+    })
+
+    it('never revises a duration the library already knew', async () => {
+      // `fetchPage` serves a 120-second row, so the accumulator starts knowing
+      // one and an engine reporting an hour does not move the threshold under a
+      // listen in progress. Seventy seconds still crosses.
+      const h = listenHarness()
+      await play(h)
+
+      h.engine.emit('statuschange', 'playing')
+      h.engine.emit('timeupdate', { currentTime: 1, duration: 3600 })
+      playThrough(h.engine, 70)
+      h.controller.stop()
+
+      expect(h.listens).toHaveLength(1)
+    })
+
+    it('never opens a listen for a podcast episode', async () => {
+      const h = listenHarness()
+      // Episodes carry the negative synthetic id `episodePlaybackTrackId` mints,
+      // and `listens.track_id` references `tracks`.
+      await h.controller.playTracks({ tracks: [{ ...track(1), id: -42 }], index: 0 })
+      await settle()
+
+      playThrough(h.engine, 110)
+      h.controller.stop()
+
+      expect(h.listens).toEqual([])
+    })
+
+    it('commits a listen per pass under repeat-one, with distinct started_at', async () => {
+      const h = listenHarness()
+      await play(h)
+      h.controller.setRepeatMode('one')
+      await settle()
+
+      playThrough(h.engine, 110)
+      h.engine.emit('ended', { trackId: LISTENABLE })
+      await settle()
+
+      // The boundary hands the same track to the other slot. That is a second
+      // play, so it is a second listen — not one of double length.
+      const second = h.engines[1]
+      playThrough(second, 110)
+      second.emit('ended', { trackId: LISTENABLE })
+      await settle()
+
+      expect(h.listens).toEqual([
+        { trackId: LISTENABLE, startedAt: 1_700_000_001_000, msListened: 109_000 },
+        { trackId: LISTENABLE, startedAt: 1_700_000_002_000, msListened: 109_000 }
+      ])
     })
   })
 })

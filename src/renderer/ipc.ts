@@ -11,6 +11,7 @@ import type {
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
+import type { RecordListenRequest } from '@shared/listens'
 import type { NetScope } from '@shared/net'
 import type {
   AddTracksToPlaylistRequest,
@@ -98,6 +99,13 @@ export const history = {
   record: (trackId: number) => unwrap(window.fermata.history.record(trackId)),
   list: (limit: number) => unwrap(window.fermata.history.list(limit)),
   clear: () => unwrap(window.fermata.history.clear())
+}
+
+export const listens = {
+  record: (entry: RecordListenRequest) => unwrap(window.fermata.listens.record(entry)),
+  flushed: () => unwrap(window.fermata.listens.flushed()),
+  /** Returns an unsubscribe function. Call it on unmount. */
+  onFlushRequested: (listener: () => void) => window.fermata.listens.onFlushRequested(listener)
 }
 
 export const playlists = {

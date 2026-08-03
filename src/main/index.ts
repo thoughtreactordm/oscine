@@ -12,6 +12,7 @@ import {
   podcastsDirectoryPath
 } from './db/location'
 import { SqlitePlayHistoryService } from './history/service'
+import { SqliteListenService } from './listens/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { createDerivedArtworkStore } from './library/derivedArtwork'
@@ -146,6 +147,10 @@ function broadcastEpisodeDownloadProgress(progress: EpisodeDownloadProgress): vo
 
 function broadcastSettingsChanged(changes: SettingsChange[]): void {
   if (mainWindow) emit(mainWindow.webContents, 'settings.changed', changes)
+}
+
+function requestListenFlush(): void {
+  if (mainWindow) emit(mainWindow.webContents, 'listens.flushRequested', null)
 }
 
 /**
@@ -405,6 +410,10 @@ if (!app.requestSingleInstanceLock()) {
     // library's tracks only through the shared projection.
     const history = new SqlitePlayHistoryService({ db })
 
+    // The listens log (D17). Same connection, its own two tables, and the
+    // renderer-facing half of the quit-time flush handed in — see `before-quit`.
+    const listens = new SqliteListenService({ db, requestFlush: requestListenFlush })
+
     const podcasts = new SqlitePodcastService({
       db,
       podcastsRoot: podcastsDirectoryPath(),
@@ -420,11 +429,21 @@ if (!app.requestSingleInstanceLock()) {
       event.preventDefault()
       if (quitInProgress) return
       quitInProgress = true
-      // Wait for worker termination before closing SQLite. This avoids both a
-      // native worker keeping the app alive and a final checkpoint racing a
-      // closed database connection.
-      void library
-        .close()
+      // First, because it is the only step that needs the renderer alive and
+      // the database open at the same time. The accumulator holds the in-flight
+      // listen in the renderer, so a quit mid-track would otherwise lose one
+      // that had already crossed the threshold. Bounded and never rejecting —
+      // see the service; a renderer that cannot answer does not get to keep the
+      // app open.
+      void listens
+        .flush()
+        .catch((error: unknown) => {
+          console.warn('[listens] quit flush failed:', error)
+        })
+        // Then wait for worker termination before closing SQLite. This avoids
+        // both a native worker keeping the app alive and a final checkpoint
+        // racing a closed database connection.
+        .then(() => library.close())
         .catch((error: unknown) => {
           console.error('[replaygain] worker cleanup failed:', error)
         })
@@ -452,6 +471,7 @@ if (!app.requestSingleInstanceLock()) {
       podcasts,
       settings,
       history,
+      listens,
       net,
       artists,
       biographies,

@@ -25,8 +25,10 @@ import type {
   Track,
   TrackSortColumn
 } from '@shared/library'
+import type { RecordListenRequest } from '@shared/listens'
 import type { ListPlaylistEntriesQuery, ListPlaylistEntriesResult } from '@shared/playlists'
 import { AUDIO_CROSSFADE_MS, AUDIO_CROSSFADE_MS_KEY } from '@shared/settings'
+import { createListenRecorder } from './listenRecorder'
 import type { MediaSessionBinding, MediaSessionState, MediaSessionTransport } from './mediaSession'
 import {
   createFixedPlayOrder,
@@ -192,6 +194,26 @@ export interface PlaybackControllerDeps {
    * caused it.
    */
   onPlayStarted?: (track: Track) => void
+  /**
+   * Called at *departure*, and only for a play that crossed the listened
+   * threshold — D17's listens log, W10-4.
+   *
+   * The counterpart to `onPlayStarted` and deliberately not its twin. That one
+   * fires once per play, unconditionally, because the trail records what the
+   * transport did; this one fires at the other end of the play and only when
+   * the accumulator says the track was actually listened to. A skipped track
+   * reaches the first sink and never the second, which is the whole difference
+   * between the two records.
+   *
+   * Fire-and-forget, for the same reason and with the same force.
+   */
+  onListenDeparted?: (listen: RecordListenRequest) => void
+  /**
+   * The listen accumulator's clock and seek epsilon. Injected only so a test
+   * can assert a `startedAt` and drive a seek without a real one.
+   */
+  now?: () => number
+  listenSeekEpsilonMs?: number
 }
 
 export interface PlayFromListParams {
@@ -244,6 +266,21 @@ function bindCrossfadeMs(settings: SettingsReader): Ref<number> {
 }
 
 export function createPlaybackController(deps: PlaybackControllerDeps) {
+  /**
+   * D17's accumulator, and the departures that commit it.
+   *
+   * Held here rather than in the store for the same reason `onPlayStarted` is a
+   * sink: the four signals that mean departure — a natural end, a new play, a
+   * stop and a dispose — are all in this file, and a store watching `nowPlaying`
+   * to infer them would be inferring from the one thing `retarget` restates for
+   * a track that never left.
+   */
+  const listen = createListenRecorder({
+    commit: (entry) => deps.onListenDeparted?.(entry),
+    ...(deps.now === undefined ? {} : { now: deps.now }),
+    ...(deps.listenSeekEpsilonMs === undefined ? {} : { seekEpsilonMs: deps.listenSeekEpsilonMs })
+  })
+
   const status = ref<PlaybackStatus>('idle')
   const currentTime = ref(0)
   const duration = ref(0)
@@ -467,10 +504,23 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       created.on('statuschange', (next) => {
         status.value = next
         admission.value = created.admission
+        // Leaving `playing` drops the accumulator's baseline, so a pause, a
+        // seek and a resume cannot be credited as the gap between them. The
+        // position is not read when the state is not `playing`, which is why
+        // this does not have to care that `currentTime` may be frozen by a
+        // scrub in progress.
+        if (next !== 'playing') listen.observe(currentTime.value * 1000, false)
       }),
       created.on('timeupdate', (position) => {
         duration.value = position.duration
         if (!scrubbing.value) currentTime.value = position.currentTime
+        // The *engine's* position, not `currentTime` — which a drag in progress
+        // deliberately holds still, and which during that drag is the scrub
+        // handle rather than what is audible. Feeding the handle would credit
+        // scrubbing through a track as listening to it, which is the exact
+        // thing Last.fm's rule exists to prevent.
+        listen.learn(position.duration * 1000)
+        listen.observe(position.currentTime * 1000, status.value === 'playing')
       }),
       created.on('error', (err) => {
         error.value = err.message
@@ -480,8 +530,19 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
         position.value = at
         admission.value = created.admission
       }),
+      // The last track of an order ends and nothing follows it: no `playstart`
+      // comes, so this is the only departure that play will ever get. At a
+      // boundary with a successor it fires first and `playstart` finds nothing
+      // left to depart — see the recorder on why that ordering is not relied on.
+      created.on('ended', () => {
+        listen.depart()
+      }),
       created.on('playstart', ({ track }) => {
         deps.onPlayStarted?.(track)
+        // Departs the outgoing track before the incoming one begins. This is
+        // the skip, the Next, the jump-back and the ordinary boundary, all of
+        // which reach the transport as one track replacing another.
+        listen.begin(track)
       }),
       created.on('prefetchchange', applyPrefetch)
     ]
@@ -1158,6 +1219,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
 
   /** Stop playback and invalidate current and prefetched work. */
   function stop(): void {
+    // Before the scheduler, which is what makes this a departure at all: a
+    // `stop()` that had already torn the engine down would be a listen with
+    // nothing left to commit it.
+    listen.depart()
     requestToken++
     shuffleToken++
     scheduler?.stop()
@@ -1195,6 +1260,9 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
 
   /** Releases the audio device and every subscription. Safe to call twice. */
   function dispose(): void {
+    // The last departure there will ever be, and the reason it is first: every
+    // line below this one removes something the commit would have needed.
+    listen.depart()
     mediaSession?.dispose()
     stopCrossfadeWatch()
     stopNormalizationWatch()
@@ -1317,6 +1385,19 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
      * device is not opened until the first play.
      */
     readWaveform: (into: WaveformBuffer): boolean => scheduler?.readWaveform(into) ?? false,
+    /**
+     * Departs the in-flight listen without stopping playback — the quit path.
+     *
+     * `dispose` would do it too, but quitting is not the only thing that could
+     * ask and tearing the engine down to write a row would make the app
+     * silent for however long the shutdown takes. Playback is untouched: the
+     * accumulator simply has nothing in it afterwards, so a track that keeps
+     * playing past this point earns a second listen from where it stands, which
+     * is the honest answer to a flush that turned out not to precede a quit.
+     */
+    flushListen: (): void => {
+      listen.depart()
+    },
     dispose,
     /** Test seam: whether the audio device has actually been claimed yet. */
     hasEngine: (): boolean => scheduler !== null,

@@ -10,6 +10,7 @@ import type { GetArtistBiographyRequest } from '@shared/biography'
 import type { GetArtistImageRequest } from '@shared/artistImage'
 import { FermataError } from '@shared/errors'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
+import type { RecordListenRequest } from '@shared/listens'
 import { NET_SCOPES, type CancelNetScopeRequest, type NetScope } from '@shared/net'
 import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
 import {
@@ -349,6 +350,35 @@ export function assertListPlayHistoryQuery(value: unknown): ListPlayHistoryQuery
   }
   if (limit > PLAY_HISTORY_CAP) invalid(`limit must not exceed ${PLAY_HISTORY_CAP}.`)
   return { limit }
+}
+
+/**
+ * One departed listen.
+ *
+ * `startedAt` is the one timestamp in the contract the renderer supplies rather
+ * than main — see `shared/listens.ts` for why the trail's rule does not
+ * transfer. Validated as a positive integer and no further: the log records
+ * when the operator's machine says they listened, and a clock that is wrong is
+ * a clock that is wrong in `play_history` too. A bound of "not in the future"
+ * would reject every listen from a laptop whose time is a minute fast, which is
+ * a worse outcome than a row dated a minute early.
+ *
+ * `msListened` admits zero. The threshold rule lives in the renderer and this
+ * is not a second copy of it — a validator that reimplemented "longer than
+ * thirty seconds" would be the place the two definitions started to drift.
+ */
+export function assertRecordListenRequest(value: unknown): RecordListenRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackId', 'startedAt', 'msListened'])
+  const msListened = raw.msListened
+  if (typeof msListened !== 'number' || !Number.isInteger(msListened) || msListened < 0) {
+    invalid('msListened must be a non-negative integer.')
+  }
+  return {
+    trackId: assertPositiveInt(raw.trackId, 'trackId'),
+    startedAt: assertPositiveInt(raw.startedAt, 'startedAt'),
+    msListened
+  }
 }
 
 export function assertPlaylistName(value: unknown): string {

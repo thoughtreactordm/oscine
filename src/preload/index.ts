@@ -28,6 +28,7 @@ import type {
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
+import type { RecordListenRequest } from '@shared/listens'
 import type { NetScope } from '@shared/net'
 import type {
   BrowsePodcastCategoryQuery,
@@ -143,6 +144,17 @@ const api = {
     /** The trail, most recent first. Bounded by `PLAY_HISTORY_CAP`. */
     list: (limit: number) => request('history.list', { limit }),
     clear: () => request('history.clear', null)
+  },
+  listens: {
+    /** One listen, at departure, once it has crossed the threshold. */
+    record: (entry: RecordListenRequest) => request('listens.record', entry),
+    /** Answers `onFlushRequested`, whether or not there was anything to write. */
+    flushed: () => request('listens.flushed', null),
+    /** Returns an unsubscribe function. Call it on unmount. */
+    onFlushRequested: (listener: () => void) =>
+      subscribe('listens.flushRequested', () => {
+        listener()
+      })
   },
   playlists: {
     /** Every playlist, in tab order. */

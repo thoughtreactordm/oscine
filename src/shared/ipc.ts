@@ -9,6 +9,7 @@ import type { ArtistRelationsResult, GetArtistRelationsRequest } from './artistR
 import type { ArtistBiographyResult, GetArtistBiographyRequest } from './biography'
 import type { ArtistImageResult, GetArtistImageRequest } from './artistImage'
 import type { ListPlayHistoryQuery, PlayEntry } from './history'
+import type { ListenCommit, RecordListenRequest } from './listens'
 import type {
   ArtworkVariant,
   GetTracksByIdsQuery,
@@ -227,6 +228,30 @@ export interface IpcContract {
   'history.list': { request: ListPlayHistoryQuery; response: PlayEntry[] }
   /** Erases the trail. A record of what someone listened to is theirs to drop. */
   'history.clear': { request: null; response: null }
+  /**
+   * Commits one listen — the whole of D17's write path, in one transaction.
+   *
+   * Reported at *departure* rather than at threshold-crossing, and only when
+   * the threshold was crossed, so the renderer calling this at all is the
+   * decision. Everything on the row beyond these three fields is snapshotted in
+   * main from library state resolved through `track_overrides`.
+   *
+   * Resolves `null` when no row was written. Three ordinary causes, none of
+   * them a fault: the track left the library while it was playing, it has no
+   * title to attribute the listen to, or the identity index already holds it.
+   */
+  'listens.record': { request: RecordListenRequest; response: ListenCommit | null }
+  /**
+   * The renderer's answer to `listens.flushRequested`: the in-flight listen has
+   * been departed and any write it caused has landed.
+   *
+   * A channel rather than an ack on the event because `IpcEventContract` is
+   * one-way by construction, and quitting is precisely the case where main
+   * needs to know the answer arrived — it is about to close the database.
+   * Always called, including when there was nothing to flush, so that the
+   * common case costs a round trip rather than the timeout.
+   */
+  'listens.flushed': { request: null; response: null }
   /**
    * Every playlist, in tab order. Unpaged: these are tabs, and a user who has
    * made a thousand of them has a different problem than pagination solves.
@@ -534,6 +559,20 @@ export interface IpcEventContract {
    * repaired value gets back to the control that submitted it.
    */
   'settings.changed': SettingsChange[]
+  /**
+   * Quit is under way: depart the in-flight listen now.
+   *
+   * The accumulator lives in the renderer and holds the only copy of a listen
+   * in progress, so a quit with a track playing would otherwise lose one that
+   * had already earned its row. Main sends this and waits for `listens.flushed`
+   * before it closes the database.
+   *
+   * A hard kill still loses it. That is the accepted cost of the one-write
+   * design, and it is cheaper than the alternative: writing an in-flight listen
+   * durably means a heartbeat into SQLite every few seconds for the entire life
+   * of the app, to protect a single row.
+   */
+  'listens.flushRequested': null
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -575,6 +614,8 @@ export const IPC_CHANNELS = [
   'history.record',
   'history.list',
   'history.clear',
+  'listens.record',
+  'listens.flushed',
   'playlists.list',
   'playlists.create',
   'playlists.rename',
@@ -628,7 +669,8 @@ export const IPC_EVENT_CHANNELS = [
   'library.notice',
   'library.replayGainProgress',
   'podcasts.downloadProgress',
-  'settings.changed'
+  'settings.changed',
+  'listens.flushRequested'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**

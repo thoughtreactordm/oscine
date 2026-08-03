@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { createAudioEngineFactory } from '@renderer/audio'
-import { library, playlists } from '@renderer/ipc'
+import { library, listens, playlists } from '@renderer/ipc'
 import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMediaSession'
 import { createPlaybackController } from '@renderer/playback/controller'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
@@ -35,7 +35,18 @@ export const usePlaybackStore = defineStore('playback', () => {
   // knows nothing about playback.
   const playHistory = usePlayHistoryStore()
 
-  return createPlaybackController({
+  /**
+   * The listen writes that have not landed yet — normally none, at most one.
+   *
+   * Tracked rather than fired and forgotten because of the quit flush: main
+   * asks the renderer to depart its in-flight listen and then closes the
+   * database, and answering before the insert has crossed IPC would make the
+   * handshake protect nothing. Everywhere else this set is empty by the time
+   * anyone looks at it.
+   */
+  const inFlightWrites = new Set<Promise<unknown>>()
+
+  const controller = createPlaybackController({
     createEngine: audio.createEngine,
     setOutputDevice: audio.setOutputDevice,
     fetchPage: (query) => library.listTracks(query),
@@ -50,6 +61,19 @@ export const usePlaybackStore = defineStore('playback', () => {
     // listened-threshold. Voided rather than awaited: nothing about a track
     // change may wait on a database write.
     onPlayStarted: (track) => void playHistory.record(track),
+    // W10-4's listen commit. The other end of the play, and only for one that
+    // crossed the threshold — see `shared/listens.ts` for why that and the
+    // trail above are two records rather than one. Swallowed rather than
+    // surfaced: a listen that fails to write costs one row, and an error thrown
+    // out of a track change would be a statistics feature with the power to
+    // interrupt playback.
+    onListenDeparted: (entry) => {
+      const write = listens
+        .record(entry)
+        .catch(() => null)
+        .finally(() => inFlightWrites.delete(write))
+      inFlightWrites.add(write)
+    },
     // Both scopes, live. Shuffle and repeat survive a restart and the shuffle
     // sequence does not; the global crossfade is durable and reaches the
     // scheduler at the next boundary rather than at the next launch.
@@ -61,4 +85,31 @@ export const usePlaybackStore = defineStore('playback', () => {
         }
       : {})
   })
+
+  /**
+   * The quit-time flush (D17). Main asks; this answers.
+   *
+   * Never unsubscribed, and that is the point: it is live for exactly as long
+   * as the renderer is, which is the window in which a quit can happen. There
+   * is nothing to clean up because there is no moment before teardown at which
+   * having stopped listening would be correct.
+   *
+   * The answer goes out after the departure's write has landed rather than
+   * after the departure itself — main closes the database on receiving it, so
+   * acknowledging an insert still in flight would ack a row that never gets
+   * written. A flush with nothing to commit resolves on an empty set and costs
+   * one round trip, which is why main does not have to wait out its timeout in
+   * the ordinary case.
+   */
+  listens.onFlushRequested(() => {
+    controller.flushListen()
+    void Promise.all([...inFlightWrites])
+      .then(() => listens.flushed())
+      .catch(() => {
+        // Main's timeout is the backstop. There is nothing useful to do with a
+        // failure here and nowhere left to show it.
+      })
+  })
+
+  return controller
 })
