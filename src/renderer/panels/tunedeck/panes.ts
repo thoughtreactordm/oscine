@@ -1,6 +1,9 @@
+import { defineComponent, h, type Component } from 'vue'
 import { PLAY_HISTORY_CAP } from '@shared/history'
 import { NEIGHBOURHOOD_STRANDS, type RelatedStrand } from '@shared/related'
+import type { StatsScopeBy } from '@shared/stats'
 import { countArtistFavorites } from './favoriteSongs'
+import { countListening } from './listeningStats'
 import { countRelatedRows } from './relatedRows'
 import AlbumTracksPane from './AlbumTracksPane.vue'
 import ArtistCatalogPane from './ArtistCatalogPane.vue'
@@ -9,6 +12,7 @@ import BiographyPane from './BiographyPane.vue'
 import DecodePathPane from './DecodePathPane.vue'
 import FavoriteSongsPane from './FavoriteSongsPane.vue'
 import FormatPane from './FormatPane.vue'
+import ListeningPane from './ListeningPane.vue'
 import LoudnessPane from './LoudnessPane.vue'
 import NeighbourhoodPane from './NeighbourhoodPane.vue'
 import RelationsPane from './RelationsPane.vue'
@@ -23,6 +27,7 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { useRelatedStore } from '@renderer/stores/related'
+import { useTrackStatsStore } from '@renderer/stores/trackStats'
 
 /**
  * The one file a new tab or group touches.
@@ -80,6 +85,30 @@ const ALBUM_STRANDS: readonly RelatedStrand[] = ['album-tracks']
 /** Shared by the three groups that draw relations — one verb, said once each. */
 const ENQUEUE_HINT =
   'Double-click adds to the end of the queue. Nothing here interrupts what is playing.'
+
+/**
+ * `ListeningPane` bound to the scopes one group asks about.
+ *
+ * A group carries a `Component` and the deck renders it with no props — which is
+ * the registry's own decision and a good one, because a pane that took
+ * configuration from here would be a pane whose behaviour is split across two
+ * files. Binding it at registration keeps that promise: what arrives in the
+ * registry is a component that needs nothing, and the one place a reader looks
+ * to find out what a group shows is still the line that registers it.
+ *
+ * Two wrapper `.vue` files would have done the same thing and put the pane's
+ * documentation in three places. This is four lines.
+ */
+function listening(...scopes: readonly StatsScopeBy[]): Component {
+  return defineComponent({
+    name: `Listening${scopes.map((scope) => scope[0].toUpperCase() + scope.slice(1)).join('')}`,
+    render: () => h(ListeningPane, { scopes })
+  })
+}
+
+/** Said once, on both Listening groups: the threshold, and what it excludes. */
+const LISTENING_HINT =
+  'A play is counted once you have heard half the track or four minutes of it, whichever comes first — paused and seeked-over time does not count. Totals are for as long as you have had Fermata, and follow the tags as they were when each play was recorded.'
 
 export const tunedeckRegistry = createTunedeckRegistry([
   // First, because it is the widest question and the one the deck grows into:
@@ -156,6 +185,20 @@ export const tunedeckRegistry = createTunedeckRegistry([
         hint: 'The songs by this artist you have hearted, newest first. Local — it works with online lookups off. Double-click does whatever it does in the song list; the playing track cuts in and playback resumes where it was.',
         badge: () => countArtistFavorites(useArtistFavoritesStore().result),
         component: FavoriteSongsPane
+      },
+      // Last, beside the favorites and for the same reason it reads after the
+      // catalog: the biography and the members are claims about the world, the
+      // catalog is what the library holds, and these last two are the operator's
+      // own record — what they have said about this artist, and what they have
+      // actually done. Local, like its neighbour, so the tab still ends with
+      // something to read when every lookup above it is declined.
+      {
+        id: 'artist-listening',
+        title: 'Listening',
+        icon: 'i-tabler-chart-bar',
+        hint: LISTENING_HINT,
+        badge: () => countListening('artist', useTrackStatsStore().result),
+        component: listening('artist')
       }
     ]
   },
@@ -169,6 +212,24 @@ export const tunedeckRegistry = createTunedeckRegistry([
     // the tab is *about*, so it is not something to collapse.
     header: TrackIdentityHeader,
     groups: [
+      // First, and the one group under this tab that is not about the file. The
+      // three below it describe what was encoded; this describes what was
+      // listened to, which is the question the tab's own header — naming the
+      // track and the record it came on — has already put in front of you.
+      //
+      // The album rides along here rather than under Related, and that is a
+      // claim about what the deck's tabs are. There is no album tab: Related is
+      // a list of *other* music, and an album's own play count is not a
+      // relation. `TrackIdentityHeader` names the album, so this tab is already
+      // where the album is the subject.
+      {
+        id: 'track-listening',
+        title: 'Listening',
+        icon: 'i-tabler-chart-bar',
+        hint: LISTENING_HINT,
+        badge: () => countListening('track', useTrackStatsStore().result),
+        component: listening('track', 'album')
+      },
       // In descending order of how often they are looked at.
       {
         id: 'format',

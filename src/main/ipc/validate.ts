@@ -29,13 +29,17 @@ import {
   STATS_BUCKET_MS,
   STATS_BUCKETS,
   STATS_DIMENSIONS,
+  STATS_SCOPE_BYS,
   STATS_SORTS,
   type StatsBucket,
   type StatsDimension,
   type StatsOverTimeQuery,
   type StatsQuery,
   type StatsRange,
-  type StatsSort
+  type StatsScope,
+  type StatsScopeBy,
+  type StatsSort,
+  type StatsSummaryQuery
 } from '@shared/stats'
 import { NET_SCOPES, type CancelNetScopeRequest, type NetScope } from '@shared/net'
 import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
@@ -539,9 +543,42 @@ function assertStatsRange(value: unknown, field: string): StatsRange {
   return { from, to }
 }
 
-/** The summary takes the range itself, with no envelope to be wrong about. */
-export function assertStatsSummaryRange(value: unknown): StatsRange {
-  return assertStatsRange(value, 'range')
+/**
+ * A group around one track, or `null` for the whole log.
+ *
+ * `null` has to be *written*, not left out. The field is the difference between
+ * the dashboard's numbers and the deck's, and a caller that forgot it would get
+ * the whole library's play count rendered as one track's — an answer that is
+ * wrong without looking wrong. An absent field is that mistake; `scope: null` is
+ * a decision.
+ */
+function assertStatsScope(value: unknown): StatsScope | null {
+  if (value === null) return null
+  const raw = assertRecord(value, 'scope')
+  assertOnlyKeys(raw, ['trackId', 'by'])
+
+  const by = raw.by
+  if (!STATS_SCOPE_BYS.includes(by as StatsScopeBy)) {
+    invalid(`scope.by must be one of: ${STATS_SCOPE_BYS.join(', ')}.`)
+  }
+
+  return { trackId: assertPositiveInt(raw.trackId, 'scope.trackId'), by: by as StatsScopeBy }
+}
+
+/**
+ * The summary's envelope: a range, and what to narrow it to.
+ *
+ * It carried the range bare until the deck needed one group's totals rather than
+ * the library's. Nothing about the scope is bounded — it is one id and one word
+ * out of three, and what it does to the response is make it smaller.
+ */
+export function assertStatsSummaryQuery(value: unknown): StatsSummaryQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['range', 'scope'])
+  return {
+    range: assertStatsRange(raw.range, 'range'),
+    scope: assertStatsScope(raw.scope)
+  }
 }
 
 /**

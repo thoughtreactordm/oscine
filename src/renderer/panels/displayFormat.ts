@@ -81,6 +81,39 @@ export function formatDurationMs(ms: number | null, format: DurationFormat): str
   return formatDuration(ms / 1000, format)
 }
 
+/**
+ * An accumulated listening total: `18m`, `2h 18m`, `4d 6h`.
+ *
+ * Here rather than in a module of its own, because this file is where the app
+ * decides how it writes a time and a second opinion about that is exactly what
+ * the deck's stats pane must not introduce. It is *not* `formatDuration` with a
+ * different argument, though, and that is why it is a second function: a length
+ * is a position on a clock and reads `4:32`, while a total is a quantity and
+ * reads `4d 6h`. Rendered as a clock, four years of listening is `9417:52:10`,
+ * which is a number nobody can take in at a glance — and taking it in at a
+ * glance is the entire point of putting it on a deck.
+ *
+ * Whole units only, and the minor one is dropped when it is zero: `3h` rather
+ * than `3h 0m`. Anything under a minute rounds down to `0m` rather than growing
+ * a seconds field, because a total small enough for seconds to matter is one
+ * that has not happened yet, and `0m` beside `0 plays` says that already.
+ *
+ * Takes no preference. `DurationFormat` chooses whether a clock carries an
+ * hours field, which is not a question this shape can be asked.
+ */
+export function formatListeningTime(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return '—'
+
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 60) return `${minutes}m`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return minutes % 60 === 0 ? `${hours}h` : `${hours}h ${minutes % 60}m`
+
+  const days = Math.floor(hours / 24)
+  return hours % 24 === 0 ? `${days}d` : `${days}d ${hours % 24}h`
+}
+
 const DATE_OPTIONS: Readonly<Record<Exclude<DateFormat, 'iso'>, Intl.DateTimeFormatOptions>> = {
   short: { month: 'short', day: 'numeric' },
   medium: { year: 'numeric', month: 'short', day: 'numeric' },

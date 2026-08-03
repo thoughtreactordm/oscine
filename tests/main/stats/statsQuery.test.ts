@@ -227,7 +227,7 @@ describe('StatsStore.query — dimensions', () => {
 
     // The same three listens are three rows in the log, not four: the multi-genre
     // one is counted once under each of its genres and once overall.
-    expect(store.summary(ALL).listens).toBe(3)
+    expect(store.summary({ range: ALL, scope: null }).listens).toBe(3)
   })
 
   it('groups genres by key across spellings', () => {
@@ -268,7 +268,7 @@ describe('StatsStore.query — the range', () => {
     })
 
     expect(result.rows.map((row) => row.label).sort()).toEqual(['Inside', 'On from', 'On to'])
-    expect(store.summary(range).listens).toBe(3)
+    expect(store.summary({ range: range, scope: null }).listens).toBe(3)
   })
 
   it('reports an empty range as zeros and nulls rather than as nothing', () => {
@@ -278,7 +278,7 @@ describe('StatsStore.query — the range', () => {
     expect(
       store.query({ range: empty, dimension: 'track', sort: 'listens', limit: 10, offset: 0 })
     ).toMatchObject({ rows: [], total: 0 })
-    expect(store.summary(empty)).toMatchObject({
+    expect(store.summary({ range: empty, scope: null })).toMatchObject({
       listens: 0,
       msListened: 0,
       tracks: 0,
@@ -413,7 +413,7 @@ describe('StatsStore.summary', () => {
     listen({ startedAt: 300, title: 'C', artist: 'Two', album: null })
     listen({ startedAt: 400, title: 'D', artist: null, album: null, trackId: null })
 
-    const summary = store.summary(ALL)
+    const summary = store.summary({ range: ALL, scope: null })
     const total = (dimension: 'track' | 'album' | 'artist'): number =>
       store.query({ range: ALL, dimension, sort: 'listens', limit: 1, offset: 0 }).total
 
@@ -427,7 +427,7 @@ describe('StatsStore.summary', () => {
     listen({ startedAt: 100, title: 'A', msListened: 1000 })
     listen({ startedAt: 900, title: 'B', msListened: 2000 })
 
-    expect(store.summary(ALL)).toMatchObject({
+    expect(store.summary({ range: ALL, scope: null })).toMatchObject({
       msListened: 3000,
       firstListenAt: 100,
       lastListenAt: 900
@@ -488,5 +488,200 @@ describe('StatsStore.overTime', () => {
   it('echoes the range and the bucket', () => {
     const range: StatsRange = { from: 0, to: DAY }
     expect(store.overTime({ range, bucket: 'day' })).toMatchObject({ range, bucket: 'day' })
+  })
+})
+
+/**
+ * The Tunedeck's half of the summary (W10-11).
+ *
+ * A scope is the group the seed track falls into for one dimension, so almost
+ * every assertion here is an equality against `query` rather than a literal:
+ * that the deck's "42 plays" is the number the top-tracks list puts on that
+ * row is the whole reason the scope exists, and a test that hard-coded 42 on
+ * both sides would pass through any drift between them.
+ *
+ * The seeds go into `tracks`/`artists`/`albums` for real, because resolving the
+ * snapshot is the part of this that can be wrong — everything above it is the
+ * `WHERE` the rest of the file already covers.
+ */
+describe('StatsStore.summary — scoped to a track', () => {
+  /** A library track whose tags are what a listen of it would snapshot. */
+  function libraryTrack(tags: {
+    title?: string | null
+    artist?: string | null
+    album?: string | null
+    albumArtist?: string | null
+  }): number {
+    const artistId = (name: string | null | undefined): number | null => {
+      if (name === null || name === undefined) return null
+      const existing = db.prepare('SELECT id FROM artists WHERE name = ?').get(name) as
+        { id: number } | undefined
+      if (existing) return existing.id
+      return Number(db.prepare('INSERT INTO artists (name) VALUES (?)').run(name).lastInsertRowid)
+    }
+
+    let albumId: number | null = null
+    if (tags.album !== null && tags.album !== undefined) {
+      albumId = Number(
+        db
+          .prepare('INSERT INTO albums (title, album_artist_id) VALUES (?, ?)')
+          .run(tags.album, artistId(tags.albumArtist)).lastInsertRowid
+      )
+    }
+
+    return Number(
+      db
+        .prepare(
+          `INSERT INTO tracks (root_id, rel_path, mtime, size, title, artist_id, album_id, duration_ms)
+           VALUES (?, ?, 1, 2, ?, ?, ?, 200000)`
+        )
+        .run(rootId(), `s${nextPath++}.flac`, tags.title ?? null, artistId(tags.artist), albumId)
+        .lastInsertRowid
+    )
+  }
+
+  const TAGS = { title: 'Alpha', artist: 'One', album: 'LP', albumArtist: 'One' }
+
+  it('answers the group the seed falls into, for each of the three', () => {
+    // Two of the seed track, one more from its album, one more from its artist
+    // on another record. Every scope therefore has a different answer, which is
+    // what makes a wrong `WHERE` visible rather than coincidentally right.
+    listen({ startedAt: 100, ...TAGS, msListened: 1000 })
+    listen({ startedAt: 200, ...TAGS, msListened: 2000 })
+    listen({ startedAt: 300, title: 'Beta', artist: 'One', album: 'LP', albumArtist: 'One' })
+    listen({ startedAt: 400, title: 'Gamma', artist: 'One', album: 'EP', albumArtist: 'One' })
+    listen({ startedAt: 500, title: 'Delta', artist: 'Two', album: 'Other', albumArtist: 'Two' })
+
+    const seed = libraryTrack(TAGS)
+    const scoped = (by: 'track' | 'album' | 'artist'): ReturnType<typeof store.summary> =>
+      store.summary({ range: ALL, scope: { trackId: seed, by } })
+
+    expect(scoped('track')).toMatchObject({
+      resolved: true,
+      listens: 2,
+      msListened: 3000,
+      firstListenAt: 100,
+      lastListenAt: 200
+    })
+    expect(scoped('album')).toMatchObject({ resolved: true, listens: 3, tracks: 2 })
+    expect(scoped('artist')).toMatchObject({ resolved: true, listens: 4, tracks: 3, albums: 2 })
+  })
+
+  /**
+   * The equality the scope exists for. A scoped `listens` is the ranked row's
+   * `listens` for the same group, so the deck and the dashboard cannot put two
+   * different numbers on one artist in one window.
+   */
+  it('agrees with the ranking row for the same group', () => {
+    listen({ startedAt: 100, ...TAGS, msListened: 1000 })
+    listen({ startedAt: 200, ...TAGS, msListened: 2000 })
+    listen({ startedAt: 300, title: 'Beta', artist: 'One', album: 'LP', albumArtist: 'One' })
+
+    const seed = libraryTrack(TAGS)
+
+    for (const by of ['track', 'album', 'artist'] as const) {
+      const summary = store.summary({ range: ALL, scope: { trackId: seed, by } })
+      const rows = store.query({
+        range: ALL,
+        dimension: by,
+        sort: 'listens',
+        limit: 200,
+        offset: 0
+      }).rows
+      const row = rows.find((candidate) => candidate.listens === summary.listens)
+      expect(row?.msListened).toBe(summary.msListened)
+    }
+  })
+
+  /**
+   * The scope matches on `IS`, which is what `GROUP BY` does. With `=` this
+   * returns zero for every track missing an artist or an album — and the deck
+   * above would draw that as "never played" rather than as a bug.
+   */
+  it('scopes a track that names no artist and no album to the same group', () => {
+    listen({ startedAt: 100, title: 'Nameless', artist: null, album: null })
+    listen({ startedAt: 200, title: 'Nameless', artist: null, album: null })
+    listen({ startedAt: 300, title: 'Nameless', artist: 'Someone', album: null })
+
+    const seed = libraryTrack({ title: 'Nameless', artist: null, album: null })
+    expect(store.summary({ range: ALL, scope: { trackId: seed, by: 'track' } })).toMatchObject({
+      resolved: true,
+      listens: 2
+    })
+  })
+
+  /**
+   * `resolved: false` and zeros are two different answers, and the pane draws
+   * two different sentences from them. A track with no album has nothing to ask
+   * about; a track nobody has played yet has an answer, and it is zero.
+   */
+  it('separates "nothing to ask about" from "not played yet"', () => {
+    const bare = libraryTrack({ title: 'Solo', artist: null, album: null })
+
+    expect(store.summary({ range: ALL, scope: { trackId: bare, by: 'album' } })).toMatchObject({
+      resolved: false,
+      listens: 0
+    })
+    expect(store.summary({ range: ALL, scope: { trackId: bare, by: 'artist' } })).toMatchObject({
+      resolved: false,
+      listens: 0
+    })
+    // Resolves, and answers zero. The card's own wording: a zero is a real
+    // answer, and a freshly scanned track must not make a panel disappear.
+    expect(store.summary({ range: ALL, scope: { trackId: bare, by: 'track' } })).toMatchObject({
+      resolved: true,
+      listens: 0,
+      firstListenAt: null,
+      lastListenAt: null
+    })
+  })
+
+  it('reports nothing to ask about for a seed that has left the library', () => {
+    listen({ startedAt: 100, ...TAGS })
+
+    for (const by of ['track', 'album', 'artist'] as const) {
+      expect(store.summary({ range: ALL, scope: { trackId: 9_999, by } })).toMatchObject({
+        resolved: false,
+        listens: 0
+      })
+    }
+  })
+
+  /**
+   * The seed's snapshot is resolved the way the listen commit resolves it, so
+   * an override moves the scope onto the history written under the corrected
+   * name and off the history written under the old one. That is D17 seen from
+   * the deck: the numbers follow the spelling, in both directions.
+   */
+  it('resolves the seed through its overrides, as the listen commit does', () => {
+    listen({ startedAt: 100, title: 'Typo', artist: 'One', album: 'LP', albumArtist: 'One' })
+    listen({ startedAt: 200, title: 'Alpha', artist: 'One', album: 'LP', albumArtist: 'One' })
+
+    const seed = libraryTrack({ ...TAGS, title: 'Typo' })
+    expect(store.summary({ range: ALL, scope: { trackId: seed, by: 'track' } })).toMatchObject({
+      listens: 1,
+      firstListenAt: 100
+    })
+
+    db.prepare('INSERT INTO track_overrides (track_id, title, updated_at) VALUES (?, ?, 0)').run(
+      seed,
+      'Alpha'
+    )
+
+    expect(store.summary({ range: ALL, scope: { trackId: seed, by: 'track' } })).toMatchObject({
+      listens: 1,
+      firstListenAt: 200
+    })
+  })
+
+  it('honours the range, and echoes both the range and the scope', () => {
+    listen({ startedAt: 100, ...TAGS })
+    listen({ startedAt: 900, ...TAGS })
+
+    const seed = libraryTrack(TAGS)
+    const scope = { trackId: seed, by: 'track' } as const
+    const range: StatsRange = { from: 0, to: 500 }
+
+    expect(store.summary({ range, scope })).toMatchObject({ range, scope, listens: 1 })
   })
 })

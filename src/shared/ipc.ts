@@ -99,8 +99,8 @@ import type {
   StatsOverTimeResult,
   StatsQuery,
   StatsQueryResult,
-  StatsRange,
-  StatsSummary
+  StatsSummary,
+  StatsSummaryQuery
 } from './stats'
 
 /**
@@ -313,15 +313,27 @@ export interface IpcContract {
    */
   'stats.query': { request: StatsQuery; response: StatsQueryResult }
   /**
-   * The dashboard's headline numbers over one range.
+   * The headline numbers over one range — the whole log, or one group in it.
    *
    * Its own channel rather than a fifth dimension, because it is the one answer
    * that is not a ranking: no group, no page, no order — seven scalars. The
    * counts it reports are distinct snapshot groups, deliberately the same
    * numbers the matching rankings report as their `total`, so the headline and
    * the list below it cannot disagree on screen.
+   *
+   * `scope` is what makes it the Tunedeck's channel as well as the dashboard's.
+   * The deck asks the same seven numbers of the listens around the playing
+   * track, its album or its artist, which is this query with a narrower `WHERE`
+   * — not a bespoke one written beside it. It is a *track id* and a word, and
+   * main resolves the snapshot tuple with the same statement the listen commit
+   * writes one with; see `StatsScope` for why that direction and not the other.
+   *
+   * A scope that names no group comes back `resolved: false` rather than as an
+   * error or as zeros. "This track has no album" and "you have not played this
+   * album" are two sentences, and the surface drawing them needs to be able to
+   * tell which one it is holding.
    */
-  'stats.summary': { request: StatsRange; response: StatsSummary }
+  'stats.summary': { request: StatsSummaryQuery; response: StatsSummary }
   /**
    * Listening over time: a dense series of fixed-width buckets.
    *

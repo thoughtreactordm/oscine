@@ -34,7 +34,7 @@ import {
   assertRemoveFavoritesRequest,
   assertStatsOverTimeQuery,
   assertStatsQuery,
-  assertStatsSummaryRange,
+  assertStatsSummaryQuery,
   assertToggleFavoriteRequest
 } from '../../../src/main/ipc/validate'
 
@@ -393,10 +393,16 @@ describe('stats IPC validation', () => {
   const RANGE = { from: 1_700_000_000_000, to: 1_700_086_400_000 }
 
   it('takes a closed range and refuses an inverted or partial one', () => {
-    expect(assertStatsSummaryRange(RANGE)).toEqual(RANGE)
+    expect(assertStatsSummaryQuery({ range: RANGE, scope: null })).toEqual({
+      range: RANGE,
+      scope: null
+    })
     // The epoch is a legal instant, and "all time" is a range that starts
     // before any listen — which a renderer is entitled to spell as zero.
-    expect(assertStatsSummaryRange({ from: 0, to: 0 })).toEqual({ from: 0, to: 0 })
+    expect(assertStatsSummaryQuery({ range: { from: 0, to: 0 }, scope: null })).toEqual({
+      range: { from: 0, to: 0 },
+      scope: null
+    })
 
     for (const range of [
       {},
@@ -410,7 +416,32 @@ describe('stats IPC validation', () => {
       { from: 2, to: 1 },
       { from: 1, to: 2, bucket: 'day' }
     ]) {
-      expect(() => assertStatsSummaryRange(range)).toThrow(FermataError)
+      expect(() => assertStatsSummaryQuery({ range, scope: null })).toThrow(FermataError)
+    }
+  })
+
+  it('takes a scope of a track id and one of three words, and requires the field', () => {
+    for (const by of ['track', 'album', 'artist']) {
+      expect(assertStatsSummaryQuery({ range: RANGE, scope: { trackId: 7, by } })).toEqual({
+        range: RANGE,
+        scope: { trackId: 7, by }
+      })
+    }
+
+    for (const scope of [
+      // Absent, not `null`. The difference between the deck's numbers and the
+      // library's is this one field, and a caller that forgot it would get the
+      // whole log's play count drawn as one track's — wrong without looking it.
+      undefined,
+      { by: 'artist' },
+      { trackId: 7 },
+      { trackId: 7, by: 'genre' },
+      { trackId: 0, by: 'track' },
+      { trackId: -1, by: 'track' },
+      { trackId: 1.5, by: 'track' },
+      { trackId: 7, by: 'track', range: RANGE }
+    ]) {
+      expect(() => assertStatsSummaryQuery({ range: RANGE, scope })).toThrow(FermataError)
     }
   })
 

@@ -13,6 +13,7 @@ import {
   formatDuration,
   formatDurationMs,
   formatFileSize,
+  formatListeningTime,
   TRACK_DENSITIES,
   TRACK_DENSITY_KEYS,
   trackRowPx
@@ -175,5 +176,52 @@ describe('bound to the store', () => {
     // paint, and the point of its scope is that the answer is already there.
     const { settings } = settingsStoreFixture({ seed: { [TRACK_DENSITY_KEY]: 'roomy' } })
     expect(createDisplayFormats({ settings }).rowPx.value).toBe(40)
+  })
+})
+
+/**
+ * The listening total (W10-11), which is a quantity and not a position on a
+ * clock — see the function's own note for why that makes it a second shape
+ * rather than a second formatter.
+ */
+describe('formatListeningTime', () => {
+  const MINUTE = 60_000
+  const HOUR = 60 * MINUTE
+  const DAY = 24 * HOUR
+
+  it('grows a unit at a time, largest first', () => {
+    expect(formatListeningTime(18 * MINUTE)).toBe('18m')
+    expect(formatListeningTime(2 * HOUR + 18 * MINUTE)).toBe('2h 18m')
+    expect(formatListeningTime(4 * DAY + 6 * HOUR)).toBe('4d 6h')
+  })
+
+  it('drops a minor unit that is zero', () => {
+    expect(formatListeningTime(3 * HOUR)).toBe('3h')
+    expect(formatListeningTime(4 * DAY)).toBe('4d')
+  })
+
+  it('rounds down to whole units, and never grows a seconds field', () => {
+    // A total small enough for seconds to matter is one that has not happened
+    // yet, and `0 plays` beside it has already said so.
+    expect(formatListeningTime(0)).toBe('0m')
+    expect(formatListeningTime(59_999)).toBe('0m')
+    expect(formatListeningTime(HOUR - 1)).toBe('59m')
+    expect(formatListeningTime(DAY - 1)).toBe('23h 59m')
+  })
+
+  /**
+   * The reason it is not `formatDuration`. Four years of listening as a clock
+   * is a number nobody takes in at a glance, and taking it in at a glance is
+   * the whole point of putting it on a deck.
+   */
+  it('stays readable at four years of listening', () => {
+    expect(formatListeningTime(392 * DAY + 9 * HOUR)).toBe('392d 9h')
+  })
+
+  it('renders the em dash for a number it cannot believe', () => {
+    expect(formatListeningTime(null)).toBe('—')
+    expect(formatListeningTime(-1)).toBe('—')
+    expect(formatListeningTime(Number.NaN)).toBe('—')
+    expect(formatListeningTime(Number.POSITIVE_INFINITY)).toBe('—')
   })
 })

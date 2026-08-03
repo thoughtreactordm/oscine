@@ -7,6 +7,7 @@ import { useArtistRelationsStore } from '@renderer/stores/artistRelations'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 import { useRelatedStore } from '@renderer/stores/related'
+import { useTrackStatsStore } from '@renderer/stores/trackStats'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
 
 /**
@@ -53,6 +54,7 @@ export function useDeckData(): void {
   const related = useRelatedStore()
   const identity = useArtistIdentityStore()
   const artistFavorites = useArtistFavoritesStore()
+  const trackStats = useTrackStatsStore()
   const biography = useArtistBiographyStore()
   const relations = useArtistRelationsStore()
   const image = useArtistImageStore()
@@ -72,6 +74,13 @@ export function useDeckData(): void {
       // machine with the cable pulled draws it in a frame instead of when a
       // MusicBrainz connection times out. D14's third rule; see the store.
       void artistFavorites.load(trackId)
+      // Here for the same reason and with the same shape: seeded by the *track*,
+      // answered by SQLite, and therefore drawn in a frame on a machine with no
+      // network. The artist's totals are under the Artist tab but they are not
+      // waiting on `identity.load` any more than the favorites are — main
+      // resolves which artist from the seed, which is what keeps a local
+      // surface local. See `useTrackStatsStore`.
+      void trackStats.load(trackId)
       // The one call here that can leave the machine, and the gate on `open` is
       // therefore not a performance choice but **D14**: fetching is scoped to a
       // drawer the operator has opened. Main declines it anyway when consent is

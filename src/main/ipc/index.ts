@@ -59,7 +59,7 @@ import {
   assertSetSettingRequest,
   assertStatsOverTimeQuery,
   assertStatsQuery,
-  assertStatsSummaryRange,
+  assertStatsSummaryQuery,
   assertTabIndex,
   assertToggleFavoriteRequest
 } from './validate'
@@ -226,7 +226,7 @@ export function registerIpcHandlers(
 
   handle('stats.query', (request) => stats.query(assertStatsQuery(request)))
 
-  handle('stats.summary', (request) => stats.summary(assertStatsSummaryRange(request)))
+  handle('stats.summary', (request) => stats.summary(assertStatsSummaryQuery(request)))
 
   handle('stats.overTime', (request) => stats.overTime(assertStatsOverTimeQuery(request)))
 

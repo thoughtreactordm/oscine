@@ -13,7 +13,7 @@ import type {
 } from '@shared/library'
 import type { ListFavoriteIdsQuery, ListFavoritesQuery } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
-import type { StatsOverTimeQuery, StatsQuery, StatsRange } from '@shared/stats'
+import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
 import type {
   AddTracksToPlaylistRequest,
@@ -117,8 +117,11 @@ export const stats = {
    * no timezone and no calendar, which is what keeps "this year" honest.
    */
   query: (query: StatsQuery) => unwrap(window.fermata.stats.query(query)),
-  /** The headline numbers, over the same resolved range. */
-  summary: (range: StatsRange) => unwrap(window.fermata.stats.summary(range)),
+  /**
+   * The headline numbers over the same resolved range, for the whole log or for
+   * one group around a track — the dashboard's channel and the Tunedeck's.
+   */
+  summary: (query: StatsSummaryQuery) => unwrap(window.fermata.stats.summary(query)),
   /** The bucketed series. Buckets anchor at `range.from` — send local midnight. */
   overTime: (query: StatsOverTimeQuery) => unwrap(window.fermata.stats.overTime(query))
 }

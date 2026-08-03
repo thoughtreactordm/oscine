@@ -3,7 +3,7 @@ taskId: 01KZ40N47XC57KPA4PZMWE2FC6
 title: >-
   Tunedeck — play counts and listening time for the current track, album and
   artist
-status: todo
+status: in-progress
 priority: medium
 labels:
   - ui
@@ -13,9 +13,9 @@ workstream: W10
 workstreamId: W10-11
 dependsOn:
   - 01KZ40MRD5Z3CW0GE4NMVWPX02
-order: 53
+order: 1
 created: '2026-08-03T14:32:43.517Z'
-updated: '2026-08-03T14:32:43.517Z'
+updated: '2026-08-03T21:27:19.382Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → The stats engine → "In the Tunedeck".
 

@@ -5,8 +5,8 @@ import type {
   StatsOverTimeResult,
   StatsQuery,
   StatsQueryResult,
-  StatsRange,
-  StatsSummary
+  StatsSummary,
+  StatsSummaryQuery
 } from '@shared/stats'
 import { rebuildTrackCounters } from './counters'
 import { StatsStore } from './store'
@@ -28,8 +28,14 @@ export interface StatsService {
   rebuildCounters(): Promise<RebuildCountersResult>
   /** One ranking: a range, a dimension, an order, a page. */
   query(request: StatsQuery): Promise<StatsQueryResult>
-  /** The dashboard's headline numbers over the same range. */
-  summary(range: StatsRange): Promise<StatsSummary>
+  /**
+   * The headline numbers over the same range — the whole log, or one group.
+   *
+   * The scope is what the Tunedeck adds: the same seven numbers asked of the
+   * listens around one track, its album or its artist. See `StatsScope` for why
+   * it is a track id rather than the values it matches on.
+   */
+  summary(request: StatsSummaryQuery): Promise<StatsSummary>
   /** A dense bucketed series over the same range. */
   overTime(request: StatsOverTimeQuery): Promise<StatsOverTimeResult>
 }
@@ -59,8 +65,8 @@ export class SqliteStatsService implements StatsService {
     return this.store.query(request)
   }
 
-  async summary(range: StatsRange): Promise<StatsSummary> {
-    return this.store.summary(range)
+  async summary(request: StatsSummaryQuery): Promise<StatsSummary> {
+    return this.store.summary(request)
   }
 
   async overTime(request: StatsOverTimeQuery): Promise<StatsOverTimeResult> {

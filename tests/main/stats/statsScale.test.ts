@@ -136,9 +136,17 @@ function load(listens: readonly Listen[]): void {
       .run('Music', '/music', 0).lastInsertRowid
   )
 
+  // Tagged for real, unlike the listens above them — a scoped summary resolves
+  // its seed's snapshot by joining these, so a fixture whose tracks carried a
+  // title and nothing else would measure the scope against a `WHERE` that
+  // matched only the untagged rows. Every album pairs with one album artist
+  // because `ALBUMS` is a multiple of `ARTISTS`, which is what keeps the unique
+  // index on `(title, album_artist_id)` satisfied by one row per album number.
+  const insertArtist = db.prepare('INSERT INTO artists (id, name) VALUES (?, ?)')
+  const insertAlbum = db.prepare('INSERT INTO albums (id, title, album_artist_id) VALUES (?, ?, ?)')
   const insertTrack = db.prepare(
-    `INSERT INTO tracks (id, root_id, rel_path, mtime, size, title, duration_ms)
-     VALUES (?, ?, ?, 1, 2, ?, 200000)`
+    `INSERT INTO tracks (id, root_id, rel_path, mtime, size, title, artist_id, album_id, duration_ms)
+     VALUES (?, ?, ?, 1, 2, ?, ?, ?, 200000)`
   )
   const insertListen = db.prepare(
     `INSERT INTO listens
@@ -151,8 +159,19 @@ function load(listens: readonly Listen[]): void {
   )
 
   db.transaction(() => {
+    for (let index = 0; index < ARTISTS; index += 1) insertArtist.run(index + 1, `Artist ${index}`)
+    for (let index = 0; index < ALBUMS; index += 1) {
+      insertAlbum.run(index + 1, `Album ${index}`, (index % ARTISTS) + 1)
+    }
     for (let index = 0; index < TRACKS; index += 1) {
-      insertTrack.run(index + 1, rootId, `t${index}.flac`, `Title ${index}`)
+      insertTrack.run(
+        index + 1,
+        rootId,
+        `t${index}.flac`,
+        `Title ${index}`,
+        (index % ARTISTS) + 1,
+        (index % ALBUMS) + 1
+      )
     }
     for (const entry of listens) {
       const id = Number(
@@ -391,7 +410,7 @@ describe('StatsStore.query at scale', () => {
 
 describe('StatsStore.summary at scale', () => {
   it('reports the totals and the distinct group counts the rankings do', () => {
-    const summary = store.summary(FULL)
+    const summary = store.summary({ range: FULL, scope: null })
     const listens = inRange(FULL)
 
     expect(summary.listens).toBe(listens.length)
@@ -419,8 +438,37 @@ describe('StatsStore.summary at scale', () => {
     const attributed = genres.rows.reduce((sum, row) => sum + row.listens, 0)
 
     expect(attributed).toBeGreaterThan(0)
-    expect(store.summary(FULL).listens).toBe(LISTENS)
+    expect(store.summary({ range: FULL, scope: null }).listens).toBe(LISTENS)
     expect(attributed).not.toBe(LISTENS)
+  })
+
+  /**
+   * The scoped summary against the oracle, on the seed the budget below times.
+   *
+   * Track 1 is `Title 0` by `Artist 0` on `Album 0`, and the log holds four
+   * years of it — so this is the deck's ordinary case rather than a contrived
+   * one. The untagged listens are what makes it worth asserting: they share no
+   * artist and no album with the seed, and a scope written with `=` instead of
+   * `IS` would silently fold them in or drop the group entirely.
+   */
+  it('scopes to the group the seed falls into, at four years of log', () => {
+    const scoped = (by: 'track' | 'album' | 'artist'): number =>
+      store.summary({ range: FULL, scope: { trackId: 1, by } }).listens
+
+    const listens = inRange(FULL)
+    expect(scoped('track')).toBe(
+      listens.filter(
+        (entry) =>
+          entry.title === 'Title 0' && entry.artist === 'Artist 0' && entry.album === 'Album 0'
+      ).length
+    )
+    expect(scoped('album')).toBe(
+      listens.filter((entry) => entry.album === 'Album 0' && entry.albumArtist === 'Artist 0')
+        .length
+    )
+    expect(scoped('artist')).toBe(listens.filter((entry) => entry.artist === 'Artist 0').length)
+    expect(scoped('artist')).toBeGreaterThan(scoped('album'))
+    expect(scoped('album')).toBeGreaterThan(scoped('track'))
   })
 })
 
@@ -472,8 +520,19 @@ describe('the time budget', () => {
       }
     }
 
-    measure('summary', BUDGET_MS, () => store.summary(FULL))
+    measure('summary', BUDGET_MS, () => store.summary({ range: FULL, scope: null }))
     measure('overTime day × 4y', BUDGET_MS, () => store.overTime({ range: FULL, bucket: 'day' }))
+
+    // The Tunedeck's three, over all time — which is the only range it asks for
+    // and therefore the worst case rather than a stress test. Held to the same
+    // budget as the whole-log shapes, and fired on every track change rather
+    // than on opening a dashboard, so this is the number to watch if the deck
+    // ever feels like it lags the transport.
+    for (const by of ['track', 'album', 'artist'] as const) {
+      measure(`summary scoped to ${by}`, BUDGET_MS, () =>
+        store.summary({ range: FULL, scope: { trackId: 1, by } })
+      )
+    }
 
     // The one the index decision turns on, and the only one held to the tight
     // budget. It is also what the dashboard opens on.

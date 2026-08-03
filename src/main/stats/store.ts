@@ -7,10 +7,12 @@ import {
   type StatsOverTimeResult,
   type StatsQuery,
   type StatsQueryResult,
-  type StatsRange,
   type StatsRow,
+  type StatsScope,
+  type StatsScopeBy,
   type StatsSort,
-  type StatsSummary
+  type StatsSummary,
+  type StatsSummaryQuery
 } from '@shared/stats'
 
 /**
@@ -196,6 +198,28 @@ function totalSql(dimension: StatsDimension): string {
 }
 
 /**
+ * What a scope adds to the range predicate, per `StatsScopeBy`.
+ *
+ * **`IS` and not `=`**, in every one of them. SQLite's `IS` is null-safe
+ * equality, and that is precisely the comparison `GROUP BY` makes — so a track
+ * with no album is scoped to the listens that also had no album, which is the
+ * group the track dimension actually puts it in. Written with `=` these three
+ * would silently return zero for every track missing an artist or an album,
+ * because `NULL = NULL` is not true, and the surface above would draw it as
+ * "never played".
+ *
+ * The album and artist scopes match the `filter` on their dimensions above:
+ * neither is asked for at all unless the seed named one, so neither has to
+ * decide what "the nameless artist" would mean. `resolveScope` is where that is
+ * enforced, because it is a question about the seed rather than about the log.
+ */
+const SCOPE: Readonly<Record<StatsScopeBy, string>> = {
+  track: ' AND title IS @title AND artist_name IS @artistName AND album_title IS @albumTitle',
+  album: ' AND album_title IS @albumTitle AND album_artist_name IS @albumArtistName',
+  artist: ' AND artist_name IS @artistName'
+}
+
+/**
  * Distinct *snapshot tuples*, not distinct ids, and filtered exactly as the
  * matching dimension filters.
  *
@@ -204,30 +228,65 @@ function totalSql(dimension: StatsDimension): string {
  * contradicting each other. Counting distinct `artist_id` instead would give a
  * smaller, differently-wrong number that silently omits every artist whose
  * tracks have left the library.
+ *
+ * Built per scope rather than written out twice. The scoped summary and the
+ * whole-log one are the same seven questions asked of a different set of rows,
+ * and the version of this that was a template literal for the log and a
+ * hand-edited copy for the scope would have been two definitions of `tracks`.
  */
-const SUMMARY_SQL = `
-  SELECT
-    (SELECT COUNT(*) FROM listens WHERE started_at >= @from AND started_at <= @to)
-      AS listens,
-    (SELECT COALESCE(SUM(ms_listened), 0) FROM listens
-      WHERE started_at >= @from AND started_at <= @to)
-      AS msListened,
-    (SELECT COUNT(*) FROM (
-       SELECT DISTINCT title, artist_name, album_title FROM listens
-       WHERE started_at >= @from AND started_at <= @to))
-      AS tracks,
-    (SELECT COUNT(*) FROM (
-       SELECT DISTINCT artist_name FROM listens
-       WHERE started_at >= @from AND started_at <= @to AND artist_name IS NOT NULL))
-      AS artists,
-    (SELECT COUNT(*) FROM (
-       SELECT DISTINCT album_title, album_artist_name FROM listens
-       WHERE started_at >= @from AND started_at <= @to AND album_title IS NOT NULL))
-      AS albums,
-    (SELECT MIN(started_at) FROM listens WHERE started_at >= @from AND started_at <= @to)
-      AS firstListenAt,
-    (SELECT MAX(started_at) FROM listens WHERE started_at >= @from AND started_at <= @to)
-      AS lastListenAt
+function summarySql(by: StatsScopeBy | null): string {
+  const where = `started_at >= @from AND started_at <= @to${by === null ? '' : SCOPE[by]}`
+  return `
+    SELECT
+      (SELECT COUNT(*) FROM listens WHERE ${where})
+        AS listens,
+      (SELECT COALESCE(SUM(ms_listened), 0) FROM listens WHERE ${where})
+        AS msListened,
+      (SELECT COUNT(*) FROM (
+         SELECT DISTINCT title, artist_name, album_title FROM listens WHERE ${where}))
+        AS tracks,
+      (SELECT COUNT(*) FROM (
+         SELECT DISTINCT artist_name FROM listens
+         WHERE ${where} AND artist_name IS NOT NULL))
+        AS artists,
+      (SELECT COUNT(*) FROM (
+         SELECT DISTINCT album_title, album_artist_name FROM listens
+         WHERE ${where} AND album_title IS NOT NULL))
+        AS albums,
+      (SELECT MIN(started_at) FROM listens WHERE ${where})
+        AS firstListenAt,
+      (SELECT MAX(started_at) FROM listens WHERE ${where})
+        AS lastListenAt
+  `
+}
+
+/**
+ * The seed's snapshot tuple, resolved exactly as the listen commit resolves it.
+ *
+ * The same joins and the same `COALESCE` order as the `INSERT … SELECT` in
+ * `ListenStore.commit`, deliberately, because agreement between the two is the
+ * whole basis for a scoped count meaning anything. A listen written last year
+ * carries what this returned *then*; what it returns now is what the log will be
+ * asked about, and a divergence between the two spellings shows up as history
+ * that has stopped counting rather than as an error anyone could catch.
+ *
+ * No `WHERE title IS NOT NULL` here, unlike the commit's. A track with no
+ * resolved title is one that could never have been logged, and answering "there
+ * is nothing to ask about" is `resolveScope`'s job — refusing to return the row
+ * would make it indistinguishable from a track that has left the library, which
+ * happens to be the same answer but for a reason worth keeping separable.
+ */
+const SNAPSHOT_SQL = `
+  SELECT COALESCE(o.title, t.title)        AS title,
+         COALESCE(o.artist_name, ar.name)  AS artistName,
+         COALESCE(o.album_title, al.title) AS albumTitle,
+         aa.name                           AS albumArtistName
+  FROM tracks t
+  LEFT JOIN track_overrides o ON o.track_id = t.id
+  LEFT JOIN artists ar        ON ar.id = t.artist_id
+  LEFT JOIN albums  al        ON al.id = t.album_id
+  LEFT JOIN artists aa        ON aa.id = al.album_artist_id
+  WHERE t.id = @trackId
 `
 
 /**
@@ -274,6 +333,65 @@ interface BucketRow {
   bucket: number
   listens: number
   msListened: number
+}
+
+interface SnapshotRow {
+  title: string | null
+  artistName: string | null
+  albumTitle: string | null
+  albumArtistName: string | null
+}
+
+/** The numbers a summary reports, without the two fields that echo the request. */
+type SummaryTotals = Omit<StatsSummary, 'range' | 'scope' | 'resolved'>
+
+/**
+ * What an unresolved scope answers with: nothing, said in the response's own
+ * shape rather than as a null or a throw.
+ *
+ * A throw would make "this track names no album" an error condition, which it
+ * is not — most compilations of one-off singles are exactly that, and a deck
+ * pane is not a caller that did something wrong. `resolved: false` beside the
+ * zeros lets the surface pick its sentence; see the field's note in the
+ * contract for why the two cases must stay tellable apart.
+ */
+const NOTHING: SummaryTotals = {
+  listens: 0,
+  msListened: 0,
+  tracks: 0,
+  artists: 0,
+  albums: 0,
+  firstListenAt: null,
+  lastListenAt: null
+}
+
+/**
+ * The bound parameters a scope needs, or `null` when it names no group.
+ *
+ * Each `by` requires the one snapshot value it groups on and refuses without it,
+ * which is the same rule the matching dimension's `filter` applies from the
+ * other side: there is no album row for a listen with no album title, so there
+ * is no album to scope to either. The track scope needs only a title — `IS`
+ * handles a null artist or album as a value to match rather than as a gap, and
+ * `listens.title` is `NOT NULL`, so a titleless seed can have no history at all.
+ *
+ * Returns exactly the keys its statement binds. better-sqlite3 rejects a
+ * parameter object carrying a name the SQL does not use, so the three shapes
+ * here and the three fragments in `SCOPE` are one decision written twice and
+ * have to stay in step.
+ */
+function scopeParams(by: StatsScopeBy, row: SnapshotRow): Record<string, string | null> | null {
+  switch (by) {
+    case 'track':
+      if (row.title === null) return null
+      return { title: row.title, artistName: row.artistName, albumTitle: row.albumTitle }
+    case 'album':
+      if (row.albumTitle === null) return null
+      return { albumTitle: row.albumTitle, albumArtistName: row.albumArtistName }
+    case 'artist':
+      if (row.artistName === null) return null
+      return { artistName: row.artistName }
+  }
 }
 
 /**
@@ -329,13 +447,46 @@ export class StatsStore {
     }
   }
 
-  summary(range: StatsRange): StatsSummary {
-    const row = this.prepared('summary', SUMMARY_SQL).get({
-      from: range.from,
-      to: range.to
-    }) as Omit<StatsSummary, 'range'>
+  /**
+   * The seven numbers, over the whole log or over one group around a track.
+   *
+   * Two statements when scoped and one when not, and the first of the two is a
+   * primary-key lookup rather than a scan — so what the deck pays over the
+   * dashboard is the snapshot resolve, and the summary itself costs what it
+   * always cost plus three string comparisons a row.
+   */
+  summary(request: StatsSummaryQuery): StatsSummary {
+    const { range, scope } = request
+    const params = scope === null ? {} : this.resolveScope(scope)
+    // Distinguishable from an empty group only here: `null` means the seed named
+    // nothing to ask about, and running the query anyway would answer the same
+    // zeros with `resolved: true` on them.
+    if (params === null) return { range, scope, resolved: false, ...NOTHING }
 
-    return { range, ...row }
+    const totals = this.prepared(
+      `summary:${scope?.by ?? 'all'}`,
+      summarySql(scope?.by ?? null)
+    ).get({ from: range.from, to: range.to, ...params }) as SummaryTotals
+
+    return { range, scope, resolved: true, ...totals }
+  }
+
+  /**
+   * The seed's snapshot, turned into bound parameters — or `null` for a scope
+   * with no group behind it.
+   *
+   * A seed that is not in `tracks` resolves to no row and therefore to `null`,
+   * which is the ordinary answer for a deck whose track has been removed by a
+   * scan running underneath it rather than a caller error. It is the same answer
+   * `favorites.byArtist` gives for a vanished seed and for the same reason: the
+   * click, or in this case the track change, happened over something that was
+   * real at the time.
+   */
+  private resolveScope(scope: StatsScope): Record<string, string | null> | null {
+    const row = this.prepared('snapshot', SNAPSHOT_SQL).get({ trackId: scope.trackId }) as
+      SnapshotRow | undefined
+    if (row === undefined) return null
+    return scopeParams(scope.by, row)
   }
 
   overTime(request: StatsOverTimeQuery): StatsOverTimeResult {

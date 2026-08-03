@@ -69,6 +69,23 @@ export interface StatsRange {
 }
 
 /**
+ * The range that holds the whole log, for a surface with no date picker.
+ *
+ * The Tunedeck's range. A play count on a deck is not a question about a
+ * window — "42 plays" means since you have owned it — so the surface that would
+ * have to resolve a preset does not have one to resolve, and this is what it
+ * sends instead.
+ *
+ * `to` is `MAX_SAFE_INTEGER` rather than the caller's clock. A `to` of *now*
+ * would silently drop a listen whose `started_at` is ahead of it, which is not
+ * a hypothetical: a machine whose clock was corrected backwards has rows in its
+ * future, and a play count that quietly omits them is worse than one that
+ * includes a row it cannot explain. Nothing in the closed-range contract makes
+ * an upper bound past the end of the log cost anything — the scan is the log.
+ */
+export const ALL_TIME: StatsRange = { from: 0, to: Number.MAX_SAFE_INTEGER }
+
+/**
  * What a ranking groups by.
  *
  * Four dimensions and one query shape, rather than four near-identical
@@ -181,7 +198,57 @@ export interface StatsQueryResult {
 export const MAX_STATS_ROWS = 200
 
 /**
- * The dashboard's headline numbers, over the same range as everything else.
+ * Which of the groups around one track a summary is narrowed to.
+ *
+ * Not a fifth `StatsDimension`, and the distinction is worth keeping straight:
+ * a dimension says what the rows are *grouped by*, and this says which rows
+ * there are at all. The dashboard asks the whole log for its headline numbers;
+ * the Tunedeck asks one group for the same seven, which is the same question
+ * with a narrower `WHERE` rather than a different query.
+ *
+ * The three names are the three dimensions that group on snapshot columns, and
+ * a scope is exactly the group the seed track falls into for that dimension —
+ * so a scoped `listens` is the number the matching ranking reports on the seed's
+ * row. That equality is the point, the same way `summary.artists` equals the
+ * top-artists `total`: the deck and the dashboard cannot disagree on screen.
+ *
+ * **There is no `genre` scope.** A track carries several genres, so "the group
+ * this track falls into" is not one group for that dimension, and a scope whose
+ * honest answer is a set of totals rather than one is a different question.
+ * `stats.query` with the genre dimension is where that one is already asked.
+ */
+export type StatsScopeBy = 'track' | 'album' | 'artist'
+
+export const STATS_SCOPE_BYS = ['track', 'album', 'artist'] as const
+
+/**
+ * A scope, named by a track id rather than by the values it matches on.
+ *
+ * **The renderer sends an id; main resolves the snapshot tuple**, with the same
+ * override-resolving `SELECT` the listen commit uses to *write* one. That is the
+ * load-bearing decision here rather than a convenience. The alternative — the
+ * renderer sending the title, artist and album off the `Track` it is already
+ * holding — puts a second copy of "how an override resolves" on the far side of
+ * the boundary, and the day the two copies disagree is the day the deck reports
+ * no plays for a track with a decade of history and gives no sign why.
+ *
+ * Matching is on the snapshots, so this inherits D17 whole and inherits its
+ * accepted cost with it: history recorded under a previous spelling is not
+ * counted here, exactly as it is not merged in the rankings.
+ */
+export interface StatsScope {
+  readonly trackId: number
+  readonly by: StatsScopeBy
+}
+
+export interface StatsSummaryQuery {
+  readonly range: StatsRange
+  /** `null` for the whole log — the dashboard's headline numbers. */
+  readonly scope: StatsScope | null
+}
+
+/**
+ * Seven numbers over one range, either for the whole log or for one group.
  *
  * The three counts are **distinct groups**, computed the same way the rankings
  * group: distinct snapshot tuples, not distinct ids. So a track that has since
@@ -193,10 +260,29 @@ export const MAX_STATS_ROWS = 200
  * No genre count. It is the one dimension that needs the join, and a headline
  * number is not worth a fifth pass; the top-genres list carries a `total` that
  * says it for anyone who asks.
+ *
+ * Under a scope the same three keep meaning what they meant, which is what makes
+ * them worth keeping rather than zeroing: scoped to an artist, `albums` is how
+ * many of their records you have put on and `tracks` is how many of their songs
+ * — two sentences the deck gets for no query it was not already running.
  */
 export interface StatsSummary {
   /** Echoed, so a reply that outran a range change can be discarded. */
   readonly range: StatsRange
+  /** Echoed, for the same reason — a reply that outran a track change. */
+  readonly scope: StatsScope | null
+  /**
+   * Whether the scope named a group at all. Always `true` when unscoped.
+   *
+   * `false` is *there is nothing here to ask about*, and it is a different fact
+   * from every number being zero, which is *you have not played it yet*. A seed
+   * that has left the library lands here, and so does one that names no album
+   * when the album is what was asked for. A freshly scanned track does not: it
+   * resolves, and answers zero. Two facts, two sentences — a zero is a real
+   * answer and the surface that shows one should not be able to mistake it for
+   * an empty panel.
+   */
+  readonly resolved: boolean
   /** Rows in range. A multi-genre listen counts once, here. */
   readonly listens: number
   readonly msListened: number
