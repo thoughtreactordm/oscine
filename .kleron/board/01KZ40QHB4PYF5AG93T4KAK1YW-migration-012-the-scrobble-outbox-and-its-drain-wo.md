@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40QHB4PYF5AG93T4KAK1YW
 title: Migration 012 — the scrobble outbox and its drain worker
-status: todo
+status: in-review
 priority: high
 labels:
   - schema
@@ -13,7 +13,7 @@ dependsOn:
   - 01KZ40Q2G2QD6XPPMWFKBZKTZ9
 order: 58
 created: '2026-08-03T14:34:02.468Z'
-updated: '2026-08-03T17:20:58.830Z'
+updated: '2026-08-03T17:22:01.914Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → Data model → Migration 015, and → Scrobbling → "The outbox".
 

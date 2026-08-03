@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40H1BK77657BBTKKKAQD9B
 title: 'Migration 013 — genre normalization: `track_genres` and the splitter'
-status: todo
+status: in-review
 priority: high
 labels:
   - schema
@@ -9,9 +9,9 @@ labels:
   - W2-adjacent
 workstream: W10
 workstreamId: W10-1
-order: 43
+order: 59
 created: '2026-08-03T14:30:29.491Z'
-updated: '2026-08-03T17:21:21.617Z'
+updated: '2026-08-03T17:50:14.160Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → Data model → Migration 013.
 
