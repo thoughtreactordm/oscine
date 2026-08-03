@@ -730,6 +730,43 @@ describe('createPlaybackController', () => {
       expect(await traverse(h.controller, 5)).not.toEqual([12, 13, 14, 15, 16, 17])
     })
 
+    /**
+     * The other half of that rule, and the half that was missing: a gesture
+     * that names no row must not get one for free.
+     *
+     * "Play this artist" and "play this playlist" pin nothing, so the
+     * permutation chooses the opener the same way it chooses every other
+     * position. Before this, position 0 was pinned regardless and shuffle meant
+     * "always start at the top, then shuffle the rest" for every set in the app.
+     */
+    it('shuffles the first track too when no row was named', async () => {
+      const h = harness({ total: 40 })
+      await h.controller.setShuffle(true)
+
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc' })
+      await settle()
+
+      // Nothing is pinned, and the id says so.
+      expect(h.controller.orderId()).toBe('shuffle:1234:-:list:artist:asc')
+      expect(h.controller.orderIndex.value).toBe(0)
+      expect(h.controller.nowPlaying.value?.id).not.toBe(0)
+
+      // Still a permutation: forty positions, forty distinct rows.
+      const seen = await traverse(h.controller, 39)
+      expect(new Set(seen).size).toBe(40)
+    })
+
+    it('starts at the top when no row was named and shuffle is off', async () => {
+      const h = harness({ total: 40 })
+
+      await h.controller.playFromList({ sort: 'artist', direction: 'asc' })
+      await settle()
+
+      expect(h.controller.orderId()).toBe('list:artist:asc')
+      expect(h.controller.orderIndex.value).toBe(0)
+      expect(h.controller.nowPlaying.value?.id).toBe(0)
+    })
+
     it('does not interrupt what is playing when switched on', async () => {
       const h = harness({ total: 40 })
       await h.controller.playFromList({
@@ -1324,6 +1361,34 @@ describe('createPlaybackController', () => {
         const visited = [PLAYLIST_TRACK_BASE + 2, ...played].sort((a, b) => a - b)
         expect(visited).toEqual([0, 1, 2, 3, 4].map((i) => PLAYLIST_TRACK_BASE + i))
         expect(h.fetchPage).not.toHaveBeenCalled()
+      })
+
+      /**
+       * The rail's Play, which names a playlist and never a row. It used to
+       * pass `index: 0` and so pinned the first entry — "shuffle the playlist"
+       * meant "play track one, then shuffle" for every playlist in the rail.
+       */
+      it('lets the permutation pick the opener when the whole playlist was asked for', async () => {
+        const h = harness({ total: 50, playlistTotal: 5 })
+        await h.controller.setShuffle(true)
+        await h.controller.playFromPlaylist({ playlistId: 7 })
+        await settle()
+
+        expect(h.controller.orderId()).toBe('shuffle:1234:-:playlist:7')
+        expect(h.controller.orderIndex.value).toBe(0)
+
+        const opener = h.controller.nowPlaying.value!.id
+        expect(opener).not.toBe(PLAYLIST_TRACK_BASE)
+
+        const played: number[] = []
+        for (let step = 0; step < 4; step += 1) {
+          await h.controller.next()
+          played.push(h.controller.nowPlaying.value!.id)
+        }
+
+        // Still every entry exactly once, opener included.
+        const visited = [opener, ...played].sort((a, b) => a - b)
+        expect(visited).toEqual([0, 1, 2, 3, 4].map((i) => PLAYLIST_TRACK_BASE + i))
       })
 
       it('keeps the unshuffled playlist order alongside the shuffled one', async () => {

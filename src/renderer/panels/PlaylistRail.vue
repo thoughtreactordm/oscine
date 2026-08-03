@@ -56,15 +56,14 @@ const model = createPlaylistRail({
  * travels with it because the playing playlist's own value is what the scheduler
  * reads for a boundary.
  *
- * From the top, with no track in hand — `playFromPlaylist` resolves position 0
- * itself, which is the one call shape that does not need the rail to know what
- * is in a playlist it has never opened.
+ * The whole playlist, with no row named and no track in hand — the one call
+ * shape that does not need the rail to know what is in a playlist it has never
+ * opened. Omitting the index is what makes it the *playlist* rather than its
+ * first entry: with shuffle on, the permutation picks the opener instead of the
+ * first row playing and everything else being shuffled behind it.
  */
 function play(playlist: Playlist): void {
-  void playback.playFromPlaylist({
-    playlistId: playlist.id,
-    index: 0
-  })
+  void playback.playFromPlaylist({ playlistId: playlist.id })
 }
 
 const ROW_PX = 32

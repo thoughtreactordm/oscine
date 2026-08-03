@@ -198,7 +198,13 @@ export interface PlayFromListParams {
   sort: TrackSortColumn
   direction: SortDirection
   filters?: LibraryBrowseFilters
-  index: number
+  /**
+   * The position the user asked for, or absent for "start this set".
+   *
+   * The two are not the same request and shuffle is where the difference
+   * shows. See `startOrder`.
+   */
+  index?: number
   /**
    * The row the user clicked. Supplied so the panel can show a title
    * immediately instead of waiting on a round trip for a row the list already
@@ -209,7 +215,8 @@ export interface PlayFromListParams {
 
 export interface PlayFromPlaylistParams {
   playlistId: number
-  index: number
+  /** As with `PlayFromListParams.index`: absent means "start this playlist". */
+  index?: number
   /** As with `PlayFromListParams.track`: the row the user actually clicked. */
   track?: Track
 }
@@ -565,25 +572,50 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    * capture are properties of *a* `PlayOrder`, not of where it came from, so a
    * playlist gets all three by handing one in — and there is no second copy of
    * this sequence to drift from the first when the queue lands in W5-5.
+   *
+   * ## `at` of `null`: starting a set rather than a row
+   *
+   * "Play this row" and "play this playlist" are different requests, and under
+   * shuffle they have different right answers. A named row is pinned to the
+   * front of the permutation, because "shuffle is on" must never mean "the row
+   * I clicked is not what plays". A set names no row — the rail's Play, a
+   * double-clicked artist — and pinning position 0 there is what made shuffle
+   * play the first track of every playlist and shuffle only what came after it.
+   * Unpinned, the permutation chooses the opener like any other position; if it
+   * chooses position 0 that is a shuffle result rather than a rule.
+   *
+   * The cost is one round trip: an unpinned position 0 resolves through the
+   * permutation, which needs the order's length, where a pinned one does not.
+   * That is paid only by the gestures that have no row in hand anyway, and they
+   * are exactly the ones with no title to show while it resolves.
    */
   async function startOrder(
     base: PlayOrder,
-    at: number,
+    at: number | null,
     scope: SessionRowReader,
     track?: Track
   ): Promise<void> {
     baseOrder = base
     sessionScope = scope
 
-    // The chosen row is pinned to the front of the shuffle, so "shuffle is on"
-    // never means "the row I clicked is not what plays". The pin resolves
-    // without the permutation, so this costs the click path nothing — the
-    // length query and the shuffle itself happen while the track is decoding.
+    // The pin resolves without the permutation, so an anchored start costs the
+    // click path nothing — the length query and the shuffle itself happen while
+    // the track is already decoding.
     shuffledOrder = shuffleEnabled.value
-      ? createShuffledPlayOrder(base, { seed: shuffleSeed(), pinnedBaseIndex: at })
+      ? createShuffledPlayOrder(base, {
+          seed: shuffleSeed(),
+          ...(at === null ? {} : { pinnedBaseIndex: at })
+        })
       : null
     order = shuffledOrder ?? base
-    const index = shuffledOrder ? 0 : at
+    const index = shuffledOrder ? 0 : (at ?? 0)
+    // A row handed in is the row at `at`, so it is only the opener while `at`
+    // is what position 0 resolves to. Unpinned shuffle is the one case where it
+    // is not, and showing it would put a title on screen that the permutation
+    // is about to disagree with. Guarded here rather than at the call sites,
+    // because "supply the row you clicked" is advice a later caller will follow
+    // without knowing this.
+    const opener = shuffledOrder && at === null ? undefined : track
     captureTotal()
     // Before the first play there is no scheduler; `ensureScheduler` reads the
     // effective value at construction and so picks the same one up.
@@ -601,15 +633,15 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
 
     // With the row already in hand there is nothing to look up, so skip
     // `goToPosition` and its round trip.
-    if (track) {
+    if (opener) {
       position.value = orderPosition(index)
-      nowPlaying.value = track
+      nowPlaying.value = opener
     }
     // Deliberately not awaited. `startAt` is the click path and the fill is
     // five round trips behind it; making the audio wait on the queue being
     // drawable would trade the thing the user asked for against a list.
     void fillSession(index)
-    await startAt(index, track)
+    await startAt(index, opener)
   }
 
   /**
@@ -692,7 +724,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
         direction: params.direction,
         filters: params.filters
       }),
-      params.index,
+      params.index ?? null,
       // The same three facts the order was built from. That is the point of the
       // session tier: the scope has always bounded traversal, and this is it
       // read in bulk rather than one position at a time.
@@ -726,7 +758,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
         playlistId: params.playlistId,
         fetchEntries: deps.fetchPlaylistEntries
       }),
-      params.index,
+      params.index ?? null,
       playlistScopeReader({
         playlistId: params.playlistId,
         fetchEntries: deps.fetchPlaylistEntries
