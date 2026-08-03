@@ -1,5 +1,6 @@
 import { watch } from 'vue'
 import { useArtistBiographyStore } from '@renderer/stores/artistBiography'
+import { useArtistFavoritesStore } from '@renderer/stores/artistFavorites'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
 import { useArtistImageStore } from '@renderer/stores/artistImage'
 import { useArtistRelationsStore } from '@renderer/stores/artistRelations'
@@ -51,6 +52,7 @@ export function useDeckData(): void {
   const trail = usePlayHistoryStore()
   const related = useRelatedStore()
   const identity = useArtistIdentityStore()
+  const artistFavorites = useArtistFavoritesStore()
   const biography = useArtistBiographyStore()
   const relations = useArtistRelationsStore()
   const image = useArtistImageStore()
@@ -63,6 +65,13 @@ export function useDeckData(): void {
       // second read of five hundred rows.
       void trail.load()
       void related.load(trackId)
+      // Here rather than in the artist watcher below, which is the whole point
+      // of the pane. The Favorite Songs group lives under Artist and answers
+      // about the artist, but it is seeded by the *track* and resolves the
+      // artist in SQLite — so it is not waiting on `identity.load`, and a
+      // machine with the cable pulled draws it in a frame instead of when a
+      // MusicBrainz connection times out. D14's third rule; see the store.
+      void artistFavorites.load(trackId)
       // The one call here that can leave the machine, and the gate on `open` is
       // therefore not a performance choice but **D14**: fetching is scoped to a
       // drawer the operator has opened. Main declines it anyway when consent is

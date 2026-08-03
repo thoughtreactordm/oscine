@@ -100,6 +100,59 @@ export interface ListFavoriteIdsResult {
 export const MAX_FAVORITE_IDS_PAGE = MAX_TRACK_ID_PAGE
 
 /**
+ * The playing artist's favorites, for the deck's "Favorite Songs" pane.
+ *
+ * **Seeded by track, like every other thing the deck asks** — `RelatedQuery` is
+ * the same shape for the same reason. The artist is resolved from
+ * `tracks.artist_id` inside the query rather than supplied by the caller, and
+ * that is the load-bearing decision here rather than a convenience.
+ *
+ * An `artistId` parameter would have meant the renderer getting one first, and
+ * the only thing in the deck that holds one is `artist.resolve` — which is the
+ * call that may open a socket. On a machine with lookups *declined* that returns
+ * at once, but on one that is merely unplugged it returns when a connection
+ * times out, and a pane of local rows would have sat behind it. This surface
+ * touches two local tables and answers in a millisecond whatever the network is
+ * doing, which is **D14**'s third rule kept by construction rather than by
+ * remembering to. An artist Fermata cannot resolve still has favorites.
+ */
+export interface ArtistFavoritesQuery {
+  readonly trackId: number
+}
+
+export interface ArtistFavoritesResult {
+  /** Echoed back, so a reply that outran a track change can be discarded. */
+  readonly seedTrackId: number
+  /**
+   * The `artists` row the seed's `artist_id` pointed at, or `null` when the
+   * track carries no artist at all.
+   *
+   * Distinguishes "this artist has no favorites" from "there is no artist to
+   * ask about", which are two different sentences in the pane and would be one
+   * grey one if this were folded into an empty `tracks`.
+   */
+  readonly artistId: number | null
+  /** `favorited_at` descending, capped at `ARTIST_FAVORITES_LIMIT`. */
+  readonly tracks: Track[]
+  /** More rows existed than the cap allowed. The pane says so rather than lying. */
+  readonly truncated: boolean
+}
+
+/**
+ * Rows the pane may show, and the reason it is one round trip rather than a
+ * paged window.
+ *
+ * The same number `RELATED_SECTION_LIMIT` picked, and restated here rather than
+ * imported because the two are not the same decision: that one bounds a genre
+ * that can match a third of the library, and this one bounds a set that is
+ * already small — favorites *by one artist* is a handful for almost everybody.
+ * Fifty is well past what anyone reads in a deck column and small enough that
+ * the whole answer is a few kilobytes of structured clone, which is what lets
+ * this be a query per artist instead of a window with a scroll to chase.
+ */
+export const ARTIST_FAVORITES_LIMIT = 50
+
+/**
  * Un-favorites a batch in one transaction.
  *
  * `toggle` is the gesture and this is not a bulk version of it: a toggle asks

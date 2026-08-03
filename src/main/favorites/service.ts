@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3'
 import type {
+  ArtistFavoritesQuery,
+  ArtistFavoritesResult,
   FavoriteState,
   FavoriteStateResult,
   ListFavoriteIdsQuery,
@@ -33,6 +35,8 @@ export interface FavoriteService {
   list(query: ListFavoritesQuery): Promise<ListFavoritesResult>
   /** The same page as ids, for a range selection and for reading the whole set. */
   listIds(query: ListFavoriteIdsQuery): Promise<ListFavoriteIdsResult>
+  /** The seed track's artist's favorites, bounded and newest-hearted first. */
+  byArtist(query: ArtistFavoritesQuery): Promise<ArtistFavoritesResult>
   /** Un-favorites a batch. Ids that were not favorited are simply not removed. */
   remove(trackIds: readonly number[]): Promise<RemoveFavoritesResult>
 }
@@ -62,6 +66,10 @@ export class SqliteFavoriteService implements FavoriteService {
 
   async listIds(query: ListFavoriteIdsQuery): Promise<ListFavoriteIdsResult> {
     return this.store.listIds(query)
+  }
+
+  async byArtist(query: ArtistFavoritesQuery): Promise<ArtistFavoritesResult> {
+    return this.store.byArtist(query)
   }
 
   async remove(trackIds: readonly number[]): Promise<RemoveFavoritesResult> {

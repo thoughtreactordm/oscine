@@ -9,6 +9,8 @@ import type { ArtistRelationsResult, GetArtistRelationsRequest } from './artistR
 import type { ArtistBiographyResult, GetArtistBiographyRequest } from './biography'
 import type { ArtistImageResult, GetArtistImageRequest } from './artistImage'
 import type {
+  ArtistFavoritesQuery,
+  ArtistFavoritesResult,
   FavoriteState,
   FavoriteStateRequest,
   FavoriteStateResult,
@@ -322,6 +324,25 @@ export interface IpcContract {
    * viewport's back.
    */
   'favorites.listIds': { request: ListFavoriteIdsQuery; response: ListFavoriteIdsResult }
+  /**
+   * The playing artist's favorites, newest-hearted first — the deck's Favorite
+   * Songs pane. Seeded by track, as `library.getRelated` is.
+   *
+   * Its own channel rather than a filter on `favorites.list`, because the two
+   * are different shapes and would have had to pretend otherwise. That one is a
+   * window over a collection with a `total` behind a scrollbar; this one is a
+   * bounded answer about a subject, capped at `ARTIST_FAVORITES_LIMIT`, and the
+   * deck panes are all bounded answers. Merging them would have given the rail
+   * an artist filter it never sets and this pane a paging protocol it never
+   * uses.
+   *
+   * **It cannot leave the machine**, which is the property the card turns on:
+   * two indexed reads over `tracks` and `track_favorites`, and no mbid anywhere
+   * in it. It sits beside `artist.resolve` in the deck and shares nothing with
+   * it — deliberately not even the artist id, which is what would have made this
+   * pane wait on that one's socket.
+   */
+  'favorites.byArtist': { request: ArtistFavoritesQuery; response: ArtistFavoritesResult }
   /**
    * Un-favorites a batch, in one transaction.
    *
@@ -700,6 +721,7 @@ export const IPC_CHANNELS = [
   'favorites.state',
   'favorites.list',
   'favorites.listIds',
+  'favorites.byArtist',
   'favorites.remove',
   'playlists.list',
   'playlists.create',

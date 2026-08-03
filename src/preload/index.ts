@@ -181,6 +181,8 @@ const api = {
     list: (query: ListFavoritesQuery) => request('favorites.list', query),
     /** The same window, ids only — a Shift-range, or the whole collection to play. */
     listIds: (query: ListFavoriteIdsQuery) => request('favorites.listIds', query),
+    /** The playing artist's favorites, seeded by track. Local, and bounded not paged. */
+    byArtist: (trackId: number) => request('favorites.byArtist', { trackId }),
     /** Un-favorites a batch. Not a bulk `toggle`: it says which direction it goes. */
     remove: (trackIds: readonly number[]) => request('favorites.remove', { trackIds })
   },

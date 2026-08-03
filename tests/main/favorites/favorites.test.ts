@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  ARTIST_FAVORITES_LIMIT,
   MAX_FAVORITE_IDS_PAGE,
   MAX_FAVORITE_REMOVE_IDS,
   MAX_FAVORITE_STATE_IDS,
@@ -381,6 +382,214 @@ describe('the heart on the display row', () => {
       ['Hearted', true],
       ['Plain', false]
     ])
+  })
+})
+
+/**
+ * The deck's Favorite Songs pane (W10-8, D18).
+ *
+ * Every claim here is about the local join, because that is the property the
+ * card turns on: the pane is under the Artist tab but reaches nothing the
+ * network could answer, so it is exercised against a database with no `mbid`
+ * anywhere in it — which is what an artist looks like when lookups are declined.
+ */
+describe('favorites.byArtist', () => {
+  function seedArtist(name: string): number {
+    return Number(db.prepare('INSERT INTO artists (name) VALUES (?)').run(name).lastInsertRowid)
+  }
+
+  /** A track credited to an artist, or to nobody when `artistId` is null. */
+  function seedTrackBy(artistId: number | null, title: string): number {
+    const rootId =
+      (db.prepare('SELECT id FROM roots LIMIT 1').get() as { id: number } | undefined)?.id ??
+      Number(
+        db
+          .prepare('INSERT INTO roots (label, path, added_at) VALUES (?, ?, ?)')
+          .run('Music', '/music', 0).lastInsertRowid
+      )
+
+    return Number(
+      db
+        .prepare(
+          `INSERT INTO tracks (root_id, rel_path, mtime, size, title, artist_id, duration_ms)
+           VALUES (?, ?, 1, 2, ?, ?, 200000)`
+        )
+        .run(rootId, `a${nextPath++}.flac`, title, artistId).lastInsertRowid
+    )
+  }
+
+  /** Hearts a track at an exact instant, so the order under test is the stored one. */
+  function heartAt(trackId: number, favoritedAt: number): void {
+    db.prepare('INSERT INTO track_favorites (track_id, favorited_at) VALUES (?, ?)').run(
+      trackId,
+      favoritedAt
+    )
+  }
+
+  it('lists the seed artist’s favorites, newest-hearted first', async () => {
+    const artist = seedArtist('Slowdive')
+    const first = seedTrackBy(artist, 'Alison')
+    const second = seedTrackBy(artist, 'Souvlaki Space Station')
+    const third = seedTrackBy(artist, 'When the Sun Hits')
+    heartAt(first, 1_000)
+    heartAt(second, 3_000)
+    heartAt(third, 2_000)
+
+    const result = await service().byArtist({ trackId: first })
+
+    expect(result.artistId).toBe(artist)
+    expect(result.seedTrackId).toBe(first)
+    expect(result.truncated).toBe(false)
+    expect(result.tracks.map((track) => track.title)).toEqual([
+      'Souvlaki Space Station',
+      'When the Sun Hits',
+      'Alison'
+    ])
+  })
+
+  /**
+   * The seed is a track and the answer is about its artist, which is the whole
+   * shape of the query — so a seed that is not itself hearted must still produce
+   * the artist's favorites. Otherwise the pane would be blank for exactly the
+   * common case: something playing that the operator has not hearted.
+   */
+  it('does not require the seed track to be favorited', async () => {
+    const artist = seedArtist('Ride')
+    const playing = seedTrackBy(artist, 'Vapour Trail')
+    const hearted = seedTrackBy(artist, 'Dreams Burn Down')
+    heartAt(hearted, 1_000)
+
+    const result = await service().byArtist({ trackId: playing })
+
+    expect(result.tracks.map((track) => track.title)).toEqual(['Dreams Burn Down'])
+  })
+
+  it('excludes favorites credited to another artist', async () => {
+    const artist = seedArtist('Chapterhouse')
+    const other = seedArtist('Lush')
+    const seed = seedTrackBy(artist, 'Pearl')
+    const theirs = seedTrackBy(other, 'De-Luxe')
+    heartAt(seed, 1_000)
+    heartAt(theirs, 2_000)
+
+    const result = await service().byArtist({ trackId: seed })
+
+    expect(result.tracks.map((track) => track.title)).toEqual(['Pearl'])
+  })
+
+  /**
+   * The empty state the card is mostly about. An artist nobody has hearted is
+   * the ordinary case over a large library, so it comes back as a result with no
+   * tracks — and with the artist id still on it, because "this artist has none"
+   * and "there is no artist" are two different sentences in the pane.
+   */
+  it('answers with no tracks, and with the artist, for an artist with no favorites', async () => {
+    const artist = seedArtist('Curve')
+    const seed = seedTrackBy(artist, 'Coast Is Clear')
+
+    const result = await service().byArtist({ trackId: seed })
+
+    expect(result).toEqual({ seedTrackId: seed, artistId: artist, tracks: [], truncated: false })
+  })
+
+  it('reports no artist for a track that names none', async () => {
+    const seed = seedTrackBy(null, 'Untagged')
+
+    const result = await service().byArtist({ trackId: seed })
+
+    expect(result).toEqual({ seedTrackId: seed, artistId: null, tracks: [], truncated: false })
+  })
+
+  /** A seed that left the library takes the same path, and should: same answer. */
+  it('reports no artist for a track that is not in the library', async () => {
+    const result = await service().byArtist({ trackId: 9_999 })
+
+    expect(result).toEqual({ seedTrackId: 9_999, artistId: null, tracks: [], truncated: false })
+  })
+
+  /**
+   * The cap, and the flag that stops it being reported as a round number. The
+   * store over-fetches by one and trims, so `truncated` is a fact rather than a
+   * comparison against the limit.
+   */
+  it('caps the list and says so when there was more', async () => {
+    const artist = seedArtist('Mogwai')
+    let seed = 0
+    for (let index = 0; index < ARTIST_FAVORITES_LIMIT + 5; index += 1) {
+      const trackId = seedTrackBy(artist, `Track ${index}`)
+      if (index === 0) seed = trackId
+      heartAt(trackId, 1_000 + index)
+    }
+
+    const result = await service().byArtist({ trackId: seed })
+
+    expect(result.tracks).toHaveLength(ARTIST_FAVORITES_LIMIT)
+    expect(result.truncated).toBe(true)
+    // Newest first, so the cap drops the oldest hearts rather than the newest.
+    expect(result.tracks[0]?.title).toBe(`Track ${ARTIST_FAVORITES_LIMIT + 4}`)
+  })
+
+  it('is exactly at the cap without claiming there is more', async () => {
+    const artist = seedArtist('Codeine')
+    let seed = 0
+    for (let index = 0; index < ARTIST_FAVORITES_LIMIT; index += 1) {
+      const trackId = seedTrackBy(artist, `Track ${index}`)
+      if (index === 0) seed = trackId
+      heartAt(trackId, 1_000 + index)
+    }
+
+    const result = await service().byArtist({ trackId: seed })
+
+    expect(result.tracks).toHaveLength(ARTIST_FAVORITES_LIMIT)
+    expect(result.truncated).toBe(false)
+  })
+
+  /**
+   * Ties break on `track_id` descending, the same way `list` and `listIds` break
+   * them. Two hearts in one millisecond needs a keyboard repeat rather than a
+   * human, but the rail and this pane are two readings of one table and an order
+   * that agreed only up to ties would show them in two sequences.
+   */
+  it('breaks ties on the track id, as the rail does', async () => {
+    const artist = seedArtist('Bark Psychosis')
+    const lower = seedTrackBy(artist, 'Lower')
+    const higher = seedTrackBy(artist, 'Higher')
+    heartAt(lower, 5_000)
+    heartAt(higher, 5_000)
+
+    const result = await service().byArtist({ trackId: lower })
+
+    expect(result.tracks.map((track) => track.title)).toEqual(['Higher', 'Lower'])
+  })
+
+  /**
+   * Display rows, not ids. The pane draws a title and an album, and it draws
+   * them through `TRACK_PROJECTION` so a corrected tag reads the same here as in
+   * the song list — the argument `FavoriteStore`'s own note makes about `list`.
+   */
+  it('returns display rows carrying the heart', async () => {
+    const artist = seedArtist('Disco Inferno')
+    const seed = seedTrackBy(artist, 'Starbound')
+    heartAt(seed, 1_000)
+
+    const [track] = (await service().byArtist({ trackId: seed })).tracks
+
+    expect(track?.favorite).toBe(true)
+    expect(track?.artist).toBe('Disco Inferno')
+  })
+
+  /** `CASCADE` reaches this query too — a deleted track is not a gap in the pane. */
+  it('drops a favorite whose track has been deleted', async () => {
+    const artist = seedArtist('Talk Talk')
+    const seed = seedTrackBy(artist, 'Ascension Day')
+    const gone = seedTrackBy(artist, 'After the Flood')
+    heartAt(seed, 1_000)
+    heartAt(gone, 2_000)
+
+    db.prepare('DELETE FROM tracks WHERE id = ?').run(gone)
+    const result = await service().byArtist({ trackId: seed })
+
+    expect(result.tracks.map((track) => track.title)).toEqual(['Ascension Day'])
   })
 })
 

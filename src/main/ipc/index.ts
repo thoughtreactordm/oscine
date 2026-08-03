@@ -23,6 +23,7 @@ import {
   assertResolveArtistQuery,
   assertSearchArtistCandidatesRequest,
   assertSetArtistMbidRequest,
+  assertArtistFavoritesQuery,
   assertExportPlaylistRequest,
   assertFavoriteStateRequest,
   assertFeedUrl,
@@ -235,6 +236,13 @@ export function registerIpcHandlers(
   handle('favorites.list', (request) => favorites.list(assertListFavoritesQuery(request)))
 
   handle('favorites.listIds', (request) => favorites.listIds(assertListFavoriteIdsQuery(request)))
+
+  // No `not-found` throw for a seed that has left the library, unlike the
+  // library lookups above and for `favorites.toggle`'s reason. The honest answer
+  // about a track that is gone is that there is no artist to list favorites for,
+  // which is the same answer as for a track that never named one — and the pane
+  // draws the same sentence for both.
+  handle('favorites.byArtist', (request) => favorites.byArtist(assertArtistFavoritesQuery(request)))
 
   handle('favorites.remove', (request) =>
     favorites.remove(assertRemoveFavoritesRequest(request).trackIds)

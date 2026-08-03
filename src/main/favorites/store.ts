@@ -1,17 +1,20 @@
 import type Database from 'better-sqlite3'
-import type {
-  FavoriteState,
-  FavoriteStateResult,
-  ListFavoriteIdsQuery,
-  ListFavoriteIdsResult,
-  ListFavoritesQuery,
-  ListFavoritesResult,
-  RemoveFavoritesResult
+import {
+  ARTIST_FAVORITES_LIMIT,
+  type ArtistFavoritesQuery,
+  type ArtistFavoritesResult,
+  type FavoriteState,
+  type FavoriteStateResult,
+  type ListFavoriteIdsQuery,
+  type ListFavoriteIdsResult,
+  type ListFavoritesQuery,
+  type ListFavoritesResult,
+  type RemoveFavoritesResult
 } from '@shared/favorites'
 import { TRACK_JOINS, TRACK_PROJECTION, toTrack, type TrackRow } from '../library/store'
 
 /**
- * `track_favorites`, and the five statements it is made of — **D18**.
+ * `track_favorites`, and the statements it is made of — **D18**.
  *
  * Its own module beside `../history/store` and `../listens/store`, following the
  * precedent `../library/playlists/store` set: one table the library layer never
@@ -32,6 +35,8 @@ export class FavoriteStore {
     state: Database.Statement<{ ids: string }>
     list: Database.Statement<{ limit: number; offset: number }>
     listIds: Database.Statement<{ limit: number; offset: number }>
+    seedArtist: Database.Statement<[number]>
+    byArtist: Database.Statement<{ artistId: number; limit: number }>
     removeMany: Database.Statement<{ ids: string }>
     count: Database.Statement<[]>
   }
@@ -94,6 +99,41 @@ export class FavoriteStore {
         FROM track_favorites f
         ORDER BY f.favorited_at DESC, f.track_id DESC
         LIMIT @limit OFFSET @offset
+      `),
+      // Who the deck's Artist tab is about, read straight off the seed row.
+      //
+      // A statement of its own rather than a join inside the one below, because
+      // the two answers it separates are two different sentences in the pane: a
+      // `null` here is "this track names no artist" and an empty result there is
+      // "this artist has no favorites yet". One query returning no rows cannot
+      // tell them apart, and the second of those is the invitation the card is
+      // mostly about.
+      //
+      // `artist_id` and not the album artist. The performer on the playing track
+      // is what the tab is titled with — `ArtistIdentityStore.forTrack` joins
+      // this same column — so keying on anything else would list the favorites of
+      // somebody other than the artist named at the top of the tab. A track on a
+      // compilation is exactly where the two differ, and exactly where getting it
+      // wrong is most visible.
+      seedArtist: db.prepare('SELECT artist_id AS artistId FROM tracks WHERE id = ?'),
+      // That artist's favorites: `list`'s query with a `WHERE` on it and no
+      // `OFFSET`, sharing the same two-part `ORDER BY` for the reason the two
+      // above share it. The pane and the rail are two readings of one table, and
+      // an order that agreed only up to ties would show the same two tracks in
+      // two sequences.
+      //
+      // No `total` and no count statement of its own. The pane is a bounded
+      // answer rather than a window — `ARTIST_FAVORITES_LIMIT + 1` rows come
+      // back and the extra one becomes `truncated` — so there is no scrollbar to
+      // size and therefore no second query to size it with.
+      byArtist: db.prepare(`
+        SELECT ${TRACK_PROJECTION}
+        FROM track_favorites f
+        JOIN tracks t ON t.id = f.track_id
+        ${TRACK_JOINS}
+        WHERE t.artist_id = @artistId
+        ORDER BY f.favorited_at DESC, f.track_id DESC
+        LIMIT @limit
       `),
       // One statement whatever the batch size, for `state`'s reason. Driven
       // into the primary key from `json_each`, so removing four hundred rows is
@@ -194,6 +234,43 @@ export class FavoriteStore {
       offset: query.offset
     }) as { trackId: number }[]
     return { ids: rows.map((row) => row.trackId), total }
+  }
+
+  /**
+   * The seed track's artist's favorites, newest-hearted first.
+   *
+   * Two indexed reads: the seed's `artist_id` off the primary key, then that
+   * artist's hearted tracks. The second is skipped entirely when the first says
+   * `null`, so a track with no artist tag costs one probe and no scan.
+   *
+   * Over-fetches by one and trims, exactly as `buildRelated`'s strands do: a
+   * `LIMIT n` that returns `n` rows cannot tell "that is all there is" from
+   * "there is more", and the pane would round a cap up into a fact. The extra
+   * row is never sent.
+   *
+   * An artist with no favorites comes back with an empty list and not an error.
+   * That is the ordinary case over a large library — it is the pane's empty
+   * state rather than its failure state, which is why this returns a result at
+   * all instead of `null` the way `buildRelated` does for a missing seed. A
+   * `trackId` that is not in the library takes the same path as a track with no
+   * artist, and should: neither has an artist whose favorites could be listed.
+   */
+  byArtist(query: ArtistFavoritesQuery, limit = ARTIST_FAVORITES_LIMIT): ArtistFavoritesResult {
+    const empty = { seedTrackId: query.trackId, artistId: null, tracks: [], truncated: false }
+
+    const seed = this.statements.seedArtist.get(query.trackId) as
+      { artistId: number | null } | undefined
+    const artistId = seed?.artistId ?? null
+    if (artistId === null) return empty
+
+    const rows = this.statements.byArtist.all({ artistId, limit: limit + 1 }) as TrackRow[]
+
+    return {
+      seedTrackId: query.trackId,
+      artistId,
+      tracks: rows.slice(0, limit).map(toTrack),
+      truncated: rows.length > limit
+    }
   }
 
   /**

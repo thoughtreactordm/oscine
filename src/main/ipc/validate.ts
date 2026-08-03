@@ -14,6 +14,7 @@ import {
   MAX_FAVORITE_REMOVE_IDS,
   MAX_FAVORITE_STATE_IDS,
   MAX_FAVORITES_PAGE,
+  type ArtistFavoritesQuery,
   type FavoriteStateRequest,
   type ListFavoriteIdsQuery,
   type ListFavoritesQuery,
@@ -358,6 +359,22 @@ export function assertListFavoriteIdsQuery(value: unknown): ListFavoriteIdsQuery
   const raw = assertRecord(value, 'query')
   assertOnlyKeys(raw, ['offset', 'limit'])
   return assertWindow(raw, MAX_FAVORITE_IDS_PAGE)
+}
+
+/**
+ * The deck's Favorite Songs read. A seed track, and nothing else to get wrong.
+ *
+ * A `trackId` and not an `artistId`, which is the contract's decision rather
+ * than this function's — see the channel's note. What belongs here is that
+ * there is no second field: `ARTIST_FAVORITES_LIMIT` is the pane's own cap and
+ * not a window the caller chooses, so a `limit` would let a renderer ask for a
+ * page the pane has no way to draw, and would make the one number `truncated` is
+ * computed against something the sender could disagree with.
+ */
+export function assertArtistFavoritesQuery(value: unknown): ArtistFavoritesQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['trackId'])
+  return { trackId: assertPositiveInt(raw.trackId, 'trackId') }
 }
 
 /**

@@ -121,6 +121,8 @@ export const favorites = {
   list: (query: ListFavoritesQuery) => unwrap(window.fermata.favorites.list(query)),
   /** The same window, ids only — a Shift-range, or the whole collection to play. */
   listIds: (query: ListFavoriteIdsQuery) => unwrap(window.fermata.favorites.listIds(query)),
+  /** The playing artist's favorites — the deck's pane, seeded by track, all local. */
+  byArtist: (trackId: number) => unwrap(window.fermata.favorites.byArtist(trackId)),
   /** Un-favorites a batch. Removing a row from the pinned rail entry is this. */
   remove: (trackIds: readonly number[]) => unwrap(window.fermata.favorites.remove(trackIds))
 }

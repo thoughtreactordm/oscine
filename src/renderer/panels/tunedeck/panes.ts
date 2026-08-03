@@ -1,11 +1,13 @@
 import { PLAY_HISTORY_CAP } from '@shared/history'
 import { NEIGHBOURHOOD_STRANDS, type RelatedStrand } from '@shared/related'
+import { countArtistFavorites } from './favoriteSongs'
 import { countRelatedRows } from './relatedRows'
 import AlbumTracksPane from './AlbumTracksPane.vue'
 import ArtistCatalogPane from './ArtistCatalogPane.vue'
 import ArtistIdentityHeader from './ArtistIdentityHeader.vue'
 import BiographyPane from './BiographyPane.vue'
 import DecodePathPane from './DecodePathPane.vue'
+import FavoriteSongsPane from './FavoriteSongsPane.vue'
 import FormatPane from './FormatPane.vue'
 import LoudnessPane from './LoudnessPane.vue'
 import NeighbourhoodPane from './NeighbourhoodPane.vue'
@@ -15,6 +17,7 @@ import TrailPane from './TrailPane.vue'
 import UpNextPane from './UpNextPane.vue'
 import { countOwnedRelations } from './relationRows'
 import { createTunedeckRegistry } from './tunedeckPanes'
+import { useArtistFavoritesStore } from '@renderer/stores/artistFavorites'
 import { useArtistRelationsStore } from '@renderer/stores/artistRelations'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
@@ -135,6 +138,24 @@ export const tunedeckRegistry = createTunedeckRegistry([
         hint: ENQUEUE_HINT,
         badge: () => countRelatedRows(useRelatedStore().result, ARTIST_STRANDS),
         component: ArtistCatalogPane
+      },
+      // Last under Artist, and a sibling of the catalog rather than a child of
+      // the two above it. The biography and the members are claims about the
+      // world; this and the catalog are claims about these files. Of the two,
+      // the catalog is what the library holds and this is what the operator has
+      // said about it, which is why it reads after rather than before.
+      //
+      // Nothing about it is gated on an identity resolving — it is seeded by the
+      // playing track and answers from `track_favorites` — so it is the group
+      // that still has something to say when every lookup above it is declined.
+      // See `FavoriteSongsPane`, and D14's third rule.
+      {
+        id: 'artist-favorites',
+        title: 'Favorite songs',
+        icon: 'i-tabler-heart',
+        hint: 'The songs by this artist you have hearted, newest first. Local — it works with online lookups off. Double-click does whatever it does in the song list; the playing track cuts in and playback resumes where it was.',
+        badge: () => countArtistFavorites(useArtistFavoritesStore().result),
+        component: FavoriteSongsPane
       }
     ]
   },
