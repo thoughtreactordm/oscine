@@ -40,6 +40,7 @@ import type {
   ListTracksResult,
   Track
 } from '../../../src/shared/library'
+import type { ListFavoritesQuery, ListFavoritesResult } from '../../../src/shared/favorites'
 import type { RecordListenRequest } from '../../../src/shared/listens'
 import type {
   ListPlaylistEntriesQuery,
@@ -201,10 +202,19 @@ class FakeEngine implements AudioEngine {
  */
 const PLAYLIST_TRACK_BASE = 1000
 
+/**
+ * The same trick again, for D18's collection: a favorites row at position `n` is
+ * a track whose id is `2000 + n`, so a test can tell "playing from My Favorites"
+ * from "playing from the library" and from "playing from a playlist" by reading
+ * one id.
+ */
+const FAVORITE_TRACK_BASE = 2000
+
 function harness(
   options: {
     total?: number
     playlistTotal?: number
+    favoritesTotal?: number
     manualLoad?: boolean
     createMediaSession?: PlaybackControllerDeps['createMediaSession']
     settings?: PlaybackControllerDeps['settings']
@@ -228,6 +238,7 @@ function harness(
 ) {
   const total = options.total ?? 10
   const playlistTotal = options.playlistTotal ?? 6
+  const favoritesTotal = options.favoritesTotal ?? 4
   const engines = [
     new FakeEngine(options.manualLoad ?? false),
     new FakeEngine(options.manualLoad ?? false)
@@ -276,6 +287,15 @@ function harness(
     })
   )
 
+  /** Answers any window over the favorites, in `favorited_at` order. */
+  const fetchFavorites = vi.fn(async (query: ListFavoritesQuery): Promise<ListFavoritesResult> => ({
+    tracks: Array.from(
+      { length: Math.max(0, Math.min(query.limit, favoritesTotal - query.offset)) },
+      (_, i) => track(FAVORITE_TRACK_BASE + query.offset + i)
+    ),
+    total: favoritesTotal
+  }))
+
   const controller = createPlaybackController({
     createEngine: () => {
       const engine = engines[engineIndex++]
@@ -284,6 +304,7 @@ function harness(
     },
     fetchPage,
     fetchPlaylistEntries,
+    fetchFavorites,
     fetchTrackIds,
     fetchTracksByIds,
     ...(options.createMediaSession ? { createMediaSession: options.createMediaSession } : {}),
@@ -303,6 +324,7 @@ function harness(
     engines,
     fetchPage,
     fetchPlaylistEntries,
+    fetchFavorites,
     fetchTrackIds,
     fetchTracksByIds
   }

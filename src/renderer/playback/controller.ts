@@ -25,12 +25,14 @@ import type {
   Track,
   TrackSortColumn
 } from '@shared/library'
+import type { ListFavoritesQuery, ListFavoritesResult } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
 import type { ListPlaylistEntriesQuery, ListPlaylistEntriesResult } from '@shared/playlists'
 import { AUDIO_CROSSFADE_MS, AUDIO_CROSSFADE_MS_KEY } from '@shared/settings'
 import { createListenRecorder } from './listenRecorder'
 import type { MediaSessionBinding, MediaSessionState, MediaSessionTransport } from './mediaSession'
 import {
+  createFavoritesPlayOrder,
   createFixedPlayOrder,
   createListPlayOrder,
   createPlaylistPlayOrder,
@@ -38,6 +40,7 @@ import {
 } from './playOrder'
 import { PlaybackScheduler, type PrefetchState, type PrefetchStatus } from './scheduler'
 import {
+  favoritesScopeReader,
   libraryScopeReader,
   materializeSession,
   playlistScopeReader,
@@ -106,6 +109,15 @@ export interface PlaybackControllerDeps {
    * the user is asking for audio.
    */
   fetchPlaylistEntries: (query: ListPlaylistEntriesQuery) => Promise<ListPlaylistEntriesResult>
+  /**
+   * How a favorites traversal resolves a position, and how its session tier is
+   * filled — **D18**.
+   *
+   * One dependency where the library needs three, because `favorites.list`
+   * already answers in the display projection and the collection has exactly one
+   * order. Required for `fetchPlaylistEntries`' reason.
+   */
+  fetchFavorites: (query: ListFavoritesQuery) => Promise<ListFavoritesResult>
   /**
    * The two library verbs the session tier is materialized through.
    *
@@ -238,6 +250,18 @@ export interface PlayFromListParams {
 export interface PlayFromPlaylistParams {
   playlistId: number
   /** As with `PlayFromListParams.index`: absent means "start this playlist". */
+  index?: number
+  /** As with `PlayFromListParams.track`: the row the user actually clicked. */
+  track?: Track
+}
+
+/**
+ * My Favorites has no id to name, which is the whole of D18 showing up in a
+ * parameter list: there is one such collection and the order over it is fixed,
+ * so the position and the clicked row are all there is to say.
+ */
+export interface PlayFromFavoritesParams {
+  /** As with `PlayFromListParams.index`: absent means "start My Favorites". */
   index?: number
   /** As with `PlayFromListParams.track`: the row the user actually clicked. */
   track?: Track
@@ -801,6 +825,26 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   }
 
   /**
+   * Starts a track from My Favorites, traversing `track_favorites` — **D18**.
+   *
+   * `playingPlaylistId` clears, exactly as it does for the library order and for
+   * the same reason: this is not a playlist, so there is no per-playlist
+   * crossfade to keep and §5 rule 3 does not apply to it. The pinned rail entry
+   * is a view over a table, and playing it plays a collection rather than
+   * entering a playlist.
+   */
+  async function playFromFavorites(params: PlayFromFavoritesParams): Promise<void> {
+    playingPlaylistId.value = null
+
+    await startOrder(
+      createFavoritesPlayOrder({ fetchPage: deps.fetchFavorites }),
+      params.index ?? null,
+      favoritesScopeReader({ fetchPage: deps.fetchFavorites }),
+      params.track
+    )
+  }
+
+  /**
    * Starts a track from a playlist, traversing that playlist's entries.
    *
    * §5 rule 3: this is what sets `playingPlaylistId`, and it is the only thing
@@ -1345,6 +1389,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     canSeek,
     playFromList,
     playFromPlaylist,
+    playFromFavorites,
     playTracks,
     playlistDeleted,
     enqueue: queue.enqueue,

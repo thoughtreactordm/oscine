@@ -8,6 +8,7 @@ import {
   type Track,
   type TrackSortColumn
 } from '@shared/library'
+import type { ListFavoritesQuery, ListFavoritesResult } from '@shared/favorites'
 import type { ListPlaylistEntriesQuery, ListPlaylistEntriesResult } from '@shared/playlists'
 
 /**
@@ -208,6 +209,52 @@ export function createPlaylistPlayOrder(deps: PlaylistPlayOrderDeps): PlayOrder 
 
       const result = await fetchEntries({ playlistId, offset: index, limit: 1 })
       return result.entries[0]?.track ?? null
+    }
+  }
+}
+
+export interface FavoritesPlayOrderDeps {
+  fetchPage: (query: ListFavoritesQuery) => Promise<ListFavoritesResult>
+}
+
+/**
+ * A play order over `track_favorites`, newest-hearted first — **D18**.
+ *
+ * The third kind, and the one that took the fewest lines, which is the point of
+ * `PlayOrder` having been an interface since M1. One indexed row per position, a
+ * memoised length, `null` off the end; shuffle, repeat and the scheduler's
+ * decode-ahead never learn which of the three they were handed.
+ *
+ * **Not a playlist**, so `playingPlaylistId` clears when this starts and the
+ * crossfade reverts to the global setting — exactly as it does for the library
+ * order, and for the same reason: §5 rule 3 is about playing *from a playlist*,
+ * and this collection has no `playlists` row to carry an override on.
+ *
+ * The id is constant because the collection is. There is one order over one set,
+ * and a heart clicked mid-playback changes which rows sit at which positions
+ * without changing what "My Favorites in `favorited_at` order" means — the same
+ * live-position behaviour every other order has under an edit.
+ */
+export function createFavoritesPlayOrder(deps: FavoritesPlayOrderDeps): PlayOrder {
+  const { fetchPage } = deps
+
+  const count = memoizedCount(async () => {
+    // `limit: 1` for the same reason as the other two: main rejects a
+    // non-positive limit and `total` ignores the window anyway.
+    const result = await fetchPage({ offset: 0, limit: 1 })
+    return result.total
+  })
+
+  return {
+    id: 'favorites',
+
+    count,
+
+    async at(index: number): Promise<Track | null> {
+      if (!Number.isInteger(index) || index < 0) return null
+
+      const result = await fetchPage({ offset: index, limit: 1 })
+      return result.tracks[0] ?? null
     }
   }
 }

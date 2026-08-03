@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { createAudioEngineFactory } from '@renderer/audio'
-import { library, listens, playlists } from '@renderer/ipc'
+import { favorites, library, listens, playlists } from '@renderer/ipc'
 import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMediaSession'
 import { createPlaybackController } from '@renderer/playback/controller'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
@@ -51,6 +51,9 @@ export const usePlaybackStore = defineStore('playback', () => {
     setOutputDevice: audio.setOutputDevice,
     fetchPage: (query) => library.listTracks(query),
     fetchPlaylistEntries: (query) => playlists.listEntries(query),
+    // D18's collection. One verb, because `favorites.list` answers in the
+    // display projection and there is only one order over it.
+    fetchFavorites: (query) => favorites.list(query),
     // The session tier's two verbs (§5 amendment). Both already existed —
     // materializing the scope needed no new IPC surface, which is what made the
     // shuffle case affordable.

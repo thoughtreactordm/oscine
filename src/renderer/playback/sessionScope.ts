@@ -11,6 +11,11 @@ import {
   type TrackSortColumn
 } from '@shared/library'
 import {
+  MAX_FAVORITES_PAGE,
+  type ListFavoritesQuery,
+  type ListFavoritesResult
+} from '@shared/favorites'
+import {
   MAX_PLAYLIST_ENTRY_PAGE,
   type ListPlaylistEntriesQuery,
   type ListPlaylistEntriesResult
@@ -159,6 +164,40 @@ export function playlistScopeReader(deps: PlaylistScopeDeps): SessionRowReader {
         if (wanted.has(index)) rows.set(index, entry.track)
       })
       if (page.entries.length < limit) break
+    }
+    return rows
+  }
+}
+
+export interface FavoritesScopeDeps {
+  fetchPage: (query: ListFavoritesQuery) => Promise<ListFavoritesResult>
+}
+
+/**
+ * The favorites scope: one paged read and no widen — **D18**.
+ *
+ * `favorites.list` already answers in the display projection, so like the
+ * playlist reader this needs no id-then-widen dance. Simpler than either
+ * neighbour, because the collection has no filters to carry and no order to
+ * name: `favorited_at` descending is the only sequence there is.
+ */
+export function favoritesScopeReader(deps: FavoritesScopeDeps): SessionRowReader {
+  const { fetchPage } = deps
+
+  return async (baseIndices) => {
+    const rows = new Map<number, Track>()
+    const window = span(baseIndices)
+    if (window === null) return rows
+
+    const wanted = new Set(baseIndices)
+    for (let offset = window.first; offset <= window.last; offset += MAX_FAVORITES_PAGE) {
+      const limit = Math.min(MAX_FAVORITES_PAGE, window.last - offset + 1)
+      const page = await fetchPage({ offset, limit })
+      page.tracks.forEach((track, position) => {
+        const index = offset + position
+        if (wanted.has(index)) rows.set(index, track)
+      })
+      if (page.tracks.length < limit) break
     }
     return rows
   }
