@@ -65,6 +65,7 @@ function track(overrides: Partial<Track> = {}): Track {
     bitDepth: 16,
     playCount: 0,
     lastPlayedAt: null,
+    favorite: false,
     artwork: { small: 'fermata://artwork/1/small', large: 'fermata://artwork/1/large' },
     rgTrackGainDb: null,
     rgTrackPeak: null,

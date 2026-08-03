@@ -13,6 +13,7 @@ import { artistMbid } from './011-artist-mbid'
 import { scrobbleOutbox } from './012-scrobble-outbox'
 import { trackGenres } from './013-track-genres'
 import { listensLog } from './014-listens-log'
+import { favorites } from './015-favorites'
 
 /**
  * Every migration, in order.
@@ -37,5 +38,6 @@ export const MIGRATIONS: readonly Migration[] = [
   artistMbid,
   scrobbleOutbox,
   trackGenres,
-  listensLog
+  listensLog,
+  favorites
 ]

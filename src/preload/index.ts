@@ -28,6 +28,7 @@ import type {
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
+import type { ListFavoritesQuery } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
 import type { NetScope } from '@shared/net'
 import type {
@@ -164,6 +165,20 @@ const api = {
      * migration that moved `listens`.
      */
     rebuildCounters: () => request('stats.rebuildCounters', null)
+  },
+  favorites: {
+    /** Flips one track's heart. Answers with the state that resulted, never a guess. */
+    toggle: (trackId: number) => request('favorites.toggle', { trackId }),
+    /**
+     * Which of these track ids are favorited.
+     *
+     * For ids that did not arrive on a `Track`. Anything holding a display row
+     * already has `favorite` on it — resolved with the page, which is the whole
+     * point — and must not ask this instead.
+     */
+    state: (trackIds: readonly number[]) => request('favorites.state', { trackIds }),
+    /** The favorites, newest-hearted first. Paged like every other list. */
+    list: (query: ListFavoritesQuery) => request('favorites.list', query)
   },
   playlists: {
     /** Every playlist, in tab order. */

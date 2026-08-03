@@ -34,6 +34,7 @@ export type TrackColumnKey = TrackSortColumn | DisplayColumnKey
  * available as columns and simply are not sortable.
  */
 type DisplayColumnKey =
+  | 'favorite'
   | 'albumArtist'
   | 'discNo'
   | 'year'
@@ -185,6 +186,25 @@ export const TRACK_COLUMNS: readonly TrackColumnSpec[] = [
     numeric: true,
     defaultWidth: 140,
     minWidth: 96,
+    defaultVisible: false
+  },
+  // D18's heart. Off by default like everything added after W4-1, and narrow:
+  // the cell is one glyph and the header is one word.
+  //
+  // The header is "Fav" rather than a ♥ matching the cells, which is what every
+  // other player does. The label is read aloud, and a screen reader announcing
+  // this column as "black heart suit" is worse than an abbreviation whose long
+  // form is one `title` away — the same split `#` and "Track number" already
+  // make.
+  //
+  // Not numeric, despite being about as wide as one: `numeric` right-aligns and
+  // applies tabular numerals, and the glyph is centred by the cell itself.
+  {
+    key: 'favorite',
+    label: 'Fav',
+    title: 'Favorite',
+    defaultWidth: 48,
+    minWidth: 40,
     defaultVisible: false
   }
 ]

@@ -4,6 +4,7 @@ import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import UpNextOverlay from '@renderer/panels/UpNextOverlay.vue'
 import { hasArtwork } from '@shared/ipc'
+import { useFavoritesStore } from '@renderer/stores/favorites'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
@@ -49,6 +50,34 @@ const shell = useShellStore()
 
 /** The deck's toggle, for the same reason and by the same route. */
 const tunedeck = useTunedeckStore()
+
+/**
+ * The heart — **D18**.
+ *
+ * The one place this panel reads something that is not the playback store, and
+ * it stays within the island rule: the store is asked about the `Track` the
+ * transport already handed over, not about a list or a library. A track hearted
+ * here fills the matching row in the song list because both go through the same
+ * store, without either panel knowing the other exists.
+ */
+const favorites = useFavoritesStore()
+
+/** `null` with nothing playing, which is the state where there is no heart to draw. */
+const nowPlayingFavorite = computed(() => {
+  const track = playback.nowPlaying
+  return track ? favorites.isFavorite(track) : null
+})
+
+const favoriteLabel = computed(() => {
+  const track = playback.nowPlaying
+  if (!track) return 'Favorite'
+  return nowPlayingFavorite.value ? `Unfavorite ${track.title}` : `Favorite ${track.title}`
+})
+
+function toggleFavorite(): void {
+  const track = playback.nowPlaying
+  if (track) void favorites.toggle(track.id)
+}
 
 /**
  * The cover to bleed behind the bar, or null when there is nothing worth
@@ -246,8 +275,23 @@ function onSeekInput(value: number | undefined): void {
           <p v-if="playback.error" class="truncate text-xs text-error">{{ playback.error }}</p>
         </div>
         <div class="pl-3">
-          <UTooltip text="Favorite?">
-            <UButton variant="ghost" icon="i-tabler-heart" square />
+          <!--
+            A two-state toggle, so it announces its state rather than only an
+            action — the same treatment shuffle gets below. Disabled with nothing
+            playing: there is no track for the click to be about, and a heart
+            that filled against silence would be a lie the next track inherits.
+          -->
+          <UTooltip :text="nowPlayingFavorite ? 'Remove from favorites' : 'Add to favorites'">
+            <UButton
+              variant="ghost"
+              square
+              :icon="nowPlayingFavorite ? 'i-tabler-heart-filled' : 'i-tabler-heart'"
+              :color="nowPlayingFavorite ? 'primary' : 'neutral'"
+              :disabled="nowPlayingFavorite === null"
+              :aria-pressed="nowPlayingFavorite === true"
+              :aria-label="favoriteLabel"
+              @click="toggleFavorite()"
+            />
           </UTooltip>
           <UTooltip text="Song Options">
             <UButton variant="ghost" icon="i-tabler-dots-vertical-filled" square />

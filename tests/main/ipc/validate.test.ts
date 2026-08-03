@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { FermataError } from '@shared/errors'
+import { MAX_FAVORITE_STATE_IDS, MAX_FAVORITES_PAGE } from '@shared/favorites'
 import {
   MAX_FACET_ID_PAGE,
   MAX_FACET_PAGE,
@@ -20,7 +21,10 @@ import {
   assertListTrackIdsQuery,
   assertListTracksQuery,
   assertGetTracksByIdsQuery,
-  assertOrderTrackIdsQuery
+  assertFavoriteStateRequest,
+  assertListFavoritesQuery,
+  assertOrderTrackIdsQuery,
+  assertToggleFavoriteRequest
 } from '../../../src/main/ipc/validate'
 
 describe('library browse IPC validation', () => {
@@ -185,6 +189,68 @@ describe('library browse IPC validation', () => {
         limit: 20
       }).searchText
     ).toBe('hemian" OR title:*')
+  })
+})
+
+describe('favorites IPC validation', () => {
+  it('takes one positive integer to toggle and nothing else', () => {
+    expect(assertToggleFavoriteRequest({ trackId: 42 })).toEqual({ trackId: 42 })
+
+    for (const request of [
+      {},
+      { trackId: 0 },
+      { trackId: -1 },
+      { trackId: 1.5 },
+      { trackId: '42' },
+      // A field this build does not know about is a request written against a
+      // different contract. Accepting it silently is how the two stop matching.
+      { trackId: 42, favorite: true }
+    ]) {
+      expect(() => assertToggleFavoriteRequest(request)).toThrow(FermataError)
+    }
+  })
+
+  it('holds a batch state lookup to the id-page ceiling', () => {
+    expect(assertFavoriteStateRequest({ trackIds: [3, 1, 2] })).toEqual({ trackIds: [3, 1, 2] })
+    expect(assertFavoriteStateRequest({ trackIds: [] }).trackIds).toEqual([])
+    // Duplicates pass validation and the store collapses them: this is a
+    // question about a set, and rejecting a repeated id would make the caller
+    // dedupe a list it is about to hand over anyway.
+    expect(assertFavoriteStateRequest({ trackIds: [7, 7] }).trackIds).toEqual([7, 7])
+    expect(
+      assertFavoriteStateRequest({
+        trackIds: Array.from({ length: MAX_FAVORITE_STATE_IDS }, (_, index) => index + 1)
+      }).trackIds
+    ).toHaveLength(MAX_FAVORITE_STATE_IDS)
+
+    for (const request of [
+      { trackIds: 5 },
+      { trackIds: [1, 'two'] },
+      { trackIds: [1, 0] },
+      { trackIds: [1, 2.5] },
+      { trackIds: [1], offset: 0 },
+      { trackIds: Array.from({ length: MAX_FAVORITE_STATE_IDS + 1 }, (_, index) => index + 1) }
+    ]) {
+      expect(() => assertFavoriteStateRequest(request)).toThrow(FermataError)
+    }
+  })
+
+  it('takes a window for the list and refuses an ordering it cannot express', () => {
+    expect(assertListFavoritesQuery({ offset: 0, limit: 50 })).toEqual({ offset: 0, limit: 50 })
+
+    for (const query of [
+      { offset: 0 },
+      { limit: 50 },
+      { offset: -1, limit: 50 },
+      { offset: 0, limit: 0 },
+      { offset: 0, limit: MAX_FAVORITES_PAGE + 1 },
+      // D18 gives this collection one order. A sort parameter here would be an
+      // ordering the store has no column to express.
+      { offset: 0, limit: 50, sort: 'title' },
+      { offset: 0, limit: 50, searchText: 'reich' }
+    ]) {
+      expect(() => assertListFavoritesQuery(query)).toThrow(FermataError)
+    }
   })
 })
 

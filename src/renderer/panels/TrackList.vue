@@ -31,6 +31,7 @@ import type {
 } from '@renderer/panels/trackListSource'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
 import { useDisplayFormatStore } from '@renderer/stores/displayFormat'
+import { useFavoritesStore } from '@renderer/stores/favorites'
 import { useTrackGroupingStore } from '@renderer/stores/grouping'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
@@ -95,6 +96,7 @@ const grouping = useTrackGroupingStore()
 const formats = useDisplayFormatStore()
 const playback = usePlaybackStore()
 const shell = useShellStore()
+const favorites = useFavoritesStore()
 const OVERSCAN = 8
 /** Pixels an arrow key moves a column edge. Shift narrows it to one. */
 const WIDTH_STEP = 16
@@ -425,10 +427,59 @@ function formatChannels(channels: number | null): string {
   return `${channels} ch`
 }
 
+/**
+ * The heart column draws a control, not a value — **D18**.
+ *
+ * Its own branch in the template rather than a string from `cellText`, and so
+ * its own predicate here. Everything else in this table is text with a skeleton
+ * behind it while the page loads; this is a button, and a button rendered as a
+ * skeleton is one the operator can click before it means anything.
+ */
+function isFavoriteCell(key: TrackColumnKey): boolean {
+  return key === 'favorite'
+}
+
+/**
+ * The heart's state for a row, or `null` while the page is still loading.
+ *
+ * Read through the store rather than off `track.favorite`, so a track hearted in
+ * NowPlaying — or in another row of this same list, on a library where the same
+ * file is indexed once and shown twice — repaints here without the page it came
+ * from being fetched again. See `stores/favorites`.
+ */
+function rowFavorite(row: TrackTableRow): boolean | null {
+  const track = trackAt(row)
+  return track ? favorites.isFavorite(track) : null
+}
+
+function rowFavoriteLabel(row: TrackTableRow): string {
+  const track = trackAt(row)
+  if (!track) return 'Favorite'
+  return favorites.isFavorite(track) ? `Unfavorite ${track.title}` : `Favorite ${track.title}`
+}
+
+/**
+ * Hearts a row.
+ *
+ * `.stop` on the handler and nothing else here: the click must not reach the row
+ * beneath, which would select it, and a double click on it must not activate the
+ * track. A heart is not a way to start playing something.
+ */
+function onFavoriteClick(row: TrackTableRow): void {
+  const track = trackAt(row)
+  if (track) void favorites.toggle(track.id)
+}
+
 function cellText(row: TrackTableRow, key: TrackColumnKey): string | undefined {
   const track = trackAt(row)
   if (!track) return undefined
   switch (key) {
+    // Never reached — the template branches on `isFavoriteCell` before asking
+    // for text. Listed so the exhaustive switch stays exhaustive, and returning
+    // the empty string rather than a glyph so that a caller who did reach it
+    // renders nothing instead of an unclickable heart.
+    case 'favorite':
+      return ''
     case 'trackNo':
       return track.trackNo === null ? '' : String(track.trackNo)
     case 'title':
@@ -1053,8 +1104,35 @@ onMounted(() => props.source.ensureRange(0, 30))
                   nowPlayingLabel(cellMark(row.original, column.key))
                 }}</span>
               </span>
+              <!--
+              The heart, which is a control rather than a value and so gets its
+              own branch. Nothing is drawn until the page arrives — a skeleton
+              here would be a button the operator could click before it stood
+              for a track.
+
+              `aria-pressed` rather than a label that changes shape: this is a
+              two-state toggle, and the accessible name naming the track is what
+              makes a column of forty identical hearts navigable.
+            -->
+              <button
+                v-if="isFavoriteCell(column.key)"
+                v-show="rowFavorite(row.original) !== null"
+                type="button"
+                class="mx-auto flex size-6 items-center justify-center rounded hover:bg-elevated focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                :aria-pressed="rowFavorite(row.original) === true"
+                :aria-label="rowFavoriteLabel(row.original)"
+                @click.stop="onFavoriteClick(row.original)"
+                @dblclick.stop
+              >
+                <UIcon
+                  :name="rowFavorite(row.original) ? 'i-tabler-heart-filled' : 'i-tabler-heart'"
+                  class="size-4"
+                  :class="rowFavorite(row.original) ? 'text-primary' : 'text-dimmed'"
+                  aria-hidden="true"
+                />
+              </button>
               <USkeleton
-                v-if="cellText(row.original, column.key) === undefined"
+                v-else-if="cellText(row.original, column.key) === undefined"
                 class="h-2 w-24 max-w-full"
               />
               <span v-else class="block w-full truncate">

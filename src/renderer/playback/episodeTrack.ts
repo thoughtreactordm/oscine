@@ -32,6 +32,11 @@ export function episodeAsTrack(episode: Episode, podcast: Podcast): Track {
     // a chart that is about the music library.
     playCount: 0,
     lastPlayedAt: null,
+    // Never, for the same reason and one more: `track_favorites` references
+    // `tracks`, and an episode has no row there to reference. The heart column
+    // and the transport's heart both read this and both draw nothing, which is
+    // the correct answer until W9 decides what favoriting an episode means.
+    favorite: false,
     artwork: podcast.artwork,
     rgTrackGainDb: null,
     rgTrackPeak: null,

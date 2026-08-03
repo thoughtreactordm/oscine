@@ -233,11 +233,20 @@ const JOINED_SORTS: Partial<Record<TrackSortColumn, JoinedSort>> = {
  *
  * `aa` is the album's artist, which is a different join from the track's own —
  * a compilation has one album artist and a different artist per track.
+ *
+ * `fav` is D18's heart, and it is a join here rather than a correlated
+ * `EXISTS` in the projection because `track_favorites.track_id` is an `INTEGER
+ * PRIMARY KEY` — the rowid — so this is one b-tree probe per row and cannot
+ * multiply rows however few or many favorites exist. That matters for the two
+ * queries below that select only `t.id`: SQLite's omit-noop-join optimisation
+ * drops a LEFT JOIN whose table is unique-keyed and unread, so ordering and
+ * counting pay nothing for a column they never project.
  */
 export const TRACK_JOINS = `
   LEFT JOIN artists ar ON ar.id = t.artist_id
   LEFT JOIN albums  al ON al.id = t.album_id
   LEFT JOIN artists aa ON aa.id = al.album_artist_id
+  LEFT JOIN track_favorites fav ON fav.track_id = t.id
 `
 
 /**
@@ -271,6 +280,9 @@ export const TRACK_PROJECTION = `
   t.bit_depth    AS bitDepth,
   t.play_count     AS playCount,
   t.last_played_at AS lastPlayedAt,
+  -- D18's heart, resolved with the page rather than fetched after it. SQLite has
+  -- no boolean, so this arrives as 0 or 1 and toTrack is where it becomes one.
+  fav.track_id IS NOT NULL AS favorite,
   al.artwork_hash AS artworkHash,
   t.rg_track_gain AS rgTrackGain,
   t.rg_track_peak AS rgTrackPeak,
@@ -297,6 +309,8 @@ export interface TrackRow {
   bitDepth: number | null
   playCount: number | null
   lastPlayedAt: number | null
+  /** 0 or 1 — SQLite has no boolean type. */
+  favorite: number
   artworkHash: string | null
   rgTrackGain: number | null
   rgTrackPeak: number | null
@@ -1623,6 +1637,10 @@ export function toTrack(row: TrackRow): Track {
     // play count and no play count are the same statement about the log.
     playCount: row.playCount ?? 0,
     lastPlayedAt: row.lastPlayedAt,
+    // `=== 1` rather than a truthiness test, so a projection that ever stopped
+    // selecting this column becomes `false` — the state that renders nothing —
+    // instead of `undefined` leaking into a `v-if`.
+    favorite: row.favorite === 1,
     artwork: artworkUrls(row.artworkHash),
     rgTrackGainDb: row.rgTrackGain,
     rgTrackPeak: row.rgTrackPeak,

@@ -15,6 +15,7 @@ import { SqlitePlayHistoryService } from './history/service'
 import { SqliteListenService } from './listens/service'
 import { rebuildTrackCounters } from './stats/counters'
 import { SqliteStatsService } from './stats/service'
+import { SqliteFavoriteService } from './favorites/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { createDerivedArtworkStore } from './library/derivedArtwork'
@@ -422,6 +423,11 @@ if (!app.requestSingleInstanceLock()) {
     // the rebuild of the two counter columns that cache the log.
     const stats = new SqliteStatsService({ db })
 
+    // Favorites (D18). Same connection, one table, and no network of its own:
+    // hearting a track is complete before anything is pushed anywhere, which is
+    // what lets W11-6 be a later card rather than a dependency.
+    const favorites = new SqliteFavoriteService({ db })
+
     // A migration is the one moment `listens` can move without the listen commit
     // maintaining the cache alongside it, so the flag it declares is honoured
     // here, at startup, before the window can sort by a stale play count.
@@ -495,6 +501,7 @@ if (!app.requestSingleInstanceLock()) {
       history,
       listens,
       stats,
+      favorites,
       net,
       artists,
       biographies,

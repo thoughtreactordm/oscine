@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { FermataError } from '@shared/errors'
 import { trackUrl } from '@shared/ipc'
+import type { FavoriteService } from '../favorites/service'
 import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
 import type { ListenService } from '../listens/service'
@@ -23,12 +24,14 @@ import {
   assertSearchArtistCandidatesRequest,
   assertSetArtistMbidRequest,
   assertExportPlaylistRequest,
+  assertFavoriteStateRequest,
   assertFeedUrl,
   assertBrowsePodcastCategoryQuery,
   assertSearchPodcastCatalogQuery,
   assertListEpisodesQuery,
   assertListFacetIdsQuery,
   assertListFacetsQuery,
+  assertListFavoritesQuery,
   assertListPlayHistoryQuery,
   assertListPlaylistEntriesQuery,
   assertListPlaylistEntryGroupsQuery,
@@ -51,7 +54,8 @@ import {
   assertRemoveEntriesRequest,
   assertResetSettingsRequest,
   assertSetSettingRequest,
-  assertTabIndex
+  assertTabIndex,
+  assertToggleFavoriteRequest
 } from './validate'
 
 /**
@@ -68,6 +72,7 @@ export function registerIpcHandlers(
   history: PlayHistoryService,
   listens: ListenService,
   stats: StatsService,
+  favorites: FavoriteService,
   net: NetService,
   artists: ArtistIdentityService,
   biographies: ArtistBiographyService,
@@ -212,6 +217,20 @@ export function registerIpcHandlers(
   })
 
   handle('stats.rebuildCounters', () => stats.rebuildCounters())
+
+  // No `not-found` throw for a track that has left the library, unlike the three
+  // library lookups above. The click happened over a row that was on screen, and
+  // a track that has since gone is not favorited — which is an answer, and the
+  // one the returned state carries. See the channel's own note in the contract.
+  handle('favorites.toggle', (request) =>
+    favorites.toggle(assertToggleFavoriteRequest(request).trackId)
+  )
+
+  handle('favorites.state', (request) =>
+    favorites.state(assertFavoriteStateRequest(request).trackIds)
+  )
+
+  handle('favorites.list', (request) => favorites.list(assertListFavoritesQuery(request)))
 
   handle('playlists.list', () => playlists.list())
 

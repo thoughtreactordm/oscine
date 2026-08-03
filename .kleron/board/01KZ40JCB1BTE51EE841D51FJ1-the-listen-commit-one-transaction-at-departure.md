@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40JCB1BTE51EE841D51FJ1
 title: The listen commit — one transaction at departure
-status: todo
+status: in-review
 priority: high
 labels:
   - ipc
@@ -13,9 +13,9 @@ workstreamId: W10-4
 dependsOn:
   - 01KZ40HJ61C5Q90SE0KAGWPW91
   - 01KZ40HZE65905A4K5JDY3MSY7
-order: 46
+order: 1
 created: '2026-08-03T14:31:13.505Z'
-updated: '2026-08-03T14:31:13.505Z'
+updated: '2026-08-03T18:54:24.594Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → The listen event.
 

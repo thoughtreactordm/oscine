@@ -57,6 +57,7 @@ function syntheticLibrary(total = LIBRARY_SIZE) {
         bitDepth: 16,
         playCount: 0,
         lastPlayedAt: null,
+        favorite: false,
         artwork: {
           small: 'fermata://artwork/missing/small',
           large: 'fermata://artwork/missing/large'

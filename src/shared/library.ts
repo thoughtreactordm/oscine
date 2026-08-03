@@ -92,6 +92,20 @@ export interface Track extends TrackReplayGain {
   playCount: number
   /** UTC ms of the most recent listen, or `null` for a track never listened to. */
   lastPlayedAt: number | null
+  /**
+   * Whether `track_favorites` holds this track — **D18**.
+   *
+   * Resolved in the same query that builds the page, for the reason the heart is
+   * worth having at all: a virtualized list draws its rows as they scroll past,
+   * and a second round trip per page to decide which of them are filled would
+   * cost more than the fact is worth. It is one indexed probe against a table
+   * whose primary key *is* the track id.
+   *
+   * A boolean rather than the timestamp, because the row is the only thing that
+   * reads it. The rail orders by `favorited_at` and asks `favorites.list` for it;
+   * see `@shared/favorites`.
+   */
+  favorite: boolean
   artwork: ArtworkUrls
 }
 

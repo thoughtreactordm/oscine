@@ -9,6 +9,13 @@ import type { GetArtistRelationsRequest } from '@shared/artistRelations'
 import type { GetArtistBiographyRequest } from '@shared/biography'
 import type { GetArtistImageRequest } from '@shared/artistImage'
 import { FermataError } from '@shared/errors'
+import {
+  MAX_FAVORITE_STATE_IDS,
+  MAX_FAVORITES_PAGE,
+  type FavoriteStateRequest,
+  type ListFavoritesQuery,
+  type ToggleFavoriteRequest
+} from '@shared/favorites'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
 import type { RecordListenRequest } from '@shared/listens'
 import { NET_SCOPES, type CancelNetScopeRequest, type NetScope } from '@shared/net'
@@ -286,6 +293,54 @@ export function assertGetTracksByIdsQuery(value: unknown): GetTracksByIdsQuery {
   for (const id of ids) assertPositiveInt(id, 'ids entry')
 
   return { ids: ids as number[] }
+}
+
+/**
+ * D18's three requests.
+ *
+ * `assertOnlyKeys` on all of them, like every other query here: a request
+ * carrying a field this build does not know about is one written against a
+ * different contract, and accepting it silently is how the two stop matching.
+ */
+export function assertToggleFavoriteRequest(value: unknown): ToggleFavoriteRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackId'])
+  return { trackId: assertPositiveInt(raw.trackId, 'trackId') }
+}
+
+/**
+ * A batch state lookup, held to `listTrackIds`' ceiling rather than a new one.
+ *
+ * The response is one integer per *favorited* id — sparser than the request, and
+ * bounded by it — so the ceiling is about how much work the query is asked to do
+ * rather than about how large the answer can get. That work is one indexed probe
+ * per id, which is why the number can be this high at all.
+ */
+export function assertFavoriteStateRequest(value: unknown): FavoriteStateRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds'])
+
+  const trackIds = raw.trackIds
+  if (!Array.isArray(trackIds)) invalid('trackIds must be an array.')
+  if (trackIds.length > MAX_FAVORITE_STATE_IDS) {
+    invalid(`trackIds must not exceed ${MAX_FAVORITE_STATE_IDS} entries.`)
+  }
+  for (const id of trackIds) assertPositiveInt(id, 'trackIds entry')
+
+  return { trackIds: trackIds as number[] }
+}
+
+/**
+ * The rail's window. A window and nothing else — no sort, no filters.
+ *
+ * D18 gives this collection one order, and a `sort` parameter here would be an
+ * ordering the store has no column to express. The ceiling is `listTracks`', because
+ * the response is display rows.
+ */
+export function assertListFavoritesQuery(value: unknown): ListFavoritesQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['offset', 'limit'])
+  return assertWindow(raw, MAX_FAVORITES_PAGE)
 }
 
 /**

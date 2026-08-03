@@ -8,6 +8,14 @@ import type {
 import type { ArtistRelationsResult, GetArtistRelationsRequest } from './artistRelations'
 import type { ArtistBiographyResult, GetArtistBiographyRequest } from './biography'
 import type { ArtistImageResult, GetArtistImageRequest } from './artistImage'
+import type {
+  FavoriteState,
+  FavoriteStateRequest,
+  FavoriteStateResult,
+  ListFavoritesQuery,
+  ListFavoritesResult,
+  ToggleFavoriteRequest
+} from './favorites'
 import type { ListPlayHistoryQuery, PlayEntry } from './history'
 import type { ListenCommit, RecordListenRequest } from './listens'
 import type {
@@ -267,6 +275,39 @@ export interface IpcContract {
    * `tracksChanged: 0` and no writes at all.
    */
   'stats.rebuildCounters': { request: null; response: RebuildCountersResult }
+  /**
+   * Flips one track's heart and answers with the state that resulted — **D18**.
+   *
+   * Returning the state rather than nothing is the whole reason this is one
+   * channel instead of a `set(trackId, favorite)`: the renderer holds the same
+   * track in a list row, in NowPlaying and possibly in the related pane, and any
+   * of them predicting the outcome is a prediction that can be wrong. Main read
+   * the table; main says what it says now.
+   *
+   * A track that left the library between the click and the write comes back
+   * `favorite: false`, which is not an error and is the literal truth — a track
+   * that is not in the library is not favorited.
+   */
+  'favorites.toggle': { request: ToggleFavoriteRequest; response: FavoriteState }
+  /**
+   * Which of these track ids are favorited. One query, whatever the batch size.
+   *
+   * For the callers that hold ids without having gone through the track
+   * projection — a resolved selection, a queue. Anything rendering a `Track`
+   * already has `favorite` on the row and must not ask this instead; the point
+   * of resolving it in the page query is that the page costs one round trip.
+   */
+  'favorites.state': { request: FavoriteStateRequest; response: FavoriteStateResult }
+  /**
+   * The favorites, newest-hearted first. Paged like every other list.
+   *
+   * Display rows rather than ids, so the pinned rail entry draws through the
+   * same component and the same projection the song list does. There is no sort
+   * parameter: D18's accepted cost is that this collection has no authored
+   * order, and `favorited_at` descending is the one order that needs no
+   * explaining.
+   */
+  'favorites.list': { request: ListFavoritesQuery; response: ListFavoritesResult }
   /**
    * Every playlist, in tab order. Unpaged: these are tabs, and a user who has
    * made a thousand of them has a different problem than pagination solves.
@@ -632,6 +673,9 @@ export const IPC_CHANNELS = [
   'listens.record',
   'listens.flushed',
   'stats.rebuildCounters',
+  'favorites.toggle',
+  'favorites.state',
+  'favorites.list',
   'playlists.list',
   'playlists.create',
   'playlists.rename',

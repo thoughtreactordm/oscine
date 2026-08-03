@@ -11,6 +11,7 @@ import type {
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
+import type { ListFavoritesQuery } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
 import type { NetScope } from '@shared/net'
 import type {
@@ -110,6 +111,14 @@ export const listens = {
 
 export const stats = {
   rebuildCounters: () => unwrap(window.fermata.stats.rebuildCounters())
+}
+
+export const favorites = {
+  /** Flips one track's heart. Answers with the state that resulted, never a guess. */
+  toggle: (trackId: number) => unwrap(window.fermata.favorites.toggle(trackId)),
+  /** Which of these track ids are favorited — for ids that did not arrive on a `Track`. */
+  state: (trackIds: readonly number[]) => unwrap(window.fermata.favorites.state(trackIds)),
+  list: (query: ListFavoritesQuery) => unwrap(window.fermata.favorites.list(query))
 }
 
 export const playlists = {
