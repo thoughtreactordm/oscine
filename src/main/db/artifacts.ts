@@ -2,9 +2,11 @@
  * Everything Fermata writes into `userData`, and which half of D11 it is on.
  *
  * D11's export bundle carries statements *about tracks* — playlists, ratings,
- * play counts. It has never carried whole files, so "excluded from the bundle"
- * is not something an exporter does by omission; it is something an exporter has
- * to be told. This list is where it is told.
+ * play counts, and since W10-13 the listens log and favorites. It has never
+ * carried whole files, so "excluded from the bundle" is not something an
+ * exporter does by omission; it is something an exporter has to be told. This
+ * list is where it is told, for files. `../bundle/tables.ts` is where it is told
+ * for the tables inside `library.db`, which is the same argument one level down.
  *
  * The reason it is a list rather than a comment in the exporter is D14's
  * `cache.db`. A derived, disposable database sitting in the same directory as

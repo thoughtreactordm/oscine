@@ -190,6 +190,10 @@ special case.
 
 ### D11 — the listens log is carried; the trail still is not
 
+**Landed in `fermata-design` by W10-13, 2026-08-03.** The design document is the
+authority; what follows is the text that went in and stays here as the record of
+where it came from.
+
 D11's amendment set its own revisit trigger and D17 fires it. The amendment to
 add:
 
