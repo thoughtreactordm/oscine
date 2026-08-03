@@ -1,13 +1,21 @@
 import type Database from 'better-sqlite3'
-import type { RebuildCountersResult } from '@shared/stats'
+import type {
+  RebuildCountersResult,
+  StatsOverTimeQuery,
+  StatsOverTimeResult,
+  StatsQuery,
+  StatsQueryResult,
+  StatsRange,
+  StatsSummary
+} from '@shared/stats'
 import { rebuildTrackCounters } from './counters'
+import { StatsStore } from './store'
 
 /**
  * Everything the IPC layer needs from the statistics engine, and nothing more.
  *
- * The same seam `PlayHistoryService` and `ListenService` draw. One method today
- * — W10-9's `query`, `summary` and `overTime` join it here, against the same
- * database handle and the same log.
+ * The same seam `PlayHistoryService` and `ListenService` draw: one repair and
+ * three reads, all against the same database handle and the same log.
  */
 export interface StatsService {
   /**
@@ -18,6 +26,12 @@ export interface StatsService {
    * table in a state no reader is expecting.
    */
   rebuildCounters(): Promise<RebuildCountersResult>
+  /** One ranking: a range, a dimension, an order, a page. */
+  query(request: StatsQuery): Promise<StatsQueryResult>
+  /** The dashboard's headline numbers over the same range. */
+  summary(range: StatsRange): Promise<StatsSummary>
+  /** A dense bucketed series over the same range. */
+  overTime(request: StatsOverTimeQuery): Promise<StatsOverTimeResult>
 }
 
 export interface SqliteStatsDeps {
@@ -26,12 +40,30 @@ export interface SqliteStatsDeps {
 
 export class SqliteStatsService implements StatsService {
   private readonly db: Database.Database
+  private readonly store: StatsStore
 
   constructor(deps: SqliteStatsDeps) {
     this.db = deps.db
+    this.store = new StatsStore(deps.db)
   }
 
   async rebuildCounters(): Promise<RebuildCountersResult> {
     return rebuildTrackCounters(this.db)
+  }
+
+  // Async for the boundary's sake, synchronous underneath, and deliberately not
+  // moved off the main thread. Every one of the three is a range scan over an
+  // index measured in milliseconds on the fixture the tests generate; a worker
+  // would cost more in handle plumbing than the query costs to run.
+  async query(request: StatsQuery): Promise<StatsQueryResult> {
+    return this.store.query(request)
+  }
+
+  async summary(range: StatsRange): Promise<StatsSummary> {
+    return this.store.summary(range)
+  }
+
+  async overTime(request: StatsOverTimeQuery): Promise<StatsOverTimeResult> {
+    return this.store.overTime(request)
   }
 }

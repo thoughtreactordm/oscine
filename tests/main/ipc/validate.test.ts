@@ -15,6 +15,7 @@ import {
   MAX_TRACK_ID_PAGE,
   MAX_TRACK_PAGE
 } from '@shared/library'
+import { MAX_STATS_BUCKETS, MAX_STATS_ROWS } from '@shared/stats'
 import {
   assertCancelNetScopeRequest,
   assertClearArtistMbidRequest,
@@ -31,6 +32,9 @@ import {
   assertListFavoritesQuery,
   assertOrderTrackIdsQuery,
   assertRemoveFavoritesRequest,
+  assertStatsOverTimeQuery,
+  assertStatsQuery,
+  assertStatsSummaryRange,
   assertToggleFavoriteRequest
 } from '../../../src/main/ipc/validate'
 
@@ -382,5 +386,90 @@ describe('artist identity IPC validation', () => {
       FermataError
     )
     expect(() => assertClearArtistMbidRequest({})).toThrow(FermataError)
+  })
+})
+
+describe('stats IPC validation', () => {
+  const RANGE = { from: 1_700_000_000_000, to: 1_700_086_400_000 }
+
+  it('takes a closed range and refuses an inverted or partial one', () => {
+    expect(assertStatsSummaryRange(RANGE)).toEqual(RANGE)
+    // The epoch is a legal instant, and "all time" is a range that starts
+    // before any listen — which a renderer is entitled to spell as zero.
+    expect(assertStatsSummaryRange({ from: 0, to: 0 })).toEqual({ from: 0, to: 0 })
+
+    for (const range of [
+      {},
+      { from: 1 },
+      { to: 1 },
+      { from: -1, to: 1 },
+      { from: 1.5, to: 2 },
+      { from: '1', to: 2 },
+      // Inverted rather than empty: a preset computed wrong, and returning zero
+      // rows for it would hide the bug behind a dashboard that looks quiet.
+      { from: 2, to: 1 },
+      { from: 1, to: 2, bucket: 'day' }
+    ]) {
+      expect(() => assertStatsSummaryRange(range)).toThrow(FermataError)
+    }
+  })
+
+  it('validates a ranking against the dimension and sort tuples', () => {
+    const query = { range: RANGE, dimension: 'artist', sort: 'time', limit: 25, offset: 50 }
+    expect(assertStatsQuery(query)).toEqual(query)
+
+    for (const dimension of ['track', 'album', 'artist', 'genre']) {
+      expect(assertStatsQuery({ ...query, dimension }).dimension).toBe(dimension)
+    }
+
+    for (const bad of [
+      { ...query, dimension: 'year' },
+      { ...query, dimension: undefined },
+      { ...query, sort: 'plays' },
+      // No default: both totals are reported and neither is chosen for the
+      // operator, so the caller has to say which one orders the list.
+      { range: RANGE, dimension: 'track', limit: 10, offset: 0 },
+      { ...query, range: { from: 2, to: 1 } },
+      { ...query, offset: -1 },
+      { ...query, limit: 0 },
+      { ...query, limit: MAX_STATS_ROWS + 1 },
+      { ...query, bucket: 'day' }
+    ]) {
+      expect(() => assertStatsQuery(bad)).toThrow(FermataError)
+    }
+  })
+
+  it('refuses a range and bucket that would produce too many points', () => {
+    const day = 86_400_000
+    const from = 1_700_000_000_000
+
+    expect(
+      assertStatsOverTimeQuery({ range: { from, to: from + 30 * day }, bucket: 'day' })
+    ).toEqual({ range: { from, to: from + 30 * day }, bucket: 'day' })
+
+    // Neither end is invalid alone — a decade is a fair thing to ask about and
+    // an hour is a fair width. Their quotient is what the response costs.
+    expect(() =>
+      assertStatsOverTimeQuery({ range: { from, to: from + 3650 * day }, bucket: 'day' })
+    ).not.toThrow()
+    expect(() =>
+      assertStatsOverTimeQuery({ range: { from, to: from + 3650 * day }, bucket: 'hour' })
+    ).toThrow(FermataError)
+
+    // Exactly at the ceiling passes; one bucket past it does not.
+    const hour = 3_600_000
+    const edge = { from, to: from + (MAX_STATS_BUCKETS - 1) * hour }
+    expect(() => assertStatsOverTimeQuery({ range: edge, bucket: 'hour' })).not.toThrow()
+    expect(() =>
+      assertStatsOverTimeQuery({ range: { from, to: edge.to + hour }, bucket: 'hour' })
+    ).toThrow(FermataError)
+
+    for (const bad of [
+      { range: { from, to: from + day } },
+      { range: { from, to: from + day }, bucket: 'month' },
+      { range: { from, to: from + day }, bucket: 'day', limit: 10 }
+    ]) {
+      expect(() => assertStatsOverTimeQuery(bad)).toThrow(FermataError)
+    }
   })
 })

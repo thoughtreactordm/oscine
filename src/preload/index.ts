@@ -30,6 +30,7 @@ import type {
 } from '@shared/playlists'
 import type { ListFavoriteIdsQuery, ListFavoritesQuery } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
+import type { StatsOverTimeQuery, StatsQuery, StatsRange } from '@shared/stats'
 import type { NetScope } from '@shared/net'
 import type {
   BrowsePodcastCategoryQuery,
@@ -164,7 +165,13 @@ const api = {
      * The repair, offered on demand. Main runs the same thing itself after a
      * migration that moved `listens`.
      */
-    rebuildCounters: () => request('stats.rebuildCounters', null)
+    rebuildCounters: () => request('stats.rebuildCounters', null),
+    /** One ranking: a range, a dimension, an order, a page. Four dimensions, one call. */
+    query: (query: StatsQuery) => request('stats.query', query),
+    /** The dashboard's headline numbers over the same range. */
+    summary: (range: StatsRange) => request('stats.summary', range),
+    /** Listening over time — every bucket in range, including the empty ones. */
+    overTime: (query: StatsOverTimeQuery) => request('stats.overTime', query)
   },
   favorites: {
     /** Flips one track's heart. Answers with the state that resulted, never a guess. */

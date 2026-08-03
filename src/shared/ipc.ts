@@ -93,7 +93,15 @@ import type {
   SettingsProfileExportResult,
   SettingsProfileFile
 } from './settings'
-import type { RebuildCountersResult } from './stats'
+import type {
+  RebuildCountersResult,
+  StatsOverTimeQuery,
+  StatsOverTimeResult,
+  StatsQuery,
+  StatsQueryResult,
+  StatsRange,
+  StatsSummary
+} from './stats'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -285,6 +293,47 @@ export interface IpcContract {
    * `tracksChanged: 0` and no writes at all.
    */
   'stats.rebuildCounters': { request: null; response: RebuildCountersResult }
+  /**
+   * One ranking over the log: a range, a dimension, an order, a page.
+   *
+   * **One channel, four dimensions.** Top tracks, top albums, top artists and
+   * top genres are the same query with a different `GROUP BY`, and four
+   * channels would have been four copies of the range predicate, the paging and
+   * the tie-break — agreeing on the day they were written and not after.
+   *
+   * Both totals come back on every row and only the order is asked for, because
+   * "most played" means two different things for a library that mixes songs
+   * with hour-long mixes and neither is main's to pick. See `StatsSort`.
+   *
+   * Every row carries a `trackId` where the group still has a surviving track,
+   * so a dashboard row clicks through to the library the way every other seeded
+   * read in this app does — and `null` where the track is gone, which the UI
+   * renders as a row that does not click. A row that no longer resolves is the
+   * ordinary state of old history, not an error.
+   */
+  'stats.query': { request: StatsQuery; response: StatsQueryResult }
+  /**
+   * The dashboard's headline numbers over one range.
+   *
+   * Its own channel rather than a fifth dimension, because it is the one answer
+   * that is not a ranking: no group, no page, no order — seven scalars. The
+   * counts it reports are distinct snapshot groups, deliberately the same
+   * numbers the matching rankings report as their `total`, so the headline and
+   * the list below it cannot disagree on screen.
+   */
+  'stats.summary': { request: StatsRange; response: StatsSummary }
+  /**
+   * Listening over time: a dense series of fixed-width buckets.
+   *
+   * The buckets are anchored at `range.from` and measured in milliseconds —
+   * there is no calendar in main, which is the same decision that makes `range`
+   * two integers rather than a preset name. `StatsBucket` says what follows
+   * from that, including why there is no `month`.
+   *
+   * Empty buckets are present with zeros. Omitting them would draw a flat line
+   * across a week away from the machine, which is a chart that lies.
+   */
+  'stats.overTime': { request: StatsOverTimeQuery; response: StatsOverTimeResult }
   /**
    * Flips one track's heart and answers with the state that resulted — **D18**.
    *
@@ -721,6 +770,9 @@ export const IPC_CHANNELS = [
   'listens.record',
   'listens.flushed',
   'stats.rebuildCounters',
+  'stats.query',
+  'stats.summary',
+  'stats.overTime',
   'favorites.toggle',
   'favorites.state',
   'favorites.list',

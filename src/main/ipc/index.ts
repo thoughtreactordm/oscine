@@ -57,6 +57,9 @@ import {
   assertRemoveFavoritesRequest,
   assertResetSettingsRequest,
   assertSetSettingRequest,
+  assertStatsOverTimeQuery,
+  assertStatsQuery,
+  assertStatsSummaryRange,
   assertTabIndex,
   assertToggleFavoriteRequest
 } from './validate'
@@ -220,6 +223,12 @@ export function registerIpcHandlers(
   })
 
   handle('stats.rebuildCounters', () => stats.rebuildCounters())
+
+  handle('stats.query', (request) => stats.query(assertStatsQuery(request)))
+
+  handle('stats.summary', (request) => stats.summary(assertStatsSummaryRange(request)))
+
+  handle('stats.overTime', (request) => stats.overTime(assertStatsOverTimeQuery(request)))
 
   // No `not-found` throw for a track that has left the library, unlike the three
   // library lookups above. The click happened over a row that was on screen, and

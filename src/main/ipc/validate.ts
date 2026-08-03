@@ -23,6 +23,20 @@ import {
 } from '@shared/favorites'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
 import type { RecordListenRequest } from '@shared/listens'
+import {
+  MAX_STATS_BUCKETS,
+  MAX_STATS_ROWS,
+  STATS_BUCKET_MS,
+  STATS_BUCKETS,
+  STATS_DIMENSIONS,
+  STATS_SORTS,
+  type StatsBucket,
+  type StatsDimension,
+  type StatsOverTimeQuery,
+  type StatsQuery,
+  type StatsRange,
+  type StatsSort
+} from '@shared/stats'
 import { NET_SCOPES, type CancelNetScopeRequest, type NetScope } from '@shared/net'
 import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
 import {
@@ -490,6 +504,111 @@ export function assertRecordListenRequest(value: unknown): RecordListenRequest {
     startedAt: assertPositiveInt(raw.startedAt, 'startedAt'),
     msListened
   }
+}
+
+/**
+ * A closed range in UTC ms.
+ *
+ * Both ends admit zero, unlike every id in this file: the epoch is a legal
+ * instant and "all time" is a range that starts before any listen, which a
+ * renderer is entitled to spell as `0`. Ordering is checked because an inverted
+ * range is not an empty result the caller meant to ask for — it is a preset
+ * computed wrong, and returning zero rows for it would hide the bug behind a
+ * dashboard that merely looks like a quiet week.
+ *
+ * Nothing bounds how far apart the two may be. The scan is served by
+ * `idx_listens_started` and a range wider than the log costs what the log costs;
+ * the ceiling that matters is on the *response*, and the two requests that can
+ * grow one carry it — `MAX_STATS_ROWS` here, `MAX_STATS_BUCKETS` below.
+ */
+function assertStatsRange(value: unknown, field: string): StatsRange {
+  const raw = assertRecord(value, field)
+  assertOnlyKeys(raw, ['from', 'to'])
+
+  const from = raw.from
+  if (typeof from !== 'number' || !Number.isInteger(from) || from < 0) {
+    invalid('range.from must be a non-negative integer.')
+  }
+
+  const to = raw.to
+  if (typeof to !== 'number' || !Number.isInteger(to) || to < 0) {
+    invalid('range.to must be a non-negative integer.')
+  }
+
+  if (to < from) invalid('range.to must not be before range.from.')
+  return { from, to }
+}
+
+/** The summary takes the range itself, with no envelope to be wrong about. */
+export function assertStatsSummaryRange(value: unknown): StatsRange {
+  return assertStatsRange(value, 'range')
+}
+
+/**
+ * One ranking request.
+ *
+ * `dimension` and `sort` are checked against the exported tuples rather than a
+ * hand-written union, so adding a fifth dimension to the contract is one edit
+ * and not two — the second of which would be the one nobody makes.
+ *
+ * The page ceiling is `MAX_STATS_ROWS` and it is an order of magnitude below
+ * the track-page ceilings on purpose: this response is read off a dashboard,
+ * not scrolled, and a caller asking for ten thousand ranked genres wants
+ * something the dashboard does not offer.
+ */
+export function assertStatsQuery(value: unknown): StatsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['range', 'dimension', 'sort', 'limit', 'offset'])
+
+  const dimension = raw.dimension
+  if (!STATS_DIMENSIONS.includes(dimension as StatsDimension)) {
+    invalid(`dimension must be one of: ${STATS_DIMENSIONS.join(', ')}.`)
+  }
+
+  const sort = raw.sort
+  if (!STATS_SORTS.includes(sort as StatsSort)) {
+    invalid(`sort must be one of: ${STATS_SORTS.join(', ')}.`)
+  }
+
+  return {
+    range: assertStatsRange(raw.range, 'range'),
+    dimension: dimension as StatsDimension,
+    sort: sort as StatsSort,
+    ...assertWindow(raw, MAX_STATS_ROWS)
+  }
+}
+
+/**
+ * One series request, and the only place in this file where two valid fields
+ * are invalid together.
+ *
+ * Neither the range nor the bucket has a bound of its own — a decade is a fair
+ * thing to ask about and an hour is a fair width — but their quotient is the
+ * length of the response, and hourly buckets over a decade is 87,600 points
+ * crossing the boundary to draw a line two thousand pixels wide. Refused rather
+ * than clamped, like every other ceiling here: a caller that gets a silently
+ * truncated series draws a chart that stops in 2019 and has no way to know why.
+ *
+ * The arithmetic is `StatsStore`'s, restated: buckets are fixed widths anchored
+ * at `from`, and the `+ 1` is the closed upper end.
+ */
+export function assertStatsOverTimeQuery(value: unknown): StatsOverTimeQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['range', 'bucket'])
+
+  const bucket = raw.bucket
+  if (!STATS_BUCKETS.includes(bucket as StatsBucket)) {
+    invalid(`bucket must be one of: ${STATS_BUCKETS.join(', ')}.`)
+  }
+
+  const range = assertStatsRange(raw.range, 'range')
+  const width = STATS_BUCKET_MS[bucket as StatsBucket]
+  const buckets = Math.floor((range.to - range.from) / width) + 1
+  if (buckets > MAX_STATS_BUCKETS) {
+    invalid(`range and bucket would produce ${buckets} buckets; the limit is ${MAX_STATS_BUCKETS}.`)
+  }
+
+  return { range, bucket: bucket as StatsBucket }
 }
 
 export function assertPlaylistName(value: unknown): string {
