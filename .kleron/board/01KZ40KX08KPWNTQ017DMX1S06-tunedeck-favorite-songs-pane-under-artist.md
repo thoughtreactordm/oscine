@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40KX08KPWNTQ017DMX1S06
 title: Tunedeck — Favorite Songs pane under Artist
-status: todo
+status: in-review
 priority: medium
 labels:
   - ui
@@ -14,7 +14,7 @@ dependsOn:
   - 01KZ40K4S52HJ267CZEWGD7QH1
 order: 50
 created: '2026-08-03T14:32:03.336Z'
-updated: '2026-08-03T14:32:03.336Z'
+updated: '2026-08-03T20:44:35.597Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → Favorites → "In the Tunedeck".
 
