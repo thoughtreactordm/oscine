@@ -37,10 +37,11 @@ import { useTunedeckStore } from '@renderer/stores/tunedeck'
  * the deck feeling like one panel — the tint is still there, still the right
  * colour — while giving the tab that earned the picture the stronger version.
  *
- * The predicate is the tab declaring a `header`, not a tab id. That is the same
- * rule the shell uses to decide whether to render an identity strip at all, so
+ * The predicate is the tab declaring `backdrop: 'subject'`, not a tab id, so
  * "the tab that is about the artist" has one definition and the registry owns
- * it.
+ * it. It read the tab's `header` instead while the artist strip was the only
+ * one — which was a proxy that happened to hold, and stopped holding the moment
+ * the track tab named its own subject.
  *
  * `BackdropCredit` sits in the deck's title bar rather than in the artist strip,
  * where it was while this was scoped to one tab: Commons licences require the
@@ -65,8 +66,8 @@ const tunedeck = useTunedeckStore()
 
 const photo = computed(() => images.image)
 
-/** True on every tab that is not the one carrying the identity strip. */
-const recessed = computed(() => tunedeck.activeTab?.header === undefined)
+/** True on every tab the picture is decoration for rather than about. */
+const recessed = computed(() => tunedeck.activeTab?.backdrop !== 'subject')
 
 /** `large` rather than `small`: it is scaled well past its own size, and the blur hides it. */
 const cover = computed(() => {

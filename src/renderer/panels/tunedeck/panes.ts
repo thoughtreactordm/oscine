@@ -10,6 +10,7 @@ import FormatPane from './FormatPane.vue'
 import LoudnessPane from './LoudnessPane.vue'
 import NeighbourhoodPane from './NeighbourhoodPane.vue'
 import RelationsPane from './RelationsPane.vue'
+import TrackIdentityHeader from './TrackIdentityHeader.vue'
 import TrailPane from './TrailPane.vue'
 import UpNextPane from './UpNextPane.vue'
 import { countOwnedRelations } from './relationRows'
@@ -85,11 +86,15 @@ export const tunedeckRegistry = createTunedeckRegistry([
     id: 'artist',
     title: 'Artist',
     icon: 'i-tabler-microphone-2',
-    // R5's correction affordance, and the only thing in the deck outside a
-    // collapsible group. A wrong identity has to be visible and correctable
-    // while the panes below it are asserting things about the wrong artist —
-    // which is a statement about *position*, not about which group is open.
+    // R5's correction affordance, and the tab naming its subject. A wrong
+    // identity has to be visible and correctable while the panes below it are
+    // asserting things about the wrong artist — which is a statement about
+    // *position*, not about which group is open.
     header: ArtistIdentityHeader,
+    // The one tab the deck's photograph is *of*. Everywhere else it recesses to
+    // a tint, because decoration that competes with a sample rate has misjudged
+    // which of the two the tab was opened for. See `DeckBackdrop`.
+    backdrop: 'subject',
     groups: [
       // First, at the top of the column: it is the one that
       // answers "who is this" in words. The catalog below it answers the same
@@ -137,6 +142,11 @@ export const tunedeckRegistry = createTunedeckRegistry([
     id: 'track',
     title: 'Track',
     icon: 'i-tabler-wave-sine',
+    // The subject the three groups below are describing, which until now was
+    // named only in the transport bar at the other end of the window. The same
+    // strip as the artist tab's, for the same reason it is a strip: it is what
+    // the tab is *about*, so it is not something to collapse.
+    header: TrackIdentityHeader,
     groups: [
       // In descending order of how often they are looked at.
       {

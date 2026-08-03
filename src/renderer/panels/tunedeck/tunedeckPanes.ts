@@ -159,19 +159,34 @@ export interface TunedeckTab {
   /**
    * A strip drawn above this tab's groups, outside them, always visible.
    *
-   * The only thing in the deck that is not inside a collapsible group, and it
-   * exists because **R5** requires one: "every deck header carries a visible
-   * 'not this artist?' affordance". An affordance behind a chevron is not
-   * visible, and the header is where a *wrong* identity has to be correctable —
-   * an operator who cannot see that the deck has picked the wrong Nirvana has no
-   * reason to go looking for the control that fixes it.
+   * The only thing in the deck that is not inside a collapsible group. It began
+   * as **R5**'s requirement — "every deck header carries a visible 'not this
+   * artist?' affordance", and an affordance behind a chevron is not visible —
+   * and generalised into the tab naming its own subject: the thing every group
+   * under it is describing, said once, at the top.
    *
    * Per tab rather than on the deck's own header, because what it says is
-   * artist-scoped: the deck header is chrome shared with Track, Related and
-   * Playing, and an artist name sitting above the format readout is a caption on
-   * the wrong thing. Optional, and three of the four tabs decline it.
+   * tab-scoped: the deck header is chrome shared by all four, and an artist name
+   * sitting above the format readout is a caption on the wrong thing. Optional,
+   * and the two tabs that decline it are the two whose subject is not one thing
+   * — Related is a list of comparisons and Playing is the session.
    */
   readonly header?: Component
+  /**
+   * What the deck's backdrop is *to this tab*.
+   *
+   * `subject` on the one tab that is about the person in the picture, and left
+   * alone everywhere else, where the photograph is decoration behind a readout
+   * and `DeckBackdrop` recesses it accordingly.
+   *
+   * A declaration rather than a proxy. It was inferred from `header` while the
+   * artist tab was the only tab with one, which was true and not the reason:
+   * naming its subject and *being* the subject of the picture are two different
+   * properties of a tab, and the moment a second tab named its subject the proxy
+   * would have promoted a photograph of Nirvana to the foreground of a bit-depth
+   * readout.
+   */
+  readonly backdrop?: 'subject' | 'decoration'
   readonly groups: readonly TunedeckGroup[]
 }
 
