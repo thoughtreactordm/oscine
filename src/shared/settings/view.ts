@@ -29,12 +29,38 @@ import {
 
 // --- shapes ------------------------------------------------------------------
 
+/**
+ * The pinned Favorites collection, as a place the strip can be — **D18**.
+ *
+ * A string beside the row ids because it is not one. `track_favorites` has no
+ * `playlists` row to name, which is the whole of D18, and the alternative — a
+ * reserved negative id — would be a number that looks like it could be looked up
+ * and cannot. It is not in `openIds` either: it is pinned rather than open, the
+ * way Discover is, so nothing can close it and nothing has to remember not to.
+ */
+export const FAVORITES_TAB = 'favorites'
+
+/**
+ * A non-numeric stop. One today; the type is what a second one would be added
+ * to, and D18's revisit trigger is exactly that second one appearing.
+ */
+export type TabFixture = typeof FAVORITES_TAB
+
+/**
+ * Where a tab strip can be: an open tab, a pinned fixture, or `null`.
+ *
+ * `null` is Discover in both strips that have one. Representing the fixtures as
+ * values rather than as synthetic rows is what keeps them un-closeable and
+ * un-renameable by *type* — every verb that could damage one takes a `number`.
+ */
+export type TabStop = number | TabFixture | null
+
 /** Which entities are open as tabs, and which of them is on screen. */
 export interface TabSession {
   /** Open tabs, in tab order — not the order the rail lists them in. */
   openIds: number[]
-  /** Always one of `openIds`, or null. */
-  viewedId: number | null
+  /** One of `openIds`, one of the strip's fixtures, or null. */
+  viewedId: TabStop
 }
 
 /**
@@ -90,11 +116,19 @@ function paneSizeValue(): SettingValidator<number> {
  * `viewFirstWhenMissing` is the difference between the two call sites. Curate
  * has no null tab, so a viewed id that is not open falls back to the leftmost
  * one; Podcasts has Discover sitting at null, so there it falls back to that.
+ *
+ * `fixtures` are the pinned stops that strip has. They are checked against the
+ * list rather than accepted as any string, so a session restored into a build
+ * whose strip has since lost a fixture lands on a real stop instead of holding a
+ * name nothing renders — and so a Curate session cannot restore Podcasts into a
+ * favorites view it does not have.
  */
 function tabSessionValue({
-  viewFirstWhenMissing
+  viewFirstWhenMissing,
+  fixtures = []
 }: {
   viewFirstWhenMissing: boolean
+  fixtures?: readonly TabFixture[]
 }): SettingValidator<TabSession> {
   return (raw) => {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -104,6 +138,15 @@ function tabSessionValue({
     const openIds = Array.isArray(source.openIds)
       ? [...new Set(source.openIds.filter(isRowId))]
       : []
+
+    // A fixture is not in `openIds` and is never checked against it — it is
+    // pinned, so it is available whether or not anything else is open. That is
+    // also why this is tested first: an operator who left Curate on My Favorites
+    // with no tabs open must not come back to the leftmost of nothing.
+    if (fixtures.includes(source.viewedId as TabFixture)) {
+      return acceptValue({ openIds, viewedId: source.viewedId as TabFixture })
+    }
+
     const viewedId =
       isRowId(source.viewedId) && openIds.includes(source.viewedId)
         ? source.viewedId
@@ -272,7 +315,7 @@ export const VIEW_SETTINGS: readonly SettingDescriptor[] = [
     key: 'view.playlistTabs',
     scope: 'view',
     default: { openIds: [], viewedId: null },
-    validate: tabSessionValue({ viewFirstWhenMissing: true }),
+    validate: tabSessionValue({ viewFirstWhenMissing: true, fixtures: [FAVORITES_TAB] }),
     category: 'interface',
     label: 'Open playlist tabs',
     help: 'Which playlists are open in Curate, and which one is showing.',

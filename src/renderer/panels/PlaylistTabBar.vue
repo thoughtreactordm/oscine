@@ -3,10 +3,12 @@ import { nextTick, onMounted, ref, watch } from 'vue'
 import {
   createPlaylistTabs,
   DISCOVER_TAB,
+  FAVORITES_TAB,
   PLAYLIST_NAME_MAX_LENGTH,
   type TabStop
 } from '@renderer/panels/playlistTabs'
 import type { DropSide } from '@renderer/panels/playlistReorder'
+import { useFavoritesListStore } from '@renderer/stores/favoritesList'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 
@@ -17,10 +19,16 @@ import { usePlaylistsStore } from '@renderer/stores/playlists'
  * was nowhere for a closed playlist to go. `PlaylistRail` is that somewhere now,
  * so this strip opens nothing, deletes nothing, and closing a tab is free.
  *
- * Discover is a fixture rather than a tab that happens to always be there. It
- * carries no close button, no rename, no drag handle and no track count, and it
- * is `DISCOVER_TAB` — `null` — everywhere the other tabs are an id, which is
- * what keeps every destructive verb in this file unable to name it.
+ * Discover and My Favorites are *fixtures* rather than tabs that happen to
+ * always be there. Neither carries a close button, a rename or a drag handle,
+ * and both are values — `null` and `'favorites'` — everywhere the other tabs are
+ * an id, which is what keeps every destructive verb in this file unable to name
+ * them. "My Favorites cannot be renamed, reordered or deleted" is therefore not
+ * three disabled controls; it is three controls that do not exist here.
+ *
+ * My Favorites does carry a count, unlike Discover, because it is a collection
+ * with a size and the number is the same one the rail's pinned entry shows —
+ * read from the same store, so the two cannot disagree.
  *
  * Two states are drawn, and they are drawn *differently* on purpose. The viewed
  * tab is the one whose surface lifts out of the strip; the playing tab is the
@@ -45,14 +53,17 @@ import { usePlaylistsStore } from '@renderer/stores/playlists'
 
 const playlists = usePlaylistsStore()
 const playback = usePlaybackStore()
+// Only for the count. The pane behind the fixture is `PlaylistContents`, which
+// reaches the same store itself — the strip holds no reference to it (D4).
+const favorites = useFavoritesListStore()
 
 const model = createPlaylistTabs({
   tabs: () => playlists.openTabs,
-  viewedId: () => playlists.viewedPlaylistId,
+  viewedId: () => playlists.viewedStop,
   // The other half of the §5 split, read from the controller that owns it.
   playingId: () => playback.playingPlaylistId,
   commands: {
-    view: (playlistId) => playlists.view(playlistId),
+    view: (stop) => playlists.view(stop),
     rename: (playlistId, name) => playlists.rename(playlistId, name),
     close: (playlistId) => playlists.close(playlistId),
     moveOpen: (playlistId, toIndex) => playlists.moveOpen(playlistId, toIndex)
@@ -82,7 +93,7 @@ function registerRenameInput(el: unknown): void {
  */
 async function focusViewed(): Promise<void> {
   await nextTick()
-  const el = tabEls.get(playlists.viewedPlaylistId)
+  const el = tabEls.get(playlists.viewedStop)
   el?.focus()
   el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 }
@@ -173,6 +184,37 @@ onMounted(() => {
             aria-hidden="true"
           />
           <span>Discover</span>
+        </div>
+
+        <!--
+          D18's pinned entry, as the strip's second fixture. Same treatment as
+          Discover and the same absences: no close, no dblclick rename, no
+          `draggable`, no drop handlers — so a playlist dragged over it finds no
+          listener and it cannot be displaced from the left end.
+        -->
+        <div
+          :ref="(el) => registerTab(FAVORITES_TAB, el)"
+          role="tab"
+          :aria-selected="model.favoritesViewed.value"
+          :tabindex="model.favoritesViewed.value ? 0 : -1"
+          class="relative flex shrink-0 cursor-default items-center gap-1.5 border-r border-default px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+          :class="
+            model.favoritesViewed.value
+              ? 'bg-default text-highlighted shadow-[inset_0_-2px_0_0_var(--ui-primary)]'
+              : 'text-muted hover:bg-elevated/70 hover:text-default'
+          "
+          @click="model.select(FAVORITES_TAB)"
+        >
+          <UIcon
+            name="i-tabler-heart"
+            class="size-3.5 shrink-0"
+            :class="model.favoritesViewed.value ? 'text-primary' : ''"
+            aria-hidden="true"
+          />
+          <span>My Favorites</span>
+          <span class="shrink-0 text-xs tabular-nums text-dimmed">
+            {{ favorites.total.toLocaleString() }}
+          </span>
         </div>
 
         <div

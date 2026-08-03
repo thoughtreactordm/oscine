@@ -8,13 +8,21 @@ import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover
 import TrackList from '@renderer/panels/TrackList.vue'
 import { activeRowDrag, beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
 import { useTrackActivation } from '@renderer/panels/useTrackActivation'
+import { FAVORITES_TAB } from '@renderer/panels/playlistTabs'
 import type {
   TrackListDrag,
   TrackListGroupMenu,
-  TrackListMenu
+  TrackListMenu,
+  TrackListSource
 } from '@renderer/panels/trackListSource'
-import { queueCommandLabel, queueRows, type QueueTarget } from '@renderer/playback/queueCommands'
+import {
+  queueCommandLabel,
+  queueIds,
+  queueRows,
+  type QueueTarget
+} from '@renderer/playback/queueCommands'
 import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
+import { useFavoritesListStore } from '@renderer/stores/favoritesList'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { usePlaylistEntriesStore } from '@renderer/stores/playlistEntries'
@@ -25,25 +33,59 @@ import { CONFIRM_ENTRY_REMOVAL_KEY, type CascadeScopeRef } from '@shared/setting
 import { useSettings } from '@renderer/settings'
 
 /**
- * The pane under the tab strip: one playlist's entries.
+ * The pane under the tab strip: the viewed collection's rows.
  *
  * It is `TrackList` — the same virtualized island the library uses, handed a
  * different source — rather than a second list implementation. That was the
- * point of the card: the two lists differ in what they are *ordered by* and in
- * what a row's identity is, and neither difference is a reason to virtualize
- * 100k rows twice.
+ * point of the card: the lists differ in what they are *ordered by* and in what
+ * a row's identity is, and neither difference is a reason to virtualize 100k
+ * rows twice.
+ *
+ * ## Two collections, one pane — **D18**
+ *
+ * A playlist's entries, or My Favorites. The second is a *view over
+ * `track_favorites`*, not a `playlists` row, so almost everything below reads
+ * `favoritesViewed` and branches — and the branches are the honest ones rather
+ * than a shim:
+ *
+ * - **Identity.** `TrackListSource.rowIdentity` says which. A playlist speaks
+ *   `playlist_entries.id` because D12 makes the same track legal twice; the
+ *   favorites speak `tracks.id` because a favorite is one row or none. Nothing
+ *   here mints a synthetic entry id to hide the difference.
+ * - **Reorder is off, and it is not a bug.** There is no authored position to
+ *   drag against, which is D18's accepted cost. The header says so, the same way
+ *   it says so under album grouping.
+ * - **Removing a row un-favorites the track.** The same fact as un-hearting,
+ *   said from the other end, and unconfirmed for that reason — see
+ *   `favoritesList.remove`.
+ * - **No export and no crossfade override.** Both are properties of a
+ *   `playlists` row, and there is not one. The affordances are absent rather
+ *   than present-and-disabled.
  *
  * D4 island rules, upwards as well as downwards. The strip above is a sibling
- * and this pane holds no reference to it beyond `viewedPlaylistId`, so either
- * one can be docked elsewhere without the other noticing.
+ * and this pane holds no reference to it beyond `viewedStop`, so either one can
+ * be docked elsewhere without the other noticing.
  */
 
 const playlists = usePlaylistsStore()
 const entries = usePlaylistEntriesStore()
+const favorites = useFavoritesListStore()
 const playback = usePlaybackStore()
 const queue = useQueueCommandsStore()
 const addToPlaylist = useAddToPlaylistStore()
 const settings = useSettings()
+
+/** Which of the two collections is on screen. Everything below branches on it. */
+const favoritesViewed = computed(() => playlists.viewedStop === FAVORITES_TAB)
+
+/**
+ * The rows, whichever collection they are.
+ *
+ * Both stores satisfy `TrackListSource` and neither knows about the other; this
+ * is the one place the choice is made, which is what let the pane grow a second
+ * collection without growing a second implementation.
+ */
+const source = computed<TrackListSource>(() => (favoritesViewed.value ? favorites : entries))
 
 /**
  * The gear on this header edits *this playlist's* crossfade.
@@ -101,9 +143,15 @@ const albumMajor = computed(() => entries.order === 'album')
  * so a drag that looked right would write a position the operator did not
  * choose. Refusing the gesture is better than performing a different one, and
  * the header says why rather than leaving a dead drag to be discovered.
+ *
+ * Off entirely in My Favorites too, and for a reason that will not go away:
+ * there is no authored position to drag *against*. `favorited_at` is when the
+ * heart was clicked, and a reorder would have to invent a second ordering to
+ * write into. That is D18's accepted cost, and the header names it here for the
+ * same reason it names the grouping one.
  */
 const drag = computed<TrackListDrag>(() =>
-  albumMajor.value
+  albumMajor.value || favoritesViewed.value
     ? {
         enabled: false,
         indicatorAt: () => null,
@@ -124,7 +172,44 @@ const drag = computed<TrackListDrag>(() =>
       }
 )
 
-const selectionSize = computed(() => Math.max(1, entries.selectionCount))
+const selectionSize = computed(() => Math.max(1, source.value.selectionCount))
+
+/**
+ * What the pane is called and what it is drawn with.
+ *
+ * "My Favorites" is a literal here and nowhere else. It is not a `playlists` row
+ * and there is nothing to read the name from, which is the trade D18 made: the
+ * pinned entry is a special case with a hardcoded name until a second
+ * system-owned collection appears, and that second one is D18's own revisit
+ * trigger.
+ */
+const title = computed(() =>
+  favoritesViewed.value ? 'My Favorites' : (playlists.viewed?.name ?? '')
+)
+const icon = computed(() => (favoritesViewed.value ? 'i-tabler-heart' : 'i-tabler-list-numbers'))
+
+/**
+ * The rows a remove gesture is about, as **track** ids.
+ *
+ * The favorites half of `createPlaylistContents.resolveRemoval`, and it is short
+ * because `resolveSelection` already answers in track ids here — the identity
+ * `favorites.remove` takes. The playlist half cannot share it: there the same
+ * resolution has to stay in entry ids, or removing one copy of a duplicate would
+ * take both.
+ */
+async function favoriteRemovalIds(index: number): Promise<readonly number[]> {
+  if (!favorites.isSelectedAt(index)) {
+    const track = favorites.rowAt(index)
+    return track ? [track.id] : []
+  }
+  return favorites.resolveSelection()
+}
+
+/** Removes rows from whichever collection is on screen. */
+async function removeAt(index: number): Promise<void> {
+  if (!favoritesViewed.value) return model.remove(index)
+  await favorites.remove(await favoriteRemovalIds(index))
+}
 
 /**
  * The row menu. The two queue verbs are the same module the library list uses,
@@ -136,8 +221,9 @@ const selectionSize = computed(() => Math.max(1, entries.selectionCount))
  * and an entry id would be the one identity that could.
  */
 const menu: TrackListMenu = (index): ContextMenuItem[] => {
-  const many = entries.isSelectedAt(index) && entries.selectionCount > 1
-  const count = many ? entries.selectionCount : 1
+  const list = source.value
+  const many = list.isSelectedAt(index) && list.selectionCount > 1
+  const count = many ? list.selectionCount : 1
   return [
     {
       label: 'Play',
@@ -160,14 +246,26 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
     // an entry belongs to the playlist it is in, and a copy of it does not.
     addToPlaylist.menuItem({ count, trackIds: () => trackIdsFor(index) }),
     { type: 'separator' },
-    {
-      label: many
-        ? `Remove ${selectionSize.value.toLocaleString()} entries`
-        : 'Remove from playlist',
-      icon: 'i-tabler-trash',
-      color: 'error',
-      onSelect: () => void model.remove(index)
-    }
+    // Two verbs, two wordings, because they are two different things. Removing
+    // an entry takes a row out of a playlist; removing a favorite un-hearts the
+    // track, which is a fact about the track itself and is worth saying.
+    favoritesViewed.value
+      ? {
+          label: many
+            ? `Un-favorite ${selectionSize.value.toLocaleString()} tracks`
+            : 'Remove from favorites',
+          icon: 'i-tabler-heart-off',
+          color: 'error',
+          onSelect: () => void removeAt(index)
+        }
+      : {
+          label: many
+            ? `Remove ${selectionSize.value.toLocaleString()} entries`
+            : 'Remove from playlist',
+          icon: 'i-tabler-trash',
+          color: 'error',
+          onSelect: () => void removeAt(index)
+        }
   ]
 }
 
@@ -185,6 +283,11 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
  * Both resolve from the run's offset span rather than from the selection, so a
  * menu click acts on the album under the pointer and leaves whatever the
  * operator had ticked exactly as it was.
+ *
+ * Playlist-only, and structurally so: `TrackList` calls this for an album
+ * header, and My Favorites reports no runs to head. It reads `entries` directly
+ * rather than `source` for that reason — a branch here would be a branch on a
+ * condition that cannot occur.
  */
 const groupMenu: TrackListGroupMenu = (run): ContextMenuItem[] => {
   const count = run.group.trackCount
@@ -245,16 +348,23 @@ const exportItems = computed<ContextMenuItem[]>(() =>
 /**
  * The rows a queue verb is about.
  *
- * A selection crosses back from entry identity to *track* identity, because the
- * queue holds track ids so that deleting the playlist a row came from cannot
- * reach it (§5 rule 4). `resolveSelectedTracks` is that crossing, and it keeps
- * the playlist order the user is looking at.
+ * In a playlist a selection crosses back from entry identity to *track*
+ * identity, because the queue holds track ids so that deleting the playlist a
+ * row came from cannot reach it (§5 rule 4). `resolveSelectedTracks` is that
+ * crossing, and it keeps the playlist order the user is looking at.
+ *
+ * In My Favorites there is no crossing to make: `rowIdentity` is already
+ * `'track'`, so the selection resolves straight to the ids the queue wants. The
+ * two branches are the identity difference showing up where it actually costs
+ * something, rather than being smoothed over upstream.
  */
 async function targetFor(index: number): Promise<QueueTarget> {
-  if (!entries.isSelectedAt(index)) {
-    const track = entries.rowAt(index)
+  const list = source.value
+  if (!list.isSelectedAt(index)) {
+    const track = list.rowAt(index)
     return queueRows(track ? [track] : [])
   }
+  if (favoritesViewed.value) return queueIds(await favorites.resolveSelection())
   return queueRows(await entries.resolveSelectedTracks())
 }
 
@@ -265,16 +375,27 @@ async function trackIdsFor(index: number): Promise<readonly number[]> {
 }
 
 function playAt(index: number): void {
-  const track = entries.rowAt(index)
+  const track = source.value.rowAt(index)
   if (track) play(track, index)
 }
 
 /**
- * §5 rule 3: this is what makes a playlist the playing one, and the crossfade
- * travels with it because the playing playlist's own value is what the scheduler
- * reads for a boundary.
+ * Starts the row, in whichever collection it belongs to.
+ *
+ * The playlist branch is §5 rule 3: it makes a playlist the playing one, and
+ * the crossfade travels with it because the playing playlist's own value is what
+ * the scheduler reads for a boundary.
+ *
+ * The favorites branch is deliberately *not* rule 3. My Favorites is not a
+ * playlist, so `playFromFavorites` clears `playingPlaylistId` and the crossfade
+ * reverts to the global setting — the same thing the library order does, and for
+ * the same reason: there is no `playlists` row here to carry an override.
  */
 function play(track: Track, index: number): void {
+  if (favoritesViewed.value) {
+    void playback.playFromFavorites({ index, track })
+    return
+  }
   const playlist = playlists.viewed
   if (playlist === null) return
   void playback.playFromPlaylist({
@@ -305,26 +426,26 @@ const removalOpen = computed({
 
 <template>
   <section
-    v-if="playlists.viewed !== null"
+    v-if="favoritesViewed || playlists.viewed !== null"
     class="flex h-full min-h-0 min-w-0 flex-col"
-    :aria-label="playlists.viewed.name"
+    :aria-label="title"
   >
     <div class="flex h-9 shrink-0 items-center gap-2 border-b border-default bg-elevated/40 px-2">
-      <UIcon name="i-tabler-list-numbers" class="size-4 text-primary" />
-      <h2 class="truncate font-semibold text-highlighted">{{ playlists.viewed.name }}</h2>
+      <UIcon :name="icon" class="size-4 text-primary" />
+      <h2 class="truncate font-semibold text-highlighted">{{ title }}</h2>
 
       <span
-        v-if="entries.selectionCount > 0"
+        v-if="source.selectionCount > 0"
         class="ml-auto text-xs tabular-nums text-primary"
         aria-live="polite"
       >
-        {{ entries.selectionCount.toLocaleString() }} selected
+        {{ source.selectionCount.toLocaleString() }} selected
       </span>
       <span
         class="text-xs tabular-nums text-muted"
-        :class="{ 'ml-auto': entries.selectionCount === 0 }"
+        :class="{ 'ml-auto': source.selectionCount === 0 }"
       >
-        {{ entries.total.toLocaleString() }}
+        {{ source.total.toLocaleString() }}
       </span>
 
       <!--
@@ -334,7 +455,7 @@ const removalOpen = computed({
         playlist having changed.
       -->
       <UBadge
-        v-if="albumMajor"
+        v-if="albumMajor && !favoritesViewed"
         color="neutral"
         variant="subtle"
         size="sm"
@@ -345,10 +466,28 @@ const removalOpen = computed({
       </UBadge>
 
       <!--
-        Always groupable: turning it on re-sorts the pane, rather than waiting
-        for a column this list does not have. So there is no hint to give.
+        D18's accepted cost, in the one place an operator meets it. Stated rather
+        than left to be discovered by dragging a row that will not move: there is
+        no authored position here to drag against, and there is no setting that
+        would bring one back.
       -->
-      <GroupChooser :groupable="true" />
+      <UBadge
+        v-if="favoritesViewed"
+        color="neutral"
+        variant="subtle"
+        size="sm"
+        icon="i-tabler-clock"
+        title="My Favorites is ordered by when you hearted each track, so its rows cannot be dragged into another order."
+      >
+        Newest first
+      </UBadge>
+
+      <!--
+        Always groupable in a playlist: turning it on re-sorts the pane, rather
+        than waiting for a column this list does not have. Absent in My
+        Favorites, which serves one order and has no runs query behind it.
+      -->
+      <GroupChooser v-if="!favoritesViewed" :groupable="true" />
 
       <PanelSettingsPopover
         v-if="playlistScope"
@@ -356,7 +495,13 @@ const removalOpen = computed({
         :scope="playlistScope"
       />
 
-      <UDropdownMenu :items="exportItems">
+      <!--
+        Export is a playlist verb. My Favorites has no `playlists` row to export
+        and no path style to choose for it, so the affordance is *absent* rather
+        than present and disabled — the same rule the rail's rename and delete
+        follow. D18 names this as the cost that will be asked about first.
+      -->
+      <UDropdownMenu v-if="!favoritesViewed" :items="exportItems">
         <UButton
           icon="i-tabler-dots"
           size="xs"
@@ -369,15 +514,31 @@ const removalOpen = computed({
 
     <div class="min-h-0 flex-1">
       <TrackList
-        :source="entries"
+        :source="source"
         :drag="drag"
         :menu="menu"
         :group-menu="groupMenu"
-        :label="`${playlists.viewed.name} entries`"
+        :label="favoritesViewed ? 'My Favorites' : `${title} entries`"
         @activate="activation.activate"
       >
         <template #empty>
+          <!--
+            Two empty states, and neither is an error. The favorites one is the
+            reason the rail entry stays put with nothing in it: a collection you
+            have not filled yet is a normal state, and an entry that vanished
+            when you un-hearted your last track would be a collection you could
+            not find your way back to.
+          -->
           <UEmpty
+            v-if="favoritesViewed"
+            variant="naked"
+            icon="i-tabler-heart"
+            title="No favorites yet"
+            description="Click the heart on a track — in the song list, or in Now Playing — and it lands here."
+            class="h-full"
+          />
+          <UEmpty
+            v-else
             variant="naked"
             icon="i-tabler-playlist-add"
             title="Nothing in this playlist yet"

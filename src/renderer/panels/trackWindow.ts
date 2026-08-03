@@ -408,6 +408,8 @@ export function createTrackWindow(deps: TrackWindowDeps) {
   )
 
   return {
+    /** `tracks.id`. The library has no second identity for a row to have. */
+    rowIdentity: 'track' as const,
     sort,
     direction,
     filters,

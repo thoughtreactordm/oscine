@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FAVORITES_TAB,
   getSetting,
   resolveDefault,
   validateValue,
@@ -185,6 +186,37 @@ describe('view.playlistTabs', () => {
       9, 2, 5
     ])
   })
+
+  /**
+   * D18's pinned entry is a stop the session can restore to, and it is *not* an
+   * open tab — so it is kept without being checked against `openIds`, which is
+   * the one place the fixture rule differs from the id rule.
+   */
+  it('restores My Favorites, which is pinned rather than open', () => {
+    expect(resolved<TabSession>(KEY, { openIds: [3, 4], viewedId: FAVORITES_TAB })).toEqual({
+      openIds: [3, 4],
+      viewedId: FAVORITES_TAB
+    })
+  })
+
+  /**
+   * The case the fallback would otherwise eat. An operator who left Curate on
+   * My Favorites with nothing else open must not come back to the leftmost of
+   * nothing — which is why the fixture is tested before `viewFirstWhenMissing`.
+   */
+  it('restores it with no playlist open at all', () => {
+    expect(resolved<TabSession>(KEY, { openIds: [], viewedId: FAVORITES_TAB })).toEqual({
+      openIds: [],
+      viewedId: FAVORITES_TAB
+    })
+  })
+
+  it('is not fooled by any other string', () => {
+    expect(resolved<TabSession>(KEY, { openIds: [3], viewedId: 'recently-added' })).toEqual({
+      openIds: [3],
+      viewedId: 3
+    })
+  })
 })
 
 describe('view.podcastTabs', () => {
@@ -201,6 +233,17 @@ describe('view.podcastTabs', () => {
     expect(resolved<TabSession>(KEY, { openIds: [5, 5, 6], viewedId: 6 })).toEqual({
       openIds: [5, 6],
       viewedId: 6
+    })
+  })
+
+  /**
+   * This strip declares no fixtures. A Curate session hand-copied onto the
+   * podcasts key must not restore a favorites view Podcasts has no tab for.
+   */
+  it('has no favorites fixture to restore into', () => {
+    expect(resolved<TabSession>(KEY, { openIds: [5], viewedId: FAVORITES_TAB })).toEqual({
+      openIds: [5],
+      viewedId: null
     })
   })
 

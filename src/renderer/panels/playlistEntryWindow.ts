@@ -478,6 +478,8 @@ export function createPlaylistEntryWindow(deps: PlaylistEntryWindowDeps) {
   })
 
   return {
+    /** `playlist_entries.id`, which is the whole of D12's handling here. */
+    rowIdentity: 'entry' as const,
     playlistId,
     total,
     loading,

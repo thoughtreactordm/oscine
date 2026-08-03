@@ -4,8 +4,10 @@ import type { Playlist } from '@shared/playlists'
 import {
   createPlaylistTabs,
   DISCOVER_TAB,
+  FAVORITES_TAB,
   type PlaylistTabCommands,
-  type TabKeyEvent
+  type TabKeyEvent,
+  type TabStop
 } from '../../../src/renderer/panels/playlistTabs'
 
 interface Call {
@@ -41,7 +43,7 @@ function bar(open = [1, 2, 3]) {
     playlist(4, 'Delta, never opened')
   ])
   const openIds = ref<number[]>([...open])
-  const viewedId = ref<number | null>(openIds.value[0] ?? null)
+  const viewedId = ref<TabStop>(openIds.value[0] ?? null)
   const playingId = ref<number | null>(null)
   const calls: Call[] = []
 
@@ -52,9 +54,11 @@ function bar(open = [1, 2, 3]) {
   )
 
   const commands: PlaylistTabCommands = {
-    view: (playlistId) => {
-      calls.push({ name: 'view', args: [playlistId] })
-      if (playlistId === null || openIds.value.includes(playlistId)) viewedId.value = playlistId
+    view: (stop) => {
+      calls.push({ name: 'view', args: [stop] })
+      // The store's guard: the fixtures are pinned, so only a playlist has to be
+      // open to be viewable.
+      if (typeof stop !== 'number' || openIds.value.includes(stop)) viewedId.value = stop
     },
     rename: async (playlistId, name) => {
       calls.push({ name: 'rename', args: [playlistId, name] })
@@ -103,8 +107,8 @@ describe('what the strip contains', () => {
 
 describe('the Discover fixture', () => {
   it('is the left end of the strip, whatever else is open', () => {
-    expect(bar().model.stops.value).toEqual([DISCOVER_TAB, 1, 2, 3])
-    expect(bar([3, 1]).model.stops.value).toEqual([DISCOVER_TAB, 3, 1])
+    expect(bar().model.stops.value).toEqual([DISCOVER_TAB, FAVORITES_TAB, 1, 2, 3])
+    expect(bar([3, 1]).model.stops.value).toEqual([DISCOVER_TAB, FAVORITES_TAB, 3, 1])
   })
 
   /**
@@ -114,7 +118,7 @@ describe('the Discover fixture', () => {
   it('is still there with nothing open', () => {
     const h = bar([])
     expect(h.model.tabs.value).toHaveLength(0)
-    expect(h.model.stops.value).toEqual([DISCOVER_TAB])
+    expect(h.model.stops.value).toEqual([DISCOVER_TAB, FAVORITES_TAB])
     expect(h.model.discoverViewed.value).toBe(true)
   })
 
@@ -151,7 +155,7 @@ describe('the Discover fixture', () => {
     expect(h.model.onKeydown(key({ key: 'F2' }))).toBe('none')
 
     expect(h.openIds.value).toEqual([1, 2, 3])
-    expect(h.model.stops.value).toEqual([DISCOVER_TAB, 1, 2, 3])
+    expect(h.model.stops.value).toEqual([DISCOVER_TAB, FAVORITES_TAB, 1, 2, 3])
     expect(h.named('close')).toHaveLength(0)
     expect(h.named('rename')).toHaveLength(0)
     expect(h.model.renamingId.value).toBeNull()
@@ -166,7 +170,7 @@ describe('the Discover fixture', () => {
     // `moveOpen` indexes the playlists, so index 0 is the tab beside Discover
     // rather than Discover's own place.
     expect(h.named('moveOpen')[0]?.args).toEqual([3, 0])
-    expect(h.model.stops.value).toEqual([DISCOVER_TAB, 3, 1, 2])
+    expect(h.model.stops.value).toEqual([DISCOVER_TAB, FAVORITES_TAB, 3, 1, 2])
   })
 
   it('plays nothing, so the playing mark stays where the sound is', () => {
@@ -325,7 +329,10 @@ describe('switching tabs from the keyboard', () => {
     h.model.onKeydown(key({ key: 'ArrowLeft' }))
     expect(h.viewedId.value).toBe(1)
 
-    // The left end is Discover, not the first playlist, and it is still an end.
+    // Left of the first playlist are the two fixtures, in strip order, and
+    // Discover is still an end.
+    h.model.onKeydown(key({ key: 'ArrowLeft' }))
+    expect(h.viewedId.value).toBe(FAVORITES_TAB)
     h.model.onKeydown(key({ key: 'ArrowLeft' }))
     expect(h.viewedId.value).toBe(DISCOVER_TAB)
     h.model.onKeydown(key({ key: 'ArrowLeft' }))
@@ -339,7 +346,7 @@ describe('switching tabs from the keyboard', () => {
     h.model.onKeydown(key({ key: 'Home' }))
     expect(h.viewedId.value).toBe(DISCOVER_TAB)
     h.model.onKeydown(key({ key: 'ArrowRight' }))
-    expect(h.viewedId.value).toBe(1)
+    expect(h.viewedId.value).toBe(FAVORITES_TAB)
   })
 
   it('renames with F2 and closes — never deletes — with Delete', () => {
@@ -412,12 +419,21 @@ describe('renaming a tab', () => {
 })
 
 describe('an empty strip', () => {
-  it('has nothing to select and nothing to rename', () => {
+  /**
+   * "Empty" means no playlist is open, and the strip is still two stops wide.
+   * Arrowing right off Discover reaches My Favorites and stops there, and
+   * neither fixture has anything for F2 or Delete to act on.
+   */
+  it('walks the fixtures and has nothing to rename', () => {
     const h = bar([])
     expect(h.model.onKeydown(key({ key: 'ArrowRight' }))).toBe('navigate')
-    expect(h.viewedId.value).toBeNull()
+    expect(h.viewedId.value).toBe(FAVORITES_TAB)
+    expect(h.model.onKeydown(key({ key: 'ArrowRight' }))).toBe('navigate')
+    expect(h.viewedId.value).toBe(FAVORITES_TAB)
+
     expect(h.model.onKeydown(key({ key: 'F2' }))).toBe('none')
     expect(h.model.onKeydown(key({ key: 'Delete' }))).toBe('none')
-    expect(h.named('view')).toHaveLength(0)
+    expect(h.named('rename')).toHaveLength(0)
+    expect(h.named('close')).toHaveLength(0)
   })
 })

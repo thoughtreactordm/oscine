@@ -39,6 +39,23 @@ export const useFavoritesStore = defineStore('favorites', () => {
   const pending = shallowRef<ReadonlySet<number>>(new Set())
 
   /**
+   * The last heart that landed, and a sequence so two clicks on the same track
+   * are two events.
+   *
+   * Published rather than pushed, exactly as `playlists.entriesEdited` is and
+   * for the same reason: the place that knows a heart happened is whatever was
+   * clicked — a list row, NowPlaying, the deck — and the place that knows
+   * whether it matters is the pinned rail entry, whose whole content is this
+   * table. It reloads on any of them, because a favorite lands at the top and
+   * moves every row below it.
+   *
+   * Carries the resulting state and not just the id, so a listener can tell an
+   * arrival from a departure without re-reading anything. Only a departure has
+   * to be `forget`-ten out of a selection.
+   */
+  const changed = ref<{ trackId: number; favorite: boolean; seq: number } | null>(null)
+
+  /**
    * Whether this track is favorited, as the renderer currently knows it.
    *
    * Takes the whole `Track` rather than an id because the row's own value is the
@@ -71,7 +88,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
     pending.value = new Set(pending.value).add(trackId)
     try {
       const state = await favorites.toggle(trackId)
-      overrides.value.set(state.trackId, state.favorite)
+      noteChanged(state.trackId, state.favorite)
     } catch {
       // Deliberately silent. See above.
     } finally {
@@ -81,5 +98,19 @@ export const useFavoritesStore = defineStore('favorites', () => {
     }
   }
 
-  return { overrides, isFavorite, isPending, toggle }
+  /**
+   * Records a state change made somewhere other than `toggle`.
+   *
+   * The rail's pane removes rows in batches through `favorites.remove`, which is
+   * not a toggle and does not come through here — but every heart on screen for
+   * those tracks has to stop being filled, and every listener has to hear the
+   * same event it hears for a click. So the override is written the same way and
+   * the same notice goes out; only the caller differs.
+   */
+  function noteChanged(trackId: number, favorite: boolean): void {
+    overrides.value.set(trackId, favorite)
+    changed.value = { trackId, favorite, seq: (changed.value?.seq ?? 0) + 1 }
+  }
+
+  return { overrides, changed, isFavorite, isPending, toggle, noteChanged }
 })

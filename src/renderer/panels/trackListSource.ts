@@ -17,7 +17,30 @@ import type { SortDirection, Track, TrackGroup, TrackSortColumn } from '@shared/
  * the component actually renders or calls; a source is free to be a Pinia store,
  * a window, or a fake in a test.
  */
+/**
+ * What the ids a source's selection speaks *are* — **D18**.
+ *
+ * The one thing about a source that a consumer cannot infer and must not guess.
+ * `resolveSelection` hands back numbers on all three sources and they are not
+ * the same numbers: the library and My Favorites resolve to `tracks.id`, and the
+ * playlist contents pane resolves to `playlist_entries.id`, because D12 makes
+ * the same track legal twice and only the entry id can tell two such rows apart.
+ *
+ * Declared rather than papered over. The tempting fix, when the favorites pane
+ * arrived, was to mint synthetic entry ids for it so every consumer could keep
+ * pretending there was one identity — which would have made a *fake* id the
+ * thing "remove this row" was expressed in, for a collection where duplicates
+ * are impossible and the real id was right there. So the source says which it
+ * speaks, and removal and the queue verbs each read it and branch honestly.
+ */
+export type RowIdentity = 'track' | 'entry'
+
 export interface TrackListSource {
+  /**
+   * Which identity `resolveSelection`, `isSelectedAt` and the row ids underneath
+   * them are in. See `RowIdentity`.
+   */
+  readonly rowIdentity: RowIdentity
   readonly total: number
   readonly loading: boolean
   /**

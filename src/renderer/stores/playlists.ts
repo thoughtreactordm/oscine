@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { FermataError, playlists } from '@renderer/ipc'
 import { restoredTabSession, useViewSettings } from '@renderer/settings'
 import { usePlaybackStore } from '@renderer/stores/playback'
-import type { TabSession } from '@shared/settings'
+import type { TabSession, TabStop } from '@shared/settings'
 import type {
   Playlist,
   PlaylistExportResult,
@@ -57,7 +57,19 @@ export interface CreatePlaylistOptions {
  */
 export const usePlaylistsStore = defineStore('playlists', () => {
   const list = ref<Playlist[]>([])
-  const viewedPlaylistId = ref<number | null>(null)
+
+  /**
+   * Where the strip is: an open playlist, a pinned fixture, or Discover.
+   *
+   * `viewedPlaylistId` used to *be* this ref and is now derived from it, which
+   * is the whole of what W10-7 changed here. My Favorites is a stop the operator
+   * can be looking at and is not a playlist (D18), so the two facts came apart:
+   * everything asking "which playlist is on screen" — the contents pane's entry
+   * store, "add to the viewed playlist" — wants the narrow one and correctly
+   * gets `null` while Favorites is up, because there is no playlist there to
+   * add to.
+   */
+  const viewedStop = ref<TabStop>(null)
   const notice = ref<string | null>(null)
   const loading = ref(false)
 
@@ -75,7 +87,12 @@ export const usePlaylistsStore = defineStore('playlists', () => {
    * playlists sit between them in the rail — has no single honest answer.
    */
   const openIds = ref<number[]>(restored.openIds)
-  viewedPlaylistId.value = restored.viewedId
+  viewedStop.value = restored.viewedId
+
+  /** The viewed *playlist*, which is `null` on Discover and on My Favorites alike. */
+  const viewedPlaylistId = computed<number | null>(() =>
+    typeof viewedStop.value === 'number' ? viewedStop.value : null
+  )
 
   const byId = (playlistId: number): Playlist | null =>
     list.value.find((playlist) => playlist.id === playlistId) ?? null
@@ -95,11 +112,11 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   )
 
   watch(
-    [openIds, viewedPlaylistId],
+    [openIds, viewedStop],
     () => {
       settings.set<TabSession>(PLAYLIST_TABS_KEY, {
         openIds: openIds.value,
-        viewedId: viewedPlaylistId.value
+        viewedId: viewedStop.value
       })
     },
     { deep: true }
@@ -143,8 +160,12 @@ export const usePlaylistsStore = defineStore('playlists', () => {
       // session may name playlists from before a library was replaced.
       const known = new Set(list.value.map((playlist) => playlist.id))
       openIds.value = openIds.value.filter((playlistId) => known.has(playlistId))
-      if (viewedPlaylistId.value !== null && !isOpen(viewedPlaylistId.value)) {
-        viewedPlaylistId.value = openIds.value[0] ?? null
+      // Only a *playlist* stop can be pruned. My Favorites is pinned and is not
+      // in `openIds`, so creating, reordering and deleting playlists around it
+      // leaves it exactly where it was — which is what "permanent" has to mean.
+      const viewed = viewedPlaylistId.value
+      if (viewed !== null && !isOpen(viewed)) {
+        viewedStop.value = openIds.value[0] ?? null
       }
     } catch (cause) {
       report(cause, 'Could not read playlists.')
@@ -161,9 +182,13 @@ export const usePlaylistsStore = defineStore('playlists', () => {
    * Guarded to open tabs. The contents pane renders `viewed`, so a viewed
    * playlist with no tab would be a pane the operator cannot navigate back to
    * after clicking away. Opening one is `open`'s job, which says so in its name.
+   *
+   * The fixtures pass the guard unconditionally, because they are pinned rather
+   * than open: there is no tab to have first, and nothing that could close the
+   * one they have.
    */
-  function view(playlistId: number | null): void {
-    if (playlistId === null || isOpen(playlistId)) viewedPlaylistId.value = playlistId
+  function view(stop: TabStop): void {
+    if (typeof stop !== 'number' || isOpen(stop)) viewedStop.value = stop
   }
 
   /**
@@ -178,7 +203,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   function openTab(playlistId: number): void {
     if (byId(playlistId) === null) return
     if (!isOpen(playlistId)) openIds.value = [...openIds.value, playlistId]
-    viewedPlaylistId.value = playlistId
+    viewedStop.value = playlistId
   }
 
   /**
@@ -192,8 +217,8 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     const index = openIds.value.indexOf(playlistId)
     if (index === -1) return
     openIds.value = openIds.value.filter((id) => id !== playlistId)
-    if (viewedPlaylistId.value !== playlistId) return
-    viewedPlaylistId.value = openIds.value[Math.min(index, openIds.value.length - 1)] ?? null
+    if (viewedStop.value !== playlistId) return
+    viewedStop.value = openIds.value[Math.min(index, openIds.value.length - 1)] ?? null
   }
 
   /**
@@ -344,6 +369,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     openIds,
     openTabs,
     isOpen,
+    viewedStop,
     viewedPlaylistId,
     viewed,
     notice,

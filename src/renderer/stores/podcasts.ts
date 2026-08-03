@@ -64,7 +64,10 @@ export const usePodcastsStore = defineStore('podcasts', () => {
   // below goes on recording whatever ends up open. See `restoredTabSession`.
   const restored = restoredTabSession(settings, PODCAST_TABS_KEY)
   const openIds = ref<number[]>(restored.openIds)
-  viewedPodcastId.value = restored.viewedId
+  // Narrowed rather than widened: `TabStop` admits the pinned fixtures Curate's
+  // strip has, and this strip declares none — so its validator cannot produce
+  // one and there is no case being dropped here, only the type catching up.
+  viewedPodcastId.value = typeof restored.viewedId === 'number' ? restored.viewedId : null
 
   const byId = (podcastId: number): Podcast | null =>
     list.value.find((podcast) => podcast.id === podcastId) ?? null

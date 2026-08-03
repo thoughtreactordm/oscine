@@ -4,7 +4,9 @@ import type { ContextMenuItem } from '@nuxt/ui'
 import { visibleRange } from '@renderer/panels/listViewport'
 import { createPlaylistRail, PLAYLIST_NAME_MAX_LENGTH } from '@renderer/panels/playlistRail'
 import type { DropSide } from '@renderer/panels/playlistReorder'
+import { FAVORITES_TAB } from '@renderer/panels/playlistTabs'
 import { useSettings } from '@renderer/settings'
+import { useFavoritesListStore } from '@renderer/stores/favoritesList'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import type { Playlist } from '@shared/playlists'
@@ -26,13 +28,45 @@ import { CONFIRM_PLAYLIST_DELETE_KEY } from '@shared/settings'
  * are already in memory, so there is nothing to page and what is left is
  * arithmetic.
  *
+ * ## My Favorites, pinned above all of it — **D18**
+ *
+ * It is drawn *outside* the scroll container and outside `createPlaylistRail`
+ * entirely, and that placement is the design rather than a layout convenience.
+ * The model holds `rows`, the focus index, the reorder drag and the delete
+ * prompt, all of them keyed by `playlists.id`; the pinned entry has no id and
+ * belongs to none of them. So it cannot be dragged, cannot be a drop target,
+ * cannot be focused into a reorder and cannot be handed to `requestDelete` — not
+ * because a branch refuses, but because it is not in the list those verbs
+ * traverse. That is the same trick `DISCOVER_TAB` plays in the strip.
+ *
+ * The rename and delete affordances are therefore *absent*, not disabled: this
+ * row has no context menu and no inline input, where every row below it has
+ * both.
+ *
  * D4 island rules: it imports no sibling panel and holds no reference to the
- * strip or the contents pane. All three meet at the store.
+ * strip or the contents pane. All of them meet at the stores.
  */
 
 const playlists = usePlaylistsStore()
 const playback = usePlaybackStore()
 const settings = useSettings()
+const favorites = useFavoritesListStore()
+
+/** Whether the pinned entry is the thing on screen. It is never the *playing* one. */
+const favoritesViewed = computed(() => playlists.viewedStop === FAVORITES_TAB)
+
+/**
+ * Plays the whole collection, with no row named — the same call shape the rail's
+ * double-click makes for a playlist, and for the same reason: omitting the index
+ * makes it *the collection* rather than its first row, so with shuffle on the
+ * permutation picks the opener.
+ *
+ * `playFromFavorites` and not `playFromPlaylist`: this is not a playlist, so
+ * `playingPlaylistId` clears and the crossfade reverts to the global setting.
+ */
+function playFavorites(): void {
+  void playback.playFromFavorites({})
+}
 
 const model = createPlaylistRail({
   playlists: () => playlists.list,
@@ -229,6 +263,45 @@ onMounted(() => {
         @click="model.create()"
       />
     </div>
+
+    <!--
+      The pinned entry. Above the playlists and outside the scroll container, so
+      it stays put however far the rail is scrolled — pinned is the whole of what
+      the operator asked for.
+
+      A `button`, not a `role="option"` in the listbox below: it is not one of
+      the rail's rows and must not be arrowed into, dragged, or counted by the
+      reorder. Tab reaches it; the listbox is its own stop.
+
+      Note what is *not* here. No `UContextMenu`, so there is no Rename and no
+      Delete to grey out. No `draggable`, no `dragover`, no drop indicator. Those
+      are absences rather than disabled controls, which is what D18 asked for and
+      also the only version that cannot rot: there is no code path to forget to
+      keep disabled.
+    -->
+    <button
+      type="button"
+      class="flex h-8 shrink-0 cursor-default items-center gap-2 border-b border-default px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+      :class="
+        favoritesViewed
+          ? 'bg-elevated text-highlighted shadow-[inset_2px_0_0_0_var(--ui-primary)]'
+          : 'text-muted hover:bg-elevated/60 hover:text-default'
+      "
+      :aria-current="favoritesViewed ? 'true' : undefined"
+      @click="playlists.view(FAVORITES_TAB)"
+      @dblclick="playFavorites()"
+    >
+      <UIcon
+        name="i-tabler-heart"
+        class="size-3.5 shrink-0"
+        :class="favoritesViewed ? 'text-primary' : ''"
+        aria-hidden="true"
+      />
+      <span class="min-w-0 flex-1 truncate font-medium">My Favorites</span>
+      <span class="shrink-0 text-xs tabular-nums text-dimmed">
+        {{ favorites.total.toLocaleString() }}
+      </span>
+    </button>
 
     <!--
       One scroll container, two spacers, and only the rows between them. The

@@ -82,7 +82,8 @@ export {
 } from './settings/theme'
 export type { ThemeModePreference } from './settings/theme'
 export { NETWORK_EXTERNAL_LOOKUPS_KEY, NETWORK_SETTINGS } from './settings/network'
-export type { StoredColumnLayout, TabSession } from './settings/view'
+export { FAVORITES_TAB } from './settings/view'
+export type { StoredColumnLayout, TabFixture, TabSession, TabStop } from './settings/view'
 
 /**
  * Every known key, in one list.
