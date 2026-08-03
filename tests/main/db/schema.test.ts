@@ -65,7 +65,8 @@ describe('openDatabase', () => {
         'track-genre',
         'artist-mbid',
         'scrobble-outbox',
-        'track-genres'
+        'track-genres',
+        'listens-log'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -109,7 +110,8 @@ describe('openDatabase', () => {
         'track-genre',
         'artist-mbid',
         'scrobble-outbox',
-        'track-genres'
+        'track-genres',
+        'listens-log'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -142,7 +144,8 @@ describe('openDatabase', () => {
         'track-genre',
         'artist-mbid',
         'scrobble-outbox',
-        'track-genres'
+        'track-genres',
+        'listens-log'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
@@ -255,6 +258,71 @@ describe('openDatabase', () => {
       // Key first, track id second: that ordering is what makes "count tracks
       // per genre" an index-only scan rather than a walk of the table.
       expect(index?.sql).toContain('(genre_key, track_id)')
+    } finally {
+      db.close()
+    }
+  })
+
+  /**
+   * Migration 014. Every property asserted here is one a later migration could
+   * drop by accident while its own tests kept passing — and each one is load
+   * bearing for a different reason, so they are named rather than counted.
+   */
+  it('carries the listens log, severable and snapshot-carrying', () => {
+    const { db } = openDatabase(file)
+    try {
+      const listens = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get('listens') as { sql: string } | undefined
+      // The whole of D17 rests on this clause. CASCADE here would mean a folder
+      // reorganisation silently deleting years of history.
+      expect(listens?.sql).toContain('ON DELETE SET NULL')
+
+      const keys = db.pragma('foreign_key_list(listens)') as {
+        table: string
+        from: string
+        on_delete: string
+      }[]
+      expect(keys).toEqual([expect.objectContaining({ table: 'tracks', from: 'track_id' })])
+      expect(keys[0].on_delete).toBe('SET NULL')
+
+      const indexes = new Map(
+        (
+          db
+            .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ?")
+            .all('listens') as { name: string; sql: string | null }[]
+        ).map((row) => [row.name, row.sql])
+      )
+      expect(indexes.get('idx_listens_started')).toContain('(started_at)')
+      // The child side of the SET NULL reference: SQLite indexes the parent of a
+      // reference and never the child, so without this every track deletion
+      // during a scan is a full scan of the largest table in the database.
+      expect(indexes.get('idx_listens_track')).toContain('(track_id, started_at)')
+      // UNIQUE is what makes a D11 import INSERT OR IGNORE, so merging twice is
+      // merging once.
+      expect(indexes.get('idx_listens_identity')).toContain('UNIQUE')
+      expect(indexes.get('idx_listens_identity')).toContain('(started_at, title, artist_name)')
+      // Deliberately absent until a query is measured slow, not overlooked.
+      expect([...indexes.keys()].sort()).toEqual([
+        'idx_listens_identity',
+        'idx_listens_started',
+        'idx_listens_track'
+      ])
+
+      const genres = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get('listen_genres') as { sql: string } | undefined
+      expect(genres?.sql).toContain('WITHOUT ROWID')
+      // Cascading here, unlike listens itself: a genre row with no listen to
+      // hang off is not history, it is a leak.
+      expect(genres?.sql).toContain('ON DELETE CASCADE')
+
+      const genreIndex = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get('idx_listen_genres_key') as { sql: string } | undefined
+      // Key first, listen id second: "top genres in this window" reads the index
+      // and never the table.
+      expect(genreIndex?.sql).toContain('(genre_key, listen_id)')
     } finally {
       db.close()
     }
@@ -373,6 +441,72 @@ describe('referential integrity', () => {
       expect(db.prepare('SELECT count(*) n FROM playlist_entries').get()).toEqual({ n: 0 })
       // The playlist itself outlives its entries.
       expect(db.prepare('SELECT count(*) n FROM playlists').get()).toEqual({ n: 1 })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('severs a track deletion from its listens, leaving the snapshot whole', () => {
+    const { db } = openDatabase(file)
+    try {
+      const { rootId, trackId } = seedRootAndTrack(db)
+      const listenId = Number(
+        db
+          .prepare(
+            `INSERT INTO listens
+               (track_id, started_at, ms_listened, duration_ms,
+                title, artist_name, album_title, album_artist_name)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            trackId,
+            1_700_000_000_000,
+            184_000,
+            201_000,
+            'Windowlicker',
+            'Aphex Twin',
+            'EP',
+            'Aphex Twin'
+          ).lastInsertRowid
+      )
+      db.prepare('INSERT INTO listen_genres (listen_id, genre_key, genre) VALUES (?, ?, ?)').run(
+        listenId,
+        'idm',
+        'IDM'
+      )
+
+      // A folder reorganisation, as the scanner sees it: the file is gone from
+      // the root, so the root goes and the track goes with it.
+      db.prepare('DELETE FROM roots WHERE id = ?').run(rootId)
+
+      expect(db.prepare('SELECT count(*) n FROM tracks').get()).toEqual({ n: 0 })
+      expect(
+        db
+          .prepare(
+            `SELECT track_id AS trackId, started_at AS startedAt, ms_listened AS msListened,
+                    duration_ms AS durationMs, title, artist_name AS artistName,
+                    album_title AS albumTitle, album_artist_name AS albumArtistName
+             FROM listens WHERE id = ?`
+          )
+          .get(listenId)
+      ).toEqual({
+        trackId: null,
+        startedAt: 1_700_000_000_000,
+        msListened: 184_000,
+        durationMs: 201_000,
+        title: 'Windowlicker',
+        artistName: 'Aphex Twin',
+        albumTitle: 'EP',
+        albumArtistName: 'Aphex Twin'
+      })
+      // The genre snapshot survives too, or "top genres of 2026" would rewrite
+      // itself every time the operator moved a folder.
+      expect(db.prepare('SELECT count(*) n FROM listen_genres').get()).toEqual({ n: 1 })
+      // A severed reference is not a broken one.
+      expect(db.pragma('foreign_key_check')).toEqual([])
+
+      db.prepare('DELETE FROM listens WHERE id = ?').run(listenId)
+      expect(db.prepare('SELECT count(*) n FROM listen_genres').get()).toEqual({ n: 0 })
     } finally {
       db.close()
     }
