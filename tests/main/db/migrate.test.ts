@@ -74,6 +74,55 @@ describe('migrate', () => {
     }
   })
 
+  it('runs a backfill after its own DDL, in the same transaction', () => {
+    const db = memoryDb()
+    const seeded: Migration = {
+      version: 2,
+      name: 'seeded',
+      sql: 'CREATE TABLE b (id INTEGER PRIMARY KEY, note TEXT NOT NULL);',
+      // Reading `a` proves ordering twice over: the table this migration created
+      // exists by now, and so does the one the previous migration created.
+      backfill: (target) => {
+        target.prepare('INSERT INTO b (note) VALUES (?)').run('derived')
+      }
+    }
+    try {
+      migrate(db, [one, seeded])
+
+      expect(db.prepare('SELECT note FROM b').get()).toEqual({ note: 'derived' })
+      expect(db.pragma('user_version', { simple: true })).toBe(2)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('rolls back the DDL when the backfill throws', () => {
+    const db = memoryDb()
+    const badBackfill: Migration = {
+      version: 2,
+      name: 'bad-backfill',
+      sql: 'CREATE TABLE b (id INTEGER PRIMARY KEY);',
+      backfill: () => {
+        throw new Error('derivation failed')
+      }
+    }
+    try {
+      expect(() => migrate(db, [one, badBackfill])).toThrow('derivation failed')
+
+      // A backfill is part of the migration, not a step after it: failing to
+      // derive the rows must leave the table they belong in unbuilt, or the
+      // next launch sees a version that promises data nothing wrote.
+      expect(db.pragma('user_version', { simple: true })).toBe(1)
+      const tables = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all()
+        .map((row) => (row as { name: string }).name)
+      expect(tables).not.toContain('b')
+    } finally {
+      db.close()
+    }
+  })
+
   it('refuses a database newer than the code', () => {
     const db = memoryDb()
     try {

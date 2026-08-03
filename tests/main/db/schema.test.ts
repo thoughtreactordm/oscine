@@ -64,7 +64,8 @@ describe('openDatabase', () => {
         'play-history',
         'track-genre',
         'artist-mbid',
-        'scrobble-outbox'
+        'scrobble-outbox',
+        'track-genres'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -107,7 +108,8 @@ describe('openDatabase', () => {
         'play-history',
         'track-genre',
         'artist-mbid',
-        'scrobble-outbox'
+        'scrobble-outbox',
+        'track-genres'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -139,7 +141,8 @@ describe('openDatabase', () => {
         'play-history',
         'track-genre',
         'artist-mbid',
-        'scrobble-outbox'
+        'scrobble-outbox',
+        'track-genres'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
@@ -227,6 +230,31 @@ describe('openDatabase', () => {
       // Partial: the column is NULL for every artist nothing has resolved yet,
       // and a full index over mostly-NULL rows is a table copy for nothing.
       expect(index?.sql).toContain('WHERE mbid IS NOT NULL')
+    } finally {
+      db.close()
+    }
+  })
+
+  /**
+   * Migration 013's derived table. Here, like the artist columns above, because
+   * this file is the one place that says what the head schema *is* — and because
+   * `WITHOUT ROWID` and the covering index are both properties a later migration
+   * could drop by accident while its own tests kept passing.
+   */
+  it('carries the genre join table, keyed for the histogram', () => {
+    const { db } = openDatabase(file)
+    try {
+      const table = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get('track_genres') as { sql: string } | undefined
+      expect(table?.sql).toContain('WITHOUT ROWID')
+
+      const index = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get('idx_track_genres_key') as { sql: string } | undefined
+      // Key first, track id second: that ordering is what makes "count tracks
+      // per genre" an index-only scan rather than a walk of the table.
+      expect(index?.sql).toContain('(genre_key, track_id)')
     } finally {
       db.close()
     }

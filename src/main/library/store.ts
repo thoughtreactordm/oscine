@@ -21,6 +21,7 @@ import type {
   TrackGroup,
   TrackSortColumn
 } from '@shared/library'
+import { splitGenres } from '@shared/genre'
 import { artworkUrl } from '@shared/ipc'
 import type { RelatedAlbum } from '@shared/related'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
@@ -428,6 +429,14 @@ function prepareStatements(db: Database.Database) {
         END
       RETURNING id
     `),
+
+    // Migration 013's derived rows. Delete-then-insert rather than a diff: a
+    // track has a handful of genres, and the rewrite is what guarantees a
+    // retagged file leaves nothing of its old genres behind.
+    clearTrackGenres: db.prepare('DELETE FROM track_genres WHERE track_id = ?'),
+    insertTrackGenre: db.prepare(
+      'INSERT INTO track_genres (track_id, genre_key, genre) VALUES (?, ?, ?)'
+    ),
 
     resolveTrack: db.prepare(`
       SELECT r.path AS rootPath, t.rel_path AS relPath
@@ -862,7 +871,7 @@ export class LibraryStore {
     const title = tags.title ?? fileStem(file.relPath)
 
     const gain = tags.replayGain
-    this.statements.upsertTrack.get({
+    const { id: trackId } = this.statements.upsertTrack.get({
       rootId,
       relPath: file.relPath,
       mtime: file.mtime,
@@ -883,7 +892,19 @@ export class LibraryStore {
       rgAlbumGain: gain?.albumGainDb ?? null,
       rgAlbumPeak: gain?.albumPeak ?? null,
       rgSource: gain === null ? null : 'tag'
-    })
+    }) as { id: number }
+
+    // Migration 013's `track_genres` is derived, and this is where it is
+    // derived: rebuilt from the genre we just wrote, in the caller's
+    // transaction. That is what makes Rescan the operator gesture that
+    // normalises genres, with no separate action to discover — and what stops a
+    // retag from leaving the previous genres behind as rows nothing points at.
+    // The reverse direction is the schema's job: ON DELETE CASCADE covers a
+    // vanished file and a removed root alike.
+    this.statements.clearTrackGenres.run(trackId)
+    for (const { key, genre } of splitGenres(tags.genre)) {
+      this.statements.insertTrackGenre.run(trackId, key, genre)
+    }
 
     // Migration 4's metadata triggers update FTS in the same transaction as
     // this row. Keeping it in SQL also covers direct deletes and root cascades.

@@ -13,6 +13,23 @@ export interface Migration {
   /** Human label for logs — has no effect on ordering. */
   name: string
   sql: string
+  /**
+   * An optional JavaScript step, run after `sql` and inside the same transaction.
+   *
+   * For the migration whose backfill is a rule the application already owns.
+   * Migration 013 splits `tracks.genre` into `track_genres` using the splitter in
+   * `@shared/genre`, and the alternative — a recursive CTE reimplementing the
+   * same separators, trimming and casefolding in SQL — would be a second
+   * definition of that rule, drifting from the first the moment either changes.
+   * SQLite's `lower()` is ASCII-only, so the two would already disagree on the
+   * first non-English genre in the library.
+   *
+   * Being inside the transaction is the point: a backfill that throws rolls back
+   * its own DDL and leaves `user_version` behind it, exactly like a failing
+   * `sql`. Use it for deriving rows from rows. Anything that touches the
+   * filesystem or the network belongs in a rescan, not here.
+   */
+  backfill?: (db: Database.Database) => void
 }
 
 export interface MigrationResult {
@@ -92,6 +109,7 @@ export function migrate(db: Database.Database, migrations: readonly Migration[])
 
     db.transaction(() => {
       db.exec(migration.sql)
+      migration.backfill?.(db)
       db.pragma(`user_version = ${migration.version}`)
     })()
 

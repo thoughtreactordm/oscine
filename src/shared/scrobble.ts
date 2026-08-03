@@ -45,7 +45,7 @@ export type ScrobbleTargetId = (typeof SCROBBLE_TARGET_IDS)[number]
 /**
  * What one listen carries on the wire.
  *
- * These are the snapshot columns of `scrobble_queue` (migration 015, W11-2) and
+ * These are the snapshot columns of `scrobble_queue` (migration 012, W11-2) and
  * they are snapshots on purpose: the queue must still be able to send after the
  * track has left the library, which is exactly the case where the rescan that
  * removed it and the network coming back are the same afternoon.
