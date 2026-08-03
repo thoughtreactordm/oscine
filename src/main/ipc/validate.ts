@@ -42,6 +42,11 @@ import {
   type StatsSummaryQuery
 } from '@shared/stats'
 import { NET_SCOPES, type CancelNetScopeRequest, type NetScope } from '@shared/net'
+import {
+  SCROBBLE_TARGET_IDS,
+  type ScrobbleTargetId,
+  type ScrobbleTargetRequest
+} from '@shared/scrobble'
 import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
 import {
   parseSettingsProfile,
@@ -1038,6 +1043,25 @@ export function assertCancelNetScopeRequest(value: unknown): CancelNetScopeReque
     invalid(`scope must be one of: ${NET_SCOPES.join(', ')}.`)
   }
   return { scope: raw.scope as NetScope }
+}
+
+/**
+ * A target id from the closed list, and nothing else.
+ *
+ * The same shape guards all three scrobbling channels, so an unknown id is
+ * refused at the boundary rather than turning into a `null` lookup three
+ * different ways inside the accounts service.
+ */
+export function assertScrobbleTargetRequest(value: unknown): ScrobbleTargetRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['target'])
+  if (
+    typeof raw.target !== 'string' ||
+    !(SCROBBLE_TARGET_IDS as readonly string[]).includes(raw.target)
+  ) {
+    invalid(`target must be one of: ${SCROBBLE_TARGET_IDS.join(', ')}.`)
+  }
+  return { target: raw.target as ScrobbleTargetId }
 }
 
 export function assertResolveArtistQuery(value: unknown): ResolveArtistQuery {

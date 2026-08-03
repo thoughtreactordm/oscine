@@ -23,6 +23,7 @@ import {
   CACHE_DATABASE_ARTIFACT,
   EXPORT_EXCLUDED_ARTIFACTS,
   LIBRARY_DATABASE_ARTIFACT,
+  SCROBBLE_CREDENTIALS_ARTIFACT,
   USER_DATA_ARTIFACTS
 } from '../../../src/main/db/artifacts'
 import { MIGRATIONS } from '../../../src/main/db/migrations'
@@ -126,6 +127,14 @@ describe('D11 exclusion', () => {
   it('does not exclude the library, which is what the bundle is about', () => {
     expect(LIBRARY_DATABASE_ARTIFACT.kind).toBe('authored')
     expect(EXPORT_EXCLUDED_ARTIFACTS).not.toContain(LIBRARY_DATABASE_ARTIFACT.name)
+  })
+
+  it('excludes the scrobbling credentials, which must never leave the machine', () => {
+    // D19: the session key is not a statement about a track, and a bundle
+    // advertised as playlists and play counts must not be something one has to
+    // hand over carefully.
+    expect(SCROBBLE_CREDENTIALS_ARTIFACT.kind).toBe('derived')
+    expect(EXPORT_EXCLUDED_ARTIFACTS).toContain(SCROBBLE_CREDENTIALS_ARTIFACT.name)
   })
 
   it('gives every artifact a distinct name and a stated reason', () => {

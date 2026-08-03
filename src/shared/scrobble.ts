@@ -186,6 +186,23 @@ export interface ScrobbleConnection {
 }
 
 /**
+ * The renderer-facing surface, in full.
+ *
+ * Three requests and one event, and every one of them speaks
+ * `ScrobbleConnection` — which is a target id, a boolean and a username. There
+ * is deliberately no channel that returns anything else about a credential,
+ * because the way to guarantee a secret does not cross IPC is for no channel to
+ * carry one, rather than for every handler to remember not to.
+ */
+export interface ScrobbleTargetRequest {
+  readonly target: ScrobbleTargetId
+}
+
+export interface ScrobbleConnectionsResult {
+  readonly connections: readonly ScrobbleConnection[]
+}
+
+/**
  * One scrobbling service, as everything above it sees it.
  *
  * ### The target owns its credential's lifecycle

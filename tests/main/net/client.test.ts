@@ -176,6 +176,68 @@ describe('every failure mode is a value', () => {
   })
 })
 
+/**
+ * The one status class a caller may reclassify, and the three it may not.
+ *
+ * Added for W11-3: Last.fm answers `auth.getSession` with a 403 whose body says
+ * *which* error occurred, and "the operator has not clicked Allow yet" and "that
+ * API key is not valid" are a wait and a stop respectively. Without the body
+ * they are one `rejected` with a 403 on it.
+ */
+describe('acceptStatuses', () => {
+  it('reads a listed status as an answer instead of a refusal', async () => {
+    const { client } = harness([reply('{"error":14}', { status: 403 })])
+    const result = await client.getJson<{ error: number }>({
+      url: URL_UNDER_TEST,
+      scope: 'scrobble',
+      acceptStatuses: [403]
+    })
+
+    expect(result).toEqual({ ok: true, value: { error: 14 } })
+  })
+
+  it('leaves an unlisted status alone', async () => {
+    const { client } = harness([reply('{"error":14}', { status: 403 })])
+    const result = await client.getText({ url: URL_UNDER_TEST, scope: 'scrobble' })
+
+    expect(failed(result).kind).toBe('rejected')
+  })
+
+  it('cannot be used to opt out of backoff', async () => {
+    // 429, 408 and 5xx are classified before this is consulted, so listing one
+    // buys a retry rather than a body — which is the correct answer and worth
+    // pinning, because the alternative is a caller silently disabling the retry
+    // ladder for a whole host by adding a number to an array.
+    const { client, fetchImpl, slept } = harness([
+      reply('{"error":29}', { status: 429 }),
+      reply('{"ok":true}', { status: 200 })
+    ])
+    const result = await client.getJson<{ ok: boolean }>({
+      url: URL_UNDER_TEST,
+      scope: 'scrobble',
+      acceptStatuses: [429, 503]
+    })
+
+    expect(result).toEqual({ ok: true, value: { ok: true } })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(slept).toEqual([500])
+  })
+
+  it('still refuses to open a socket without consent', async () => {
+    const { client, fetchImpl } = harness([reply('{"error":14}', { status: 403 })], {
+      consent: consentOf(false)
+    })
+    const result = await client.getJson({
+      url: URL_UNDER_TEST,
+      scope: 'scrobble',
+      acceptStatuses: [403]
+    })
+
+    expect(failed(result).kind).toBe('declined')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})
+
 describe('retrying', () => {
   it('retries a 503 and succeeds, with backoff between attempts', async () => {
     const { client, fetchImpl, slept } = harness([

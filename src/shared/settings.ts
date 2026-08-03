@@ -16,6 +16,7 @@ import { AUDIO_SETTINGS } from './settings/audio'
 import { INTERFACE_SETTINGS } from './settings/interface'
 import { LIBRARY_SETTINGS } from './settings/library'
 import { NETWORK_SETTINGS } from './settings/network'
+import { SCROBBLING_SETTINGS } from './settings/scrobbling'
 import { THEME_SETTINGS } from './settings/theme'
 import { VIEW_SETTINGS } from './settings/view'
 import {
@@ -82,6 +83,12 @@ export {
 } from './settings/theme'
 export type { ThemeModePreference } from './settings/theme'
 export { NETWORK_EXTERNAL_LOOKUPS_KEY, NETWORK_SETTINGS } from './settings/network'
+export {
+  LASTFM_API_KEY,
+  LASTFM_API_SECRET,
+  LASTFM_APP_KEY_HELP,
+  SCROBBLING_SETTINGS
+} from './settings/scrobbling'
 export { FAVORITES_TAB } from './settings/view'
 export type { StoredColumnLayout, TabFixture, TabSession, TabStop } from './settings/view'
 
@@ -99,6 +106,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = Object.freeze([
   ...INTERFACE_SETTINGS,
   ...THEME_SETTINGS,
   ...NETWORK_SETTINGS,
+  ...SCROBBLING_SETTINGS,
   ...VIEW_SETTINGS
 ])
 

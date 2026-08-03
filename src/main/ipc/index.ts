@@ -8,6 +8,7 @@ import type { ListenService } from '../listens/service'
 import type { PlaylistService } from '../library/playlists/service'
 import type { ArtistIdentityService, ArtistRelationsService } from '../musicbrainz'
 import type { NetService } from '../net'
+import type { ScrobbleAccountsService } from '../scrobble/accounts'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
 import type { StatsService } from '../stats/service'
@@ -16,6 +17,7 @@ import { assertEveryChannelHandled, handle } from './registry'
 import {
   assertAddTracksRequest,
   assertCancelNetScopeRequest,
+  assertScrobbleTargetRequest,
   assertClearArtistMbidRequest,
   assertGetArtistBiographyRequest,
   assertGetArtistImageRequest,
@@ -80,6 +82,7 @@ export function registerIpcHandlers(
   stats: StatsService,
   favorites: FavoriteService,
   net: NetService,
+  scrobble: ScrobbleAccountsService,
   artists: ArtistIdentityService,
   biographies: ArtistBiographyService,
   relations: ArtistRelationsService,
@@ -410,6 +413,30 @@ export function registerIpcHandlers(
   handle('net.cancelScope', (request) =>
     net.cancelScope(assertCancelNetScopeRequest(request).scope)
   )
+
+  handle('scrobble.connections', () => ({ connections: scrobble.connections() }))
+
+  // D19's rule, at the only place it could be broken: what leaves here is
+  // whatever `authorize` resolved with, which the contract guarantees carries a
+  // username and a boolean and no credential. There is nothing to strip, and
+  // that is deliberate — a handler that had to remember to strip something is a
+  // handler that eventually forgets.
+  //
+  // This one can sit unresolved for minutes while the operator is in their
+  // browser. That is the design, not a hang: see `scrobble.connect`.
+  handle('scrobble.connect', (request) =>
+    scrobble.connect(assertScrobbleTargetRequest(request).target)
+  )
+
+  handle('scrobble.cancelConnect', (request) => {
+    scrobble.cancelConnect(assertScrobbleTargetRequest(request).target)
+    return null
+  })
+
+  handle('scrobble.disconnect', async (request) => {
+    await scrobble.disconnect(assertScrobbleTargetRequest(request).target)
+    return { connections: scrobble.connections() }
+  })
 
   // Null rather than a `not-found` throw, for `library.getRelated`'s reason: the
   // seed is whatever is playing, and a track with no artist credit is an

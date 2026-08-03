@@ -96,6 +96,15 @@ export type SettingControl<T> =
   | { kind: 'slider'; min: number; max: number; step?: number; unit?: string }
   | { kind: 'select'; options: readonly SettingOption<T>[] }
   | { kind: 'path'; select: 'file' | 'directory' }
+  /**
+   * A free string the operator types or pastes.
+   *
+   * Distinct from `path`, which is also a text box: a path has a picker beside
+   * it eventually, and a placeholder that says "Folder path" is wrong for
+   * anything else. Arrived with W11-3's Last.fm API key override — the first key
+   * in the registry whose value is neither a choice, a number nor a location.
+   */
+  | { kind: 'text'; placeholder?: string }
   | { kind: 'custom'; component: string }
 
 /**

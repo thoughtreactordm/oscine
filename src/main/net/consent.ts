@@ -49,3 +49,22 @@ export function createNetworkConsent(settings: ConsentSettingsSource): NetworkCo
 
 /** A gate that always refuses. The safe stand-in wherever one is not wired yet. */
 export const CONSENT_DENIED: NetworkConsent = { granted: () => false }
+
+/**
+ * A gate that always allows — for the one caller D19 puts outside this one.
+ *
+ * Exported deliberately un-generic and deliberately hard to reach for: it is not
+ * a convenience for code that has not wired consent yet (that is
+ * `CONSENT_DENIED`, above, and the asymmetry is the point). It exists so that
+ * scrobbling's exemption is a named thing with an argument attached rather than
+ * a second client that quietly forgot to ask.
+ *
+ * The argument, in full, lives in D19 and at the construction site in
+ * `scrobble/lastfm/transport.ts`. In short: this gate covers the lookups
+ * *Fermata* decides to make. A scrobble goes to a service the operator signed
+ * into, by typing their own password on that service's own login page, having
+ * been told what it was for — which is stronger and more specific consent than
+ * the checkbox this gate reads, not weaker. Until that sign-in completes there
+ * is no credential and nothing outbound happens at all.
+ */
+export const CONSENT_GRANTED: NetworkConsent = { granted: () => true }

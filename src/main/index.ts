@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme, safeStorage, shell } from 'electron'
 import type BetterSqlite3 from 'better-sqlite3'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -9,7 +9,8 @@ import {
   artworkCachePath,
   cacheDatabasePath,
   libraryDatabasePath,
-  podcastsDirectoryPath
+  podcastsDirectoryPath,
+  scrobbleCredentialsPath
 } from './db/location'
 import { SqlitePlayHistoryService } from './history/service'
 import { SqliteListenService } from './listens/service'
@@ -25,10 +26,16 @@ import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles
 import { SqlitePodcastService } from './podcasts/service'
 import { createArtistIdentityService, createArtistRelationsService } from './musicbrainz'
 import { createNetService } from './net'
+import { createScrobbleAccounts } from './scrobble/accounts'
+import { createCredentialFileIo, createScrobbleCredentialStore } from './scrobble/credentials'
+import { createLastfmTarget } from './scrobble/lastfm/target'
+import { createLastfmTransport } from './scrobble/lastfm/transport'
+import { resolveLastfmAppKey } from './scrobble/lastfm/appKey'
 import { SqliteSettingsService } from './settings'
 import { createArtistBiographyService, createArtistImageService } from './wikipedia'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
+import type { ScrobbleConnection } from '@shared/scrobble'
 import { AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING, type SettingsChange } from '@shared/settings'
 
 const isDev = !app.isPackaged
@@ -154,6 +161,10 @@ function broadcastSettingsChanged(changes: SettingsChange[]): void {
 
 function requestListenFlush(): void {
   if (mainWindow) emit(mainWindow.webContents, 'listens.flushRequested', null)
+}
+
+function broadcastScrobbleConnections(connections: ScrobbleConnection[]): void {
+  if (mainWindow) emit(mainWindow.webContents, 'scrobble.connectionsChanged', connections)
 }
 
 /**
@@ -333,6 +344,41 @@ if (!app.requestSingleInstanceLock()) {
     // and without an invalidation path to get wrong. See `net/consent.ts`.
     const net = createNetService(settings)
 
+    // D19's accounts. Built from `net`'s limiter and scope registry rather than
+    // from its client, because scrobbling is the one caller outside D14's
+    // consent gate and the gate is baked into a client at construction — the
+    // argument for that exemption is at the top of `scrobble/lastfm/transport.ts`
+    // and in D19, and it is the one thing to read before changing this.
+    //
+    // `safeStorage` is handed in rather than imported by the store, so the store
+    // is testable without a keyring. It is also the first use of `safeStorage`
+    // anywhere in Fermata: `scrobble/credentials.ts` is the pattern.
+    //
+    // Not wired to the drain worker yet. W11-3 is the sign-in; the target's
+    // `submit` is a stub until W11-4, and starting a drain against it would
+    // burn `attempts` on rows that cannot be sent.
+    const scrobbleCredentials = createScrobbleCredentialStore({
+      sealer: safeStorage,
+      io: createCredentialFileIo(scrobbleCredentialsPath())
+    })
+    const scrobble = createScrobbleAccounts({
+      targets: [
+        createLastfmTarget({
+          transport: createLastfmTransport({
+            limiter: net.limiter,
+            scopes: net.scopes,
+            // Resolved per call, so pasting an override in Settings takes effect
+            // without a restart — the same live-read rule as the consent gate.
+            sharedSecret: () => resolveLastfmAppKey(settings)?.apiSecret ?? ''
+          }),
+          credentials: scrobbleCredentials,
+          settings,
+          openExternal: (url) => shell.openExternal(url)
+        })
+      ],
+      onChanged: broadcastScrobbleConnections
+    })
+
     // Opened here rather than lazily on the first lookup so that a cache which
     // has to be rebuilt is rebuilt at startup, where the log line is next to the
     // library's, instead of in the middle of the operator opening a deck.
@@ -503,6 +549,7 @@ if (!app.requestSingleInstanceLock()) {
       stats,
       favorites,
       net,
+      scrobble,
       artists,
       biographies,
       relations,

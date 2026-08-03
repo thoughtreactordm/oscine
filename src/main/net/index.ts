@@ -11,7 +11,7 @@ import { NETWORK_EXTERNAL_LOOKUPS_KEY } from '@shared/settings'
 import type { CancelNetScopeResult, NetScope } from '@shared/net'
 import { createNetClient, type NetClient } from './client'
 import { createNetworkConsent, type ConsentSettingsSource } from './consent'
-import { createRateLimiter } from './rateLimiter'
+import { createRateLimiter, type RateLimiter } from './rateLimiter'
 import { createScopeRegistry, type ScopeRegistry } from './scopes'
 
 export {
@@ -20,7 +20,12 @@ export {
   type NetClientOptions,
   type NetGetRequest
 } from './client'
-export { createNetworkConsent, CONSENT_DENIED, type NetworkConsent } from './consent'
+export {
+  createNetworkConsent,
+  CONSENT_DENIED,
+  CONSENT_GRANTED,
+  type NetworkConsent
+} from './consent'
 export { createRateLimiter, type RateLimiter } from './rateLimiter'
 export {
   createScopeRegistry,
@@ -41,20 +46,32 @@ export const METADATA_MIN_INTERVAL_MS = 1_100
 export interface NetService {
   readonly client: NetClient
   readonly scopes: ScopeRegistry
+  /**
+   * The process's one limiter, exposed so that a second client can share it.
+   *
+   * Only D19's scrobble transport needs one, and it needs one because the
+   * consent gate is baked into a client at construction — see
+   * `scrobble/lastfm/transport.ts`. Sharing this instance rather than making a
+   * second is not a tidiness point: the limiter spaces per host, and two
+   * instances would each honour a ceiling the pair of them together broke.
+   */
+  readonly limiter: RateLimiter
   cancelScope(scope: NetScope): CancelNetScopeResult
 }
 
 export function createNetService(settings: ConsentSettingsSource): NetService {
   const scopes = createScopeRegistry()
+  const limiter = createRateLimiter({ minIntervalMs: METADATA_MIN_INTERVAL_MS })
   const client = createNetClient({
     consent: createNetworkConsent(settings),
-    limiter: createRateLimiter({ minIntervalMs: METADATA_MIN_INTERVAL_MS }),
+    limiter,
     scopes
   })
 
   return {
     client,
     scopes,
+    limiter,
     cancelScope: (scope) => ({ cancelled: scopes.cancel(scope) })
   }
 }

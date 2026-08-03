@@ -73,6 +73,28 @@ export const PODCASTS_ARTIFACT: UserDataArtifact = {
 }
 
 /**
+ * D19's scrobbling credentials. On the `derived` side for two reasons at once,
+ * and it is worth being explicit that the weaker one is not the one doing the
+ * work.
+ *
+ * The weak reason is that it is reconstructible: signing in again produces
+ * another session key, so losing this file costs a round trip through a browser
+ * and no data. The strong reason is that `derived` is what puts a name into
+ * `EXPORT_EXCLUDED_ARTIFACTS`, and a credential must never leave the machine it
+ * was granted on — not because it would work elsewhere (it would not; the bytes
+ * are sealed to this user's keyring) but because a bundle advertised as
+ * playlists and play counts must not be a thing one hands over carefully.
+ */
+export const SCROBBLE_CREDENTIALS_ARTIFACT: UserDataArtifact = {
+  name: 'scrobble-credentials.json',
+  kind: 'derived',
+  why:
+    'Session keys for the scrobbling services the operator signed into (D19), sealed with ' +
+    'Electron’s safeStorage. Re-obtainable by signing in again, never exported, and useless ' +
+    'on any machine but the one that wrote it.'
+}
+
+/**
  * Every artifact, declared once.
  *
  * `location.ts` derives its filenames from this, so a path that exists without
@@ -83,7 +105,8 @@ export const USER_DATA_ARTIFACTS: readonly UserDataArtifact[] = [
   LIBRARY_DATABASE_ARTIFACT,
   CACHE_DATABASE_ARTIFACT,
   ARTWORK_CACHE_ARTIFACT,
-  PODCASTS_ARTIFACT
+  PODCASTS_ARTIFACT,
+  SCROBBLE_CREDENTIALS_ARTIFACT
 ]
 
 /**

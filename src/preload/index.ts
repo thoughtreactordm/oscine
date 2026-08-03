@@ -32,6 +32,7 @@ import type { ListFavoriteIdsQuery, ListFavoritesQuery } from '@shared/favorites
 import type { RecordListenRequest } from '@shared/listens'
 import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
+import type { ScrobbleConnection, ScrobbleTargetId } from '@shared/scrobble'
 import type {
   BrowsePodcastCategoryQuery,
   EpisodeDownloadProgress,
@@ -270,6 +271,38 @@ const api = {
      * saying when it has stopped caring — see `net.cancelScope` in `ipc.ts`.
      */
     cancelScope: (scope: NetScope) => request('net.cancelScope', { scope })
+  },
+  /**
+   * Scrobbling accounts — **D19**, and a deliberately tiny surface.
+   *
+   * Four calls, and not one of them can return a credential. The session key is
+   * sealed in a main-process file and read only by the target that signs with
+   * it; the renderer's entire view is a username and a boolean. That is not a
+   * convention this bridge follows carefully — it is the shape of the channels
+   * in `ipc.ts`, so there is no careful version of this file that could leak one.
+   *
+   * There is also nothing here that *sends* a scrobble. Enqueueing happens in
+   * main off the listen commit (W11-5), which is what keeps a scrobble a
+   * consequence of having listened rather than something a renderer can assert.
+   */
+  scrobble: {
+    /** Every target this build knows, connected or not. */
+    connections: () => request('scrobble.connections', null),
+    /**
+     * Start a sign-in and wait for it.
+     *
+     * Resolves only when the operator has finished in their browser, given up,
+     * or something failed — minutes, potentially. Render a waiting state for the
+     * lifetime of this promise and offer `cancelConnect` as the way out.
+     */
+    connect: (target: ScrobbleTargetId) => request('scrobble.connect', { target }),
+    /** Abandon a sign-in in progress. The pending `connect` resolves cancelled. */
+    cancelConnect: (target: ScrobbleTargetId) => request('scrobble.cancelConnect', { target }),
+    /** Forget the credential. Answers with the connections as they now stand. */
+    disconnect: (target: ScrobbleTargetId) => request('scrobble.disconnect', { target }),
+    /** Returns an unsubscribe function. Call it on unmount. */
+    onConnectionsChanged: (listener: (connections: ScrobbleConnection[]) => void) =>
+      subscribe('scrobble.connectionsChanged', listener)
   },
   /**
    * **R5**'s identity surface, and the first thing here that causes a fetch.

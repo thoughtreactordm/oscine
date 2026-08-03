@@ -38,6 +38,7 @@ const number = computed(() => (control.value?.kind === 'number' ? control.value 
 const slider = computed(() => (control.value?.kind === 'slider' ? control.value : null))
 const select = computed(() => (control.value?.kind === 'select' ? control.value : null))
 const path = computed(() => (control.value?.kind === 'path' ? control.value : null))
+const text = computed(() => (control.value?.kind === 'text' ? control.value : null))
 const custom = computed(() => (control.value?.kind === 'custom' ? control.value : null))
 
 const customComponent = computed(() =>
@@ -140,6 +141,17 @@ function update(value: unknown): void {
       size="sm"
       class="w-64"
       :placeholder="path.select === 'directory' ? 'Folder path' : 'File path'"
+      :aria-label="descriptor.label"
+      @update:model-value="update($event)"
+    />
+
+    <UInput
+      v-else-if="text"
+      :model-value="asString"
+      :disabled="disabled"
+      size="sm"
+      class="w-64"
+      :placeholder="text.placeholder"
       :aria-label="descriptor.label"
       @update:model-value="update($event)"
     />

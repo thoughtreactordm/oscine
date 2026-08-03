@@ -68,6 +68,25 @@ export interface NetGetRequest {
   accept?: string
   timeoutMs?: number
   maxBytes?: number
+  /**
+   * Statuses whose body is an *answer* rather than a refusal, and should be read
+   * and returned like a 200.
+   *
+   * Empty by default, because for a well-behaved API a 4xx means the request was
+   * wrong and its body is a stack trace at best. Last.fm is the exception this
+   * exists for (W11-3): it answers `auth.getSession` with `403` and a document
+   * saying *which* of its numbered errors occurred, and the difference between
+   * error 14 ("the operator has not clicked Allow yet", keep waiting) and error
+   * 10 ("that API key is not valid", stop) is the entire state machine of the
+   * desktop auth flow. Discarding the body would leave both looking like one
+   * `rejected` with a 403 on it.
+   *
+   * It changes what counts as an answer and nothing else. Consent, the limiter,
+   * the deadline and the retry ladder are all upstream and untouched — in
+   * particular 429, 408 and 5xx are still classified before this is consulted,
+   * so a caller cannot accidentally opt out of backoff by listing one of them.
+   */
+  acceptStatuses?: readonly number[]
 }
 
 export interface NetClient {
@@ -310,7 +329,11 @@ export function createNetClient({
       }
     }
 
-    if (response.status === 404 || response.status === 410) {
+    // Below the retryable classes and above the refusals: a listed status is
+    // read as an answer, but a listed 500 is still a 500 and still backs off.
+    const answered = response.ok || (request.acceptStatuses?.includes(response.status) ?? false)
+
+    if (!answered && (response.status === 404 || response.status === 410)) {
       disarm()
       return {
         outcome: 'give-up',
@@ -322,7 +345,7 @@ export function createNetClient({
       }
     }
 
-    if (!response.ok) {
+    if (!answered) {
       disarm()
       return {
         outcome: 'give-up',

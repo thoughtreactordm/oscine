@@ -4,7 +4,8 @@ import {
   ARTWORK_CACHE_ARTIFACT,
   CACHE_DATABASE_ARTIFACT,
   LIBRARY_DATABASE_ARTIFACT,
-  PODCASTS_ARTIFACT
+  PODCASTS_ARTIFACT,
+  SCROBBLE_CREDENTIALS_ARTIFACT
 } from './artifacts'
 
 // Re-exported rather than written here: `artifacts.ts` is the one place a name
@@ -15,6 +16,7 @@ export const DATABASE_FILENAME = LIBRARY_DATABASE_ARTIFACT.name
 export const CACHE_DATABASE_FILENAME = CACHE_DATABASE_ARTIFACT.name
 export const ARTWORK_CACHE_DIRECTORY = ARTWORK_CACHE_ARTIFACT.name
 export const PODCASTS_DIRECTORY = PODCASTS_ARTIFACT.name
+export const SCROBBLE_CREDENTIALS_FILENAME = SCROBBLE_CREDENTIALS_ARTIFACT.name
 
 /**
  * Where the library lives on this machine.
@@ -53,4 +55,18 @@ export function artworkCachePath(): string {
  */
 export function podcastsDirectoryPath(): string {
   return join(app.getPath('userData'), PODCASTS_DIRECTORY)
+}
+
+/**
+ * D19's session keys, sealed by `safeStorage`.
+ *
+ * A file of its own rather than rows in `library.db`, and that is the decision
+ * rather than an implementation detail: the settings table is exported, dumped
+ * into bug reports and read by the operator, and a credential that lives there
+ * is a credential one careless `SELECT *` away from a screenshot. A separate
+ * file has a name that `EXPORT_EXCLUDED_ARTIFACTS` can refuse and that a human
+ * can delete to sign out of everything at once.
+ */
+export function scrobbleCredentialsPath(): string {
+  return join(app.getPath('userData'), SCROBBLE_CREDENTIALS_FILENAME)
 }

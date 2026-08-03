@@ -48,7 +48,12 @@ import type {
   TrackAudioMetadata,
   TrackFormatDetail
 } from './library'
-import type { CancelNetScopeRequest, CancelNetScopeResult } from './net'
+import type { CancelNetScopeRequest, CancelNetScopeResult, NetResult } from './net'
+import type {
+  ScrobbleConnection,
+  ScrobbleConnectionsResult,
+  ScrobbleTargetRequest
+} from './scrobble'
 import type { RelatedQuery, RelatedResult } from './related'
 import type {
   AddTracksToPlaylistRequest,
@@ -591,6 +596,53 @@ export interface IpcContract {
   }
 
   /**
+   * Which scrobbling accounts are connected (**D19**).
+   *
+   * The response is the whole of what the renderer is ever told about a
+   * scrobbling credential: a target, a boolean, a username. Not the session key,
+   * not a token, not an expiry — there is nothing in it a compromised renderer
+   * could scrobble with, which is why the credential's storage is a
+   * main-process file and not a settings row.
+   */
+  'scrobble.connections': { request: null; response: ScrobbleConnectionsResult }
+
+  /**
+   * Begin a target's sign-in, and resolve when it is over.
+   *
+   * A long call by design: Last.fm's is a round trip through the operator's own
+   * browser, so this can sit unresolved for minutes. That is why it is `invoke`
+   * rather than a fire-and-forget with a completion event — the pane's waiting
+   * state is exactly the lifetime of this promise, and there is no third state
+   * to get out of step.
+   *
+   * Failures come back as `NetResult` rather than as a thrown IPC error,
+   * because most of them are things to *show* — no application key configured,
+   * no keyring on this machine, the operator closed the tab. A pane that has to
+   * `try` around a sign-in will render a blank where an explanation belongs.
+   */
+  'scrobble.connect': { request: ScrobbleTargetRequest; response: NetResult<ScrobbleConnection> }
+
+  /**
+   * Abandon a sign-in in progress — the way out for an operator who opened the
+   * browser and changed their mind.
+   *
+   * Its own channel rather than a reuse of `net.cancelScope`, which would also
+   * abandon an unrelated drain: closing a login tab is not a reason to drop a
+   * batch of scrobbles that happens to be in flight.
+   */
+  'scrobble.cancelConnect': { request: ScrobbleTargetRequest; response: null }
+
+  /**
+   * Forget a target's credential. Idempotent.
+   *
+   * Deletes Fermata's copy of the session key, which is all Fermata can do:
+   * revoking it belongs to the operator, on their account's applications page,
+   * and an app that claimed to have revoked something it merely forgot would be
+   * lying about the more important half.
+   */
+  'scrobble.disconnect': { request: ScrobbleTargetRequest; response: ScrobbleConnectionsResult }
+
+  /**
    * Who is playing, as an identity rather than as a tag string (**R5**).
    *
    * `null` when the track has no artist credit, or has left the library while
@@ -738,6 +790,17 @@ export interface IpcEventContract {
    * of the app, to protect a single row.
    */
   'listens.flushRequested': null
+  /**
+   * A scrobbling account connected or disconnected (**D19**).
+   *
+   * `scrobble.connect` already resolves with the new connection, so this is not
+   * how the pane that started a sign-in learns it succeeded. It is how every
+   * *other* view learns — and how the pane learns about a disconnection it did
+   * not ask for, which is the case that matters: a session key Last.fm has
+   * stopped accepting stands the account down from inside the drain worker,
+   * with nobody watching a promise.
+   */
+  'scrobble.connectionsChanged': ScrobbleConnection[]
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -829,6 +892,10 @@ export const IPC_CHANNELS = [
   'settings.readProfile',
   'settings.importProfile',
   'net.cancelScope',
+  'scrobble.connections',
+  'scrobble.connect',
+  'scrobble.cancelConnect',
+  'scrobble.disconnect',
   'artist.resolve',
   'artist.searchCandidates',
   'artist.setMbid',
@@ -845,7 +912,8 @@ export const IPC_EVENT_CHANNELS = [
   'library.replayGainProgress',
   'podcasts.downloadProgress',
   'settings.changed',
-  'listens.flushRequested'
+  'listens.flushRequested',
+  'scrobble.connectionsChanged'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**
