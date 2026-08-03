@@ -1,6 +1,7 @@
 import type { Track } from '@shared/library'
 import {
   RELATED_SECTION_LIMIT,
+  type FavoriteBias,
   type RelatedAlbum,
   type RelatedAlbumSection,
   type RelatedResult,
@@ -45,33 +46,53 @@ export interface RelatedSeed {
   year: number | null
 }
 
+/**
+ * What every strand is told regardless of what it matches on: how many rows to
+ * return, and D18's bias — W10-9.
+ *
+ * `favorites` is passed to all six rather than to the two the spec's example
+ * names, because a pane that preferred favorites in "more from this artist" and
+ * ignored them one heading down would be describing its own implementation
+ * rather than the operator's request.
+ */
+export interface StrandInput {
+  limit: number
+  favorites: FavoriteBias
+}
+
 export interface RelatedQueries {
   seed(trackId: number): RelatedSeed | null
-  albumTracks(input: { albumId: number; trackId: number; limit: number }): Track[]
-  artistAlbums(input: { artistId: number; albumId: number | null; limit: number }): RelatedAlbum[]
-  compilations(input: { artistId: number; albumId: number | null; limit: number }): RelatedAlbum[]
-  sameGenre(input: { genre: string; albumId: number | null; limit: number }): RelatedAlbum[]
-  sameYear(input: { year: number; albumId: number | null; limit: number }): RelatedAlbum[]
-  sameFolder(input: {
-    rootId: number
-    prefix: string
-    prefixEnd: string
-    albumId: number | null
-    limit: number
-  }): RelatedAlbum[]
+  albumTracks(input: StrandInput & { albumId: number; trackId: number }): Track[]
+  artistAlbums(input: StrandInput & { artistId: number; albumId: number | null }): RelatedAlbum[]
+  compilations(input: StrandInput & { artistId: number; albumId: number | null }): RelatedAlbum[]
+  sameGenre(input: StrandInput & { genre: string; albumId: number | null }): RelatedAlbum[]
+  sameYear(input: StrandInput & { year: number; albumId: number | null }): RelatedAlbum[]
+  sameFolder(
+    input: StrandInput & {
+      rootId: number
+      prefix: string
+      prefixEnd: string
+      albumId: number | null
+    }
+  ): RelatedAlbum[]
 }
 
 /**
  * The replaceable half. Returns sections in the order they should be read.
  *
- * `limit` is the number of rows a section may *show*; implementations should
- * ask their queries for one more than that and let `buildRelated` trim — see
- * `takeAlbums`.
+ * `params.limit` is the number of rows a section may *show*; implementations
+ * should ask their queries for one more than that and let `buildRelated` trim —
+ * see `takeAlbums`. `params.favorites` is passed straight through to the
+ * strands; a strategy has no business reinterpreting it.
+ *
+ * An object rather than positional arguments because this is the seam a future
+ * card replaces from outside, and a third scalar in a row is how a replacement
+ * ends up passing the bias where the limit goes.
  */
 export type NeighbourhoodStrategy = (
   queries: RelatedQueries,
   seed: RelatedSeed,
-  limit: number
+  params: StrandInput
 ) => RelatedAlbumSection[]
 
 /**
@@ -142,13 +163,13 @@ function takeAlbums(
  * migration 10 and not yet rescanned — produces no genre section rather than an
  * empty one, which is why the migration needed no special case in the pane.
  */
-export const tagNeighbourhood: NeighbourhoodStrategy = (queries, seed, limit) => {
+export const tagNeighbourhood: NeighbourhoodStrategy = (queries, seed, { limit, favorites }) => {
   const sections: RelatedAlbumSection[] = []
   const fetch = limit + 1
 
   if (seed.genre !== null) {
     const { albums, truncated } = takeAlbums(
-      queries.sameGenre({ genre: seed.genre, albumId: seed.albumId, limit: fetch }),
+      queries.sameGenre({ genre: seed.genre, albumId: seed.albumId, limit: fetch, favorites }),
       limit
     )
     if (albums.length > 0) {
@@ -158,7 +179,7 @@ export const tagNeighbourhood: NeighbourhoodStrategy = (queries, seed, limit) =>
 
   if (seed.year !== null) {
     const { albums, truncated } = takeAlbums(
-      queries.sameYear({ year: seed.year, albumId: seed.albumId, limit: fetch }),
+      queries.sameYear({ year: seed.year, albumId: seed.albumId, limit: fetch, favorites }),
       limit
     )
     if (albums.length > 0) {
@@ -180,7 +201,8 @@ export const tagNeighbourhood: NeighbourhoodStrategy = (queries, seed, limit) =>
         prefix: folder.prefix,
         prefixEnd: folder.prefixEnd,
         albumId: seed.albumId,
-        limit: fetch
+        limit: fetch,
+        favorites
       }),
       limit
     )
@@ -200,6 +222,13 @@ export const tagNeighbourhood: NeighbourhoodStrategy = (queries, seed, limit) =>
 
 export interface BuildRelatedOptions {
   limit?: number
+  /**
+   * Off by default, and the default is the whole compatibility story: `ignore`
+   * makes every strand's SQL reduce to the query it was before W10-9, so a
+   * caller that does not know about favorites cannot be given a different
+   * answer than it used to get.
+   */
+  favorites?: FavoriteBias
   neighbourhood?: NeighbourhoodStrategy
 }
 
@@ -222,6 +251,7 @@ export function buildRelated(
   options: BuildRelatedOptions = {}
 ): RelatedResult | null {
   const limit = options.limit ?? RELATED_SECTION_LIMIT
+  const favorites = options.favorites ?? 'ignore'
   const neighbourhood = options.neighbourhood ?? tagNeighbourhood
   const fetch = limit + 1
 
@@ -231,7 +261,7 @@ export function buildRelated(
   const sections: RelatedSection[] = []
 
   if (seed.albumId !== null) {
-    const rows = queries.albumTracks({ albumId: seed.albumId, trackId, limit: fetch })
+    const rows = queries.albumTracks({ albumId: seed.albumId, trackId, limit: fetch, favorites })
     if (rows.length > 0) {
       sections.push({
         kind: 'tracks',
@@ -249,7 +279,8 @@ export function buildRelated(
       queries.artistAlbums({
         artistId: discographyArtist,
         albumId: seed.albumId,
-        limit: fetch
+        limit: fetch,
+        favorites
       }),
       limit
     )
@@ -267,7 +298,12 @@ export function buildRelated(
   const appearingArtist = seed.artistId ?? seed.albumArtistId
   if (appearingArtist !== null) {
     const { albums, truncated } = takeAlbums(
-      queries.compilations({ artistId: appearingArtist, albumId: seed.albumId, limit: fetch }),
+      queries.compilations({
+        artistId: appearingArtist,
+        albumId: seed.albumId,
+        limit: fetch,
+        favorites
+      }),
       limit
     )
     if (albums.length > 0) {
@@ -281,7 +317,7 @@ export function buildRelated(
     }
   }
 
-  sections.push(...neighbourhood(queries, seed, limit))
+  sections.push(...neighbourhood(queries, seed, { limit, favorites }))
 
   return { seedTrackId: trackId, sections }
 }

@@ -23,7 +23,7 @@ import type {
 } from '@shared/library'
 import { splitGenres } from '@shared/genre'
 import { artworkUrl } from '@shared/ipc'
-import type { RelatedAlbum } from '@shared/related'
+import type { FavoriteBias, RelatedAlbum } from '@shared/related'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
 import type { TrackTags } from './metadata'
 import type { RelatedQueries, RelatedSeed } from './related'
@@ -320,6 +320,75 @@ export interface TrackRow {
 }
 
 /**
+ * W10-9's favorite bias, as SQL that is inert when it is off.
+ *
+ * Three modes and one prepared statement per strand, rather than three
+ * statements per strand, and the reason is not brevity: with `@favoritesOnly`
+ * and `@favoriteWeight` both bound to 0 every fragment below collapses to a
+ * constant, so "the existing callers keep their current results exactly" stops
+ * being a promise somebody has to re-check and becomes a property of the text.
+ * SQLite short-circuits `OR` left to right and `CASE` evaluates only the branch
+ * it takes, so the default path also does not *run* any of this — no correlated
+ * subquery is entered when the bias is `ignore`.
+ *
+ * `FavoriteBias` is the renderer-facing spelling; `favoriteBinds` is where it
+ * turns into the two integers these fragments read. `only` does not also weight
+ * because under `only` every row is a favorite and the rank would be constant.
+ */
+
+/**
+ * An album counts as favorited when **any** of its tracks is hearted.
+ *
+ * Judged on the album rather than on the track the strand matched, which is the
+ * looser and more useful of the two readings: an operator who hearted one track
+ * off a record has said something about the record. The strict reading — the
+ * matched track must itself be hearted — would make the genre strand's answer
+ * depend on which track carried the genre tag, which is not a distinction
+ * anybody means.
+ *
+ * `track_favorites.track_id` is an `INTEGER PRIMARY KEY`, so the inner half is
+ * a rowid probe; the outer half rides `idx_tracks_album`, which every one of
+ * these statements already joins through.
+ */
+const albumHasFavorite = (albumId: string): string => `EXISTS (
+              SELECT 1 FROM tracks ft
+              JOIN track_favorites ff ON ff.track_id = ft.id
+              WHERE ft.album_id = ${albumId}
+            )`
+
+/** A `WHERE` term that admits everything unless `only` is asked for. */
+const favoritesFilter = (predicate: string): string => `(@favoritesOnly = 0 OR ${predicate})`
+
+/**
+ * The leading `ORDER BY` term under `prefer`, and a constant otherwise.
+ *
+ * `NOT predicate` rather than a `DESC` on the predicate so it reads in the same
+ * direction as everything after it: 0 sorts first and 0 means hearted. Neither
+ * side is ever NULL — `EXISTS` and `IS NOT NULL` are total — so there is no
+ * three-valued surprise waiting in the sorter.
+ */
+const favoritesFirst = (predicate: string): string =>
+  `CASE WHEN @favoriteWeight = 1 THEN NOT ${predicate} ELSE 0 END`
+
+/**
+ * The bias as the two integers the fragments above read.
+ *
+ * SQLite has no boolean and better-sqlite3 refuses to bind a JavaScript one, so
+ * the mapping is explicit rather than a cast. Both zero for `ignore` — which is
+ * the only line in this file that has to stay true for the pre-W10-9 callers to
+ * keep their results.
+ */
+function favoriteBinds(favorites: FavoriteBias): {
+  favoritesOnly: number
+  favoriteWeight: number
+} {
+  return {
+    favoritesOnly: favorites === 'only' ? 1 : 0,
+    favoriteWeight: favorites === 'prefer' ? 1 : 0
+  }
+}
+
+/**
  * Prepared once per connection.
  *
  * A free function rather than an inline object so the field type is inferred
@@ -531,13 +600,20 @@ function prepareStatements(db: Database.Database) {
      * pressed rather than interleaved. `NULLS LAST` is spelled as the `IS NULL`
      * sort key because SQLite orders NULL first by default and an untagged
      * track would otherwise head the album.
+     *
+     * The only strand whose rows are tracks, so it is the only one whose bias is
+     * judged on the row itself rather than through `albumHasFavorite` — and
+     * `fav` is already joined by `TRACK_JOINS` and already projected, so it
+     * costs this statement nothing at all.
      */
     relatedAlbumTracks: db.prepare(`
       SELECT ${TRACK_PROJECTION}
       FROM tracks t
       ${TRACK_JOINS}
       WHERE t.album_id = @albumId AND t.id <> @trackId
-      ORDER BY t.disc_no IS NULL, t.disc_no,
+        AND ${favoritesFilter('fav.track_id IS NOT NULL')}
+      ORDER BY ${favoritesFirst('fav.track_id IS NOT NULL')},
+               t.disc_no IS NULL, t.disc_no,
                t.track_no IS NULL, t.track_no,
                t.title
       LIMIT @limit
@@ -554,8 +630,10 @@ function prepareStatements(db: Database.Database) {
       LEFT JOIN artists aa ON aa.id = al.album_artist_id
       JOIN tracks t ON t.album_id = al.id
       WHERE al.album_artist_id = @artistId AND al.id IS NOT @albumId
+        AND ${favoritesFilter(albumHasFavorite('al.id'))}
       GROUP BY al.id
-      ORDER BY al.year IS NULL, al.year, al.title
+      ORDER BY ${favoritesFirst(albumHasFavorite('al.id'))},
+               al.year IS NULL, al.year, al.title
       LIMIT @limit
     `),
 
@@ -570,6 +648,15 @@ function prepareStatements(db: Database.Database) {
      * would drop out of a comparison against NULL.
      *
      * Served by `idx_tracks_artist_album`, which already existed.
+     *
+     * The bias is filtered *inside* the candidate subquery and ranked outside,
+     * and that split is the same on all three strands that have one. The filter
+     * has to be inside because the `LIMIT` is: narrowing after a bounded page
+     * has already been chosen would return a handful of favorites out of a page
+     * of fifty rather than a page of fifty favorites. The rank has to be outside
+     * because putting it inside would mean ordering the whole genre — see the
+     * note on `relatedSameGenre` for why that is the one thing these subqueries
+     * exist to avoid.
      */
     relatedCompilations: db.prepare(`
       SELECT al.id      AS albumId,
@@ -584,13 +671,15 @@ function prepareStatements(db: Database.Database) {
               SELECT t2.album_id
               FROM tracks t2
               WHERE t2.artist_id = @artistId AND t2.album_id IS NOT NULL
+                AND ${favoritesFilter(albumHasFavorite('t2.album_id'))}
               GROUP BY t2.album_id
               LIMIT @limit
             )
         AND al.album_artist_id IS NOT @artistId
         AND al.id IS NOT @albumId
       GROUP BY al.id
-      ORDER BY al.year IS NULL, al.year, al.title
+      ORDER BY ${favoritesFirst(albumHasFavorite('al.id'))},
+               al.year IS NULL, al.year, al.title
       LIMIT @limit
     `),
 
@@ -618,14 +707,16 @@ function prepareStatements(db: Database.Database) {
       LEFT JOIN artists aa ON aa.id = al.album_artist_id
       JOIN tracks t ON t.album_id = al.id
       WHERE al.id IN (
-              SELECT album_id
-              FROM tracks
-              WHERE genre = @genre AND album_id IS NOT NULL AND album_id IS NOT @albumId
-              GROUP BY album_id
+              SELECT gt.album_id
+              FROM tracks gt
+              WHERE gt.genre = @genre AND gt.album_id IS NOT NULL AND gt.album_id IS NOT @albumId
+                AND ${favoritesFilter(albumHasFavorite('gt.album_id'))}
+              GROUP BY gt.album_id
               LIMIT @limit
             )
       GROUP BY al.id
-      ORDER BY al.year IS NULL, al.year DESC, al.title
+      ORDER BY ${favoritesFirst(albumHasFavorite('al.id'))},
+               al.year IS NULL, al.year DESC, al.title
       LIMIT @limit
     `),
 
@@ -640,8 +731,10 @@ function prepareStatements(db: Database.Database) {
       LEFT JOIN artists aa ON aa.id = al.album_artist_id
       JOIN tracks t ON t.album_id = al.id
       WHERE al.year = @year AND al.id IS NOT @albumId
+        AND ${favoritesFilter(albumHasFavorite('al.id'))}
       GROUP BY al.id
-      ORDER BY al.title
+      ORDER BY ${favoritesFirst(albumHasFavorite('al.id'))},
+               al.title
       LIMIT @limit
     `),
 
@@ -666,16 +759,18 @@ function prepareStatements(db: Database.Database) {
       LEFT JOIN artists aa ON aa.id = al.album_artist_id
       JOIN tracks t ON t.album_id = al.id
       WHERE al.id IN (
-              SELECT album_id
-              FROM tracks
-              WHERE root_id = @rootId
-                AND rel_path >= @prefix AND rel_path < @prefixEnd
-                AND album_id IS NOT NULL AND album_id IS NOT @albumId
-              GROUP BY album_id
+              SELECT pt.album_id
+              FROM tracks pt
+              WHERE pt.root_id = @rootId
+                AND pt.rel_path >= @prefix AND pt.rel_path < @prefixEnd
+                AND pt.album_id IS NOT NULL AND pt.album_id IS NOT @albumId
+                AND ${favoritesFilter(albumHasFavorite('pt.album_id'))}
+              GROUP BY pt.album_id
               LIMIT @limit
             )
       GROUP BY al.id
-      ORDER BY al.year IS NULL, al.year, al.title
+      ORDER BY ${favoritesFirst(albumHasFavorite('al.id'))},
+               al.year IS NULL, al.year, al.title
       LIMIT @limit
     `)
   }
@@ -1111,18 +1206,52 @@ export class LibraryStore {
     const s = this.statements
     return {
       seed: (trackId) => (s.relatedSeed.get({ trackId }) as RelatedSeed | undefined) ?? null,
-      albumTracks: ({ albumId, trackId, limit }) =>
-        (s.relatedAlbumTracks.all({ albumId, trackId, limit }) as TrackRow[]).map(toTrack),
-      artistAlbums: ({ artistId, albumId, limit }) =>
-        s.relatedArtistAlbums.all({ artistId, albumId, limit }) as RelatedAlbum[],
-      compilations: ({ artistId, albumId, limit }) =>
-        s.relatedCompilations.all({ artistId, albumId, limit }) as RelatedAlbum[],
-      sameGenre: ({ genre, albumId, limit }) =>
-        s.relatedSameGenre.all({ genre, albumId, limit }) as RelatedAlbum[],
-      sameYear: ({ year, albumId, limit }) =>
-        s.relatedSameYear.all({ year, albumId, limit }) as RelatedAlbum[],
-      sameFolder: ({ rootId, prefix, prefixEnd, albumId, limit }) =>
-        s.relatedSameFolder.all({ rootId, prefix, prefixEnd, albumId, limit }) as RelatedAlbum[]
+      albumTracks: ({ albumId, trackId, limit, favorites }) =>
+        (
+          s.relatedAlbumTracks.all({
+            albumId,
+            trackId,
+            limit,
+            ...favoriteBinds(favorites)
+          }) as TrackRow[]
+        ).map(toTrack),
+      artistAlbums: ({ artistId, albumId, limit, favorites }) =>
+        s.relatedArtistAlbums.all({
+          artistId,
+          albumId,
+          limit,
+          ...favoriteBinds(favorites)
+        }) as RelatedAlbum[],
+      compilations: ({ artistId, albumId, limit, favorites }) =>
+        s.relatedCompilations.all({
+          artistId,
+          albumId,
+          limit,
+          ...favoriteBinds(favorites)
+        }) as RelatedAlbum[],
+      sameGenre: ({ genre, albumId, limit, favorites }) =>
+        s.relatedSameGenre.all({
+          genre,
+          albumId,
+          limit,
+          ...favoriteBinds(favorites)
+        }) as RelatedAlbum[],
+      sameYear: ({ year, albumId, limit, favorites }) =>
+        s.relatedSameYear.all({
+          year,
+          albumId,
+          limit,
+          ...favoriteBinds(favorites)
+        }) as RelatedAlbum[],
+      sameFolder: ({ rootId, prefix, prefixEnd, albumId, limit, favorites }) =>
+        s.relatedSameFolder.all({
+          rootId,
+          prefix,
+          prefixEnd,
+          albumId,
+          limit,
+          ...favoriteBinds(favorites)
+        }) as RelatedAlbum[]
     }
   }
 

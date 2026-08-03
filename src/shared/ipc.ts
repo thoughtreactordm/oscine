@@ -187,6 +187,10 @@ export interface IpcContract {
    * `null` when the seed track has left the library; sections are omitted
    * rather than returned empty, so an absent strand and a strand with no
    * matches are the same thing to the pane.
+   *
+   * `favorites` is W10-9's bias and is optional in the strict sense: omitting it
+   * gives the same answer this channel gave before the field existed. See
+   * `FavoriteBias` for what the other two values promise.
    */
   'library.getRelated': { request: RelatedQuery; response: RelatedResult | null }
   /**

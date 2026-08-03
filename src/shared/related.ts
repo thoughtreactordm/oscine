@@ -72,8 +72,38 @@ export interface RelatedAlbumSection {
 
 export type RelatedSection = RelatedTrackSection | RelatedAlbumSection
 
+/**
+ * What a related query does about favorites — W10-9, D18.
+ *
+ * One tri-state rather than the separate filter and weighting the spec names,
+ * because the fourth state that pair admits — "only favorites, and put the
+ * favorites first" — is not a mode: under `only` every row is already a
+ * favorite. Three values, three meanings, nothing to explain about combining
+ * them.
+ *
+ * `prefer` is the interesting one: it reorders, it does not narrow. Where a
+ * strand's matches all fit inside `RELATED_SECTION_LIMIT` — the common case in
+ * the deck — it is exactly a permutation and nothing the operator was looking
+ * at goes away. Where a strand has more matches than it may show, reordering
+ * necessarily changes which of them fall inside the cap: promoting a favorite
+ * to the top of a full page pushes something off the bottom. That is not
+ * avoidable and it is not hidden, because `truncated` was already true for
+ * precisely those strands and the pane was already saying it held back rows.
+ *
+ * `only` is the one that genuinely narrows, and it can empty a strand — which
+ * drops the section, per the note on `RelatedResult`.
+ *
+ * Rank, not score. A score invites tuning and there is nothing here to tune it
+ * against, so the order under `prefer` is "favorited first, then exactly what
+ * the strand already ordered by" — stable, explicable, and the same answer
+ * twice.
+ */
+export type FavoriteBias = 'ignore' | 'prefer' | 'only'
+
 export interface RelatedQuery {
   trackId: number
+  /** Defaults to `ignore`, which reproduces the pre-W10-9 result exactly. */
+  favorites?: FavoriteBias
 }
 
 /**

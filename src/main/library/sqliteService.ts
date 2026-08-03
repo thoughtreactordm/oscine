@@ -262,10 +262,14 @@ export class SqliteLibraryService implements LibraryService {
    *
    * The default neighbourhood strategy is applied by `buildRelated` rather than
    * named here, so the day a better one lands there is one call site to change
-   * and it is not this one.
+   * and it is not this one. W10-9's bias is forwarded rather than defaulted here
+   * for the same reason: `undefined` means `ignore`, and `buildRelated` is the
+   * one place that says so.
    */
   async getRelated(query: RelatedQuery): Promise<RelatedResult | null> {
-    return buildRelated(this.store.relatedQueries(), query.trackId)
+    return buildRelated(this.store.relatedQueries(), query.trackId, {
+      favorites: query.favorites
+    })
   }
 
   async listArtists(query: ListFacetsQuery): Promise<ListArtistsResult> {

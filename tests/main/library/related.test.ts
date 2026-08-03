@@ -9,9 +9,11 @@ import {
   folderNeighbourhood,
   tagNeighbourhood,
   type RelatedQueries,
-  type RelatedSeed
+  type RelatedSeed,
+  type StrandInput
 } from '../../../src/main/library/related'
 import type {
+  FavoriteBias,
   RelatedAlbum,
   RelatedAlbumSection,
   RelatedSection,
@@ -238,6 +240,60 @@ describe('buildRelated', () => {
     expect(result!.sections).toHaveLength(1)
     expect(result!.sections[0].detail).toBe('from FTS')
   })
+
+  /**
+   * W10-9. The bias is uninteresting here beyond one thing: that every strand
+   * is told the same one. The queries either honour it or they do not, and that
+   * is the SQL's business a few describes down.
+   */
+  function biasSeenByEveryStrand(options: Parameters<typeof buildRelated>[2]): FavoriteBias[] {
+    const seen: FavoriteBias[] = []
+    const note = (input: StrandInput): [] => {
+      seen.push(input.favorites)
+      return []
+    }
+    buildRelated(
+      queries({
+        albumTracks: note,
+        artistAlbums: note,
+        compilations: note,
+        sameGenre: note,
+        sameYear: note,
+        sameFolder: note
+      }),
+      1,
+      options
+    )
+    return seen
+  }
+
+  it('asks every strand to ignore favorites unless it is told otherwise', () => {
+    // The card's "off by default", at the seam. `BARE_SEED` carries an album, an
+    // artist, a genre, a year and a parent folder, so all six are reached.
+    expect(biasSeenByEveryStrand(undefined)).toEqual(Array<FavoriteBias>(6).fill('ignore'))
+  })
+
+  it('gives every strand the same bias, catalog half and neighbourhood alike', () => {
+    // Not just the two the spec's example names: a pane that preferred
+    // favorites in "more from this artist" and ignored them one heading down
+    // would be describing its own implementation rather than the request.
+    expect(biasSeenByEveryStrand({ favorites: 'prefer' })).toEqual(
+      Array<FavoriteBias>(6).fill('prefer')
+    )
+  })
+
+  it('hands the neighbourhood strategy its page size and bias together', () => {
+    let given: StrandInput | null = null
+    buildRelated(queries(), 1, {
+      limit: 7,
+      favorites: 'only',
+      neighbourhood: (_queries, _seed, params) => {
+        given = params
+        return []
+      }
+    })
+    expect(given).toEqual({ limit: 7, favorites: 'only' })
+  })
 })
 
 describe('tagNeighbourhood', () => {
@@ -248,7 +304,7 @@ describe('tagNeighbourhood', () => {
     const sections = tagNeighbourhood(
       queries({ sameGenre: () => [album(1, 'Should not be asked for')] }),
       { ...BARE_SEED, genre: null, year: null, relPath: '01.flac' },
-      10
+      { limit: 10, favorites: 'ignore' }
     )
     expect(sections).toEqual([])
   })
@@ -261,7 +317,7 @@ describe('tagNeighbourhood', () => {
         sameFolder: () => [album(3, 'F')]
       }),
       BARE_SEED,
-      10
+      { limit: 10, favorites: 'ignore' }
     )
     expect(sections.map((section) => [section.strand, section.detail])).toEqual([
       ['genre', 'IDM'],
@@ -450,5 +506,110 @@ describe('related queries', () => {
 
   it('returns null for a track that is not in the library', () => {
     expect(buildRelated(store.relatedQueries(), 999_999)).toBeNull()
+  })
+
+  /**
+   * W10-9, against the same fixture with two tracks hearted.
+   *
+   * Nested rather than given a database of its own so the "off by default" test
+   * can be the strongest form of itself: the unbiased result is captured before
+   * a single favorite exists and compared against the unbiased result once they
+   * do. A compatibility test run against a library with no favorites in it
+   * would pass on a query that had forgotten the parameter entirely.
+   */
+  describe('the favorite bias', () => {
+    /** Section shape and row identity — everything except the rows' contents. */
+    type Shape = { strand: RelatedStrand; truncated: boolean; rows: number[] }
+
+    function shape(sections: readonly RelatedSection[]): Shape[] {
+      return sections.map((section) => ({
+        strand: section.strand,
+        truncated: section.truncated,
+        rows:
+          section.kind === 'tracks'
+            ? section.tracks.map((track) => track.id)
+            : section.albums.map((album) => album.albumId)
+      }))
+    }
+
+    /** The same shapes with each strand's rows put in a canonical order. */
+    function asSets(shapes: readonly Shape[]): Shape[] {
+      return shapes.map((entry) => ({ ...entry, rows: [...entry.rows].sort((a, b) => a - b) }))
+    }
+
+    function strands(favorites: FavoriteBias): RelatedSection[] {
+      return buildRelated(store.relatedQueries(), seedTrackId, { favorites })!.sections
+    }
+
+    function titlesIn(sections: readonly RelatedSection[], strand: RelatedStrand): string[] {
+      const section = sections.find((candidate) => candidate.strand === strand)
+      if (section === undefined) return []
+      return section.kind === 'tracks'
+        ? section.tracks.map((track) => track.title ?? '')
+        : section.albums.map((album) => album.title)
+    }
+
+    let unhearted: Shape[]
+
+    beforeAll(() => {
+      unhearted = shape(strands('ignore'))
+
+      // `Foil` is on Amber, which the genre strand's year ordering puts second,
+      // so preferring has something visible to do. `Beware the Friendly
+      // Stranger` is on the seed's own album, which is the one strand whose
+      // rows are tracks. Nothing on `Music Has the Right to Children` or on the
+      // compilation is hearted, which is what lets `only` be watched emptying a
+      // strand rather than merely shortening one.
+      opened.db
+        .prepare(
+          `INSERT INTO track_favorites (track_id, favorited_at)
+           SELECT id, 1 FROM tracks WHERE title IN ('Foil', 'Beware the Friendly Stranger')`
+        )
+        .run()
+    })
+
+    afterAll(() => {
+      opened.db.prepare('DELETE FROM track_favorites').run()
+    })
+
+    it('leaves every strand exactly as it was when it is off', () => {
+      expect(shape(strands('ignore'))).toEqual(unhearted)
+    })
+
+    it('reorders rather than narrows under prefer', () => {
+      const preferred = strands('prefer')
+      // Every strand keeps every row it had. True as an equality here because
+      // the fixture is well inside `RELATED_SECTION_LIMIT`; a truncated strand
+      // trades its tail for the promotion, which is what `truncated` says.
+      expect(asSets(shape(preferred))).toEqual(asSets(unhearted))
+
+      // Amber is 1994 and the genre strand reads newest first, so it was second.
+      expect(titlesIn(preferred, 'genre')).toEqual(['Amber', 'Music Has the Right to Children'])
+      // Track 3 ahead of track 2, which is the disc/track ordering overruled.
+      expect(titlesIn(preferred, 'album-tracks')).toEqual([
+        'Beware the Friendly Stranger',
+        'Music Is Math'
+      ])
+      // A strand with nothing hearted in it is untouched, not emptied.
+      expect(titlesIn(preferred, 'artist-albums')).toEqual(['Music Has the Right to Children'])
+    })
+
+    it('narrows to hearted rows under only, dropping the strands it empties', () => {
+      const only = strands('only')
+      // Four of the six go, and they go rather than arriving empty — an empty
+      // section is a heading over a blank space, per the note on `RelatedResult`.
+      expect(only.map((section) => section.strand)).toEqual(['album-tracks', 'genre'])
+      expect(titlesIn(only, 'album-tracks')).toEqual(['Beware the Friendly Stranger'])
+      expect(titlesIn(only, 'genre')).toEqual(['Amber'])
+    })
+
+    it('counts an album as hearted when any of its tracks is', () => {
+      // Amber survives `only` in the *genre* strand on the strength of `Foil`
+      // alone: the track that carried the matching genre tag and the track that
+      // was hearted need not be the same one. And it arrives whole — the album
+      // is filtered, not its tracks, so the count is still both of them.
+      const section = strands('only').find((candidate) => candidate.strand === 'genre')
+      expect(section?.kind === 'albums' ? section.albums.map((a) => a.trackCount) : []).toEqual([2])
+    })
   })
 })
