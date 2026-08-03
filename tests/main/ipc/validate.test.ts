@@ -191,6 +191,7 @@ describe('library browse IPC validation', () => {
 describe('net scope IPC validation', () => {
   it('accepts a scope the build knows how to cancel', () => {
     expect(assertCancelNetScopeRequest({ scope: 'tunedeck' })).toEqual({ scope: 'tunedeck' })
+    expect(assertCancelNetScopeRequest({ scope: 'scrobble' })).toEqual({ scope: 'scrobble' })
   })
 
   it('refuses an unknown scope rather than cancelling nothing quietly', () => {

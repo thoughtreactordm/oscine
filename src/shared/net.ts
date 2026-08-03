@@ -92,7 +92,17 @@ export function netFailed<T>(failure: NetFailure): NetResult<T> {
  * A union rather than a free string so that a scope which no host cancels is a
  * compile error rather than a leak nobody notices.
  */
-export const NET_SCOPES = ['tunedeck'] as const
+export const NET_SCOPES = [
+  'tunedeck',
+  /**
+   * The outbox drain (**D19**). Not a drawer, but the same unit of interest:
+   * quitting, signing out or losing the network should abandon the batch in
+   * flight rather than let it land against a target the operator has just
+   * disconnected. The rows survive — persist first, submit second — so an
+   * abandoned drain costs a retry, never a scrobble.
+   */
+  'scrobble'
+] as const
 
 export type NetScope = (typeof NET_SCOPES)[number]
 
