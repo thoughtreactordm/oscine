@@ -127,6 +127,52 @@ Episodes are downloaded to a machine-local podcasts directory and played from di
 
 *Revisit when*: an operator wants podcasts inside a unified search, or the podcasts directory becomes the largest thing Fermata writes.
 
+### D17 — Listening record: **an uncapped, snapshot-carrying listens log**
+
+A play worth counting and a play worth remembering are different events, and Fermata records both rather than compromising on one definition.
+
+`play_history` stays exactly as it is: capped at 500, skips included, the transport's short-term memory, excluded from D11. A new `listens` table is the long-term one — uncapped, append-only, one row per play that crossed the listened threshold, carrying the accumulated audible milliseconds. Every statistic Fermata reports is a query over it, across any time range, and `tracks.play_count` and `tracks.last_played_at` become maintained caches of it rather than counters in their own right, regenerable at any time from the log.
+
+Each row **snapshots** what it played — title, artist, album, album artist, duration, and its normalized genres in a child table — and holds `track_id` as a nullable `ON DELETE SET NULL` reference rather than a cascading one. This is the load-bearing detail. Migration 009's own note records that "a file *moved* between roots or folders reads as a delete plus an insert," and it accepts losing a trail row to that because a trail row is worth 500 rows of session history. It is not an acceptable price for years of listening: reorganising a folder would silently destroy the thing that cannot be rebuilt, and the operator would find out a year later. The snapshot also makes the log honest about the past — it reports the artist as it was tagged when you listened, not as you have since corrected it.
+
+*Rejected*: counters on `tracks` alone (no storage cost and no new table, but no time dimension at all — "top artists this year" is unanswerable, which is the whole premise); extending `play_history` by lifting its cap (one table instead of two, but it would mean either inflating the trail with skips or starving the stats of them, and the cap is what lets the trail be read whole in one request); cascading deletes to match the trail (smaller rows, consistent with "the library is folders on disk" — and it loses everything the first time roots are reorganised).
+
+*Accepted cost*: rows. One per listen, unbounded, plus one to three genre rows each. A hundred listens a day for ten years is roughly 365k rows — small for SQLite, and stated outright rather than discovered.
+
+*Revisit when*: the log grows large enough that an unindexed dashboard range query misses frame budget, at which point materialized rollups are the answer and the log stays the source.
+
+### D18 — Favorites: **a table of truth, a playlist as its face**
+
+Favoriting is a boolean fact about a track. `track_favorites` is that fact, keyed by `track_id`, one row or none. The pinned, undeletable "My Favorites" entry at the top of the playlist rail is a *view* over it and not its storage.
+
+The operator sees exactly the playlist they asked for. What they do not get is a playlist's semantics where a playlist's semantics are wrong: D12 makes the same track legal twice in a playlist, and a track cannot be favorited twice. Nor does every visible row in a virtualized 100k-track list have to resolve a playlist-membership join to decide whether to draw a filled heart.
+
+Favorites are local and authoritative. Last.fm's loved tracks are never read in, and connecting an account never retroactively pushes what is already there (D19).
+
+*Rejected*: a real `playlists` row behind a `kind` column (inherits W5's virtualized contents pane, reorder and m3u8 export for free — and inherits D12's duplicate rule, which then has to be specially suppressed for exactly one playlist, and makes the per-row heart a join); reusing `tracks.rating` above a threshold (zero migration, already in D11's bundle — and permanently forecloses shipping stars and hearts as independent gestures).
+
+*Accepted cost*: the rail's pinned entry is not an ordinary playlist, so anything W5 adds to playlists — reorder, m3u8 export, crossfade-per-playlist — either grows a second implementation for this one entry or does not apply to it. Export is the one that will be asked for first.
+
+*Revisit when*: a second system-owned collection appears (Recently Added, Most Played), at which point the pinned-view mechanism wants to be a general one rather than a special case with a hardcoded name.
+
+### D19 — Scrobbling: **shipped app key, per-user session, provider-abstracted**
+
+Fermata registers its own Last.fm API account and the `api_key` and shared secret ship in the bundle, extractable from the asar. A durable setting lets an operator paste their own pair to override.
+
+**This does not reopen D14, and D14 was not wrong.** D14 was scoping keyless read-only *metadata* sources for the artist nexus, where an API key buys nothing MusicBrainz and Wikidata give away. A scrobble is a per-user authenticated *write*, and the two credentials do different jobs: the app key says which application is asking and can scrobble for nobody on its own. The user is identified by a **session key** obtained once per install through Last.fm's desktop flow — `auth.getToken`, then the system browser at `last.fm/api/auth/`, where the operator signs into their own account, then `auth.getSession`. It never expires, is per-install, lives in Electron's `safeStorage`, and never enters the settings table, the D11 bundle, or IPC after it is written. An extracted app key buys an attacker a scrobbler that calls itself Fermata. It buys them no account.
+
+**Scrobbling sits outside D14's consent gate (W7-6), deliberately.** Completing a sign-in where you type your own password into your own account's login page is stronger and more specific consent than a checkbox naming a service, and until it completes nothing outbound happens at all. This is the opposite of the Podcast Discover debt, where a tab open reaches Apple before the operator agreed to anything. Stated so it reads as a position rather than an oversight.
+
+Targets sit behind a `ScrobbleTarget` interface in `src/shared`, with Last.fm first and ListenBrainz second. ListenBrainz needs no app key at all — a user token and nothing else — so it is both the cheapest second target and a real test of whether the abstraction leaks Last.fm's signature scheme.
+
+*Rejected*: shipping the key with no override (one fewer setting, and if the key is ever rate-limited or revoked every install breaks at once with no recourse); requiring every operator to register their own API account (D14's objection fully honoured, and it puts `last.fm/api/account/create` in front of a feature users expect to be one click).
+
+*Accepted cost*: a secret in the bundle that a determined reader can extract, and a second credential store (`safeStorage`) alongside the settings table.
+
+*Revisit when*: Last.fm revokes or rate-limits the shipped key, or a third target appears whose auth model `ScrobbleTarget` cannot express without a special case.
+
+Full specification, including schema and the listen-event rules, is the wiki page `fermata-listening-and-scrobbling`.
+
 ## 3. Risks
 
 ### R1 — Decode memory ceiling *(high, architectural)*
@@ -427,6 +473,8 @@ fermata/
 | W7 | Tunedeck — deck panes, artist nexus, metadata cache | W4, W5 |
 | W8 | Settings — declarative registry, durable + view stores, cascade, onboarding | W1, W4 |
 | W9 | Podcasts — subscriptions, downloads, Discover (D16) | W2, W4 |
+| W10 | Listening — listens log, favorites, stats engine, dashboard (D17, D18) | W2, W3, W4, W5 |
+| W11 | Scrobbling — provider contract, Last.fm auth, outbox, Loved push (D19) | W10, W7 |
 
 ## 9. Milestones
 
@@ -451,6 +499,9 @@ fermata/
 **M7 — "Tunedeck"** *(first network milestone)* · D14's opt-in consent gate and main-process fetch layer, `cache.db`, MusicBrainz identity resolution with R5's correction UI, Wikipedia biography, artist relations intersected against the library, outbound links, artist images through the artwork cache.
 *Exit*: with networking declined the deck loses no local function; with it accepted, a cold artist resolves once and a warm one renders fully with the network unplugged.
 
+**M8 — "What you listened to"** · The `listens` log and its threshold rule, favorites end to end, genre normalization, the stats engine and its Tunedeck panes, the Listening dashboard, and Last.fm scrobbling with an offline outbox (D17–D19). Sequenced after M7 because W11 is cheap to build second: D14's main-process fetch layer, its failure taxonomy and its cancel-by-scope machinery already exist by then, so a scrobble client is a client rather than a second HTTP stack.
+*Exit*: a track played past threshold appears in the dashboard **and** on the operator's Last.fm profile; the same track played with the network unplugged appears in the dashboard immediately and on the profile when the network returns; a root reorganised on disk loses no listening history.
+
 **Podcasts (W9, D16) are not on this ladder.** They landed as a self-contained vertical alongside M3–M5 rather than as a milestone of their own, which is why the schema, the view and Discover all arrived at once. The one thing that ladder ordering would have caught is recorded on the D14 note above and owed to W7-6: Discover reaches the network before the consent gate that M7 builds exists.
 
 ## 10. Conventions and assumptions
@@ -466,6 +517,8 @@ fermata/
 
 ## 11. Explicitly out of scope for v1
 
-Streaming-service integration · dockable/scriptable layouts · query language and smart playlists · tag write-back · EQ and DSP chain · noise reduction · visualizers · mobile or remote control · last.fm scrobbling · the Tunedeck artist nexus, which is M7 · upcoming-show listings, which have no source we can obtain (D14).
+Streaming-service integration · dockable/scriptable layouts · query language and smart playlists · tag write-back · EQ and DSP chain · noise reduction · visualizers · mobile or remote control · the Tunedeck artist nexus, which is M7 · upcoming-show listings, which have no source we can obtain (D14).
 
 These are deferrals, not rejections — except upcoming shows, which is a rejection until a listings API exists that does not require partner approval. Query language, tag write-back and the EQ chain are the strongest v2 candidates.
+
+**Scrobbling left this list** under D19, which distinguishes a per-user authenticated write from D14's keyless read-only metadata sources; it is M8. A Wrapped-style retrospective remains out of scope and is deliberately specified separately from the Listening dashboard, which is not one (W10-14).

@@ -100,6 +100,32 @@
         "W2",
         "W4"
       ]
+    },
+    {
+      "tag": "W10",
+      "name": "Listening",
+      "description": "The durable record of what was actually listened to, and everything local that reads it. Owns D17 (the uncapped, snapshot-carrying `listens` log) and D18 (favorites as a table of truth with a pinned playlist as its face), migrations 012–014, and D11's amendment carrying the log across machines. Specified in the wiki page `fermata-listening-and-scrobbling`.\n\nTwo records coexist and must not be confused. `play_history` (migration 009, W7-4) stays exactly as it is: 500 rows, skips included, written at transport-commit, excluded from the export bundle — the transport's short-term memory, so jump-back has somewhere to go. `listens` is the long-term one: uncapped, append-only, written at *departure* only when Last.fm's threshold was crossed (>30s track, and half its duration or four minutes of accumulated *audible* time), carrying the real milliseconds listened. A skipped track produces a trail row and no listen.\n\nThis stream is the card that finally owns `tracks.play_count` and `tracks.last_played_at`, which migration 001 created and `src/shared/history.ts` has deliberately left unwritten ever since. They become maintained caches of the log, regenerable by full aggregation — which is precisely the condition D11's amendment named as its revisit trigger.\n\nThe load-bearing schema detail is `listens.track_id INTEGER REFERENCES tracks(id) ON DELETE SET NULL` with title/artist/album/genre snapshotted onto every row. Migration 009 records that a file moved between roots reads as a delete plus an insert; the trail can afford to lose rows to that and years of listening cannot.\n\nAlso owns genre normalization (`track_genres`, split and casefolded off the free-text `tracks.genre` column), the stats engine — one query shape over four dimensions — the Tunedeck's favorites and play-count panes, and the Listening dashboard. The dashboard is a dashboard, not a retrospective; a Wrapped-style year-in-review is W10-13 and is deliberately unspecified.\n\nDoes NOT own anything that opens a socket. That is W11.",
+      "color": "lime",
+      "order": 9,
+      "cardCounter": 14,
+      "dependsOn": [
+        "W2",
+        "W3",
+        "W4",
+        "W5"
+      ]
+    },
+    {
+      "tag": "W11",
+      "name": "Scrobbling",
+      "description": "Everything that leaves the machine on the strength of a listen. Owns D19 (shipped app key, per-user session key, provider-abstracted), migration 015's outbox, the Last.fm client, and the one-way push of favorites to Loved. Specified in the wiki page `fermata-listening-and-scrobbling`.\n\nD14 rejected last.fm and §11 listed scrobbling as out of scope for v1, and D19 is the argument for why this is a new decision rather than a reopened one: D14 was scoping keyless read-only *metadata* sources for the artist nexus, where an API key buys nothing MusicBrainz gives away. A scrobble is a per-user authenticated *write*, and the operator signs into their own account before a byte leaves the machine. Read D19 before touching this stream — the distinction is the whole basis for its existence.\n\nThe two credentials do different jobs and must not be conflated. The `api_key` and shared secret identify the application, ship in the bundle, are extractable from the asar, and can scrobble for nobody on their own; an operator can override them with their own pair. The **session key** identifies the human, is obtained once per install through Last.fm's desktop flow, never expires, lives in Electron `safeStorage` (currently unused anywhere in `src/`), never crosses IPC after it is written, and never enters the settings table or D11's bundle.\n\nScrobbling deliberately sits **outside** D14's consent gate (W7-6). Typing your own password into your own account's login page is stronger consent than a checkbox naming a service, and nothing outbound happens until it completes. This is the opposite of the Podcast Discover debt.\n\nDepends on W7 for reuse, not for permission: by M7 the main-process fetch layer, `NetFailureKind`, `NetResult<T>` and cancel-by-scope already exist, so the scrobble client is a client rather than a second HTTP stack. `NET_SCOPES` grows `'scrobble'`.\n\nThe outbox is the part most likely to grow bugs and it gets its own card and its own tests. Persist first and submit second, always, even when online — a scrobble that exists only in flight is one lost to a closed laptop lid.",
+      "color": "red",
+      "order": 10,
+      "cardCounter": 8,
+      "dependsOn": [
+        "W10",
+        "W7"
+      ]
     }
   ]
 }
