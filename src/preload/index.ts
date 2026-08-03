@@ -28,7 +28,7 @@ import type {
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
-import type { ListFavoritesQuery } from '@shared/favorites'
+import type { ListFavoriteIdsQuery, ListFavoritesQuery } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
 import type { NetScope } from '@shared/net'
 import type {
@@ -178,7 +178,11 @@ const api = {
      */
     state: (trackIds: readonly number[]) => request('favorites.state', { trackIds }),
     /** The favorites, newest-hearted first. Paged like every other list. */
-    list: (query: ListFavoritesQuery) => request('favorites.list', query)
+    list: (query: ListFavoritesQuery) => request('favorites.list', query),
+    /** The same window, ids only — a Shift-range, or the whole collection to play. */
+    listIds: (query: ListFavoriteIdsQuery) => request('favorites.listIds', query),
+    /** Un-favorites a batch. Not a bulk `toggle`: it says which direction it goes. */
+    remove: (trackIds: readonly number[]) => request('favorites.remove', { trackIds })
   },
   playlists: {
     /** Every playlist, in tab order. */

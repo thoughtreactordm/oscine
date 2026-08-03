@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { FermataError } from '@shared/errors'
-import { MAX_FAVORITE_STATE_IDS, MAX_FAVORITES_PAGE } from '@shared/favorites'
+import {
+  MAX_FAVORITE_IDS_PAGE,
+  MAX_FAVORITE_REMOVE_IDS,
+  MAX_FAVORITE_STATE_IDS,
+  MAX_FAVORITES_PAGE
+} from '@shared/favorites'
 import {
   MAX_FACET_ID_PAGE,
   MAX_FACET_PAGE,
@@ -22,8 +27,10 @@ import {
   assertListTracksQuery,
   assertGetTracksByIdsQuery,
   assertFavoriteStateRequest,
+  assertListFavoriteIdsQuery,
   assertListFavoritesQuery,
   assertOrderTrackIdsQuery,
+  assertRemoveFavoritesRequest,
   assertToggleFavoriteRequest
 } from '../../../src/main/ipc/validate'
 
@@ -250,6 +257,45 @@ describe('favorites IPC validation', () => {
       { offset: 0, limit: 50, searchText: 'reich' }
     ]) {
       expect(() => assertListFavoritesQuery(query)).toThrow(FermataError)
+    }
+  })
+
+  /**
+   * The ids half of the same window, an order of magnitude wider because the
+   * response is integers rather than the display projection — the same trade
+   * `listTrackIds` makes against `listTracks`.
+   */
+  it('takes the same window for the ids, at the id-page ceiling', () => {
+    expect(assertListFavoriteIdsQuery({ offset: 0, limit: MAX_FAVORITE_IDS_PAGE })).toEqual({
+      offset: 0,
+      limit: MAX_FAVORITE_IDS_PAGE
+    })
+
+    for (const query of [
+      { offset: 0 },
+      { limit: 50 },
+      { offset: 0, limit: MAX_FAVORITE_IDS_PAGE + 1 },
+      { offset: 0, limit: 50, sort: 'title' }
+    ]) {
+      expect(() => assertListFavoriteIdsQuery(query)).toThrow(FermataError)
+    }
+  })
+
+  it('holds the batch removal to the same ceiling as the batch lookup', () => {
+    expect(assertRemoveFavoritesRequest({ trackIds: [3, 1, 2] })).toEqual({ trackIds: [3, 1, 2] })
+    expect(assertRemoveFavoritesRequest({ trackIds: [] }).trackIds).toEqual([])
+    // Duplicates pass and the store collapses them, as they do for the lookup:
+    // a selection assembled from overlapping ranges can honestly repeat an id.
+    expect(assertRemoveFavoritesRequest({ trackIds: [7, 7] }).trackIds).toEqual([7, 7])
+
+    for (const request of [
+      { trackIds: 5 },
+      { trackIds: [1, 'two'] },
+      { trackIds: [1, 0] },
+      { trackIds: [1], favorite: false },
+      { trackIds: Array.from({ length: MAX_FAVORITE_REMOVE_IDS + 1 }, (_, index) => index + 1) }
+    ]) {
+      expect(() => assertRemoveFavoritesRequest(request)).toThrow(FermataError)
     }
   })
 })

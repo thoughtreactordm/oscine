@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { MAX_FAVORITE_STATE_IDS, MAX_FAVORITES_PAGE } from '@shared/favorites'
+import {
+  MAX_FAVORITE_IDS_PAGE,
+  MAX_FAVORITE_REMOVE_IDS,
+  MAX_FAVORITE_STATE_IDS,
+  MAX_FAVORITES_PAGE
+} from '@shared/favorites'
 import { MAX_TRACK_ID_PAGE, MAX_TRACK_PAGE } from '@shared/library'
 import { openDatabase } from '../../../src/main/db'
 import { SqliteFavoriteService } from '../../../src/main/favorites/service'
@@ -207,6 +212,134 @@ describe('favorites.list', () => {
   })
 })
 
+describe('favorites.listIds', () => {
+  /**
+   * The Shift-range's half of the window, and the claim that matters is that it
+   * agrees with `list` **including on ties**. The pane resolves a range through
+   * one and draws those rows through the other, so an ordering that agreed only
+   * up to the tie-break would select rows the operator did not point at.
+   */
+  it('answers in exactly the order the display page does', async () => {
+    const favorites = service()
+    const ids: number[] = []
+    for (let i = 0; i < 5; i += 1) {
+      const trackId = seedTrack(`Track ${i}`)
+      ids.push(trackId)
+      await favorites.toggle(trackId)
+      await new Promise((resolve) => setTimeout(resolve, 2))
+    }
+
+    const page = await favorites.list({ limit: 10, offset: 0 })
+    const idPage = await favorites.listIds({ limit: 10, offset: 0 })
+
+    expect(idPage.total).toBe(5)
+    expect(idPage.ids).toEqual(page.tracks.map((track) => track.id))
+    expect(idPage.ids).toEqual([...ids].reverse())
+  })
+
+  /**
+   * Two hearts in the same millisecond needs a keyboard repeat rather than a
+   * human, but an unstable `ORDER BY` across a paged read is how a row appears
+   * on page two having already been drawn on page one. The tie-break is
+   * `track_id DESC` in both statements; this is the assertion that keeps them
+   * from drifting apart.
+   */
+  it('breaks ties the same way `list` does', () => {
+    const first = seedTrack('First')
+    const second = seedTrack('Second')
+    db.prepare(
+      'INSERT INTO track_favorites (track_id, favorited_at) VALUES (?, 5000), (?, 5000)'
+    ).run(first, second)
+
+    const store = service()
+    return Promise.all([
+      store.list({ limit: 10, offset: 0 }),
+      store.listIds({ limit: 10, offset: 0 })
+    ]).then(([page, idPage]) => {
+      expect(idPage.ids).toEqual([second, first])
+      expect(idPage.ids).toEqual(page.tracks.map((track) => track.id))
+    })
+  })
+
+  it('reports the whole count with a window over part of it', async () => {
+    const favorites = service()
+    for (let i = 0; i < 3; i += 1) await favorites.toggle(seedTrack(`Track ${i}`))
+
+    const idPage = await favorites.listIds({ limit: 1, offset: 1 })
+
+    expect(idPage.total).toBe(3)
+    expect(idPage.ids).toHaveLength(1)
+  })
+
+  it('is empty on a library nobody has hearted anything in', async () => {
+    seedTrack()
+    expect(await service().listIds({ limit: 10, offset: 0 })).toEqual({ ids: [], total: 0 })
+  })
+})
+
+describe('favorites.remove', () => {
+  it('un-favorites a batch in one call', async () => {
+    const favorites = service()
+    const ids: number[] = []
+    for (let i = 0; i < 4; i += 1) {
+      const trackId = seedTrack(`Track ${i}`)
+      ids.push(trackId)
+      await favorites.toggle(trackId)
+    }
+
+    const result = await favorites.remove([ids[0]!, ids[2]!])
+
+    expect(result).toEqual({ removed: 2 })
+    expect(favoriteRows().map((row) => row.track_id)).toEqual([ids[1]!, ids[3]!])
+  })
+
+  /**
+   * Deliberately not a bulk `toggle`. Over a selection, "the opposite of what
+   * each row currently holds" would leave the set half hearted and half not
+   * depending on where each row started — which is not a gesture anyone makes.
+   */
+  it('removes rather than flips, whatever state each row was in', async () => {
+    const favorites = service()
+    const hearted = seedTrack('Hearted')
+    const plain = seedTrack('Plain')
+    await favorites.toggle(hearted)
+
+    const result = await favorites.remove([hearted, plain])
+
+    // One row deleted, and the un-favorited track is *not* favorited by having
+    // been named. A toggle would have hearted it.
+    expect(result).toEqual({ removed: 1 })
+    expect(favoriteRows()).toEqual([])
+  })
+
+  it('is idempotent, and says so in the count', async () => {
+    const favorites = service()
+    const trackId = seedTrack()
+    await favorites.toggle(trackId)
+
+    expect(await favorites.remove([trackId])).toEqual({ removed: 1 })
+    expect(await favorites.remove([trackId])).toEqual({ removed: 0 })
+    expect(favoriteRows()).toEqual([])
+  })
+
+  it('ignores ids that are not tracks, and ids sent twice', async () => {
+    const favorites = service()
+    const trackId = seedTrack()
+    await favorites.toggle(trackId)
+
+    expect(await favorites.remove([trackId, trackId, 999_999])).toEqual({ removed: 1 })
+    expect(favoriteRows()).toEqual([])
+  })
+
+  it('does nothing at all on an empty batch', async () => {
+    const favorites = service()
+    await favorites.toggle(seedTrack())
+
+    expect(await favorites.remove([])).toEqual({ removed: 0 })
+    expect(favoriteRows()).toHaveLength(1)
+  })
+})
+
 describe('the CASCADE', () => {
   /**
    * The load-bearing line of migration 015, and the deliberate difference from
@@ -261,5 +394,9 @@ describe('the page ceilings', () => {
   it('match their neighbours in the library contract', () => {
     expect(MAX_FAVORITE_STATE_IDS).toBe(MAX_TRACK_ID_PAGE)
     expect(MAX_FAVORITES_PAGE).toBe(MAX_TRACK_PAGE)
+    expect(MAX_FAVORITE_IDS_PAGE).toBe(MAX_TRACK_ID_PAGE)
+    // The removal takes what a resolved selection can hold, so a selection that
+    // can legally be *asked about* can legally be removed.
+    expect(MAX_FAVORITE_REMOVE_IDS).toBe(MAX_FAVORITE_STATE_IDS)
   })
 })

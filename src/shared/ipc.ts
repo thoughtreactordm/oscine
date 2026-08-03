@@ -12,8 +12,12 @@ import type {
   FavoriteState,
   FavoriteStateRequest,
   FavoriteStateResult,
+  ListFavoriteIdsQuery,
+  ListFavoriteIdsResult,
   ListFavoritesQuery,
   ListFavoritesResult,
+  RemoveFavoritesRequest,
+  RemoveFavoritesResult,
   ToggleFavoriteRequest
 } from './favorites'
 import type { ListPlayHistoryQuery, PlayEntry } from './history'
@@ -308,6 +312,25 @@ export interface IpcContract {
    * explaining.
    */
   'favorites.list': { request: ListFavoritesQuery; response: ListFavoritesResult }
+  /**
+   * The same window, ids only — what a Shift-range in the rail's pane resolves
+   * through, and how "play My Favorites" reads the whole collection.
+   *
+   * The neighbour of `playlists.listEntryIds`, and separate from
+   * `favorites.list` for its reason: a range selection spans rows the pane never
+   * loaded, and resolving it must not be able to fill the page cache behind the
+   * viewport's back.
+   */
+  'favorites.listIds': { request: ListFavoriteIdsQuery; response: ListFavoriteIdsResult }
+  /**
+   * Un-favorites a batch, in one transaction.
+   *
+   * Not a bulk `toggle`: over a selection, "the opposite of what each row holds"
+   * is not a gesture anyone makes. Removing a row from the pinned rail entry is
+   * un-hearting it — the same fact, said from the other end — so this is what
+   * that removal calls, and it says which direction it goes.
+   */
+  'favorites.remove': { request: RemoveFavoritesRequest; response: RemoveFavoritesResult }
   /**
    * Every playlist, in tab order. Unpaged: these are tabs, and a user who has
    * made a thousand of them has a different problem than pagination solves.
@@ -676,6 +699,8 @@ export const IPC_CHANNELS = [
   'favorites.toggle',
   'favorites.state',
   'favorites.list',
+  'favorites.listIds',
+  'favorites.remove',
   'playlists.list',
   'playlists.create',
   'playlists.rename',

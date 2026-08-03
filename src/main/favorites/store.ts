@@ -2,8 +2,11 @@ import type Database from 'better-sqlite3'
 import type {
   FavoriteState,
   FavoriteStateResult,
+  ListFavoriteIdsQuery,
+  ListFavoriteIdsResult,
   ListFavoritesQuery,
-  ListFavoritesResult
+  ListFavoritesResult,
+  RemoveFavoritesResult
 } from '@shared/favorites'
 import { TRACK_JOINS, TRACK_PROJECTION, toTrack, type TrackRow } from '../library/store'
 
@@ -28,6 +31,8 @@ export class FavoriteStore {
     remove: Database.Statement<[number]>
     state: Database.Statement<{ ids: string }>
     list: Database.Statement<{ limit: number; offset: number }>
+    listIds: Database.Statement<{ limit: number; offset: number }>
+    removeMany: Database.Statement<{ ids: string }>
     count: Database.Statement<[]>
   }
 
@@ -80,6 +85,22 @@ export class FavoriteStore {
         ${TRACK_JOINS}
         ORDER BY f.favorited_at DESC, f.track_id DESC
         LIMIT @limit OFFSET @offset
+      `),
+      // The same window and the same tie-break, read off the favorites table
+      // alone. No join at all: a `JOIN tracks` here would exist only to prove
+      // the row still resolves, and `CASCADE` already guarantees it does.
+      listIds: db.prepare(`
+        SELECT f.track_id AS trackId
+        FROM track_favorites f
+        ORDER BY f.favorited_at DESC, f.track_id DESC
+        LIMIT @limit OFFSET @offset
+      `),
+      // One statement whatever the batch size, for `state`'s reason. Driven
+      // into the primary key from `json_each`, so removing four hundred rows is
+      // four hundred b-tree probes rather than a scan.
+      removeMany: db.prepare(`
+        DELETE FROM track_favorites
+        WHERE track_id IN (SELECT value FROM json_each(@ids))
       `),
       count: db.prepare('SELECT count(*) AS total FROM track_favorites')
     }
@@ -154,5 +175,39 @@ export class FavoriteStore {
       offset: query.offset
     }) as TrackRow[]
     return { tracks: rows.map(toTrack), total }
+  }
+
+  /**
+   * The same page as `list`, as ids.
+   *
+   * Shares `list`'s two-part `ORDER BY` verbatim rather than approximating it,
+   * because the two are read against each other: the pane resolves a Shift-range
+   * through this and then draws those rows through that, and an ordering that
+   * agreed only up to ties would select rows the operator did not point at.
+   */
+  listIds(query: ListFavoriteIdsQuery): ListFavoriteIdsResult {
+    const { total } = this.statements.count.get() as { total: number }
+    if (total === 0) return { ids: [], total: 0 }
+
+    const rows = this.statements.listIds.all({
+      limit: query.limit,
+      offset: query.offset
+    }) as { trackId: number }[]
+    return { ids: rows.map((row) => row.trackId), total }
+  }
+
+  /**
+   * Un-favorites a batch.
+   *
+   * Ids that were not favorited — or are not tracks at all — are simply not
+   * deleted, which is why the result is a count rather than a per-id answer. A
+   * removal is idempotent by nature: asking twice and getting `4` then `0` is
+   * the honest report of what happened, not a failure to be raised.
+   */
+  removeMany(trackIds: readonly number[]): RemoveFavoritesResult {
+    const unique = [...new Set(trackIds)]
+    if (unique.length === 0) return { removed: 0 }
+    const { changes } = this.statements.removeMany.run({ ids: JSON.stringify(unique) })
+    return { removed: changes }
   }
 }

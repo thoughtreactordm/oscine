@@ -31,6 +31,7 @@ import {
   assertListEpisodesQuery,
   assertListFacetIdsQuery,
   assertListFacetsQuery,
+  assertListFavoriteIdsQuery,
   assertListFavoritesQuery,
   assertListPlayHistoryQuery,
   assertListPlaylistEntriesQuery,
@@ -52,6 +53,7 @@ import {
   assertRecord,
   assertRecordListenRequest,
   assertRemoveEntriesRequest,
+  assertRemoveFavoritesRequest,
   assertResetSettingsRequest,
   assertSetSettingRequest,
   assertTabIndex,
@@ -231,6 +233,12 @@ export function registerIpcHandlers(
   )
 
   handle('favorites.list', (request) => favorites.list(assertListFavoritesQuery(request)))
+
+  handle('favorites.listIds', (request) => favorites.listIds(assertListFavoriteIdsQuery(request)))
+
+  handle('favorites.remove', (request) =>
+    favorites.remove(assertRemoveFavoritesRequest(request).trackIds)
+  )
 
   handle('playlists.list', () => playlists.list())
 

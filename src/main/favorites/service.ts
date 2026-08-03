@@ -2,8 +2,11 @@ import type Database from 'better-sqlite3'
 import type {
   FavoriteState,
   FavoriteStateResult,
+  ListFavoriteIdsQuery,
+  ListFavoriteIdsResult,
   ListFavoritesQuery,
-  ListFavoritesResult
+  ListFavoritesResult,
+  RemoveFavoritesResult
 } from '@shared/favorites'
 import { FavoriteStore } from './store'
 
@@ -28,6 +31,10 @@ export interface FavoriteService {
   state(trackIds: readonly number[]): Promise<FavoriteStateResult>
   /** A page of favorites as display rows, newest-hearted first. */
   list(query: ListFavoritesQuery): Promise<ListFavoritesResult>
+  /** The same page as ids, for a range selection and for reading the whole set. */
+  listIds(query: ListFavoriteIdsQuery): Promise<ListFavoriteIdsResult>
+  /** Un-favorites a batch. Ids that were not favorited are simply not removed. */
+  remove(trackIds: readonly number[]): Promise<RemoveFavoritesResult>
 }
 
 export interface SqliteFavoriteDeps {
@@ -51,5 +58,13 @@ export class SqliteFavoriteService implements FavoriteService {
 
   async list(query: ListFavoritesQuery): Promise<ListFavoritesResult> {
     return this.store.list(query)
+  }
+
+  async listIds(query: ListFavoriteIdsQuery): Promise<ListFavoriteIdsResult> {
+    return this.store.listIds(query)
+  }
+
+  async remove(trackIds: readonly number[]): Promise<RemoveFavoritesResult> {
+    return this.store.removeMany(trackIds)
   }
 }

@@ -77,3 +77,49 @@ export interface ListFavoritesResult {
 
 /** Display rows, so the same ceiling as `listTracks`. */
 export const MAX_FAVORITES_PAGE = MAX_TRACK_PAGE
+
+/**
+ * The same window, ids only — what a Shift-range in the rail's pane resolves
+ * through.
+ *
+ * Separate from `ListFavoritesQuery` for the reason `listTrackIds` is separate
+ * from `listTracks`: a range selection routinely spans rows the pane never
+ * loaded, and it must be visibly unable to put display rows into the page cache
+ * on its way past. Same order, an order of magnitude more of it per request,
+ * because the response is integers rather than the wide projection.
+ */
+export type ListFavoriteIdsQuery = ListFavoritesQuery
+
+export interface ListFavoriteIdsResult {
+  readonly ids: number[]
+  /** Total favorited tracks, ignoring offset and limit. Same value `list` reports. */
+  readonly total: number
+}
+
+/** Ids, so the same ceiling as `listTrackIds`. */
+export const MAX_FAVORITE_IDS_PAGE = MAX_TRACK_ID_PAGE
+
+/**
+ * Un-favorites a batch in one transaction.
+ *
+ * `toggle` is the gesture and this is not a bulk version of it: a toggle asks
+ * for the opposite of whatever each row currently holds, which over a selection
+ * would leave the set half hearted and half not depending on where it started.
+ * This says *remove*, so a selection of four hundred rows in the rail's pane
+ * comes out as four hundred rows removed and no argument about which way each
+ * one was pointing.
+ *
+ * There is no batch *add*. Hearting is one click on one row, and a verb that
+ * favorited a selection wholesale would be a gesture nothing in the UI makes.
+ */
+export interface RemoveFavoritesRequest {
+  readonly trackIds: readonly number[]
+}
+
+export interface RemoveFavoritesResult {
+  /** Rows actually deleted, which is at most `trackIds.length` and may be fewer. */
+  readonly removed: number
+}
+
+/** The same ceiling as the batch state lookup, and for the same reason. */
+export const MAX_FAVORITE_REMOVE_IDS = MAX_TRACK_ID_PAGE

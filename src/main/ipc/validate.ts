@@ -10,10 +10,14 @@ import type { GetArtistBiographyRequest } from '@shared/biography'
 import type { GetArtistImageRequest } from '@shared/artistImage'
 import { FermataError } from '@shared/errors'
 import {
+  MAX_FAVORITE_IDS_PAGE,
+  MAX_FAVORITE_REMOVE_IDS,
   MAX_FAVORITE_STATE_IDS,
   MAX_FAVORITES_PAGE,
   type FavoriteStateRequest,
+  type ListFavoriteIdsQuery,
   type ListFavoritesQuery,
+  type RemoveFavoritesRequest,
   type ToggleFavoriteRequest
 } from '@shared/favorites'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
@@ -296,7 +300,7 @@ export function assertGetTracksByIdsQuery(value: unknown): GetTracksByIdsQuery {
 }
 
 /**
- * D18's three requests.
+ * D18's requests.
  *
  * `assertOnlyKeys` on all of them, like every other query here: a request
  * carrying a field this build does not know about is one written against a
@@ -341,6 +345,41 @@ export function assertListFavoritesQuery(value: unknown): ListFavoritesQuery {
   const raw = assertRecord(value, 'query')
   assertOnlyKeys(raw, ['offset', 'limit'])
   return assertWindow(raw, MAX_FAVORITES_PAGE)
+}
+
+/**
+ * The same window, ids only, held to `listTrackIds`' ceiling.
+ *
+ * An order of magnitude above the display page for the reason that one is: the
+ * response is a flat array of integers, so a ten-thousand-row Shift-range
+ * resolves in one round trip rather than ten.
+ */
+export function assertListFavoriteIdsQuery(value: unknown): ListFavoriteIdsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['offset', 'limit'])
+  return assertWindow(raw, MAX_FAVORITE_IDS_PAGE)
+}
+
+/**
+ * The batch removal, bounded like the batch state lookup.
+ *
+ * Same ceiling and same shape, because the two take the same kind of argument
+ * from the same kind of caller — a selection resolved through `favorites.listIds`
+ * — and a smaller number here would make a selection that could legally be
+ * *asked about* one that could not legally be removed.
+ */
+export function assertRemoveFavoritesRequest(value: unknown): RemoveFavoritesRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds'])
+
+  const trackIds = raw.trackIds
+  if (!Array.isArray(trackIds)) invalid('trackIds must be an array.')
+  if (trackIds.length > MAX_FAVORITE_REMOVE_IDS) {
+    invalid(`trackIds must not exceed ${MAX_FAVORITE_REMOVE_IDS} entries.`)
+  }
+  for (const id of trackIds) assertPositiveInt(id, 'trackIds entry')
+
+  return { trackIds: trackIds as number[] }
 }
 
 /**

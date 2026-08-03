@@ -11,7 +11,7 @@ import type {
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
-import type { ListFavoritesQuery } from '@shared/favorites'
+import type { ListFavoriteIdsQuery, ListFavoritesQuery } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
 import type { NetScope } from '@shared/net'
 import type {
@@ -118,7 +118,11 @@ export const favorites = {
   toggle: (trackId: number) => unwrap(window.fermata.favorites.toggle(trackId)),
   /** Which of these track ids are favorited — for ids that did not arrive on a `Track`. */
   state: (trackIds: readonly number[]) => unwrap(window.fermata.favorites.state(trackIds)),
-  list: (query: ListFavoritesQuery) => unwrap(window.fermata.favorites.list(query))
+  list: (query: ListFavoritesQuery) => unwrap(window.fermata.favorites.list(query)),
+  /** The same window, ids only — a Shift-range, or the whole collection to play. */
+  listIds: (query: ListFavoriteIdsQuery) => unwrap(window.fermata.favorites.listIds(query)),
+  /** Un-favorites a batch. Removing a row from the pinned rail entry is this. */
+  remove: (trackIds: readonly number[]) => unwrap(window.fermata.favorites.remove(trackIds))
 }
 
 export const playlists = {
