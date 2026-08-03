@@ -1,6 +1,6 @@
 ---
 taskId: 01KZ40H1BK77657BBTKKKAQD9B
-title: 'Migration 012 — genre normalization: `track_genres` and the splitter'
+title: 'Migration 013 — genre normalization: `track_genres` and the splitter'
 status: todo
 priority: high
 labels:
@@ -11,9 +11,11 @@ workstream: W10
 workstreamId: W10-1
 order: 43
 created: '2026-08-03T14:30:29.491Z'
-updated: '2026-08-03T14:30:29.491Z'
+updated: '2026-08-03T17:21:21.617Z'
 ---
-Spec: wiki `fermata-listening-and-scrobbling` → Data model → Migration 012.
+Spec: wiki `fermata-listening-and-scrobbling` → Data model → Migration 013.
+
+**Renumbered from 012.** W11-2's scrobble outbox took 012 because it depends on none of W10's tables and `migrate` refuses a registry with a hole in it. Nothing was released, so the numbers were free to move; the wiki's Data model section records the same thing.
 
 `tracks.genre` (migration 010) is a free `TEXT` column holding whatever the tagger wrote, so `Rock`, `rock` and `Rock; Alternative` are three genres. Genre stats over that are close to noise. This card adds a derived join table so grouping has an identity to group on.
 

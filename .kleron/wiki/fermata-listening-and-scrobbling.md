@@ -247,7 +247,14 @@ paragraph that follows it:
 
 ## Data model
 
-### Migration 012 — genre normalization
+The four migrations below are listed in the order they were specified, which is
+no longer their version order. The scrobble outbox landed first, as **012**: it
+has no foreign keys and depends on none of the other three, and `migrate`
+refuses a registry with a hole in it, so giving it 015 would have meant building
+W11-2 against a schema that could not be applied. Nothing was released, so the
+numbers were still free to move.
+
+### Migration 013 — genre normalization
 
 `tracks.genre` is whatever the tagger wrote. On a real library that means `Rock`,
 `rock` and `Rock; Alternative` are three distinct genres, which makes genre stats
@@ -283,7 +290,7 @@ spelled that way. Splitting is right far more often than not, and an operator
 alias map — recorded as a debt below, not scoped anywhere yet — is where the
 rest would be fixed.
 
-### Migration 013 — the listens log
+### Migration 014 — the listens log
 
 ```sql
 CREATE TABLE listens (
@@ -340,7 +347,7 @@ of rows is cheap. They are the first thing to add when a query is measured slow,
 and adding them before then would be three indexes on the fastest-growing table
 in the database on a guess.
 
-### Migration 014 — favorites
+### Migration 015 — favorites
 
 ```sql
 CREATE TABLE track_favorites (
@@ -358,7 +365,7 @@ folder move is a mild annoyance the operator fixes with one click, where losing
 listening history is unrecoverable. D11 carries favorites across machines, which
 is where the real durability lives.
 
-### Migration 015 — the scrobble outbox (W11)
+### Migration 012 — the scrobble outbox (W11)
 
 ```sql
 CREATE TABLE scrobble_queue (
@@ -626,9 +633,9 @@ export bundle — which is precisely where a credential must never be.
 2. **A hard kill loses an in-flight listen.** Accepted for the one-write design;
    see "The listen event".
 3. **`/` splits genres that legitimately contain it.** Accepted for migration
-   012; an operator alias map is the fix and is not scoped here.
+   013; an operator alias map is the fix and is not scoped here.
 4. **The pinned Favorites entry inherits nothing from W5.** m3u8 export of
    favorites will be asked for and does not exist.
-5. **No rollup indexes.** Deliberate; see migration 013. Revisit on measurement,
+5. **No rollup indexes.** Deliberate; see migration 014. Revisit on measurement,
    not on suspicion.
 6. **Genre display spelling is first-seen-wins.** Stable and arbitrary.

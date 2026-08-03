@@ -1,6 +1,6 @@
 ---
 taskId: 01KZ40K4S52HJ267CZEWGD7QH1
-title: 'Migration 014 — favorites: the table, the IPC surface, and the heart'
+title: 'Migration 015 — favorites: the table, the IPC surface, and the heart'
 status: todo
 priority: high
 labels:
@@ -12,7 +12,7 @@ workstream: W10
 workstreamId: W10-6
 order: 48
 created: '2026-08-03T14:31:38.533Z'
-updated: '2026-08-03T14:31:38.533Z'
+updated: '2026-08-03T17:20:57.416Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → D18 and → Favorites.
 

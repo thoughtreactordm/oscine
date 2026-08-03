@@ -15,6 +15,20 @@
  * - An oversized batch is `rejected` outright instead of being split. The
  *   contract says the caller owns the limit; a stub that quietly cleaned up
  *   after a caller which ignored it would be teaching the wrong lesson.
+ *
+ * ## Scripting failures
+ *
+ * By default every call succeeds, which is enough to prove a drain worker sends
+ * things and not much else. `queueSubmit`, `queueLove` and `queueUnlove` push
+ * responders onto a FIFO consumed one per call, falling back to the accepting
+ * default once it empties — so a test says "the first batch is rate-limited and
+ * the second is fine" as two lines rather than as a bespoke fake.
+ *
+ * The responders are ordinary closures, which is what makes the account-terminal
+ * case expressible: a responder that calls `setConnected(false)` before
+ * returning a failure is exactly what a real target does when its session key is
+ * refused, and it lets the drain worker be tested against that behaviour without
+ * this file knowing what a session key is.
  */
 
 import { netFailed, netOk, type NetResult } from '@shared/net'
@@ -40,6 +54,14 @@ export interface StubScrobbleCalls {
   readonly disconnected: number
 }
 
+/** Decides one `submit` call's answer. May have side effects; tests rely on it. */
+export type StubSubmitResponder = (
+  batch: readonly ScrobbleSubmission[]
+) => NetResult<ScrobbleSubmissionResult[]>
+
+/** Decides one `love` or `unlove` call's answer. */
+export type StubLoveResponder = (payload: LovePayload) => NetResult<void>
+
 export interface StubScrobbleTargetOptions {
   /** Which target it stands in for. `lastfm` by default. */
   id?: ScrobbleTargetId
@@ -52,6 +74,18 @@ export interface StubScrobbleTargetOptions {
 
 export interface StubScrobbleTarget extends ScrobbleTarget {
   readonly calls: StubScrobbleCalls
+  /** Script the next `submit` answers, one responder per call, in order. */
+  queueSubmit(...responders: StubSubmitResponder[]): void
+  queueLove(...responders: StubLoveResponder[]): void
+  queueUnlove(...responders: StubLoveResponder[]): void
+  /**
+   * Connect or disconnect without going through `authorize`/`disconnect`.
+   *
+   * So that a responder can stand a target down mid-call — the shape of a
+   * refused credential — without that also counting as an operator gesture in
+   * `calls.disconnected`.
+   */
+  setConnected(connected: boolean): void
 }
 
 export function createStubScrobbleTarget(
@@ -67,6 +101,10 @@ export function createStubScrobbleTarget(
   }
 
   let connected = options.connected ?? true
+
+  const submitResponders: StubSubmitResponder[] = []
+  const loveResponders: StubLoveResponder[] = []
+  const unloveResponders: StubLoveResponder[] = []
 
   const calls: {
     nowPlaying: NowPlayingPayload[]
@@ -95,6 +133,18 @@ export function createStubScrobbleTarget(
     capabilities,
     calls,
     connection,
+    queueSubmit: (...responders: StubSubmitResponder[]): void => {
+      submitResponders.push(...responders)
+    },
+    queueLove: (...responders: StubLoveResponder[]): void => {
+      loveResponders.push(...responders)
+    },
+    queueUnlove: (...responders: StubLoveResponder[]): void => {
+      unloveResponders.push(...responders)
+    },
+    setConnected: (next: boolean): void => {
+      connected = next
+    },
     authorize: async (): Promise<NetResult<ScrobbleConnection>> => {
       calls.authorized += 1
       connected = true
@@ -116,16 +166,23 @@ export function createStubScrobbleTarget(
           message: `This target takes ${capabilities.batchLimit} scrobbles at a time, not ${batch.length}.`
         })
       }
+      // Recorded before the responder runs: a scripted failure is a call that
+      // was made and answered badly, which is a different thing from the
+      // oversized batch above that never left the caller.
       calls.submitted.push([...batch])
+
+      const responder = submitResponders.shift()
+      if (responder !== undefined) return responder(batch)
+
       return netOk(batch.map((item) => ({ id: item.id, accepted: true as const })))
     },
     love: async (payload: LovePayload): Promise<NetResult<void>> => {
       calls.loved.push(payload)
-      return netOk(undefined)
+      return loveResponders.shift()?.(payload) ?? netOk(undefined)
     },
     unlove: async (payload: LovePayload): Promise<NetResult<void>> => {
       calls.unloved.push(payload)
-      return netOk(undefined)
+      return unloveResponders.shift()?.(payload) ?? netOk(undefined)
     }
   }
 }

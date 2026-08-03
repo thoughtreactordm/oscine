@@ -10,6 +10,7 @@ import { themeKeys } from './008-theme-keys'
 import { playHistory } from './009-play-history'
 import { trackGenre } from './010-track-genre'
 import { artistMbid } from './011-artist-mbid'
+import { scrobbleOutbox } from './012-scrobble-outbox'
 
 /**
  * Every migration, in order.
@@ -31,5 +32,6 @@ export const MIGRATIONS: readonly Migration[] = [
   themeKeys,
   playHistory,
   trackGenre,
-  artistMbid
+  artistMbid,
+  scrobbleOutbox
 ]

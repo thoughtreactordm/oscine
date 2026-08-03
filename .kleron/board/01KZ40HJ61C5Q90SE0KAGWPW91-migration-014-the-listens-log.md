@@ -1,6 +1,6 @@
 ---
 taskId: 01KZ40HJ61C5Q90SE0KAGWPW91
-title: Migration 013 — the listens log
+title: Migration 014 — the listens log
 status: todo
 priority: high
 labels:
@@ -12,9 +12,11 @@ dependsOn:
   - 01KZ40H1BK77657BBTKKKAQD9B
 order: 44
 created: '2026-08-03T14:30:46.721Z'
-updated: '2026-08-03T14:30:46.721Z'
+updated: '2026-08-03T17:21:36.975Z'
 ---
-Spec: wiki `fermata-listening-and-scrobbling` → D17 and → Data model → Migration 013.
+Spec: wiki `fermata-listening-and-scrobbling` → D17 and → Data model → Migration 014.
+
+**Renumbered from 013.** W11-2's scrobble outbox took 012 because it depends on none of W10's tables and `migrate` refuses a registry with a hole in it. Nothing was released, so the numbers were free to move.
 
 The durable record every statistic is computed from. Schema only — the event that writes it is W10-3/W10-4.
 
