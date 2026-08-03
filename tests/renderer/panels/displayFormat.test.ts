@@ -14,6 +14,7 @@ import {
   formatDurationMs,
   formatFileSize,
   formatListeningTime,
+  formatPlays,
   TRACK_DENSITIES,
   TRACK_DENSITY_KEYS,
   trackRowPx
@@ -223,5 +224,17 @@ describe('formatListeningTime', () => {
     expect(formatListeningTime(-1)).toBe('—')
     expect(formatListeningTime(Number.NaN)).toBe('—')
     expect(formatListeningTime(Number.POSITIVE_INFINITY)).toBe('—')
+  })
+})
+
+describe('formatPlays', () => {
+  it('carries the noun, and agrees with itself about one', () => {
+    expect(formatPlays(0)).toBe('0 plays')
+    expect(formatPlays(1)).toBe('1 play')
+    expect(formatPlays(2)).toBe('2 plays')
+  })
+
+  it('groups a five-figure count, which this library can reach', () => {
+    expect(formatPlays(12_043)).toBe(`${(12_043).toLocaleString()} plays`)
   })
 })

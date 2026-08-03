@@ -1,5 +1,5 @@
 import type { StatsScopeBy, StatsSummary } from '@shared/stats'
-import { formatListeningTime } from '../displayFormat'
+import { formatListeningTime, formatPlays } from '../displayFormat'
 
 /**
  * What the Listening groups draw, and the decisions behind each line.
@@ -89,18 +89,6 @@ export interface ListeningRow {
   span: { first: number; last: number } | null
   /** Why there is no total, or `null` when there is one. */
   absent: string | null
-}
-
-/**
- * Plays, written out, because `42` alone on a deck is a number without a noun.
- *
- * Grouped by the platform's locale for the same reason every other count in the
- * app is: a five-figure play count is reachable in this library's lifetime and
- * `12043 plays` is harder to read than `12,043 plays` in every locale that
- * groups at all.
- */
-export function formatPlays(listens: number): string {
-  return `${listens.toLocaleString()} ${listens === 1 ? 'play' : 'plays'}`
 }
 
 /**

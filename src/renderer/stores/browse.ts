@@ -7,6 +7,7 @@ import { collectPagedIds } from '@renderer/panels/pagedIds'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { useTrackListStore } from '@renderer/stores/trackList'
 import {
+  isSearchable,
   MAX_TRACK_ID_PAGE,
   MIN_SEARCH_LENGTH,
   plainBrowseFilters,
@@ -192,9 +193,7 @@ export const useBrowseStore = defineStore('browse', () => {
 
   function searchableText(value: string): string | null {
     const trimmed = value.trim()
-    return trimmed.split(/\s+/u).some((term) => [...term].length >= MIN_SEARCH_LENGTH)
-      ? trimmed
-      : null
+    return isSearchable(trimmed) ? trimmed : null
   }
 
   watch(searchInput, () => {
@@ -250,6 +249,38 @@ export const useBrowseStore = defineStore('browse', () => {
 
     albums.clearSelection()
     artists.selectOnlyId(artistId)
+  }
+
+  /**
+   * Narrows the library to a phrase, named from outside the sidebar.
+   *
+   * `revealArtist`'s neighbour, and it clears the same things above it for the
+   * same reason: a reveal that respected the current predicate would silently do
+   * nothing whenever the target sits outside it, and failing invisibly is the one
+   * outcome worse than either alternative. Asking to see something is asking to
+   * see it.
+   *
+   * The two are separate verbs rather than one, because they carry different
+   * kinds of certainty. `revealArtist` names a row in the facet pane and is
+   * exact. This names *text*, and the Listening dashboard sends it because the
+   * thing it has to reveal — a snapshot of how an artist was tagged the day you
+   * played them — is not a facet id and cannot honestly be resolved into one
+   * (see `revealTextFor`). Putting the phrase in the search box is what makes
+   * the approximation visible and editable rather than hidden inside a query.
+   *
+   * `activeSearch` is set here rather than left to the debounce, because nobody
+   * is typing: the phrase arrived whole. The watcher still fires and still
+   * re-settles on the same value 250 ms later, which changes nothing except a
+   * brief spinner — cheaper than a second path into the same state.
+   */
+  function revealSearch(text: string): void {
+    rootId.value = null
+    artists.clearSelection()
+    albums.clearSelection()
+
+    searchInput.value = text
+    activeSearch.value = searchableText(text)
+    searchPending.value = false
   }
 
   /**
@@ -334,6 +365,7 @@ export const useBrowseStore = defineStore('browse', () => {
     facetFilters,
     facetTrackIds,
     reloadFacets,
-    revealArtist
+    revealArtist,
+    revealSearch
   }
 })

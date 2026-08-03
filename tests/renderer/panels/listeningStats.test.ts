@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { ALL_TIME, type StatsScopeBy, type StatsSummary } from '../../../src/shared/stats'
 import {
   countListening,
-  formatPlays,
   listeningRows,
   listeningState,
   type ListeningView
@@ -112,18 +111,6 @@ describe('listeningRows', () => {
   it('skips a scope it has no answer for rather than inventing a state', () => {
     expect(listeningRows(['track', 'album'], { track: summary('track') })).toHaveLength(1)
     expect(listeningRows(['artist'], {})).toEqual([])
-  })
-})
-
-describe('formatPlays', () => {
-  it('carries the noun, and agrees with itself about one', () => {
-    expect(formatPlays(0)).toBe('0 plays')
-    expect(formatPlays(1)).toBe('1 play')
-    expect(formatPlays(2)).toBe('2 plays')
-  })
-
-  it('groups a five-figure count, which this library can reach', () => {
-    expect(formatPlays(12_043)).toBe(`${(12_043).toLocaleString()} plays`)
   })
 })
 

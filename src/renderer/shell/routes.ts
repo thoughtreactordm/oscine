@@ -6,6 +6,7 @@ import Sources from '@renderer/panels/Sources.vue'
 import CurateSidebar from '@renderer/views/CurateSidebar.vue'
 import CurateView from '@renderer/views/CurateView.vue'
 import LibraryView from '@renderer/views/LibraryView.vue'
+import ListeningView from '@renderer/views/ListeningView.vue'
 import PodcastsSidebar from '@renderer/views/PodcastsSidebar.vue'
 import PodcastsView from '@renderer/views/PodcastsView.vue'
 import SettingsView from '@renderer/views/SettingsView.vue'
@@ -69,6 +70,20 @@ const TABS: ShellTab[] = [
     icon: 'i-tabler-microphone',
     view: PodcastsView,
     sidebar: PodcastsSidebar
+  },
+  /**
+   * The Listening dashboard — W10-12's "top-level destination", which is a tab.
+   *
+   * No sidebar, like Now Playing: its one control is a range that scopes the
+   * whole view, which belongs in a row above the content rather than in a rail
+   * beside it, and four ranked lists and a chart want the width.
+   */
+  {
+    name: 'listening',
+    path: 'listening',
+    label: 'Listening',
+    icon: 'i-tabler-chart-histogram',
+    view: ListeningView
   },
   {
     name: 'now-playing',

@@ -423,6 +423,25 @@ export const MAX_FACET_PAGE = 500
 export const MIN_SEARCH_LENGTH = 3
 export const MAX_SEARCH_LENGTH = 200
 
+/**
+ * Whether this text can match anything at all.
+ *
+ * The query builder drops every term shorter than a trigram, so a phrase made
+ * only of short words compiles to an empty `MATCH` — which is not a narrow
+ * search, it is a broken one. The sidebar has always applied this rule to what
+ * the operator types; it is here rather than private to that store because the
+ * Listening dashboard applies it to text the operator did *not* type. A row
+ * whose reveal would compile to nothing is drawn as plain text instead of as a
+ * link that silently does nothing, and deciding that in two places is deciding
+ * it twice.
+ */
+export function isSearchable(text: string): boolean {
+  return text
+    .trim()
+    .split(/\s+/u)
+    .some((term) => [...term].length >= MIN_SEARCH_LENGTH)
+}
+
 export interface ListTracksResult {
   tracks: Track[]
   /** Total matching rows, ignoring offset/limit, so the UI can size its scrollbar. */

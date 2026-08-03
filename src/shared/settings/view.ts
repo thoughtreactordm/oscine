@@ -322,6 +322,47 @@ export const VIEW_SETTINGS: readonly SettingDescriptor[] = [
     internal: true
   }),
 
+  /**
+   * The Listening dashboard's time range and which total ranks its lists.
+   *
+   * Two keys for the reason the deck's two are: they change on different
+   * gestures, and the write debounce coalesces per key — flipping between plays
+   * and time should not keep rewriting a range that did not move.
+   *
+   * Both are `''` by default and resolved on read, which is `view.tunedeckTab`'s
+   * rule rather than a slip. Naming `'30d'` here would restate
+   * `listeningRange.ts`'s preset table in a second place that can disagree with
+   * it, and the preset list is the renderer's catalogue: main has no calendar to
+   * resolve "this year" against, which is the whole of `StatsRange`.
+   *
+   * The sort is stored as a bare string for the same reason, even though
+   * `StatsSort` is a shared union this file could import. Shape is what a
+   * validator can settle; whether `'time'` still names a sort this build offers
+   * is a question for the point of use, and a validator that answered it here
+   * would discard the setting of anyone moving between branches.
+   */
+  defineSetting<string>({
+    key: 'view.listeningRange',
+    scope: 'view',
+    default: '',
+    validate: stringValue({ maxLength: 32, allowEmpty: true }),
+    category: 'interface',
+    label: 'Listening range',
+    help: 'Which time range the Listening dashboard was last showing on this machine.',
+    internal: true
+  }),
+
+  defineSetting<string>({
+    key: 'view.listeningSort',
+    scope: 'view',
+    default: '',
+    validate: stringValue({ maxLength: 32, allowEmpty: true }),
+    category: 'interface',
+    label: 'Listening ranking',
+    help: 'Whether the Listening dashboard ranks by plays or by time on this machine.',
+    internal: true
+  }),
+
   defineSetting<TabSession>({
     key: 'view.podcastTabs',
     scope: 'view',

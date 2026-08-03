@@ -114,6 +114,23 @@ export function formatListeningTime(ms: number | null): string {
   return hours % 24 === 0 ? `${days}d` : `${days}d ${hours % 24}h`
 }
 
+/**
+ * Plays, written out, because `42` alone is a number without a noun.
+ *
+ * Grouped by the platform's locale for the same reason every other count in the
+ * app is: a five-figure play count is reachable in this library's lifetime and
+ * `12043 plays` is harder to read than `12,043 plays` in every locale that
+ * groups at all.
+ *
+ * Beside `formatListeningTime` rather than in the deck's own module, where it
+ * started. Both totals now appear on two surfaces — the deck's scoped rows and
+ * the Listening dashboard's rankings — and a count that pluralised one way on
+ * one of them would be exactly the second opinion this file exists to prevent.
+ */
+export function formatPlays(listens: number): string {
+  return `${listens.toLocaleString()} ${listens === 1 ? 'play' : 'plays'}`
+}
+
 const DATE_OPTIONS: Readonly<Record<Exclude<DateFormat, 'iso'>, Intl.DateTimeFormatOptions>> = {
   short: { month: 'short', day: 'numeric' },
   medium: { year: 'numeric', month: 'short', day: 'numeric' },
