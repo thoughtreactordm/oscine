@@ -27,19 +27,23 @@ import { useTunedeckStore } from '@renderer/stores/tunedeck'
  * that makes three related groups over one result cost one query rather than
  * three.
  *
- * ## Why it is gated on `open` rather than on mount
+ * ## Why it is gated on `showing` rather than on mount
  *
  * The deck is always mounted — `AppShell` collapses its width to zero and marks
  * it `inert` rather than tearing it down, so that reopening it is not a
  * remount. Hydrating on mount would therefore run both queries on every launch
  * for a surface that is shut as often as not, which is exactly the cost
- * `usePlayHistoryStore.load` says it exists to avoid. Gating on `open` keeps
+ * `usePlayHistoryStore.load` says it exists to avoid. Gating on the flag keeps
  * that promise while moving who makes the call.
+ *
+ * `showing` and not `open`, so a deck standing down for an empty transport does
+ * not fetch either. The two differ only where it matters: `open` is what the
+ * operator asked for and `showing` is whether there is a track to ask about.
  *
  * One watcher rather than two: both stores want the same trigger, and a
  * transport change while the deck is shut should leave both alone rather than
  * queue work for a surface nobody is looking at. Reopening catches up in the
- * same tick, because the deck's own `open` flag is what fires it.
+ * same tick, because the deck's own flag is what fires it.
  */
 export function useDeckData(): void {
   const tunedeck = useTunedeckStore()
@@ -52,9 +56,9 @@ export function useDeckData(): void {
   const image = useArtistImageStore()
 
   watch(
-    [() => tunedeck.open, () => playback.nowPlaying?.id ?? null],
-    ([open, trackId]) => {
-      if (!open) return
+    [() => tunedeck.showing, () => playback.nowPlaying?.id ?? null],
+    ([showing, trackId]) => {
+      if (!showing) return
       // Idempotent and guarded in the store — reopening the deck is not a
       // second read of five hundred rows.
       void trail.load()
@@ -79,7 +83,7 @@ export function useDeckData(): void {
    * store's own output is what makes both true — the panes load when the
    * identity arrives, and do not move when the identity does not.
    *
-   * Gated on the deck being open for `identity.load`'s reason, which is D14
+   * Gated on the deck showing for `identity.load`'s reason, which is D14
    * rather than performance. An artist the deck resolved to "none of these"
    * clears both panes instead of leaving the previous band's history, and the
    * previous band's line-up, under the new one's name.
@@ -92,11 +96,11 @@ export function useDeckData(): void {
    */
   watch(
     [
-      () => tunedeck.open,
+      () => tunedeck.showing,
       () => (identity.resolution?.mbid === null ? null : (identity.resolution?.artistId ?? null))
     ],
-    ([open, artistId]) => {
-      if (!open) return
+    ([showing, artistId]) => {
+      if (!showing) return
       void biography.load(artistId)
       void relations.load(artistId)
       void image.load(artistId)

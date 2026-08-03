@@ -12,6 +12,7 @@ import {
   type TunedeckTab
 } from '@renderer/panels/tunedeck/tunedeckPanes'
 import { useViewSettings } from '@renderer/settings'
+import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
 
 /**
@@ -31,6 +32,12 @@ import { useShellStore } from '@renderer/stores/shell'
  * Both values are persisted, and neither is persisted here: `open` is one
  * view-scoped key and `width` is one entry in the shared pane-size record. This
  * store is where they are named together, not where they are kept.
+ *
+ * The one thing here that is not the operator's own state is `showing`, which
+ * folds in whether there is a track to describe at all. It is in the store
+ * rather than in the frame because three places need the same answer — the
+ * frame, the transport's button and `deckData`'s fetch gate — and a rule
+ * restated three times is a rule that will be true in two of them.
  */
 export const useTunedeckStore = defineStore('tunedeck', () => {
   const open = useViewSettings().value<boolean>(TUNEDECK_OPEN_KEY)
@@ -42,6 +49,28 @@ export const useTunedeckStore = defineStore('tunedeck', () => {
    * pane's drag ends up discarding another's.
    */
   const width = useShellStore().paneSize(TUNEDECK_PANE)
+
+  /**
+   * Whether the deck is on screen, which is not the same question as `open`.
+   *
+   * Every surface in the deck is a readout on a track — who made it, what the
+   * file is, what else is like it, what played before it. With the transport
+   * empty there is no subject, and the deck is four tabs of "Nothing playing"
+   * occupying a third of the window. So it stands down until there is something
+   * to describe.
+   *
+   * A derived flag rather than a write to `open`, and that distinction is the
+   * whole design: `open` is the operator's standing preference and it is
+   * persisted. Forcing it false when the queue drains would mean the deck did
+   * not come back when the next track started, and the operator would find a
+   * layout they built quietly dismantled by the end of an album.
+   *
+   * `usePlaybackStore()` inside the getter rather than beside it, for the reason
+   * `panes.ts` states at length: this module is imported while the app is being
+   * constructed and the getter runs long after. It also keeps the deck from
+   * being the thing that instantiates the audio engines.
+   */
+  const showing = computed(() => open.value && usePlaybackStore().hasTrack)
 
   /**
    * Which tab is showing, and which groups the operator has collapsed.
@@ -91,12 +120,19 @@ export const useTunedeckStore = defineStore('tunedeck', () => {
   }
 
   /**
-   * Closing the deck stops main fetching for it — **D14**'s drawer scoping.
+   * The deck leaving the screen stops main fetching for it — **D14**'s drawer
+   * scoping.
    *
    * Watched here rather than hooked to `close()`, because `close()` is not the
-   * only way the deck shuts: the toggle in the transport bar and a direct write
-   * to the persisted key both go around it, and a cancellation that three of
-   * four paths perform is one that leaks.
+   * only way the deck goes: the toggle in the transport bar, a direct write to
+   * the persisted key and the transport running dry all go around it, and a
+   * cancellation that four of five paths perform is one that leaks.
+   *
+   * On `showing` rather than `open` for that last path. A track ending mid
+   * biography-fetch takes the deck off screen, and a lookup that outlives the
+   * surface it was for is exactly what D14 says must not happen — the operator
+   * consented to fetching for a drawer they had open, not to a request that
+   * finishes into nothing.
    *
    * Only on the true→false edge, so the flag arriving as `false` from the view
    * store during hydration does not send a cancel for a deck that was never
@@ -104,15 +140,25 @@ export const useTunedeckStore = defineStore('tunedeck', () => {
    * nothing is waiting on the reply, and main abandons the work when the window
    * goes anyway.
    */
-  watch(open, (isOpen, wasOpen) => {
-    if (wasOpen === true && !isOpen) {
+  watch(showing, (isShowing, wasShowing) => {
+    if (wasShowing === true && !isShowing) {
       void net.cancelScope('tunedeck').catch((err: unknown) => {
         console.warn('[tunedeck] could not cancel in-flight lookups:', err)
       })
     }
   })
 
+  /**
+   * Flips the standing preference, and declines while there is nothing to show.
+   *
+   * The transport's button is disabled in that state, so this guard is for the
+   * paths that are not a click — and for the one that would be worst if it were
+   * missing: a toggle that silently set `open` while the deck was suppressed
+   * would leave the operator's preference inverted, and the deck would appear
+   * *because* they asked for it to go away, one track later.
+   */
   function toggle(): void {
+    if (!open.value && !usePlaybackStore().hasTrack) return
     open.value = !open.value
   }
 
@@ -122,6 +168,7 @@ export const useTunedeckStore = defineStore('tunedeck', () => {
 
   return {
     open,
+    showing,
     width,
     activeTabId,
     activeTab,

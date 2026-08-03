@@ -358,13 +358,33 @@ function onSeekInput(value: number | undefined): void {
         the deck and the deck does not import this panel, which is what lets
         either be docked elsewhere later (D4, D15).
       -->
-      <UTooltip :text="tunedeck.open ? 'Close Tunedeck' : 'Open Tunedeck'">
+      <UTooltip
+        :text="
+          playback.hasTrack
+            ? tunedeck.showing
+              ? 'Close Tunedeck'
+              : 'Open Tunedeck'
+            : 'The Tunedeck needs a track'
+        "
+      >
+        <!--
+          Disabled with nothing loaded, because every tab in the deck is a
+          readout on a track: opening it onto four empty panes would be the
+          button working and the feature not. The tooltip says which, since a
+          control that is simply dead teaches nothing about when it will not be.
+
+          `showing` rather than `open` for the lit state — the operator's
+          standing preference survives an empty transport, and a button
+          reporting itself pressed beside a deck that is not on screen would be
+          announcing the preference rather than the panel.
+        -->
         <UButton
           variant="ghost"
           size="lg"
           icon="i-tabler-device-audio-tape"
-          :color="tunedeck.open ? 'primary' : 'neutral'"
-          :aria-pressed="tunedeck.open"
+          :color="tunedeck.showing ? 'primary' : 'neutral'"
+          :disabled="!playback.hasTrack"
+          :aria-pressed="tunedeck.showing"
           aria-label="Tunedeck"
           @click="tunedeck.toggle()"
         />

@@ -200,9 +200,15 @@ onUnmounted(() => {
         Collapsed to zero width rather than dropped, for the two reasons the
         sidebar is: at zero there is no handle to catch, and animating a width
         is the only way the pane can leave without the body jumping.
+
+        `showing` rather than `open`: the deck describes a track, so it stands
+        down when there is not one and comes back on the next play without the
+        operator's preference having been touched. The same flag drives all
+        three attributes, so there is no state where the handle is draggable
+        beside a pane that is not there.
       -->
       <PaneResizer
-        v-if="tunedeck.open"
+        v-if="tunedeck.showing"
         v-model:size="tunedeck.width"
         :pane="TUNEDECK_PANE"
         @dragging="deckResizing = $event"
@@ -210,9 +216,9 @@ onUnmounted(() => {
 
       <div
         class="shell-tunedeck min-h-0 shrink-0 overflow-hidden bg-default"
-        :style="{ width: tunedeck.open ? `${tunedeck.width}px` : '0px' }"
+        :style="{ width: tunedeck.showing ? `${tunedeck.width}px` : '0px' }"
         :data-resizing="deckResizing || undefined"
-        :inert="tunedeck.open ? undefined : true"
+        :inert="tunedeck.showing ? undefined : true"
       >
         <div class="h-full min-h-0" :style="{ width: `${tunedeck.width}px` }">
           <Tunedeck />
