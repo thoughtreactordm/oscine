@@ -13,3 +13,11 @@ Set of advanced functions and widgets:
  - Web/hooks
    - Action driven event hooks for users to do something with
    - Eg. song finished playing -> webhook to some IoT light and it changes color (not really Fermata's concern) or interacts with some custom API they use, etc
+
+### Visualizations
+ - Replace the background of Now Playing with WebGL derived visual effects that are synced to the MusicBrainz
+ - When enabled, large cover and song details scale down and move to the upper right corner to give focus to visualizations
+
+### Quick Menu
+ - A flyout drawer accessible from Now Playing that exposes Recently played Artists and Playlists
+ - Also introduces Starred/Pinned Artists/Playlists and exposes them for quick change ups without leaving Now Playing
