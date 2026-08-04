@@ -75,6 +75,8 @@ function isFailure(answer: unknown): answer is NetFailure {
 function stubClient(routes: Route[]): NetClient {
   return {
     getText: () => Promise.resolve(netFailed<string>({ kind: 'rejected', message: 'unused' })),
+    // This service only ever reads; a post here would be a wiring mistake.
+    postJson: () => Promise.resolve(netFailed<never>({ kind: 'rejected', message: 'unused' })),
     getBytes: () => Promise.resolve(netFailed<Uint8Array>({ kind: 'rejected', message: 'unused' })),
     getJson<T>(request: NetGetRequest): Promise<NetResult<T>> {
       requests.push(request.url)

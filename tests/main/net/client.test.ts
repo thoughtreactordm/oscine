@@ -434,3 +434,74 @@ describe('parseRetryAfter', () => {
     expect(parseRetryAfter('soon', 0)).toBeNull()
   })
 })
+
+describe('postJson', () => {
+  /**
+   * The pipeline is shared with `getJson` and tested there. What is asserted
+   * here is only what POST adds: the method, the body, the content type, and
+   * the per-request attempt budget that D19's outbox needs in order to own its
+   * own retries.
+   */
+  const form = (): URLSearchParams => new URLSearchParams({ method: 'track.scrobble', sk: 'abc' })
+
+  it('sends the form as a body, not as a query string', async () => {
+    const { client, fetchImpl } = harness([reply('{"ok":1}')])
+    const result = await client.postJson({ url: URL_UNDER_TEST, scope: 'scrobble', form: form() })
+
+    expect(result).toEqual({ ok: true, value: { ok: 1 } })
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe('method=track.scrobble&sk=abc')
+    expect((init.headers as Record<string, string>)['content-type']).toBe(
+      'application/x-www-form-urlencoded'
+    )
+    // The session key is in the body precisely so it is not here.
+    expect(url).not.toContain('sk=')
+  })
+
+  it('honours a per-request attempt budget, so a caller can own its retries', async () => {
+    const { client, fetchImpl, slept } = harness([reply('nope', { status: 503 })])
+    const result = await client.postJson({
+      url: URL_UNDER_TEST,
+      scope: 'scrobble',
+      form: form(),
+      maxAttempts: 1
+    })
+
+    // One 503, one attempt, no wait: a scrobble that may already have landed is
+    // not sent again on a guess. The outbox reschedules it instead.
+    expect(failed(result).kind).toBe('unavailable')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(slept).toEqual([])
+  })
+
+  it('still retries when the caller does not ask it not to', async () => {
+    const { client, fetchImpl } = harness([reply('x', { status: 503 }), reply('{"ok":1}')])
+    const result = await client.postJson({ url: URL_UNDER_TEST, scope: 'scrobble', form: form() })
+
+    expect(result).toEqual({ ok: true, value: { ok: 1 } })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('is still refused without consent, and still opens no socket', async () => {
+    const { client, fetchImpl } = harness([reply('{}')], { consent: consentOf(false) })
+    const result = await client.postJson({ url: URL_UNDER_TEST, scope: 'scrobble', form: form() })
+
+    expect(failed(result).kind).toBe('declined')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('reads a listed error status as an answer, as the GET path does', async () => {
+    const { client } = harness([
+      reply('{"error":9,"message":"Invalid session key"}', { status: 403 })
+    ])
+    const result = await client.postJson({
+      url: URL_UNDER_TEST,
+      scope: 'scrobble',
+      form: form(),
+      acceptStatuses: [403]
+    })
+
+    expect(result).toEqual({ ok: true, value: { error: 9, message: 'Invalid session key' } })
+  })
+})

@@ -22,6 +22,7 @@ import {
   type LastfmTransport
 } from '../../../src/main/scrobble/lastfm/transport'
 import type { LastfmParams } from '../../../src/main/scrobble/lastfm/signature'
+import type { ScrobbleSubmission } from '../../../src/shared/scrobble'
 
 function memoryIo(): CredentialFileIo {
   let contents: string | null = null
@@ -64,17 +65,34 @@ type Responder = (
   params: LastfmParams
 ) => LastfmCallResult<unknown> | Promise<LastfmCallResult<unknown>>
 
-/** A transport that answers from a script, one responder per call. */
-function fakeTransport(...responders: Responder[]): LastfmTransport & { calls: LastfmParams[] } {
+/**
+ * A transport that answers from a script, one responder per call.
+ *
+ * `call` and `post` draw from the same queue and record into the same list, so
+ * a test scripts what it expects in order and does not have to know which verb
+ * the target chose. `verbs` is there for the one test that does — that the
+ * writes go out as POST, which is not a detail the target may quietly change.
+ */
+function fakeTransport(
+  ...responders: Responder[]
+): LastfmTransport & { calls: LastfmParams[]; verbs: ('call' | 'post')[] } {
   const calls: LastfmParams[] = []
+  const verbs: ('call' | 'post')[] = []
+  const answer = async <T>(
+    verb: 'call' | 'post',
+    params: LastfmParams
+  ): Promise<LastfmCallResult<T>> => {
+    calls.push(params)
+    verbs.push(verb)
+    const responder = responders.shift()
+    if (responder === undefined) throw new Error(`unscripted call: ${String(params.method)}`)
+    return (await responder(params)) as LastfmCallResult<T>
+  }
   return {
     calls,
-    call: async <T>(params: LastfmParams): Promise<LastfmCallResult<T>> => {
-      calls.push(params)
-      const responder = responders.shift()
-      if (responder === undefined) throw new Error(`unscripted call: ${String(params.method)}`)
-      return responder(params) as LastfmCallResult<T>
-    }
+    verbs,
+    call: (params) => answer('call', params),
+    post: (params) => answer('post', params)
   }
 }
 
@@ -333,28 +351,328 @@ describe('createLastfmTarget', () => {
     })
   })
 
-  describe('the parts W11-4 owns', () => {
-    it('reports that it cannot send yet rather than pretending to', async () => {
-      const lastfm = target(fakeTransport())
-      const submitted = await lastfm.submit([])
-      expect(submitted.ok).toBe(false)
+  it('advertises Last.fm’s batch limit rather than leaving it to the drain', () => {
+    expect(target(fakeTransport()).capabilities.batchLimit).toBe(50)
+    expect(target(fakeTransport()).capabilities.supportsLove).toBe(true)
+  })
 
-      // Fire-and-forget by contract: no result to fail with, and it must not
-      // throw into a caller that is forbidden from catching it.
-      await expect(
-        lastfm.nowPlaying({
-          artistName: 'a',
-          title: 't',
-          albumTitle: null,
-          albumArtistName: null,
-          durationSeconds: null
-        })
-      ).resolves.toBeUndefined()
+  it('reports that loves are not implemented rather than pretending to send them', async () => {
+    const lastfm = target(fakeTransport())
+    // W11-6's card, not this one. It fails loudly rather than resolving `ok`,
+    // because a love that silently goes nowhere is worse than one that says so.
+    await expect(lastfm.love({ artistName: 'a', title: 't' })).resolves.toMatchObject({ ok: false })
+    await expect(lastfm.unlove({ artistName: 'a', title: 't' })).resolves.toMatchObject({
+      ok: false
+    })
+  })
+
+  describe('submit', () => {
+    /** Sign in, then hand back a target whose next calls are the scripted ones. */
+    async function connected(
+      ...responders: Responder[]
+    ): Promise<ReturnType<typeof target> & { transport: ReturnType<typeof fakeTransport> }> {
+      const transport = fakeTransport(tokenOk, sessionOk, ...responders)
+      const lastfm = target(transport)
+      await lastfm.authorize()
+      return Object.assign(lastfm, { transport })
+    }
+
+    const submission = (id: number, timestamp: number): ScrobbleSubmission => ({
+      id,
+      payload: {
+        artistName: `Artist ${id}`,
+        title: `Track ${id}`,
+        albumTitle: 'Album',
+        albumArtistName: null,
+        durationSeconds: 200,
+        timestamp
+      }
     })
 
-    it('advertises Last.fm’s batch limit rather than leaving it to the drain', () => {
-      expect(target(fakeTransport()).capabilities.batchLimit).toBe(50)
-      expect(target(fakeTransport()).capabilities.supportsLove).toBe(true)
+    /** Last.fm's reply for a run of accepted scrobbles, in submission order. */
+    const acceptedReply = (timestamps: number[]): LastfmCallResult<unknown> => ({
+      ok: true,
+      value: {
+        scrobbles: {
+          '@attr': { accepted: timestamps.length, ignored: 0 },
+          scrobble: timestamps.map((timestamp) => ({
+            artist: { corrected: '0', '#text': 'Artist' },
+            track: { corrected: '0', '#text': 'Track' },
+            timestamp: String(timestamp),
+            ignoredMessage: { code: '0', '#text': '' }
+          }))
+        }
+      }
+    })
+
+    it('POSTs the batch with the session key and array-indexed parameters', async () => {
+      const lastfm = await connected(() => acceptedReply([1000, 2000]))
+      const result = await lastfm.submit([submission(7, 1000), submission(8, 2000)])
+
+      expect(result).toMatchObject({
+        ok: true,
+        value: [
+          { id: 7, accepted: true },
+          { id: 8, accepted: true }
+        ]
+      })
+
+      const sent = lastfm.transport.calls.at(-1)
+      expect(lastfm.transport.verbs.at(-1)).toBe('post')
+      expect(sent?.method).toBe('track.scrobble')
+      expect(sent?.sk).toBe('session-key-abc')
+      expect(sent?.['artist[0]']).toBe('Artist 7')
+      expect(sent?.['track[1]']).toBe('Track 8')
+      expect(sent?.['timestamp[1]']).toBe('2000')
+      // Seconds, not milliseconds: a millisecond value accepted as seconds dates
+      // the scrobble to the year 56000.
+      expect(sent?.['timestamp[0]']).toBe('1000')
+    })
+
+    it('sends nothing and asks for nothing when the batch is empty', async () => {
+      const lastfm = await connected()
+      await expect(lastfm.submit([])).resolves.toMatchObject({ ok: true, value: [] })
+      expect(lastfm.transport.calls.filter((c) => c.method === 'track.scrobble')).toHaveLength(0)
+    })
+
+    it('returns per-item rejections for the scrobbles Last.fm ignored', async () => {
+      const lastfm = await connected(() => ({
+        ok: true,
+        value: {
+          scrobbles: {
+            '@attr': { accepted: 1, ignored: 1 },
+            scrobble: [
+              { timestamp: '1000', ignoredMessage: { code: '0', '#text': '' } },
+              { timestamp: '2000', ignoredMessage: { code: '1', '#text': 'Artist ignored' } }
+            ]
+          }
+        }
+      }))
+
+      const result = await lastfm.submit([submission(7, 1000), submission(8, 2000)])
+      expect(result).toMatchObject({
+        ok: true,
+        value: [
+          { id: 7, accepted: true },
+          { id: 8, accepted: false }
+        ]
+      })
+    })
+
+    it('disconnects the account on error 9 without failing every row', async () => {
+      const lastfm = await connected(() => ({
+        ok: false,
+        failure: { kind: 'rejected', message: 'Last.fm no longer accepts this sign-in.' },
+        code: LASTFM_ERROR.invalidSessionKey
+      }))
+
+      const result = await lastfm.submit([submission(7, 1000), submission(8, 2000)])
+
+      // A whole-call failure, so the drain backs the batch off rather than
+      // dropping it — and the connection is already false by the time it looks,
+      // which is what stops it burning an attempt on all fifty rows.
+      expect(result.ok).toBe(false)
+      expect(lastfm.connection().connected).toBe(false)
+      expect(lastfm.connection().username).toBeNull()
+    })
+
+    it('does not disconnect the account over a rate limit', async () => {
+      const lastfm = await connected(() => ({
+        ok: false,
+        failure: { kind: 'rate-limited', message: 'Last.fm asked us to slow down.' },
+        code: LASTFM_ERROR.rateLimitExceeded
+      }))
+
+      const result = await lastfm.submit([submission(7, 1000)])
+      expect(result).toMatchObject({ ok: false, failure: { kind: 'rate-limited' } })
+      // Retryable: the credential is fine and the rows must stay sendable.
+      expect(lastfm.connection().connected).toBe(true)
+    })
+
+    it('drops the batch rather than wedging the outbox on error 6', async () => {
+      const lastfm = await connected(() => ({
+        ok: false,
+        failure: { kind: 'rejected', message: 'Invalid parameters.' },
+        code: LASTFM_ERROR.invalidParameters
+      }))
+
+      const result = await lastfm.submit([submission(7, 1000), submission(8, 2000)])
+      // Per-item rejections rather than a call failure: a payload Last.fm will
+      // not parse is one it will not parse next time either, and a retry loop
+      // here is an outbox that never drains.
+      expect(result).toMatchObject({
+        ok: true,
+        value: [
+          { id: 7, accepted: false },
+          { id: 8, accepted: false }
+        ]
+      })
+      expect(lastfm.connection().connected).toBe(true)
+    })
+
+    it('fails the call rather than sending with no account connected', async () => {
+      const lastfm = target(fakeTransport())
+      await expect(lastfm.submit([submission(7, 1000)])).resolves.toMatchObject({ ok: false })
+    })
+  })
+
+  describe('nowPlaying', () => {
+    const playing = {
+      artistName: 'Artist',
+      title: 'Track',
+      albumTitle: 'Album',
+      albumArtistName: null,
+      durationSeconds: 200
+    }
+
+    it('POSTs updateNowPlaying with no timestamp', async () => {
+      const transport = fakeTransport(tokenOk, sessionOk, () => ({ ok: true, value: {} }))
+      const lastfm = target(transport)
+      await lastfm.authorize()
+      await lastfm.nowPlaying(playing)
+
+      const sent = transport.calls.at(-1)
+      expect(transport.verbs.at(-1)).toBe('post')
+      expect(sent?.method).toBe('track.updateNowPlaying')
+      expect(sent?.artist).toBe('Artist')
+      // The message *is* the claim that this is happening now.
+      expect(sent?.timestamp).toBeUndefined()
+      expect(Object.keys(sent ?? {}).some((key) => key.includes('['))).toBe(false)
+    })
+
+    it('swallows a failure and never rejects', async () => {
+      const transport = fakeTransport(tokenOk, sessionOk, () => ({
+        ok: false,
+        failure: { kind: 'offline', message: 'no' },
+        code: null
+      }))
+      const lastfm = target(transport)
+      await lastfm.authorize()
+
+      // It is called from the transport-commit path, where nothing is prepared
+      // to catch — and there is no caller who could act on the outcome anyway.
+      await expect(lastfm.nowPlaying(playing)).resolves.toBeUndefined()
+    })
+
+    it('does not reject, or call out, with no account connected', async () => {
+      const transport = fakeTransport()
+      await expect(target(transport).nowPlaying(playing)).resolves.toBeUndefined()
+      expect(transport.calls).toHaveLength(0)
+    })
+
+    it('still disconnects the account when the session is dead', async () => {
+      const transport = fakeTransport(tokenOk, sessionOk, () => ({
+        ok: false,
+        failure: { kind: 'rejected', message: 'dead' },
+        code: LASTFM_ERROR.invalidSessionKey
+      }))
+      const lastfm = target(transport)
+      await lastfm.authorize()
+      await lastfm.nowPlaying(playing)
+
+      expect(lastfm.connection().connected).toBe(false)
+    })
+  })
+
+  describe('love and unlove', () => {
+    const song = { artistName: 'Talk Talk', title: 'I Believe In You' }
+
+    /** Sign in, then hand back a target whose next calls are the scripted ones. */
+    async function signedIn(
+      ...responders: Responder[]
+    ): Promise<ReturnType<typeof target> & { transport: ReturnType<typeof fakeTransport> }> {
+      const transport = fakeTransport(tokenOk, sessionOk, ...responders)
+      const lastfm = target(transport)
+      await lastfm.authorize()
+      return Object.assign(lastfm, { transport })
+    }
+
+    it('POSTs track.love with the artist and title and nothing else', async () => {
+      const lastfm = await signedIn(() => ({ ok: true, value: {} }))
+      const result = await lastfm.love(song)
+
+      expect(result.ok).toBe(true)
+      const sent = lastfm.transport.calls.at(-1)
+      expect(lastfm.transport.verbs.at(-1)).toBe('post')
+      expect(sent?.method).toBe('track.love')
+      expect(sent?.artist).toBe('Talk Talk')
+      expect(sent?.track).toBe('I Believe In You')
+      // A love is about the song, not the copy that was playing. Last.fm has no
+      // parameter for any of these and would ignore them if it did.
+      expect(sent?.album).toBeUndefined()
+      expect(sent?.duration).toBeUndefined()
+      expect(sent?.timestamp).toBeUndefined()
+    })
+
+    it('sends track.unlove for the withdrawal, same two parameters', async () => {
+      const lastfm = await signedIn(() => ({ ok: true, value: {} }))
+      const result = await lastfm.unlove(song)
+
+      expect(result.ok).toBe(true)
+      const sent = lastfm.transport.calls.at(-1)
+      expect(sent?.method).toBe('track.unlove')
+      expect(sent?.artist).toBe('Talk Talk')
+      expect(sent?.track).toBe('I Believe In You')
+    })
+
+    it('signs with the session key, which the caller never supplies', async () => {
+      const lastfm = await signedIn(() => ({ ok: true, value: {} }))
+      await lastfm.love(song)
+
+      // The credential is read here, per call, and `LovePayload` has nowhere to
+      // put one — which is the property D19 is about.
+      expect(lastfm.transport.calls.at(-1)?.sk).toBe('session-key-abc')
+      expect(lastfm.transport.calls.at(-1)?.api_key).toBe('operator-key')
+    })
+
+    it('reports a failure rather than swallowing it, unlike nowPlaying', async () => {
+      const lastfm = await signedIn(() => ({
+        ok: false,
+        failure: { kind: 'offline', message: 'no network' },
+        code: null
+      }))
+
+      // A love is queued, so there is a reader for the outcome: the drain worker
+      // backs the row off and tries again.
+      expect(await lastfm.love(song)).toEqual({
+        ok: false,
+        failure: { kind: 'offline', message: 'no network' }
+      })
+    })
+
+    it('surfaces a refusal as `rejected`, which is what the drain worker drops on', async () => {
+      const lastfm = await signedIn(() => ({
+        ok: false,
+        failure: { kind: 'rejected', message: 'Last.fm would not accept this love.' },
+        code: LASTFM_ERROR.invalidParameters
+      }))
+
+      const result = await lastfm.love(song)
+      expect(result.ok).toBe(false)
+      expect(result.ok === false && result.failure.kind).toBe('rejected')
+    })
+
+    it('disconnects the account when the session is refused', async () => {
+      const lastfm = await signedIn(() => ({
+        ok: false,
+        failure: { kind: 'rejected', message: 'dead' },
+        code: LASTFM_ERROR.invalidSessionKey
+      }))
+
+      const result = await lastfm.love(song)
+
+      expect(result.ok).toBe(false)
+      // Before returning, so the drain worker's re-read of `connection()` finds
+      // it stood down and halts without burning an attempt on every queued row.
+      expect(lastfm.connection().connected).toBe(false)
+    })
+
+    it('sends nothing with no account connected', async () => {
+      const transport = fakeTransport()
+      const result = await target(transport).love(song)
+
+      expect(result.ok).toBe(false)
+      expect(transport.calls).toHaveLength(0)
     })
   })
 })

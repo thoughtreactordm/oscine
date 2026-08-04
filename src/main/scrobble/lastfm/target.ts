@@ -62,7 +62,14 @@ import {
   type ScrobbleCredentialStore
 } from '../credentials'
 import { missingAppKeyMessage, resolveLastfmAppKey, type AppKeySettingsSource } from './appKey'
-import { LASTFM_ERROR, type LastfmTransport } from './transport'
+import {
+  loveParams,
+  nowPlayingParams,
+  readScrobbleResponse,
+  scrobbleBatchParams,
+  type ScrobbleResponseBody
+} from './scrobbles'
+import { LASTFM_ERROR, type LastfmCallResult, type LastfmTransport } from './transport'
 
 /** Where the operator is sent to approve the token. */
 export const LASTFM_AUTH_PAGE = 'https://www.last.fm/api/auth/'
@@ -189,11 +196,60 @@ export function createLastfmTarget({
    */
   let pending: { cancelled: boolean } | null = null
 
-  const notImplemented = (method: string): NetResult<never> =>
-    netFailed({
-      kind: 'rejected',
-      message: `Fermata cannot send ${method} to Last.fm yet (W11-4).`
+  /**
+   * A signed write on the operator's behalf, or the reason there was none.
+   *
+   * Two things happen here that no caller should have to remember.
+   *
+   * **The credential is read per call and never held.** `sk` goes from
+   * `safeStorage` into one request and out of scope; there is no field on this
+   * closure holding a session key between calls (D19). `current()` caches the
+   * *decrypted read*, which is a different thing from a caller keeping a copy.
+   *
+   * **Error 9 disconnects the account before returning.** `ScrobbleTarget`
+   * makes this the target's job precisely so the drain worker needs no
+   * knowledge of Last.fm's numbers: it re-reads `connection()`, finds it false,
+   * and halts without burning an attempt on every queued row. Getting this the
+   * other way round — returning the failure and disconnecting afterwards, or
+   * leaving it to the caller — is what turns one dead session into fifty
+   * incremented `attempts` and a queue backing off for an hour over something
+   * no amount of waiting will fix.
+   */
+  async function write<T>(
+    method: string,
+    params: Record<string, string | undefined>
+  ): Promise<LastfmCallResult<T>> {
+    const credential = current()
+    if (credential === null) {
+      return {
+        ok: false,
+        failure: { kind: 'rejected', message: 'No Last.fm account is connected.' },
+        code: null
+      }
+    }
+
+    const appKey = resolveLastfmAppKey(settings)
+    if (appKey === null) {
+      return {
+        ok: false,
+        failure: { kind: 'declined', message: missingAppKeyMessage(settings) },
+        code: null
+      }
+    }
+
+    const result = await transport.post<T>({
+      ...params,
+      method,
+      api_key: appKey.apiKey,
+      sk: credential.secret
     })
+
+    if (!result.ok && result.code === LASTFM_ERROR.invalidSessionKey) {
+      credentials.clear('lastfm')
+      cached = null
+    }
+    return result
+  }
 
   return {
     id: 'lastfm',
@@ -319,28 +375,101 @@ export function createLastfmTarget({
       cached = null
     },
 
-    // Fire-and-forget by contract, and there is nothing to fire yet. It returns
-    // rather than failing because a caller is forbidden from acting on the
-    // outcome either way — see `ScrobbleTarget.nowPlaying`. W11-4.
-    async nowPlaying(_payload: NowPlayingPayload): Promise<void> {
-      void _payload
+    /**
+     * Announce the track. Everything that can go wrong is dropped on the floor,
+     * and that is the contract rather than laziness.
+     *
+     * There is no caller who could act on the outcome: the notification is about
+     * a moment that has passed by the time a retry would land, it is never
+     * queued, and Last.fm expires it on its own within a few minutes. So the
+     * failure has no reader, and a method that returned one would invite a
+     * caller to invent a use for it — a retry, a banner, a queue row — every one
+     * of which is worse than silence.
+     *
+     * The one thing it must not do is throw, since it is called from the
+     * transport-commit path (W11-5) where nothing is prepared to catch. A dead
+     * session still disconnects the account on the way past, because `write`
+     * does that for every call and a now-playing is as good a place as any to
+     * discover it.
+     */
+    async nowPlaying(payload: NowPlayingPayload): Promise<void> {
+      try {
+        await write('track.updateNowPlaying', nowPlayingParams(payload))
+      } catch {
+        // `write` returns failures rather than throwing, so reaching here means
+        // a bug below this line — which is still not a reason to take down the
+        // player's transport.
+      }
     },
 
     async submit(
-      _batch: readonly ScrobbleSubmission[]
+      batch: readonly ScrobbleSubmission[]
     ): Promise<NetResult<ScrobbleSubmissionResult[]>> {
-      void _batch
-      return notImplemented('scrobbles')
+      // A batch of nothing is a caller bug, not a request. Sending it would ask
+      // Last.fm to parse an empty `track.scrobble` and get error 6 back.
+      if (batch.length === 0) return netOk([])
+
+      const result = await write<ScrobbleResponseBody>('track.scrobble', scrobbleBatchParams(batch))
+
+      if (!result.ok) {
+        // Error 6 says Last.fm will not parse this request, and it says it about
+        // the whole call — there is no per-parameter detail to find the offender
+        // with. Retrying is the one thing that certainly does not work, so every
+        // row in the batch is rejected and the queue drains.
+        //
+        // That over-reaches: a single unacceptable listen takes its batch-mates
+        // with it, and they were sendable. It is the lesser failure, because the
+        // alternative is an outbox permanently wedged behind one row, which
+        // stops *every* future scrobble rather than at most forty-nine past
+        // ones. What keeps it rare is upstream — `scrobbleEnqueueRejection`
+        // refuses a row with no artist or title at enqueue, which is what error
+        // 6 is nearly always about.
+        if (result.code === LASTFM_ERROR.invalidParameters) {
+          return netOk(
+            batch.map(({ id }) => ({ id, accepted: false, reason: result.failure.message }))
+          )
+        }
+        return netFailed(result.failure)
+      }
+
+      const reading = readScrobbleResponse(result.value, batch)
+      return reading.ok ? netOk(reading.results) : netFailed(reading.failure)
     },
 
-    async love(_payload: LovePayload): Promise<NetResult<void>> {
-      void _payload
-      return notImplemented('loves')
+    /**
+     * Push a heart — **W11-6**, and one signed write with no reply to read.
+     *
+     * `track.love` answers `{ status: 'ok' }` and nothing else; there is no
+     * per-item verdict to correlate the way `submit` has, which is why the
+     * contract gives loves a `NetResult<void>` and why they drain one at a time
+     * rather than in a batch.
+     *
+     * A failure comes back rather than being swallowed, unlike `nowPlaying`,
+     * because a love *is* queued and there is a reader for the outcome: the
+     * drain worker backs the row off and tries again. The one case that must not
+     * be retried — a 4xx Last.fm will keep refusing — arrives as `rejected`, and
+     * dropping that row is the drain worker's job because the rule is the same
+     * for every target (see `drainLoves`).
+     */
+    async love(payload: LovePayload): Promise<NetResult<void>> {
+      const result = await write<unknown>('track.love', loveParams(payload))
+      return result.ok ? netOk(undefined) : netFailed(result.failure)
     },
 
-    async unlove(_payload: LovePayload): Promise<NetResult<void>> {
-      void _payload
-      return notImplemented('loves')
+    /**
+     * Withdraw one. The same two parameters and the same handling — see `love`.
+     *
+     * Never collapsed into a no-op for a track Fermata does not believe is loved
+     * there. Fermata does not know what is loved there: D18 makes
+     * `track_favorites` authoritative *locally* and reads nothing back, so the
+     * only honest thing to do with an un-heart is to send it. `track.unlove` for
+     * a track that was never loved is a successful no-op at Last.fm's end, which
+     * is exactly the right cost for not keeping a shadow copy of somebody else's
+     * state.
+     */
+    async unlove(payload: LovePayload): Promise<NetResult<void>> {
+      const result = await write<unknown>('track.unlove', loveParams(payload))
+      return result.ok ? netOk(undefined) : netFailed(result.failure)
     }
   }
 }

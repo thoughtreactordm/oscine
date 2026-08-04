@@ -9,8 +9,8 @@
  * error 13, "invalid method signature", which reads exactly like a wrong secret,
  * a wrong key, an expired token or a clock problem — so this is the one piece of
  * the client worth pinning to a vector computed by something that is not this
- * code. `signature.test.ts` does that; W11-4's `track.scrobble` will sign
- * through this same function rather than growing its own.
+ * code. `signature.test.ts` does that, and `track.scrobble` signs through this
+ * same function rather than having grown its own.
  *
  * ## The two omissions
  *

@@ -10,7 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { netFailed, netOk, type NetResult } from '../../../src/shared/net'
-import type { NetClient, NetGetRequest } from '../../../src/main/net/client'
+import type { NetClient, NetGetRequest, NetPostRequest } from '../../../src/main/net/client'
 import {
   createLastfmTransport,
   LASTFM_API_ROOT,
@@ -18,17 +18,25 @@ import {
 } from '../../../src/main/scrobble/lastfm/transport'
 
 /** A client that answers with whatever the test scripted, and records the ask. */
-function fakeClient(...answers: NetResult<unknown>[]): NetClient & { seen: NetGetRequest[] } {
+function fakeClient(
+  ...answers: NetResult<unknown>[]
+): NetClient & { seen: NetGetRequest[]; posted: NetPostRequest[] } {
   const seen: NetGetRequest[] = []
+  const posted: NetPostRequest[] = []
   const next = (request: NetGetRequest): Promise<never> => {
     seen.push(request)
     return Promise.resolve(answers.shift() ?? netOk({})) as Promise<never>
   }
   return {
     seen,
+    posted,
     getText: next,
     getBytes: next,
-    getJson: next
+    getJson: next,
+    postJson: (request: NetPostRequest): Promise<never> => {
+      posted.push(request)
+      return next(request)
+    }
   }
 }
 
@@ -146,5 +154,45 @@ describe('createLastfmTransport', () => {
       expect(result.ok).toBe(false)
       expect(result.ok === false && result.code).toBeNull()
     })
+  })
+})
+
+describe('post', () => {
+  it('signs the same way but puts the parameters in a body', async () => {
+    const client = fakeClient(netOk({ scrobbles: {} }))
+    await createLastfmTransport(options(client)).post({
+      method: 'track.scrobble',
+      sk: 'session-key',
+      'artist[0]': 'Talk Talk'
+    })
+
+    const [request] = client.posted
+    expect(request.url).toBe(LASTFM_API_ROOT)
+    expect(request.form.get('method')).toBe('track.scrobble')
+    expect(request.form.get('api_sig')).toMatch(/^[0-9a-f]{32}$/)
+    expect(request.form.get('format')).toBe('json')
+    expect(request.scope).toBe('scrobble')
+    // The session key belongs in a body, not in a URL that proxies and access
+    // logs write down.
+    expect(request.url).not.toContain('session-key')
+  })
+
+  it('asks for a single attempt, because the outbox is the retry', async () => {
+    const client = fakeClient(netOk({}))
+    await createLastfmTransport(options(client)).post({ method: 'track.scrobble' })
+
+    // A POST that fails after Last.fm recorded it is indistinguishable from one
+    // that never arrived. W11-2's queue reschedules on a durable row instead.
+    expect(client.posted[0].maxAttempts).toBe(1)
+  })
+
+  it('reads the error envelope exactly as the GET path does', async () => {
+    const client = fakeClient(netOk({ error: LASTFM_ERROR.invalidSessionKey, message: 'dead' }))
+    const result = await createLastfmTransport(options(client)).post({ method: 'track.scrobble' })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.code).toBe(LASTFM_ERROR.invalidSessionKey)
+    expect(result.failure.kind).toBe('rejected')
   })
 })

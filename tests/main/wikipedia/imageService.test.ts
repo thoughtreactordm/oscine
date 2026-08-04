@@ -90,6 +90,8 @@ function isFailure(answer: unknown): answer is NetFailure {
 function stubClient(routes: Route[], bytes: Uint8Array | NetFailure = PICTURE): NetClient {
   return {
     getText: () => Promise.resolve(netFailed<string>({ kind: 'rejected', message: 'unused' })),
+    // This service only ever reads; a post here would be a wiring mistake.
+    postJson: () => Promise.resolve(netFailed<never>({ kind: 'rejected', message: 'unused' })),
     getBytes(request: NetGetRequest): Promise<NetResult<Uint8Array>> {
       requests.push(request.url)
       return Promise.resolve(isFailure(bytes) ? netFailed<Uint8Array>(bytes) : netOk(bytes))

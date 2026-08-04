@@ -18,7 +18,8 @@ export {
   createNetClient,
   type NetClient,
   type NetClientOptions,
-  type NetGetRequest
+  type NetGetRequest,
+  type NetPostRequest
 } from './client'
 export {
   createNetworkConsent,

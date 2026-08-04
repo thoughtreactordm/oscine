@@ -87,11 +87,55 @@ export interface NetGetRequest {
    * so a caller cannot accidentally opt out of backoff by listing one of them.
    */
   acceptStatuses?: readonly number[]
+  /**
+   * How many attempts this request gets, overriding the client's ladder.
+   *
+   * Exists for callers that already have a durable retry of their own and would
+   * rather this one stayed out of the way. D19's outbox is the case: a scrobble
+   * batch that comes back 503 is rescheduled on a persistent row with its own
+   * backoff, so retrying inside the client buys nothing and costs the one thing
+   * a queue cannot take back — a second delivery of a request that may well have
+   * landed the first time. `1` means "attempt it once and tell me".
+   */
+  maxAttempts?: number
+}
+
+/**
+ * A form POST, which is every rule above with a body attached.
+ *
+ * `form` rather than a free `body` and a `content-type`: the only thing in
+ * Fermata that posts is D19's Last.fm client, Last.fm takes
+ * `application/x-www-form-urlencoded` and nothing else, and a general body
+ * parameter would be a second thing to get right for a case that does not exist.
+ * Widen it when a caller needs JSON — W11-8's ListenBrainz will — rather than in
+ * advance.
+ */
+export interface NetPostRequest extends NetGetRequest {
+  form: URLSearchParams
 }
 
 export interface NetClient {
   getText(request: NetGetRequest): Promise<NetResult<string>>
   getJson<T>(request: NetGetRequest): Promise<NetResult<T>>
+  /**
+   * A signed write, as JSON.
+   *
+   * POST exists here for two reasons and neither is style. A `track.scrobble` of
+   * fifty listens is upwards of three hundred parameters, which is past what a
+   * query string can be relied on to carry — and the session key would be *in*
+   * that query string, where proxies, access logs and browser history all keep
+   * things that a request body is not asked to survive.
+   *
+   * Everything upstream of the socket is shared with `getJson`: consent, the
+   * per-host limiter, the deadline, the status mapping and the scope. What is
+   * different is the method, the body and the one caveat below.
+   *
+   * **Retries are not idempotent here.** A POST that fails after the server has
+   * acted is indistinguishable from one that never arrived, so a caller whose
+   * request has side effects should pass `maxAttempts: 1` and own the retry
+   * itself. This client will not guess.
+   */
+  postJson<T>(request: NetPostRequest): Promise<NetResult<T>>
   /**
    * The same request, kept as bytes.
    *
@@ -241,7 +285,8 @@ export function createNetClient({
     host: string,
     accept: string,
     scopeSignal: AbortSignal,
-    read: BodyReader<T>
+    read: BodyReader<T>,
+    form: URLSearchParams | undefined
   ): Promise<Attempt<T>> {
     const timeoutMs = request.timeoutMs ?? defaultTimeoutMs
     const maxBytes = request.maxBytes ?? defaultMaxBytes
@@ -273,10 +318,18 @@ export function createNetClient({
     let response: Response
     try {
       response = await fetchImpl(request.url, {
-        method: 'GET',
+        method: form === undefined ? 'GET' : 'POST',
         redirect: 'follow',
         signal: attempt.signal,
-        headers: { accept, 'user-agent': userAgent }
+        headers:
+          form === undefined
+            ? { accept, 'user-agent': userAgent }
+            : {
+                accept,
+                'user-agent': userAgent,
+                'content-type': 'application/x-www-form-urlencoded'
+              },
+        ...(form === undefined ? {} : { body: form.toString() })
       })
     } catch {
       const aborted = attempt.signal.aborted
@@ -380,12 +433,15 @@ export function createNetClient({
     }
   }
 
-  async function get<T>(
+  async function perform<T>(
     request: NetGetRequest,
     accept: string,
-    read: BodyReader<T>
+    read: BodyReader<T>,
+    form?: URLSearchParams
   ): Promise<NetResult<T>> {
     if (!consent.granted()) return netFailed(DECLINED)
+
+    const attempts = request.maxAttempts ?? maxAttempts
 
     let host: string
     try {
@@ -401,10 +457,10 @@ export function createNetClient({
         // the operator switched the toggle off must not outlive the decision.
         if (!consent.granted()) return netFailed(DECLINED)
 
-        const result = await attemptOnce(request, host, accept, entry.signal, read)
+        const result = await attemptOnce(request, host, accept, entry.signal, read, form)
         if (result.outcome === 'ok') return netOk(result.body)
         if (result.outcome === 'give-up') return netFailed(result.failure)
-        if (attempt >= maxAttempts) return netFailed(result.failure)
+        if (attempt >= attempts) return netFailed(result.failure)
 
         const delay = result.afterMs ?? backoffMs(attempt)
         if (delay > retryAfterCeilingMs) return netFailed(result.failure)
@@ -419,19 +475,29 @@ export function createNetClient({
     }
   }
 
-  return {
-    getText: (request) => get(request, request.accept ?? '*/*', readCappedText),
+  /** The one place a body becomes a value, so GET and POST cannot diverge on it. */
+  function asJson<T>(text: NetResult<string>): NetResult<T> {
+    if (!text.ok) return text
+    try {
+      return netOk(JSON.parse(text.value) as T)
+    } catch {
+      return netFailed({ kind: 'malformed', message: 'The service sent something unreadable.' })
+    }
+  }
 
-    getBytes: (request) => get(request, request.accept ?? '*/*', readCappedBytes),
+  return {
+    getText: (request) => perform(request, request.accept ?? '*/*', readCappedText),
+
+    getBytes: (request) => perform(request, request.accept ?? '*/*', readCappedBytes),
 
     async getJson<T>(request: NetGetRequest): Promise<NetResult<T>> {
-      const text = await get(request, request.accept ?? 'application/json', readCappedText)
-      if (!text.ok) return text
-      try {
-        return netOk(JSON.parse(text.value) as T)
-      } catch {
-        return netFailed({ kind: 'malformed', message: 'The service sent something unreadable.' })
-      }
+      return asJson<T>(await perform(request, request.accept ?? 'application/json', readCappedText))
+    },
+
+    async postJson<T>(request: NetPostRequest): Promise<NetResult<T>> {
+      return asJson<T>(
+        await perform(request, request.accept ?? 'application/json', readCappedText, request.form)
+      )
     }
   }
 }

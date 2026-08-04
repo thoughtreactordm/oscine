@@ -178,6 +178,36 @@ export interface LastfmTransport {
    * nothing to sign and removes a second code path.
    */
   call<T>(params: LastfmParams): Promise<LastfmCallResult<T>>
+
+  /**
+   * The same call as a form POST, for the methods that write.
+   *
+   * Signed identically — one `withSignature`, so the rule that `format` is
+   * excluded cannot hold on one path and not the other. What changes is where
+   * the parameters go, and there are three reasons they go in a body:
+   *
+   * 1. **Last.fm requires it** of its write methods. `track.scrobble` sent as a
+   *    GET is refused, and refused in the shape of a generic error rather than
+   *    of an explanation.
+   * 2. **Size.** Fifty scrobbles is fifty artists, titles, albums, album
+   *    artists, durations and timestamps — three hundred parameters, comfortably
+   *    past any length a query string is guaranteed.
+   * 3. **The session key.** `sk` is on every one of these calls, and a URL is
+   *    the one part of a request that gets written down by things that are not
+   *    the two endpoints — proxies, access logs, error reporters. The body is
+   *    not secret either, but it is not routinely archived.
+   *
+   * `auth.getToken` and `auth.getSession` stay on `call`: Last.fm documents both
+   * as GET, W11-3 verified them that way against the live API, and neither
+   * carries a session key.
+   *
+   * **One attempt.** The client's retry ladder is switched off here because a
+   * POST that fails after Last.fm has recorded it is indistinguishable from one
+   * that never arrived, and the outbox is already a durable retry with its own
+   * backoff (W11-2). Retrying inside the client would risk a duplicate scrobble
+   * to save a round trip the queue was going to make anyway.
+   */
+  post<T>(params: LastfmParams): Promise<LastfmCallResult<T>>
 }
 
 export interface LastfmTransportOptions {
@@ -206,30 +236,54 @@ export function createLastfmTransport({
       scopes
     })
 
+  /**
+   * Turn a reply into an outcome, for both verbs.
+   *
+   * Shared rather than duplicated because the error envelope is a property of
+   * the API and not of the method used to reach it — a `track.scrobble` that
+   * fails on a dead session gets the same error 9 document as a GET would.
+   */
+  function interpret<T>(result: NetResult<T & LastfmErrorBody>): LastfmCallResult<T> {
+    if (!result.ok) return { ok: false, failure: result.failure, code: null }
+
+    // Checked on success as well as on the accepted error statuses: Last.fm
+    // has been known to answer `200` with an error envelope, and a caller that
+    // trusted the status would read the absence of its expected field as a
+    // parse failure and report "unreadable" for a perfectly clear "error 14".
+    const body = result.value
+    if (typeof body === 'object' && body !== null && 'error' in body) {
+      const raw = body.error
+      const code = typeof raw === 'number' ? raw : null
+      const message = typeof body.message === 'string' ? body.message : ''
+      return { ok: false, failure: failureForCode(code, message), code }
+    }
+
+    return { ok: true, value: body }
+  }
+
   return {
     async call<T>(params: LastfmParams): Promise<LastfmCallResult<T>> {
       const search = withSignature(params, sharedSecret())
-      const result = await net.getJson<T & LastfmErrorBody>({
-        url: `${LASTFM_API_ROOT}?${search.toString()}`,
-        scope: 'scrobble',
-        acceptStatuses: LASTFM_ERROR_STATUSES
-      })
+      return interpret(
+        await net.getJson<T & LastfmErrorBody>({
+          url: `${LASTFM_API_ROOT}?${search.toString()}`,
+          scope: 'scrobble',
+          acceptStatuses: LASTFM_ERROR_STATUSES
+        })
+      )
+    },
 
-      if (!result.ok) return { ok: false, failure: result.failure, code: null }
-
-      // Checked on success as well as on the accepted error statuses: Last.fm
-      // has been known to answer `200` with an error envelope, and a caller that
-      // trusted the status would read the absence of its expected field as a
-      // parse failure and report "unreadable" for a perfectly clear "error 14".
-      const body = result.value
-      if (typeof body === 'object' && body !== null && 'error' in body) {
-        const raw = body.error
-        const code = typeof raw === 'number' ? raw : null
-        const message = typeof body.message === 'string' ? body.message : ''
-        return { ok: false, failure: failureForCode(code, message), code }
-      }
-
-      return { ok: true, value: body }
+    async post<T>(params: LastfmParams): Promise<LastfmCallResult<T>> {
+      return interpret(
+        await net.postJson<T & LastfmErrorBody>({
+          url: LASTFM_API_ROOT,
+          form: withSignature(params, sharedSecret()),
+          scope: 'scrobble',
+          acceptStatuses: LASTFM_ERROR_STATUSES,
+          // See `LastfmTransport.post`: the outbox is the retry ladder.
+          maxAttempts: 1
+        })
+      )
     }
   }
 }
