@@ -2652,5 +2652,27 @@ describe('createPlaybackController', () => {
         { trackId: LISTENABLE, startedAt: 1_700_000_002_000, msListened: 109_000 }
       ])
     })
+
+    it('reports a play per pass under repeat-one, which is what now-playing rides on', async () => {
+      const plays: number[] = []
+      const h = listenHarness({ onPlayStarted: (played) => plays.push(played.id) })
+      await play(h)
+      h.controller.setRepeatMode('one')
+      await settle()
+
+      playThrough(h.engine, 110)
+      h.engine.emit('ended', { trackId: LISTENABLE })
+      await settle()
+
+      const second = h.engines[1]
+      playThrough(second, 110)
+      second.emit('ended', { trackId: LISTENABLE })
+      await settle()
+
+      // D19's now-playing hangs off this event (W11-5), so the property matters
+      // beyond the trail: a repeat that announced once would leave Last.fm
+      // showing a track as current while its second and third passes went by.
+      expect(plays).toEqual([LISTENABLE, LISTENABLE, LISTENABLE])
+    })
   })
 })

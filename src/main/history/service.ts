@@ -31,21 +31,39 @@ export interface SqlitePlayHistoryDeps {
   now?: () => number
   /** Overridable so a test can reach the cap without five hundred inserts. */
   cap?: number
+  /**
+   * Told after a play was recorded — the transport-commit moment, in main.
+   *
+   * A notification that a play started, not a scrobbling hook: this service
+   * knows about a trail and must not learn what Last.fm is. `main/index.ts`
+   * joins it to D19's now-playing announcer, which is the one place that
+   * knows both (W11-5).
+   *
+   * Called only when a row was actually written, and never awaited.
+   */
+  onRecorded?: (entry: PlayEntry) => void
 }
 
 export class SqlitePlayHistoryService implements PlayHistoryService {
   private readonly store: PlayHistoryStore
   private readonly now: () => number
   private readonly cap: number
+  private readonly onRecorded: ((entry: PlayEntry) => void) | null
 
   constructor(deps: SqlitePlayHistoryDeps) {
     this.cap = Math.max(1, deps.cap ?? PLAY_HISTORY_CAP)
     this.store = new PlayHistoryStore(deps.db, this.cap)
     this.now = deps.now ?? Date.now
+    this.onRecorded = deps.onRecorded ?? null
   }
 
   async record(trackId: number): Promise<PlayEntry | null> {
-    return this.store.record(trackId, this.now())
+    const entry = this.store.record(trackId, this.now())
+    // Only for a track still in the library. `null` means there was no play to
+    // announce, and announcing one would be claiming to play a track that has
+    // just left.
+    if (entry !== null) this.onRecorded?.(entry)
+    return entry
   }
 
   /**

@@ -33,7 +33,7 @@ export interface ScrobbleAccountsService {
   cancelConnect(target: ScrobbleTargetId): void
   /** Forget a target's credential. Idempotent. */
   disconnect(target: ScrobbleTargetId): Promise<void>
-  /** The target itself, for main-process callers only — W11-4's drain worker. */
+  /** The target itself, for main-process callers only — W11-5's drain worker. */
   target(id: ScrobbleTargetId): ScrobbleTarget | null
 }
 

@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3'
 import type { ListenCommit, RecordListenRequest } from '@shared/listens'
+import type { ScrobblePayload, ScrobbleTarget } from '@shared/scrobble'
+import { scrobbleEnqueueRejection, type ScrobbleOutbox } from '../scrobble/outbox'
 
 /**
  * The listen commit, and the four statements it is made of.
@@ -31,16 +33,56 @@ interface CommitParams {
   msListened: number
 }
 
+/** The listen as it was just written — the row the queue entry is copied from. */
+interface SnapshotRow {
+  started_at: number
+  duration_ms: number | null
+  title: string
+  artist_name: string | null
+  album_title: string | null
+  album_artist_name: string | null
+}
+
+/**
+ * What the commit needs in order to also enqueue — **D19**, W11-5.
+ *
+ * Injected rather than imported, and optional, because the two are separable
+ * facts: a build with no scrobbling, and every test of the log itself, wants a
+ * store that writes listens and nothing else. Handing it in also keeps this
+ * module Electron-free and the whole path drivable under plain Node.
+ */
+export interface ListenScrobbleSink {
+  readonly outbox: ScrobbleOutbox
+  /**
+   * Asked per commit, never captured once.
+   *
+   * Connecting and disconnecting an account are ordinary gestures that happen
+   * between one track and the next, and a list captured at construction would
+   * keep enqueueing for an account the operator signed out of an hour ago —
+   * the same reason `ScrobbleDrainWorkerOptions.targets` is a function.
+   */
+  targets(): readonly ScrobbleTarget[]
+}
+
+export interface ListenStoreOptions {
+  /** Omitted means this build does not scrobble. Nothing else changes. */
+  scrobble?: ListenScrobbleSink
+}
+
 export class ListenStore {
   private readonly statements: {
     insert: Database.Statement<CommitParams>
     copyGenres: Database.Statement<{ listenId: number; trackId: number }>
     bumpTrack: Database.Statement<{ trackId: number; startedAt: number }>
+    snapshot: Database.Statement<{ id: number }>
   }
 
   private readonly commitTransaction: (params: CommitParams) => ListenCommit | null
 
-  constructor(db: Database.Database) {
+  private readonly scrobble: ListenScrobbleSink | null
+
+  constructor(db: Database.Database, options: ListenStoreOptions = {}) {
+    this.scrobble = options.scrobble ?? null
     this.statements = {
       // `INSERT ... SELECT FROM tracks` rather than an insert of values the
       // caller supplied: the snapshot is main's to resolve, and driving it off
@@ -101,6 +143,15 @@ export class ListenStore {
         SET play_count = play_count + 1,
             last_played_at = MAX(COALESCE(last_played_at, 0), @startedAt)
         WHERE id = @trackId
+      `),
+      // Read back rather than re-resolved from `tracks`. The queue row must say
+      // exactly what the log row says, and the only way to guarantee that is for
+      // both to come from the same row — re-running the joins would be a second
+      // resolution of the same question, correct today and free to drift the
+      // first time an override lands between the two statements.
+      snapshot: db.prepare(`
+        SELECT started_at, duration_ms, title, artist_name, album_title, album_artist_name
+        FROM listens WHERE id = @id
       `)
     }
 
@@ -112,14 +163,11 @@ export class ListenStore {
       this.statements.copyGenres.run({ listenId: id, trackId: params.trackId })
       this.statements.bumpTrack.run({ trackId: params.trackId, startedAt: params.startedAt })
 
-      // W11-5's seam. The scrobble outbox row belongs *here*, inside this
-      // transaction and after the log row it describes, so that a queued
-      // submission can never name a listen the log does not hold. One row per
-      // connected target, and only where `artist_name` resolved — the outbox
-      // (012) makes it `NOT NULL` because every scrobbling target rejects a
-      // submission missing it, which is the one place the two records are
-      // written to diverge. `ScrobbleOutbox.enqueue` takes the entry; what does
-      // not exist yet is the list of connected targets to enqueue against.
+      // Inside this transaction and after the log row it describes, so that a
+      // queued submission can never name a listen the log does not hold — and
+      // so that a rollback takes both. A listen that recorded but did not
+      // enqueue is a scrobble silently lost.
+      this.enqueueScrobbles(id, params.trackId)
 
       return {
         id,
@@ -128,6 +176,64 @@ export class ListenStore {
         msListened: params.msListened
       }
     })
+  }
+
+  /**
+   * One `scrobble_queue` row per connected target, for the listen just written.
+   *
+   * ## Where the two records are allowed to disagree
+   *
+   * A listen with no artist name gets its `listens` row and no queue row. That
+   * is the single written exception to Fermata's stats and the operator's
+   * profile agreeing, and it exists because every scrobbling service rejects a
+   * submission with no artist — so the alternatives are a queue row that can
+   * never drain, or dropping a listen that Fermata's own charts have no problem
+   * counting. Divergence by a stated rule beats divergence by an accident.
+   *
+   * ## Why the rejection is checked rather than caught
+   *
+   * `ScrobbleOutbox.enqueue` throws `UnsendableScrobbleError` for a payload it
+   * will not take, and a throw from in here is inside `db.transaction` — it
+   * would roll back the listen, its genres and its play count along with the
+   * queue row. The listen is not the thing at fault, so the refusal is asked
+   * for in advance instead of discovered by exception.
+   */
+  private enqueueScrobbles(listenId: number, trackId: number): void {
+    if (this.scrobble === null) return
+
+    const targets = this.scrobble.targets().filter((target) => target.connection().connected)
+    // The overwhelmingly common case: nobody has ever signed in. It costs one
+    // predicate and no query.
+    if (targets.length === 0) return
+
+    const row = this.statements.snapshot.get({ id: listenId }) as SnapshotRow | undefined
+    if (row === undefined) return
+
+    const payload: ScrobblePayload = {
+      artistName: row.artist_name ?? '',
+      title: row.title,
+      albumTitle: row.album_title,
+      albumArtistName: row.album_artist_name,
+      // Both of these cross from Fermata's milliseconds into the wire's
+      // seconds, and this is the only place either conversion happens. A
+      // millisecond value accepted as seconds dates the scrobble to the year
+      // 56000, which is the kind of wrong that reaches somebody's public
+      // profile before it reaches a test.
+      durationSeconds: row.duration_ms === null ? null : Math.round(row.duration_ms / 1000),
+      timestamp: Math.floor(row.started_at / 1000)
+    }
+
+    for (const target of targets) {
+      const entry = {
+        target: target.id,
+        kind: 'scrobble',
+        listenId,
+        trackId,
+        payload
+      } as const
+      if (scrobbleEnqueueRejection(entry, target.capabilities) !== null) continue
+      this.scrobble.outbox.enqueue(entry, target.capabilities)
+    }
   }
 
   /**
