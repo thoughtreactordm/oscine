@@ -324,9 +324,36 @@ export function createScrobbleDrainWorker(
       const result = row.kind === 'love' ? await target.love(payload) : await target.unlove(payload)
 
       if (!result.ok) {
-        // Stop the whole stream, not just this row. Skipping ahead to the next
-        // love would send a later toggle for the same track before an earlier
-        // one, and the account would settle in the wrong state.
+        // Terminal for the row, and only for the row: a 4xx no amount of
+        // retrying fixes is `submit`'s error-6 case wearing the one-at-a-time
+        // shape loves have. Left to back off it would be worse here than there,
+        // because the stream stops at the first failure — so one unsendable love
+        // would wedge every later one behind it forever, which is precisely the
+        // outbox-that-never-drains this whole design is arranged against.
+        //
+        // Ordering survives it. The row is gone rather than skipped, so no later
+        // toggle for that track overtakes an earlier one that is still waiting;
+        // the remaining flips apply in sequence and the account settles on the
+        // last of them.
+        //
+        // The connection check comes first because `rejected` is also what a
+        // target answers when it has no credential, and a target that signed out
+        // between the guard above and this row has not refused the love — it has
+        // not sent it. Dropping it then would lose a heart to a race.
+        if (result.failure.kind === 'rejected' && target.connection().connected) {
+          pass.dropped.push({
+            id: row.id,
+            target: target.id,
+            kind: row.kind,
+            reason: result.failure.message
+          })
+          outbox.delete([row.id])
+          continue
+        }
+
+        // Everything else stops the whole stream, not just this row. Skipping
+        // ahead to the next love would send a later toggle for the same track
+        // before an earlier one, and the account would settle in the wrong state.
         applyFailure(target, [row], result.failure, pass)
         return
       }

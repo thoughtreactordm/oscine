@@ -10,7 +10,7 @@ import type {
   ListFavoritesResult,
   RemoveFavoritesResult
 } from '@shared/favorites'
-import { FavoriteStore } from './store'
+import { FavoriteStore, type FavoriteScrobbleSink } from './store'
 
 /**
  * Everything the IPC layer needs from favorites, and nothing more — **D18**.
@@ -21,10 +21,12 @@ import { FavoriteStore } from './store'
  * yielded halfway would be a heart that had left one state without arriving at
  * the other.
  *
- * Nothing here reaches a socket, and that is a property of this card rather
- * than an accident of what is built so far. Pushing a `track.love` to a
- * connected account is D19 and W11-6; it enqueues in the outbox alongside this
- * write, and until it exists the heart is complete without it.
+ * Nothing here reaches a socket, and that stayed true when W11-6 arrived. The
+ * loved push writes a `scrobble_queue` row inside the same transaction as the
+ * heart and tells the drain worker there is something to do; the sending happens
+ * over there, on its own schedule, and a favorite that could not be pushed is
+ * still a favorite. That is what makes the gesture instant with the network
+ * down, and it is why `toggle` returns the local state rather than a verdict.
  */
 export interface FavoriteService {
   /** Flips one track's heart and answers with the state that resulted. */
@@ -43,17 +45,41 @@ export interface FavoriteService {
 
 export interface SqliteFavoriteDeps {
   db: Database.Database
+  /** D19's outbox and its targets. Omitted means this build does not scrobble. */
+  scrobble?: FavoriteScrobbleSink
+  /**
+   * Told after a gesture that may have enqueued, so the drain worker can wake.
+   *
+   * `ListenService.onCommitted`'s twin, and injected for its reason: the service
+   * does not know what a love is, and `main/index.ts` is where the two are
+   * joined. Called outside the transaction and never awaited — a drain is a
+   * network round trip and the heart must not be holding a write lock through
+   * one.
+   *
+   * Called on every gesture rather than only on one that enqueued, because this
+   * layer cannot see whether the store enqueued anything and a wake that finds
+   * an empty queue costs a count. It is the cheap half of the pair; the
+   * expensive half is a heart that sits unsent until the five-minute backstop,
+   * which reads as broken to the operator refreshing their profile.
+   */
+  onChanged?: () => void
 }
 
 export class SqliteFavoriteService implements FavoriteService {
   private readonly store: FavoriteStore
+  private readonly onChanged: (() => void) | null
 
   constructor(deps: SqliteFavoriteDeps) {
-    this.store = new FavoriteStore(deps.db)
+    this.store = new FavoriteStore(deps.db, {
+      ...(deps.scrobble ? { scrobble: deps.scrobble } : {})
+    })
+    this.onChanged = deps.onChanged ?? null
   }
 
   async toggle(trackId: number): Promise<FavoriteState> {
-    return this.store.toggle(trackId)
+    const state = this.store.toggle(trackId)
+    this.onChanged?.()
+    return state
   }
 
   async state(trackIds: readonly number[]): Promise<FavoriteStateResult> {
@@ -73,6 +99,8 @@ export class SqliteFavoriteService implements FavoriteService {
   }
 
   async remove(trackIds: readonly number[]): Promise<RemoveFavoritesResult> {
-    return this.store.removeMany(trackIds)
+    const result = this.store.removeMany(trackIds)
+    this.onChanged?.()
+    return result
   }
 }

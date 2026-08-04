@@ -11,6 +11,8 @@ import {
   type ListFavoritesResult,
   type RemoveFavoritesResult
 } from '@shared/favorites'
+import type { ScrobblePayload, ScrobbleTarget } from '@shared/scrobble'
+import { scrobbleEnqueueRejection, type ScrobbleOutbox } from '../scrobble/outbox'
 import { TRACK_JOINS, TRACK_PROJECTION, toTrack, type TrackRow } from '../library/store'
 
 /**
@@ -26,7 +28,64 @@ import { TRACK_JOINS, TRACK_PROJECTION, toTrack, type TrackRow } from '../librar
  *
  * Electron-free, so the whole thing is drivable under plain Node against a temp
  * file.
+ *
+ * ## The loved push — **W11-6**, one-way and forward-only
+ *
+ * A heart also enqueues a `love` row and an un-heart an `unlove` row, through
+ * the same outbox as scrobbles so that both inherit persistence, ordering and
+ * backoff instead of growing a second retry path.
+ *
+ * **Forward-only is a property of where the enqueue lives**, not of a flag. It
+ * happens here, inside the gesture — so there is no code path that walks
+ * `track_favorites` and pushes what is already in it. Connecting an account
+ * cannot push a library's worth of hearts to somebody else's profile on the
+ * strength of one click, because nothing anywhere is written that could.
+ *
+ * The other way in is D11's bundle, which merges `track_favorites` with its own
+ * SQL rather than through this class — so importing a second machine's thousand
+ * hearts enqueues nothing, which is right for the same reason connecting does
+ * not. Worth knowing before anyone routes that merge through `toggle` for the
+ * tidiness of it: doing so would turn an import into a bulk push, silently.
+ *
+ * **One-way is a property of what is absent.** Nothing in this module, or
+ * anywhere under `../scrobble/`, reads a loved-tracks list back. `track_favorites`
+ * is authoritative and local (D18); a two-way sync would need a conflict rule for
+ * "loved there, un-hearted here" and there is no right one.
  */
+
+/**
+ * What the toggle needs in order to also enqueue — W11-6.
+ *
+ * Injected and optional for `ListenScrobbleSink`'s reasons: a build with no
+ * scrobbling, and every test of favorites themselves, wants a store that writes
+ * one table and nothing else. It also keeps this module Electron-free.
+ */
+export interface FavoriteScrobbleSink {
+  readonly outbox: ScrobbleOutbox
+  /** Asked per gesture, never captured — accounts come and go between clicks. */
+  targets(): readonly ScrobbleTarget[]
+  /**
+   * The `lastfm.loveOnFavorite` gate, read per gesture for the same reason.
+   *
+   * One predicate rather than one per target, because there is exactly one
+   * loving target and the setting is named for it. A second service that loves
+   * would want a key each, and the honest place to discover that is W11-8 —
+   * which is also the card that would be adding the second key.
+   */
+  lovePushEnabled(): boolean
+}
+
+export interface FavoriteStoreOptions {
+  /** Omitted means this build does not scrobble. Nothing else changes. */
+  scrobble?: FavoriteScrobbleSink
+}
+
+/** A track as a love identifies it: artist and title, resolved through D7. */
+interface LoveSnapshot {
+  trackId: number
+  title: string | null
+  artistName: string | null
+}
 
 export class FavoriteStore {
   private readonly statements: {
@@ -39,6 +98,8 @@ export class FavoriteStore {
     byArtist: Database.Statement<{ artistId: number; limit: number }>
     removeMany: Database.Statement<{ ids: string }>
     count: Database.Statement<[]>
+    loveSnapshot: Database.Statement<[number]>
+    loveSnapshots: Database.Statement<{ ids: string }>
   }
 
   private readonly toggleTransaction: (params: {
@@ -46,7 +107,12 @@ export class FavoriteStore {
     favoritedAt: number
   }) => FavoriteState
 
-  constructor(db: Database.Database) {
+  private readonly removeTransaction: (params: { ids: string; at: number }) => RemoveFavoritesResult
+
+  private readonly scrobble: FavoriteScrobbleSink | null
+
+  constructor(db: Database.Database, options: FavoriteStoreOptions = {}) {
+    this.scrobble = options.scrobble ?? null
     this.statements = {
       // `INSERT ... SELECT FROM tracks` rather than an insert of the id the
       // caller handed over, for the reason `ListenStore.insert` does it: the
@@ -142,7 +208,42 @@ export class FavoriteStore {
         DELETE FROM track_favorites
         WHERE track_id IN (SELECT value FROM json_each(@ids))
       `),
-      count: db.prepare('SELECT count(*) AS total FROM track_favorites')
+      count: db.prepare('SELECT count(*) AS total FROM track_favorites'),
+      // What a love says, resolved exactly as the rail draws it — through
+      // `track_overrides` (D7). A correction the operator made is the name they
+      // believe the song has, and it is the one that should reach Last.fm; the
+      // listen commit resolves the same two columns the same way, so a scrobble
+      // and a love for one track can never name it differently.
+      //
+      // No album and no duration: `track.love` has no parameter for either (see
+      // `loveParams`), so snapshotting them would be storing fields onto the
+      // queue row that nothing will ever read.
+      loveSnapshot: db.prepare(`
+        SELECT
+          t.id AS trackId,
+          COALESCE(o.title, t.title) AS title,
+          COALESCE(o.artist_name, ar.name) AS artistName
+        FROM tracks t
+        LEFT JOIN track_overrides o ON o.track_id = t.id
+        LEFT JOIN artists ar ON ar.id = t.artist_id
+        WHERE t.id = ?
+      `),
+      // The batch form, for `removeMany`. Driven from `json_each` into the
+      // primary key as `state` and `removeMany` are, and joined through
+      // `track_favorites` so it returns exactly the rows the delete is about to
+      // take — an id that is not favorited enqueues no unlove, because nothing
+      // was un-hearted.
+      loveSnapshots: db.prepare(`
+        SELECT
+          t.id AS trackId,
+          COALESCE(o.title, t.title) AS title,
+          COALESCE(o.artist_name, ar.name) AS artistName
+        FROM json_each(@ids) requested
+        JOIN track_favorites f ON f.track_id = requested.value
+        JOIN tracks t ON t.id = f.track_id
+        LEFT JOIN track_overrides o ON o.track_id = t.id
+        LEFT JOIN artists ar ON ar.id = t.artist_id
+      `)
     }
 
     // Delete, and insert only if the delete found nothing. One transaction, so
@@ -152,6 +253,7 @@ export class FavoriteStore {
     this.toggleTransaction = db.transaction(
       (params: { trackId: number; favoritedAt: number }): FavoriteState => {
         if (this.statements.remove.run(params.trackId).changes > 0) {
+          this.enqueueLoves('unlove', this.snapshotOne(params.trackId), params.favoritedAt)
           return { trackId: params.trackId, favorite: false, favoritedAt: null }
         }
 
@@ -162,9 +264,103 @@ export class FavoriteStore {
           return { trackId: params.trackId, favorite: false, favoritedAt: null }
         }
 
+        // Inside this transaction and after the write it describes, exactly as
+        // the listen commit enqueues inside its own: a rollback must take the
+        // heart and its push together, and a heart that recorded without
+        // enqueueing is a love silently lost.
+        this.enqueueLoves('love', this.snapshotOne(params.trackId), params.favoritedAt)
+
         return { trackId: params.trackId, favorite: true, favoritedAt: params.favoritedAt }
       }
     )
+
+    // Read, then delete, then enqueue — one transaction, because the read is
+    // what decides which unloves to send. Outside one, a second connection could
+    // remove a row between the two statements and the queue would carry an
+    // unlove for a heart this call did not withdraw.
+    this.removeTransaction = db.transaction(
+      (params: { ids: string; at: number }): RemoveFavoritesResult => {
+        const snapshots = this.statements.loveSnapshots.all(params) as LoveSnapshot[]
+        const { changes } = this.statements.removeMany.run({ ids: params.ids })
+        this.enqueueLoves('unlove', snapshots, params.at)
+        return { removed: changes }
+      }
+    )
+  }
+
+  /** One track's love snapshot, or none when it is not in the library. */
+  private snapshotOne(trackId: number): LoveSnapshot[] {
+    const row = this.statements.loveSnapshot.get(trackId) as LoveSnapshot | undefined
+    return row === undefined ? [] : [row]
+  }
+
+  /**
+   * One `scrobble_queue` row per snapshot per loving target — W11-6.
+   *
+   * ## Three ways this enqueues nothing, and all of them are ordinary
+   *
+   * The setting is off; no account is connected; or the connected target has no
+   * loves to record (`supportsLove`, which is what ListenBrainz will answer in
+   * W11-8). The last one matters more than it looks: a love row queued for a
+   * target that can never send it is a row that can never drain, so the check
+   * belongs here, before the write, rather than in the worker that would
+   * discover it.
+   *
+   * The commonest case by far is nobody having ever signed in, and it costs one
+   * predicate and no query.
+   *
+   * ## Why the refusal is asked for rather than caught
+   *
+   * `ScrobbleOutbox.enqueue` throws for a payload it will not take, and a throw
+   * from in here is inside `db.transaction` — it would roll back the heart along
+   * with the queue row. An untagged track is not a reason to refuse somebody's
+   * favorite: the heart is a local fact and stands whether or not any service
+   * can be told about it, so the rejection is checked in advance and the row is
+   * simply not enqueued. It is the same divergence rule the listen commit
+   * states, for the same reason.
+   */
+  private enqueueLoves(
+    kind: 'love' | 'unlove',
+    snapshots: readonly LoveSnapshot[],
+    at: number
+  ): void {
+    if (this.scrobble === null || snapshots.length === 0) return
+    if (!this.scrobble.lovePushEnabled()) return
+
+    const targets = this.scrobble
+      .targets()
+      .filter((target) => target.connection().connected && target.capabilities.supportsLove)
+    if (targets.length === 0) return
+
+    // Seconds, like every other `timestamp` in the queue. Never transmitted —
+    // `track.love` has no timestamp parameter — but it is what `ready` orders
+    // by, and ordering is the whole of what makes heart, un-heart, heart again
+    // settle loved rather than un-loved. Two flips inside one second share a
+    // value and `id ASC` separates them, which is why the outbox orders by both.
+    const timestamp = Math.floor(at / 1000)
+
+    for (const snapshot of snapshots) {
+      const payload: ScrobblePayload = {
+        artistName: snapshot.artistName ?? '',
+        title: snapshot.title ?? '',
+        albumTitle: null,
+        albumArtistName: null,
+        durationSeconds: null,
+        timestamp
+      }
+
+      for (const target of targets) {
+        const entry = {
+          target: target.id,
+          kind,
+          listenId: null,
+          trackId: snapshot.trackId,
+          payload
+        } as const
+        if (scrobbleEnqueueRejection(entry, target.capabilities) !== null) continue
+        this.scrobble.outbox.enqueue(entry, target.capabilities)
+      }
+    }
   }
 
   /**
@@ -280,11 +476,13 @@ export class FavoriteStore {
    * deleted, which is why the result is a count rather than a per-id answer. A
    * removal is idempotent by nature: asking twice and getting `4` then `0` is
    * the honest report of what happened, not a failure to be raised.
+   *
+   * The unloves it enqueues follow the same rule: one per heart actually
+   * withdrawn, so the second call sends nothing (W11-6).
    */
   removeMany(trackIds: readonly number[]): RemoveFavoritesResult {
     const unique = [...new Set(trackIds)]
     if (unique.length === 0) return { removed: 0 }
-    const { changes } = this.statements.removeMany.run({ ids: JSON.stringify(unique) })
-    return { removed: changes }
+    return this.removeTransaction({ ids: JSON.stringify(unique), at: Date.now() })
   }
 }

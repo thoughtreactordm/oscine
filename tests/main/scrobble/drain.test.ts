@@ -392,6 +392,48 @@ describe('the drain worker, loves', () => {
     expect(rows()[1].attempts).toBe(0)
   })
 
+  it('drops a love the service refuses, and keeps sending the ones behind it', async () => {
+    const target = createStubScrobbleTarget()
+    const ids = [
+      enqueue({ kind: 'love', payload: payload({ timestamp: 1_700_000_001 }) }),
+      enqueue({ kind: 'unlove', payload: payload({ timestamp: 1_700_000_002 }) })
+    ]
+
+    // A 4xx no amount of retrying fixes. Backing it off would wedge every later
+    // love behind it forever, because the stream stops at the first failure.
+    target.queueLove(() => netFailed({ kind: 'rejected', message: 'No such track.' }))
+
+    const report = await worker([target]).wake()
+
+    expect(report.targets[0].stop).toBe('drained')
+    expect(report.targets[0].dropped).toEqual([
+      { id: ids[0], target: 'lastfm', kind: 'love', reason: 'No such track.' }
+    ])
+    expect(target.calls.unloved).toHaveLength(1)
+    expect(rows()).toEqual([])
+  })
+
+  it('keeps a love the target refused because it had just signed out', async () => {
+    const target = createStubScrobbleTarget()
+    const id = enqueue({ kind: 'love' })
+
+    // `rejected` is also what a target answers with no credential. A target that
+    // stood down between the pass guard and this row has not refused the love —
+    // it has not sent it, and dropping it would lose a heart to a race.
+    target.queueLove(() => {
+      target.setConnected(false)
+      return netFailed({ kind: 'rejected', message: 'No Last.fm account is connected.' })
+    })
+
+    const report = await worker([target]).wake()
+
+    expect(report.targets[0].stop).toBe('disconnected')
+    expect(report.targets[0].dropped).toEqual([])
+    expect(rows().map((row) => row.id)).toEqual([id])
+    // Not charged for a condition only the operator can clear.
+    expect(rows()[0].attempts).toBe(0)
+  })
+
   it('sends the payload a love is keyed by, and nothing more', async () => {
     const target = createStubScrobbleTarget()
     enqueue({ kind: 'love' })
