@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40Q2G2QD6XPPMWFKBZKTZ9
 title: The `ScrobbleTarget` contract in `src/shared`
-status: in-review
+status: done
 priority: high
 labels:
   - contract
@@ -11,7 +11,7 @@ workstream: W11
 workstreamId: W11-1
 order: 0
 created: '2026-08-03T14:33:47.266Z'
-updated: '2026-08-03T17:08:30.429Z'
+updated: '2026-08-04T15:06:58.796Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → D19 and → Scrobbling → "The provider contract".
 

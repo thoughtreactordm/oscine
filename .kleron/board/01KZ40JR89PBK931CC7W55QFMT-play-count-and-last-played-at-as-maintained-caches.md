@@ -3,7 +3,7 @@ taskId: 01KZ40JR89PBK931CC7W55QFMT
 title: >-
   `play_count` and `last_played_at` as maintained caches — and
   `stats.rebuildCounters`
-status: in-review
+status: done
 priority: medium
 labels:
   - main
@@ -13,9 +13,9 @@ workstream: W10
 workstreamId: W10-5
 dependsOn:
   - 01KZ40JCB1BTE51EE841D51FJ1
-order: 3
+order: 13
 created: '2026-08-03T14:31:25.705Z'
-updated: '2026-08-03T18:54:23.594Z'
+updated: '2026-08-04T15:06:59.010Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → The listen event → "play_count is a maintained cache".
 

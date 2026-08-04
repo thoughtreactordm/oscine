@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40KJ0CM6FW6GXFEZR6HF62
 title: '"My Favorites" — the pinned rail entry as a view over the table'
-status: in-review
+status: done
 priority: medium
 labels:
   - ui
@@ -11,9 +11,9 @@ workstream: W10
 workstreamId: W10-7
 dependsOn:
   - 01KZ40K4S52HJ267CZEWGD7QH1
-order: 2
+order: 12
 created: '2026-08-03T14:31:52.075Z'
-updated: '2026-08-03T20:12:41.969Z'
+updated: '2026-08-04T15:06:58.999Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → D18 and → Favorites → "The rail entry".
 

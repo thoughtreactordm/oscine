@@ -3,7 +3,7 @@ taskId: 01KZ40RQ6VF1EAZVWCJYTEGJAN
 title: >-
   The Last.fm client — signing, `track.scrobble`, `track.updateNowPlaying`,
   error taxonomy
-status: in-review
+status: done
 priority: high
 labels:
   - main
@@ -14,9 +14,9 @@ workstreamId: W11-4
 dependsOn:
   - 01KZ40R3J8RW3AP3180KPYAFNS
   - 01KZ40QHB4PYF5AG93T4KAK1YW
-order: 0
+order: 1
 created: '2026-08-03T14:34:41.242Z'
-updated: '2026-08-04T00:47:40.258Z'
+updated: '2026-08-04T15:06:58.822Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → Scrobbling → "Last.fm specifics".
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40S3HZGRXD8F0ZXJ3G00WE
 title: 'Wire the listen commit to the outbox, and now-playing to transport-commit'
-status: in-review
+status: done
 priority: high
 labels:
   - main
@@ -11,9 +11,9 @@ workstream: W11
 workstreamId: W11-5
 dependsOn:
   - 01KZ40RQ6VF1EAZVWCJYTEGJAN
-order: 0
+order: 2
 created: '2026-08-03T14:34:53.886Z'
-updated: '2026-08-04T00:47:42.099Z'
+updated: '2026-08-04T15:06:58.839Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → The listen event → "What else the commit does".
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40R3J8RW3AP3180KPYAFNS
 title: 'Last.fm auth — the desktop flow, `safeStorage`, and the shipped key'
-status: in-review
+status: done
 priority: high
 labels:
   - main
@@ -12,9 +12,9 @@ workstream: W11
 workstreamId: W11-3
 dependsOn:
   - 01KZ40Q2G2QD6XPPMWFKBZKTZ9
-order: 1
+order: 11
 created: '2026-08-03T14:34:21.128Z'
-updated: '2026-08-03T23:45:11.508Z'
+updated: '2026-08-04T15:06:58.984Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → D19 and → Scrobbling → "Last.fm specifics".
 

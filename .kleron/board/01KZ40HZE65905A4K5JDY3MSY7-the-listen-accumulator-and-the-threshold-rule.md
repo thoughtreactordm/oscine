@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40HZE65905A4K5JDY3MSY7
 title: The listen accumulator and the threshold rule
-status: in-review
+status: done
 priority: high
 labels:
   - renderer
@@ -9,9 +9,9 @@ labels:
   - D17
 workstream: W10
 workstreamId: W10-3
-order: 61
+order: 19
 created: '2026-08-03T14:31:00.294Z'
-updated: '2026-08-03T18:07:42.467Z'
+updated: '2026-08-04T15:06:59.099Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → The listen event.
 

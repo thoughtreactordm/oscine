@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40NGY6GCWYGQSSSBE5QTJ7
 title: The Listening dashboard — a new Sources destination
-status: in-review
+status: done
 priority: medium
 labels:
   - ui
@@ -11,9 +11,9 @@ workstream: W10
 workstreamId: W10-12
 dependsOn:
   - 01KZ40MRD5Z3CW0GE4NMVWPX02
-order: 1
+order: 10
 created: '2026-08-03T14:32:56.518Z'
-updated: '2026-08-03T22:42:43.329Z'
+updated: '2026-08-04T15:06:58.967Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → The stats engine → "The dashboard".
 

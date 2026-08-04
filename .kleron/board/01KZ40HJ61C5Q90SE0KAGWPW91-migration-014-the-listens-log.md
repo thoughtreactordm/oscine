@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40HJ61C5Q90SE0KAGWPW91
 title: Migration 014 — the listens log
-status: in-review
+status: done
 priority: high
 labels:
   - schema
@@ -10,9 +10,9 @@ workstream: W10
 workstreamId: W10-2
 dependsOn:
   - 01KZ40H1BK77657BBTKKKAQD9B
-order: 60
+order: 18
 created: '2026-08-03T14:30:46.721Z'
-updated: '2026-08-03T17:57:31.496Z'
+updated: '2026-08-04T15:06:59.084Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → D17 and → Data model → Migration 014.
 

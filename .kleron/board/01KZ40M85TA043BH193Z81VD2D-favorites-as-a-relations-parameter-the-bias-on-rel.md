@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40M85TA043BH193Z81VD2D
 title: Favorites as a relations parameter — the bias on `related.ts`
-status: in-review
+status: done
 priority: low
 labels:
   - main
@@ -12,9 +12,9 @@ workstream: W10
 workstreamId: W10-9
 dependsOn:
   - 01KZ40K4S52HJ267CZEWGD7QH1
-order: 1
+order: 7
 created: '2026-08-03T14:32:14.778Z'
-updated: '2026-08-03T21:06:29.255Z'
+updated: '2026-08-04T15:06:58.922Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → Favorites → "As a relations parameter".
 

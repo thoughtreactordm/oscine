@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40MRD5Z3CW0GE4NMVWPX02
 title: 'The stats engine — `stats.query`, `stats.summary`, `stats.overTime`'
-status: in-review
+status: done
 priority: high
 labels:
   - main
@@ -11,9 +11,9 @@ workstream: W10
 workstreamId: W10-10
 dependsOn:
   - 01KZ40JCB1BTE51EE841D51FJ1
-order: 1
+order: 8
 created: '2026-08-03T14:32:31.396Z'
-updated: '2026-08-03T21:27:11.556Z'
+updated: '2026-08-04T15:06:58.938Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → The stats engine.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQARC68EEJ2MR3FVQC62WDN
 title: 'M2 exit: prove proper playback on Windows and Linux'
-status: in-review
+status: done
 priority: high
 labels:
   - M2
@@ -14,9 +14,9 @@ dependsOn:
   - 01KYQANT57FSNXJ6BN8WNF5NV8
   - 01KYQAQKV9YX20XQF9NE4WSKJK
 effort: high
-order: 1
+order: 5
 created: '2026-07-29T16:19:08.103Z'
-updated: '2026-08-04T00:58:42.229Z'
+updated: '2026-08-04T15:06:58.887Z'
 ---
 Turn M2's exit criteria into one repeatable, cross-platform gate. The result is evidence attached to this card, not a listening-session recollection.
 
