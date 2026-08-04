@@ -42,6 +42,20 @@ export {
   SHIPPED_LASTFM_API_SECRET
 } from './lastfm/appKey'
 export type { LastfmAppKey } from './lastfm/appKey'
+export { createSendingTargets, scrobbleTargetEnabled } from './enabled'
+export type { SendingTargetsOptions } from './enabled'
+export { createNowPlayingAnnouncer } from './nowPlaying'
+export type { NowPlayingAnnouncer, NowPlayingAnnouncerOptions } from './nowPlaying'
+export { createScrobbleStatusService } from './status'
+export type { ScrobbleStatusOptions, ScrobbleStatusService } from './status'
+export {
+  LASTFM_IGNORED,
+  loveParams,
+  nowPlayingParams,
+  readScrobbleResponse,
+  scrobbleBatchParams
+} from './lastfm/scrobbles'
+export type { ScrobbleResponseBody, ScrobbleResponseReading } from './lastfm/scrobbles'
 export { signParams, signatureBase, withSignature } from './lastfm/signature'
 export type { LastfmParams } from './lastfm/signature'
 export {

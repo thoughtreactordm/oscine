@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { buildSettingsCatalog, SETTING_ROW_PX } from '@renderer/panels/settings/catalog'
 import { visibleRange } from '@renderer/panels/listViewport'
 import RebuildCountersAction from '@renderer/panels/settings/RebuildCountersAction.vue'
+import ScrobblingAccounts from '@renderer/panels/settings/ScrobblingAccounts.vue'
 import SettingRow from '@renderer/panels/settings/SettingRow.vue'
 import { useSettings } from '@renderer/settings'
 import { useSettingsNavStore } from '@renderer/stores/settingsNav'
@@ -60,12 +61,64 @@ function revertSection(): void {
   if (id) void settings.resetCategory(id)
 }
 
+/**
+ * W11-7's accounts block, drawn above the Network section's rows.
+ *
+ * Guarded the way `RebuildCountersAction` is: one section, and hidden the moment
+ * a query or the changed filter spans several, because a block about Last.fm
+ * sitting above a list of matching audio settings is furniture from the wrong
+ * room.
+ */
+const showScrobbling = computed(() => !catalog.value.spanning && section.value?.id === 'network')
+
+/**
+ * How tall whatever sits above the rows is, in pixels.
+ *
+ * The block scrolls with the list rather than pinning under the header — it is
+ * content, and a pane whose top third is permanently spent on one account would
+ * be a poor trade on a short window. That means it displaces the rows, and
+ * `visibleRange` is told about it: the rows are absolutely positioned inside
+ * their own container, which the block has already pushed down, so the only
+ * thing that needs correcting is which rows the scroll position is asking for.
+ * Without this, scrolling past the block would skip the first two rows of the
+ * section — the exact bug virtualization is prone to and the exact reason the
+ * offset is measured rather than assumed.
+ */
+const leadingPx = ref(0)
+const leading = ref<HTMLElement | null>(null)
+
+/**
+ * Observed rather than measured once: the block grows a line when a sign-in
+ * fails and loses one when a queue empties, and a height read at mount would be
+ * wrong from the first error onwards.
+ */
+let leadingObserver: ResizeObserver | null = null
+
+watch(leading, (el) => {
+  leadingObserver?.disconnect()
+  leadingObserver = null
+  if (!el) {
+    leadingPx.value = 0
+    return
+  }
+  leadingPx.value = el.offsetHeight
+  leadingObserver = new ResizeObserver(() => {
+    leadingPx.value = el.offsetHeight
+  })
+  leadingObserver.observe(el)
+})
+
+onUnmounted(() => {
+  leadingObserver?.disconnect()
+  leadingObserver = null
+})
+
 const rowWindow = computed(() =>
   visibleRange({
     total: catalog.value.rows.length,
     rowPx: SETTING_ROW_PX,
     viewportPx: viewportPx.value,
-    scrollTop: scrollTop.value
+    scrollTop: Math.max(0, scrollTop.value - leadingPx.value)
   })
 )
 
@@ -120,7 +173,7 @@ watch(
       return
     }
 
-    const top = index * SETTING_ROW_PX
+    const top = leadingPx.value + index * SETTING_ROW_PX
     const onScreen = top >= el.scrollTop && top + SETTING_ROW_PX <= el.scrollTop + el.clientHeight
     if (!onScreen) {
       el.scrollTop = Math.max(0, top - el.clientHeight / 2 + SETTING_ROW_PX / 2)
@@ -228,6 +281,10 @@ watch(
       "
       @scroll="onScroll"
     >
+      <div v-if="showScrobbling" ref="leading">
+        <ScrobblingAccounts />
+      </div>
+
       <div v-if="catalog.rows.length === 0" class="px-4 py-10 text-center text-xs text-dimmed">
         <template v-if="catalog.filtered">
           Nothing matches “{{ nav.query.trim() }}”. Search runs over names, descriptions and

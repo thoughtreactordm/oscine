@@ -51,8 +51,9 @@ import type {
 import type { CancelNetScopeRequest, CancelNetScopeResult, NetResult } from './net'
 import type {
   ScrobbleConnection,
-  ScrobbleConnectionsResult,
-  ScrobbleTargetRequest
+  ScrobbleStatusResult,
+  ScrobbleTargetRequest,
+  ScrobbleTargetStatus
 } from './scrobble'
 import type { RelatedQuery, RelatedResult } from './related'
 import type {
@@ -596,15 +597,21 @@ export interface IpcContract {
   }
 
   /**
-   * Which scrobbling accounts are connected (**D19**).
+   * Which scrobbling accounts are connected, and how their outbox is doing
+   * (**D19**).
    *
    * The response is the whole of what the renderer is ever told about a
-   * scrobbling credential: a target, a boolean, a username. Not the session key,
-   * not a token, not an expiry — there is nothing in it a compromised renderer
-   * could scrobble with, which is why the credential's storage is a
+   * scrobbling credential: a target, two booleans, a username. Not the session
+   * key, not a token, not an expiry — there is nothing in it a compromised
+   * renderer could scrobble with, which is why the credential's storage is a
    * main-process file and not a settings row.
+   *
+   * The queue depth and last error ride along because the pane draws them
+   * beside the username, and a separate channel for them would be two round
+   * trips that can disagree — the account reading connected while the count
+   * still describes the session before it.
    */
-  'scrobble.connections': { request: null; response: ScrobbleConnectionsResult }
+  'scrobble.status': { request: null; response: ScrobbleStatusResult }
 
   /**
    * Begin a target's sign-in, and resolve when it is over.
@@ -639,8 +646,27 @@ export interface IpcContract {
    * revoking it belongs to the operator, on their account's applications page,
    * and an app that claimed to have revoked something it merely forgot would be
    * lying about the more important half.
+   *
+   * Queued scrobbles for the target are **kept**, and the pane says so. They are
+   * listens that actually happened; reconnecting the same account sends them,
+   * and a disconnect that silently emptied the queue would destroy data on a
+   * gesture the operator is likely to be making experimentally.
    */
-  'scrobble.disconnect': { request: ScrobbleTargetRequest; response: ScrobbleConnectionsResult }
+  'scrobble.disconnect': { request: ScrobbleTargetRequest; response: ScrobbleStatusResult }
+
+  /**
+   * Drain now — the button beside a queue that is not moving.
+   *
+   * A courtesy rather than a mechanism: enqueue, app start, network return and
+   * a five-minute backstop already wake the worker, so this exists for the
+   * operator who has just plugged the ethernet back in and would like to watch
+   * the number fall rather than take it on faith. Resolves with the status the
+   * pass left behind, so the count the pane draws next is the post-drain one.
+   *
+   * Never rejects. A pass that failed is a `lastError` in the response, which is
+   * the same thing the pane was already drawing.
+   */
+  'scrobble.retry': { request: null; response: ScrobbleStatusResult }
 
   /**
    * Who is playing, as an identity rather than as a tag string (**R5**).
@@ -791,16 +817,21 @@ export interface IpcEventContract {
    */
   'listens.flushRequested': null
   /**
-   * A scrobbling account connected or disconnected (**D19**).
+   * A scrobbling account connected or disconnected, or its queue moved
+   * (**D19**).
    *
    * `scrobble.connect` already resolves with the new connection, so this is not
    * how the pane that started a sign-in learns it succeeded. It is how every
-   * *other* view learns — and how the pane learns about a disconnection it did
-   * not ask for, which is the case that matters: a session key Last.fm has
-   * stopped accepting stands the account down from inside the drain worker,
-   * with nobody watching a promise.
+   * *other* view learns — and how the pane learns about the two changes nobody
+   * is holding a promise for: a session key Last.fm has stopped accepting,
+   * which stands the account down from inside the drain worker, and a queue
+   * that grew because a listen committed offline or shrank because a pass got
+   * through.
+   *
+   * Emitted once per drain pass rather than per row, which is what makes it
+   * affordable to send on a schedule the operator never asked for.
    */
-  'scrobble.connectionsChanged': ScrobbleConnection[]
+  'scrobble.statusChanged': ScrobbleTargetStatus[]
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -892,10 +923,11 @@ export const IPC_CHANNELS = [
   'settings.readProfile',
   'settings.importProfile',
   'net.cancelScope',
-  'scrobble.connections',
+  'scrobble.status',
   'scrobble.connect',
   'scrobble.cancelConnect',
   'scrobble.disconnect',
+  'scrobble.retry',
   'artist.resolve',
   'artist.searchCandidates',
   'artist.setMbid',
@@ -913,7 +945,7 @@ export const IPC_EVENT_CHANNELS = [
   'podcasts.downloadProgress',
   'settings.changed',
   'listens.flushRequested',
-  'scrobble.connectionsChanged'
+  'scrobble.statusChanged'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**

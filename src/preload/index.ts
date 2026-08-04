@@ -32,7 +32,7 @@ import type { ListFavoriteIdsQuery, ListFavoritesQuery } from '@shared/favorites
 import type { RecordListenRequest } from '@shared/listens'
 import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
-import type { ScrobbleConnection, ScrobbleTargetId } from '@shared/scrobble'
+import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
 import type {
   BrowsePodcastCategoryQuery,
   EpisodeDownloadProgress,
@@ -275,19 +275,22 @@ const api = {
   /**
    * Scrobbling accounts — **D19**, and a deliberately tiny surface.
    *
-   * Four calls, and not one of them can return a credential. The session key is
+   * Five calls, and not one of them can return a credential. The session key is
    * sealed in a main-process file and read only by the target that signs with
-   * it; the renderer's entire view is a username and a boolean. That is not a
-   * convention this bridge follows carefully — it is the shape of the channels
-   * in `ipc.ts`, so there is no careful version of this file that could leak one.
+   * it; the renderer's entire view is a username, a boolean, a count and a
+   * sentence. That is not a convention this bridge follows carefully — it is the
+   * shape of the channels in `ipc.ts`, so there is no careful version of this
+   * file that could leak one.
    *
    * There is also nothing here that *sends* a scrobble. Enqueueing happens in
    * main off the listen commit (W11-5), which is what keeps a scrobble a
    * consequence of having listened rather than something a renderer can assert.
+   * `retry` is the nearest thing and is still not it: it wakes the worker that
+   * reads the durable queue, and a queue with nothing in it answers instantly.
    */
   scrobble: {
-    /** Every target this build knows, connected or not. */
-    connections: () => request('scrobble.connections', null),
+    /** Every target this build knows, connected or not, with its queue reading. */
+    status: () => request('scrobble.status', null),
     /**
      * Start a sign-in and wait for it.
      *
@@ -298,11 +301,17 @@ const api = {
     connect: (target: ScrobbleTargetId) => request('scrobble.connect', { target }),
     /** Abandon a sign-in in progress. The pending `connect` resolves cancelled. */
     cancelConnect: (target: ScrobbleTargetId) => request('scrobble.cancelConnect', { target }),
-    /** Forget the credential. Answers with the connections as they now stand. */
+    /**
+     * Forget the credential. Answers with the status as it now stands.
+     *
+     * Queued scrobbles for the target survive it — see `scrobble.disconnect`.
+     */
     disconnect: (target: ScrobbleTargetId) => request('scrobble.disconnect', { target }),
+    /** Drain now. Answers with what the pass left behind. */
+    retry: () => request('scrobble.retry', null),
     /** Returns an unsubscribe function. Call it on unmount. */
-    onConnectionsChanged: (listener: (connections: ScrobbleConnection[]) => void) =>
-      subscribe('scrobble.connectionsChanged', listener)
+    onStatusChanged: (listener: (targets: ScrobbleTargetStatus[]) => void) =>
+      subscribe('scrobble.statusChanged', listener)
   },
   /**
    * **R5**'s identity surface, and the first thing here that causes a fetch.

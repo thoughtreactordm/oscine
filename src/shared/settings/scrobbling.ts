@@ -1,5 +1,8 @@
 /**
- * Scrobbling keys — **D19**'s escape hatch, and nothing else yet.
+ * Scrobbling keys — the pause switch, **D19**'s escape hatch, and the loved-push
+ * gate.
+ *
+ * ## The escape hatch
  *
  * Two keys, both empty by default, both meaning "use the pair Fermata ships
  * with". They exist because a shipped API key is a single point of failure that
@@ -41,10 +44,28 @@
  * at all, are W11-7.
  */
 
-import { defineSetting, stringValue, type SettingDescriptor } from './kernel'
+import type { ScrobbleTargetId } from '../scrobble'
+import { booleanValue, defineSetting, stringValue, type SettingDescriptor } from './kernel'
 
+export const LASTFM_ENABLED = 'lastfm.enabled'
 export const LASTFM_API_KEY = 'lastfm.apiKey'
 export const LASTFM_API_SECRET = 'lastfm.apiSecret'
+export const LASTFM_LOVE_ON_FAVORITE = 'lastfm.loveOnFavorite'
+
+/**
+ * Which key pauses which target — the map the main process filters through.
+ *
+ * `Partial` on purpose, and the absent case means *on*. A target with no switch
+ * is a target whose only gate is whether it is connected, which is what every
+ * target was before this key existed; the alternative is a lookup that throws
+ * for an id the registry has not caught up with, which turns a missing setting
+ * into a scrobble that never sends. ListenBrainz gets its entry in W11-8, in the
+ * same commit that gives it a target to switch off.
+ */
+export const SCROBBLE_ENABLED_KEYS: Readonly<Partial<Record<ScrobbleTargetId, string>>> =
+  Object.freeze({
+    lastfm: LASTFM_ENABLED
+  })
 
 /**
  * Both fields, or neither.
@@ -64,6 +85,52 @@ export const LASTFM_APP_KEY_HELP =
   'sign without its secret.'
 
 export const SCROBBLING_SETTINGS: readonly SettingDescriptor[] = [
+  // The pause switch, and deliberately not the same thing as being connected.
+  //
+  // Disconnecting throws the session key away and costs a round trip through
+  // the browser to undo; "don't scrobble the next hour of this" should cost a
+  // toggle. Off means off everywhere — nothing is enqueued, nothing is
+  // announced as now-playing, and the drain leaves the queue alone — because a
+  // switch that stopped two of the three would be a switch the operator has to
+  // learn the exceptions to. What it never does is discard: rows already queued
+  // are listens that happened, and they wait.
+  defineSetting<boolean>({
+    key: LASTFM_ENABLED,
+    scope: 'durable',
+    default: true,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'network',
+    label: 'Scrobble to Last.fm',
+    help: 'Send what you play to Last.fm while an account is connected. Turning this off pauses scrobbling, now-playing and the loved push without signing you out — anything already waiting to send stays queued until you turn it back on.',
+    keywords: ['lastfm', 'last.fm', 'scrobble', 'scrobbling', 'pause', 'enable'],
+    order: 80
+  }),
+  // Portable, where the two below are not, and the difference is the same one
+  // this file is about: a key pasted on one machine is usually registered for a
+  // reason local to it, while "push my hearts to Last.fm" is a preference about
+  // how the operator likes Fermata to behave and travels with them. It carries
+  // nothing that identifies an account — with no session key on the second
+  // machine it does nothing at all until one is connected there too.
+  defineSetting<boolean>({
+    key: LASTFM_LOVE_ON_FAVORITE,
+    scope: 'durable',
+    // On, because the operator who connected an account asked for their
+    // listening to be reflected there and a heart is part of that. What the
+    // default cannot do is act on its own: with no account connected this is
+    // read, found true, and enqueues nothing, because there is nowhere to send
+    // it — and connecting one later pushes none of the hearts that already
+    // exist. Forward-only is a property of where the enqueue happens (W11-6),
+    // not of this flag.
+    default: true,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'network',
+    label: 'Love favorited tracks on Last.fm',
+    help: 'Hearting a track in Fermata also loves it on Last.fm, and un-hearting it removes the love. Favorites already in your library are never pushed, and Last.fm’s loved tracks are never read back in — your favorites here stay the authoritative copy.',
+    keywords: ['lastfm', 'last.fm', 'love', 'loved', 'favorite', 'favourite', 'heart', 'scrobble'],
+    order: 90
+  }),
   defineSetting<string>({
     key: LASTFM_API_KEY,
     scope: 'durable',

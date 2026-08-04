@@ -109,6 +109,19 @@ export interface ScrobbleDrainWorkerOptions {
   readonly intervalMs?: number
   /** How many love/unlove rows one pass will walk. */
   readonly loveLimit?: number
+  /**
+   * Told after every pass, so the settings pane does not have to poll a count.
+   *
+   * Once per pass and not once per row: a week of offline listening drains in
+   * batches of fifty, and an event per scrobble would be a thousand IPC
+   * messages to move one number. The report is passed for the benefit of a
+   * future caller that wants to say *what* happened; W11-7 only needs to know
+   * that something did, and re-reads the outbox itself.
+   *
+   * Never allowed to break a pass: a listener that throws is a settings pane's
+   * problem, not a reason to stop draining.
+   */
+  readonly onPass?: (report: ScrobbleDrainReport) => void
 }
 
 export interface ScrobbleDrainWorker {
@@ -402,7 +415,17 @@ export function createScrobbleDrainWorker(
     for (const target of options.targets()) {
       targets.push(await drainTarget(target))
     }
-    return { targets }
+
+    const report = { targets }
+    try {
+      options.onPass?.(report)
+    } catch {
+      // A listener that throws does not get to stop the queue draining. There
+      // is nowhere useful to report this to — the listener *is* the reporting
+      // surface — so it is swallowed rather than logged into a channel the
+      // operator would then see two of.
+    }
+    return report
   }
 
   function wake(): Promise<ScrobbleDrainReport> {

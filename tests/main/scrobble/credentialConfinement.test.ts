@@ -57,17 +57,25 @@ describe('the credential stays in main', () => {
     expect(suspicious).toEqual([])
   })
 
-  it('exposes exactly four scrobbling calls and one event', () => {
+  it('exposes exactly five scrobbling calls and one event', () => {
     // Pinned so that widening the renderer's view of scrobbling is a deliberate
     // edit to this list rather than a channel that slipped in beside the others.
+    //
+    // W11-7 made two such edits and both are recorded here rather than absorbed:
+    // `connections` became `status`, which carries the outbox's depth and last
+    // error alongside the username, and `retry` was added so a stalled queue has
+    // a button. Neither widens what is said about the *credential*, which is the
+    // thing this file is guarding — and keeping that distinction visible is why
+    // the count in the title had to change to let them through.
     expect(IPC_CHANNELS.filter((channel) => channel.startsWith('scrobble.'))).toEqual([
-      'scrobble.connections',
+      'scrobble.status',
       'scrobble.connect',
       'scrobble.cancelConnect',
-      'scrobble.disconnect'
+      'scrobble.disconnect',
+      'scrobble.retry'
     ])
     expect(IPC_EVENT_CHANNELS.filter((channel) => channel.startsWith('scrobble.'))).toEqual([
-      'scrobble.connectionsChanged'
+      'scrobble.statusChanged'
     ])
   })
 })

@@ -15,6 +15,7 @@ import type { ListFavoriteIdsQuery, ListFavoritesQuery } from '@shared/favorites
 import type { RecordListenRequest } from '@shared/listens'
 import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
+import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -226,6 +227,27 @@ export const settings = {
  */
 export const net = {
   cancelScope: (scope: NetScope) => unwrap(window.fermata.net.cancelScope(scope))
+}
+
+/**
+ * Scrobbling accounts and the outbox's health — **D19**'s renderer half.
+ *
+ * `connect` is the one call in this file that can sit unresolved for minutes: it
+ * resolves when the operator has finished in their own browser, and the pane's
+ * waiting state is exactly the lifetime of that promise. It rejects only for the
+ * reasons any channel does; the ordinary failures — no application key, no
+ * keyring, a tab closed — arrive as a failed `NetResult` to be *shown*.
+ */
+export const scrobble = {
+  status: () => unwrap(window.fermata.scrobble.status()),
+  connect: (target: ScrobbleTargetId) => unwrap(window.fermata.scrobble.connect(target)),
+  cancelConnect: (target: ScrobbleTargetId) =>
+    unwrap(window.fermata.scrobble.cancelConnect(target)),
+  disconnect: (target: ScrobbleTargetId) => unwrap(window.fermata.scrobble.disconnect(target)),
+  retry: () => unwrap(window.fermata.scrobble.retry()),
+  /** Returns an unsubscribe function. Call it on unmount. */
+  onStatusChanged: (listener: (targets: ScrobbleTargetStatus[]) => void) =>
+    window.fermata.scrobble.onStatusChanged(listener)
 }
 
 /**

@@ -28,6 +28,11 @@ import { createArtistIdentityService, createArtistRelationsService } from './mus
 import { createNetService } from './net'
 import { createScrobbleAccounts } from './scrobble/accounts'
 import { createCredentialFileIo, createScrobbleCredentialStore } from './scrobble/credentials'
+import { createScrobbleDrainWorker } from './scrobble/drain'
+import { createSendingTargets } from './scrobble/enabled'
+import { createNowPlayingAnnouncer } from './scrobble/nowPlaying'
+import { ScrobbleOutbox } from './scrobble/outbox'
+import { createScrobbleStatusService, type ScrobbleStatusService } from './scrobble/status'
 import { createLastfmTarget } from './scrobble/lastfm/target'
 import { createLastfmTransport } from './scrobble/lastfm/transport'
 import { resolveLastfmAppKey } from './scrobble/lastfm/appKey'
@@ -35,8 +40,12 @@ import { SqliteSettingsService } from './settings'
 import { createArtistBiographyService, createArtistImageService } from './wikipedia'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
-import type { ScrobbleConnection } from '@shared/scrobble'
-import { AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING, type SettingsChange } from '@shared/settings'
+import type { ScrobbleTarget } from '@shared/scrobble'
+import {
+  AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
+  LASTFM_LOVE_ON_FAVORITE,
+  type SettingsChange
+} from '@shared/settings'
 
 const isDev = !app.isPackaged
 const rendererDir = join(__dirname, '../renderer')
@@ -163,8 +172,16 @@ function requestListenFlush(): void {
   if (mainWindow) emit(mainWindow.webContents, 'listens.flushRequested', null)
 }
 
-function broadcastScrobbleConnections(connections: ScrobbleConnection[]): void {
-  if (mainWindow) emit(mainWindow.webContents, 'scrobble.connectionsChanged', connections)
+/**
+ * Held at module scope because the two things that announce a status change —
+ * a connection changing and a drain pass finishing — are both constructed
+ * before the service that composes the status, and both need to reach it.
+ */
+let scrobbleStatus: ScrobbleStatusService | null = null
+
+function broadcastScrobbleStatus(): void {
+  if (!mainWindow || !scrobbleStatus) return
+  emit(mainWindow.webContents, 'scrobble.statusChanged', [...scrobbleStatus.status().targets])
 }
 
 /**
@@ -354,29 +371,75 @@ if (!app.requestSingleInstanceLock()) {
     // is testable without a keyring. It is also the first use of `safeStorage`
     // anywhere in Fermata: `scrobble/credentials.ts` is the pattern.
     //
-    // Not wired to the drain worker yet. W11-3 is the sign-in; the target's
-    // `submit` is a stub until W11-4, and starting a drain against it would
-    // burn `attempts` on rows that cannot be sent.
     const scrobbleCredentials = createScrobbleCredentialStore({
       sealer: safeStorage,
       io: createCredentialFileIo(scrobbleCredentialsPath())
     })
+
+    // Held as an array as well as handed to the accounts service, because three
+    // other things need the targets themselves rather than the connections the
+    // service reports: the drain worker, the listen commit's enqueue, and the
+    // now-playing announcer. All three read it through a function rather than
+    // capturing it, so connecting an account mid-session reaches them.
+    const scrobbleTargets: readonly ScrobbleTarget[] = [
+      createLastfmTarget({
+        transport: createLastfmTransport({
+          limiter: net.limiter,
+          scopes: net.scopes,
+          // Resolved per call, so pasting an override in Settings takes effect
+          // without a restart — the same live-read rule as the consent gate.
+          sharedSecret: () => resolveLastfmAppKey(settings)?.apiSecret ?? ''
+        }),
+        credentials: scrobbleCredentials,
+        settings,
+        openExternal: (url) => shell.openExternal(url)
+      })
+    ]
+
+    // W11-7's pause switch, applied in exactly one place. Every consumer that
+    // *sends* — the drain, the now-playing announcer, the listen commit's
+    // enqueue, the loved push — takes its targets through this rather than
+    // through the array above, so "off" means off for all four rather than for
+    // the three somebody remembered. See `scrobble/enabled.ts`, including why
+    // the accounts service keeps the unfiltered list.
+    const sendingTargets = createSendingTargets({
+      targets: () => scrobbleTargets,
+      getBoolean: (key) => settings.get<boolean>(key)
+    })
+
+    // Persist first, submit second — the queue is the durable record, and the
+    // worker is the only thing that reads it. Started below, after the handlers
+    // are registered, rather than here: a drain competing with the first paint
+    // is a network round trip nobody is waiting for.
+    const scrobbleOutbox = new ScrobbleOutbox(db)
+    const scrobbleDrain = createScrobbleDrainWorker({
+      outbox: scrobbleOutbox,
+      targets: sendingTargets,
+      // Once per pass, and the pane re-reads the count itself. This is what
+      // makes "unplug the network and watch it grow, plug it back in and watch
+      // it empty" a thing that happens without anybody pressing anything.
+      onPass: () => broadcastScrobbleStatus()
+    })
+    const nowPlaying = createNowPlayingAnnouncer({ targets: sendingTargets })
+
     const scrobble = createScrobbleAccounts({
-      targets: [
-        createLastfmTarget({
-          transport: createLastfmTransport({
-            limiter: net.limiter,
-            scopes: net.scopes,
-            // Resolved per call, so pasting an override in Settings takes effect
-            // without a restart — the same live-read rule as the consent gate.
-            sharedSecret: () => resolveLastfmAppKey(settings)?.apiSecret ?? ''
-          }),
-          credentials: scrobbleCredentials,
-          settings,
-          openExternal: (url) => shell.openExternal(url)
-        })
-      ],
-      onChanged: broadcastScrobbleConnections
+      targets: scrobbleTargets,
+      onChanged: () => {
+        broadcastScrobbleStatus()
+        // Connecting an account is the moment a queue that has been filling up
+        // for a target nobody was signed into becomes sendable. Waking here
+        // saves the operator the backstop interval watching a depth that ought
+        // to be falling.
+        void scrobbleDrain.wake()
+      }
+    })
+
+    // The three reads the pane needs, joined once. See `scrobble/status.ts` for
+    // why this is not a method on the accounts service.
+    scrobbleStatus = createScrobbleStatusService({
+      accounts: scrobble,
+      outbox: scrobbleOutbox,
+      drain: scrobbleDrain
     })
 
     // Opened here rather than lazily on the first lookup so that a cache which
@@ -459,20 +522,51 @@ if (!app.requestSingleInstanceLock()) {
 
     // And the same again for the trail, which owns one table and reads the
     // library's tracks only through the shared projection.
-    const history = new SqlitePlayHistoryService({ db })
+    //
+    // D19's now-playing hangs off it (W11-5). The trail's row *is* the
+    // transport-commit moment, so announcing from anywhere else would be a
+    // second definition of when a track started.
+    const history = new SqlitePlayHistoryService({
+      db,
+      onRecorded: (entry) => nowPlaying.announce(entry.track)
+    })
 
     // The listens log (D17). Same connection, its own two tables, and the
     // renderer-facing half of the quit-time flush handed in — see `before-quit`.
-    const listens = new SqliteListenService({ db, requestFlush: requestListenFlush })
+    //
+    // The outbox goes in with it so the queue row is written inside the listen's
+    // own transaction (W11-5); the wake is outside it, because a drain is a
+    // network round trip and the write must not hold a lock through one.
+    const listens = new SqliteListenService({
+      db,
+      requestFlush: requestListenFlush,
+      scrobble: { outbox: scrobbleOutbox, targets: sendingTargets },
+      onCommitted: () => void scrobbleDrain.wake()
+    })
 
     // The statistics engine, and today the one thing in it that is not a query:
     // the rebuild of the two counter columns that cache the log.
     const stats = new SqliteStatsService({ db })
 
-    // Favorites (D18). Same connection, one table, and no network of its own:
-    // hearting a track is complete before anything is pushed anywhere, which is
-    // what lets W11-6 be a later card rather than a dependency.
-    const favorites = new SqliteFavoriteService({ db })
+    // Favorites (D18), and the loved push (W11-6). Same connection, one table,
+    // and still no network of its own: hearting a track is complete before
+    // anything is pushed anywhere. The push is the listen commit's arrangement
+    // exactly — the outbox goes in so the queue row is written inside the
+    // heart's own transaction, and the wake is outside it, because a drain is a
+    // network round trip and the write must not hold a lock through one.
+    //
+    // `lovePushEnabled` is read here, per gesture, rather than captured: the
+    // operator can turn it off between one click and the next, and W8 applies a
+    // settings write immediately.
+    const favorites = new SqliteFavoriteService({
+      db,
+      scrobble: {
+        outbox: scrobbleOutbox,
+        targets: sendingTargets,
+        lovePushEnabled: () => settings.get<boolean>(LASTFM_LOVE_ON_FAVORITE)
+      },
+      onChanged: () => void scrobbleDrain.wake()
+    })
 
     // A migration is the one moment `listens` can move without the listen commit
     // maintaining the cache alongside it, so the flag it declares is honoured
@@ -503,7 +597,17 @@ if (!app.requestSingleInstanceLock()) {
       event.preventDefault()
       if (quitInProgress) return
       quitInProgress = true
-      // First, because it is the only step that needs the renderer alive and
+
+      // Before anything else, and before the database closes under it. Stopping
+      // the timer does not abandon a pass in flight — the net scope does that,
+      // which is what `'scrobble'` is in `NET_SCOPES` for. Nothing is lost
+      // either way: the rows are durable and persist-first means an abandoned
+      // drain costs a retry, never a scrobble.
+      scrobbleDrain.stop()
+      net.cancelScope('scrobble')
+
+      // First of the awaited steps, because it is the only one that needs the
+      // renderer alive and
       // the database open at the same time. The accumulator holds the in-flight
       // listen in the renderer, so a quit mid-track would otherwise lose one
       // that had already crossed the threshold. Bounded and never rejecting —
@@ -550,11 +654,19 @@ if (!app.requestSingleInstanceLock()) {
       favorites,
       net,
       scrobble,
+      scrobbleStatus,
       artists,
       biographies,
       relations,
       images
     )
+
+    // On app start, per W11-2: a queue that filled up while the machine was
+    // offline drains as soon as there is something to drain it with. After the
+    // handlers so that the first pass cannot race the window's own first
+    // queries for the write lock, and harmless when nobody has ever signed in —
+    // it finds no connected target and goes back to sleep.
+    scrobbleDrain.start()
 
     mainWindow = createWindow(resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors))
     // The other way the answer changes: the OS flips while the preference is

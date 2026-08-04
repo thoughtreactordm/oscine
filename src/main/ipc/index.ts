@@ -9,6 +9,7 @@ import type { PlaylistService } from '../library/playlists/service'
 import type { ArtistIdentityService, ArtistRelationsService } from '../musicbrainz'
 import type { NetService } from '../net'
 import type { ScrobbleAccountsService } from '../scrobble/accounts'
+import type { ScrobbleStatusService } from '../scrobble/status'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
 import type { StatsService } from '../stats/service'
@@ -83,6 +84,7 @@ export function registerIpcHandlers(
   favorites: FavoriteService,
   net: NetService,
   scrobble: ScrobbleAccountsService,
+  scrobbleStatus: ScrobbleStatusService,
   artists: ArtistIdentityService,
   biographies: ArtistBiographyService,
   relations: ArtistRelationsService,
@@ -414,7 +416,7 @@ export function registerIpcHandlers(
     net.cancelScope(assertCancelNetScopeRequest(request).scope)
   )
 
-  handle('scrobble.connections', () => ({ connections: scrobble.connections() }))
+  handle('scrobble.status', () => scrobbleStatus.status())
 
   // D19's rule, at the only place it could be broken: what leaves here is
   // whatever `authorize` resolved with, which the contract guarantees carries a
@@ -433,10 +435,16 @@ export function registerIpcHandlers(
     return null
   })
 
+  // The queue is not touched. Whatever is waiting for this target stays waiting,
+  // and the pane says so — those rows are listens that happened, and a
+  // disconnect the operator is trying out should not be the gesture that
+  // destroys them.
   handle('scrobble.disconnect', async (request) => {
     await scrobble.disconnect(assertScrobbleTargetRequest(request).target)
-    return { connections: scrobble.connections() }
+    return scrobbleStatus.status()
   })
+
+  handle('scrobble.retry', () => scrobbleStatus.retry())
 
   // Null rather than a `not-found` throw, for `library.getRelated`'s reason: the
   // seed is whatever is playing, and a track with no artist credit is an

@@ -87,6 +87,9 @@ export {
   LASTFM_API_KEY,
   LASTFM_API_SECRET,
   LASTFM_APP_KEY_HELP,
+  LASTFM_ENABLED,
+  LASTFM_LOVE_ON_FAVORITE,
+  SCROBBLE_ENABLED_KEYS,
   SCROBBLING_SETTINGS
 } from './settings/scrobbling'
 export { FAVORITES_TAB } from './settings/view'

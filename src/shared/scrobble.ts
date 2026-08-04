@@ -186,20 +186,66 @@ export interface ScrobbleConnection {
 }
 
 /**
+ * What the settings pane shows, which is a connection plus the outbox's health.
+ *
+ * The two extra fields are both readouts of `scrobble_queue` and neither is a
+ * credential: a count, and the sentence recorded against the last attempt that
+ * failed. They travel with the connection rather than on a channel of their own
+ * because the pane draws them on one line — "connected as mdelally, 3 waiting" —
+ * and two channels would let those halves disagree for a frame.
+ *
+ * D19's rule is unchanged by this. Widening what the renderer is told about
+ * *the queue* is not widening what it is told about the credential, and the way
+ * to keep that distinction from eroding is to state it here, where the next
+ * field is about to be added.
+ */
+export interface ScrobbleTargetStatus extends ScrobbleConnection {
+  /**
+   * Rows waiting in the outbox for this target, backing off or not.
+   *
+   * Rows are deleted on acceptance, so this is zero in the steady state and any
+   * other number is a direct readout of how long the network has been away. It
+   * is a status and not an error — see W11-7 — and the pane styles it as one.
+   */
+  readonly queueDepth: number
+  /**
+   * Why the last attempt failed, in the words main already chose, or `null`.
+   *
+   * Already an operator-facing sentence when it arrives here: the Last.fm
+   * transport maps its numeric codes to prose at the boundary, so the pane
+   * neither parses nor re-translates. A pane that had to recognise "code 9"
+   * would be a second copy of the error taxonomy, in the process least able to
+   * keep it current.
+   */
+  readonly lastError: string | null
+}
+
+/**
+ * Whether the target is *paused* is deliberately not here.
+ *
+ * `lastfm.enabled` is an ordinary durable setting, so the renderer already has
+ * it — reactively, through W8's store, broadcast on every write. Copying it onto
+ * this payload would give the pane two sources for one boolean and a frame in
+ * which they disagree, which is the failure mode the queue depth and the
+ * username were joined onto one channel to avoid.
+ */
+
+/**
  * The renderer-facing surface, in full.
  *
- * Three requests and one event, and every one of them speaks
- * `ScrobbleConnection` — which is a target id, a boolean and a username. There
- * is deliberately no channel that returns anything else about a credential,
- * because the way to guarantee a secret does not cross IPC is for no channel to
- * carry one, rather than for every handler to remember not to.
+ * Four requests and one event, and every one of them speaks `ScrobbleConnection`
+ * or the `ScrobbleTargetStatus` that extends it — a target id, a boolean, a
+ * username, a count and a sentence. There is deliberately no channel that
+ * returns anything else about a credential, because the way to guarantee a
+ * secret does not cross IPC is for no channel to carry one, rather than for
+ * every handler to remember not to.
  */
 export interface ScrobbleTargetRequest {
   readonly target: ScrobbleTargetId
 }
 
-export interface ScrobbleConnectionsResult {
-  readonly connections: readonly ScrobbleConnection[]
+export interface ScrobbleStatusResult {
+  readonly targets: readonly ScrobbleTargetStatus[]
 }
 
 /**
