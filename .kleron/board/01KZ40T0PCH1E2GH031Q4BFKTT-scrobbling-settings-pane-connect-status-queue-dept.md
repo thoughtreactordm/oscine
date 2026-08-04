@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40T0PCH1E2GH031Q4BFKTT
 title: 'Scrobbling settings pane — connect, status, queue depth, disconnect'
-status: todo
+status: in-review
 priority: medium
 labels:
   - ui
@@ -12,9 +12,9 @@ workstreamId: W11-7
 dependsOn:
   - 01KZ40R3J8RW3AP3180KPYAFNS
   - 01KZ40QHB4PYF5AG93T4KAK1YW
-order: 63
+order: 0
 created: '2026-08-03T14:35:23.724Z'
-updated: '2026-08-03T14:35:23.724Z'
+updated: '2026-08-04T02:20:31.045Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → Scrobbling, and → Settings.
 

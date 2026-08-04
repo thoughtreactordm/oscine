@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40SGPQYF2E8JPGDKGFYCK2
 title: 'Loved push — one-way, forward-only'
-status: todo
+status: in-review
 priority: medium
 labels:
   - main
@@ -12,9 +12,9 @@ workstream: W11
 workstreamId: W11-6
 dependsOn:
   - 01KZ40S3HZGRXD8F0ZXJ3G00WE
-order: 62
+order: 0
 created: '2026-08-03T14:35:07.351Z'
-updated: '2026-08-03T14:35:07.351Z'
+updated: '2026-08-04T02:20:11.545Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → Favorites → "Loved sync is one-way and forward-only".
 
