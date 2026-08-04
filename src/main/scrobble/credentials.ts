@@ -30,6 +30,13 @@
  * startup, for `net/consent.ts`' reason: a keyring unlocked five minutes after
  * launch should just work, and there is no invalidation path to get wrong.
  *
+ * *Which* keyring `safeStorage` looks for is decided before any of this, in
+ * `main/passwordStore.ts`. It matters here because the two failures are easy to
+ * confuse: on a session Chromium does not recognise — Hyprland, sway, river —
+ * `isEncryptionAvailable()` is false whether or not a keyring is running, and an
+ * operator who reads this file's error as "install a keyring" will install one
+ * and see no change at all.
+ *
  * ## Injected, not imported
  *
  * `safeStorage` and the filesystem arrive as parameters. Electron's module is
@@ -89,8 +96,10 @@ export class CredentialSealingUnavailableError extends Error {
   constructor() {
     super(
       'This system has no secure credential store available, so Fermata will not save a ' +
-        'sign-in. On Linux this usually means no keyring is running — install and start ' +
-        'gnome-keyring or kwallet, then try connecting again.'
+        'sign-in. On Linux, a keyring being installed is not enough on its own: it also has ' +
+        'to have been created and unlocked. The usual cause is a login keyring that no login ' +
+        'ever unlocks — check that ~/.local/share/keyrings holds one, and that your display ' +
+        'manager is set up to unlock it when you log in.'
     )
     this.name = 'CredentialSealingUnavailableError'
   }

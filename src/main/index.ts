@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, nativeTheme, safeStorage, shell } from 'electron'
 import type BetterSqlite3 from 'better-sqlite3'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { LibraryNotice, ReplayGainJobProgress, ScanProgress } from '@shared/library'
@@ -26,6 +27,7 @@ import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles
 import { SqlitePodcastService } from './podcasts/service'
 import { createArtistIdentityService, createArtistRelationsService } from './musicbrainz'
 import { createNetService } from './net'
+import { createKeyringProbe, selectPasswordStore } from './passwordStore'
 import { createScrobbleAccounts } from './scrobble/accounts'
 import { createCredentialFileIo, createScrobbleCredentialStore } from './scrobble/credentials'
 import { createScrobbleDrainWorker } from './scrobble/drain'
@@ -289,6 +291,22 @@ if (!app.requestSingleInstanceLock()) {
   // needed for the MPRIS path on Electron 43; the probe confirms it publishes
   // unaided.
   app.setAppUserModelId('dev.fermata.app')
+
+  // Which credential store `safeStorage` will use, on the sessions where
+  // Chromium cannot tell. Read `passwordStore.ts` before changing this — in
+  // particular why it is conditional, which is that forcing the libsecret
+  // backend with no keyring on disk hangs rather than fails, on this line, with
+  // no window yet.
+  //
+  // Before `whenReady` because a command-line switch after it is a switch
+  // Chromium has already finished reading.
+  const passwordStore = selectPasswordStore({
+    platform: process.platform,
+    env: process.env,
+    homeDirectory: homedir(),
+    probe: createKeyringProbe()
+  })
+  if (passwordStore !== null) app.commandLine.appendSwitch('password-store', passwordStore)
 
   app.on('second-instance', () => {
     const [win] = BrowserWindow.getAllWindows()
