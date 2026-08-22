@@ -2,32 +2,35 @@ import type Database from 'better-sqlite3'
 import { stat } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { FermataError } from '@shared/errors'
-import type {
-  GetTracksByIdsQuery,
-  LibraryNotice,
-  LibraryRoot,
-  LibraryWatchMode,
-  ListAlbumsResult,
-  ListArtistsResult,
-  ListFacetIdsQuery,
-  ListFacetIdsResult,
-  ListFacetsQuery,
-  ListTrackGroupsQuery,
-  ListTrackGroupsResult,
-  ListTrackIdsQuery,
-  ListTrackIdsResult,
-  ListTracksQuery,
-  ListTracksResult,
-  OrderTrackIdsQuery,
-  ReplayGainJobProgress,
-  ScanProgress,
-  ScanSummary,
-  Track,
-  TrackAudioMetadata,
-  TrackFormatDetail
+import {
+  MAX_TRACK_ID_PAGE,
+  type GetTracksByIdsQuery,
+  type LibraryNotice,
+  type LibraryRoot,
+  type LibraryWatchMode,
+  type ListAlbumsResult,
+  type ListArtistsResult,
+  type ListFacetIdsQuery,
+  type ListFacetIdsResult,
+  type ListFacetsQuery,
+  type ListTrackGroupsQuery,
+  type ListTrackGroupsResult,
+  type ListTrackIdsQuery,
+  type ListTrackIdsResult,
+  type ListTracksQuery,
+  type ListTracksResult,
+  type OrderTrackIdsQuery,
+  type ReplayGainJobProgress,
+  type ScanProgress,
+  type ScanSummary,
+  type Track,
+  type TrackAudioMetadata,
+  type TrackFormatDetail
 } from '@shared/library'
 import type { RelatedQuery, RelatedResult } from '@shared/related'
+import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
 import { buildRelated } from './related'
+import { DiscoverEngine, expandShelfTrackIds, snapshotShelf } from './discover'
 import {
   readTrackFormatDetail,
   readTrackTags,
@@ -126,6 +129,7 @@ export class SqliteLibraryService implements LibraryService {
   private readonly replayGain: ReplayGainJobService
   private readonly watcher: RootDirectoryWatcher
   private readonly artwork: ArtworkCacheService | null
+  private readonly discover: DiscoverEngine
   private readonly watchModes = new Map<number, LibraryWatchMode>()
   private readonly degradedRoots = new Set<number>()
   private readonly watchQueues = new Map<number, Promise<void>>()
@@ -146,6 +150,7 @@ export class SqliteLibraryService implements LibraryService {
 
   constructor(private readonly deps: SqliteLibraryDeps) {
     this.store = new LibraryStore(deps.db)
+    this.discover = new DiscoverEngine(deps.db)
     this.readMetadata = deps.readMetadata ?? readTrackTags
     this.readFormatDetail = deps.readFormatDetail ?? readTrackFormatDetail
     this.artwork = deps.artworkCacheDir
@@ -270,6 +275,51 @@ export class SqliteLibraryService implements LibraryService {
     return buildRelated(this.store.relatedQueries(), query.trackId, {
       favorites: query.favorites
     })
+  }
+
+  async discoverShelves(): Promise<DiscoverShelvesResult> {
+    return this.discover.shelves()
+  }
+
+  /**
+   * The last `shelves` result, expanded to track ids in Library album order.
+   *
+   * Does not re-compose. A subsequent `compose` that would have picked
+   * differently does not change this snapshot — that is the whole of what
+   * "save what you are looking at" means.
+   */
+  async discoverSaveShelf(
+    recipeId: DiscoverRecipeId
+  ): Promise<{ name: string; trackIds: number[] }> {
+    const snapshot = snapshotShelf(this.discover.lastResult(), recipeId)
+    const expanded = expandShelfTrackIds(snapshot.items, (albumId) => this.albumTrackIds(albumId))
+    // Hydrate drops ids the library no longer has, in the order given, so a
+    // track-grain card whose file vanished between the wall and the click
+    // does not blow the playlist write on a foreign key.
+    const trackIds = this.store.getTracksByIds({ ids: expanded }).map((track) => track.id)
+    return { name: snapshot.name, trackIds }
+  }
+
+  /**
+   * Every track on an album, disc / track / id — the same `trackNo` sort a
+   * Library album activation uses. Paged against the id ceiling, not because
+   * a Discover album will reach it, but because `listTrackIds` will refuse a
+   * larger `limit` and a truncated expansion would be the wrong playlist.
+   */
+  private albumTrackIds(albumId: number): number[] {
+    const ids: number[] = []
+    for (;;) {
+      const page = this.store.listTrackIds({
+        albumIds: [albumId],
+        sort: 'trackNo',
+        direction: 'asc',
+        offset: ids.length,
+        limit: MAX_TRACK_ID_PAGE
+      })
+      if (page.ids.length === 0) return ids
+      ids.push(...page.ids)
+      if (ids.length >= page.total) return ids
+    }
   }
 
   async listArtists(query: ListFacetsQuery): Promise<ListArtistsResult> {

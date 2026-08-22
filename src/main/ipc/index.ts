@@ -59,6 +59,7 @@ import {
   assertRemoveEntriesRequest,
   assertRemoveFavoritesRequest,
   assertResetSettingsRequest,
+  assertSaveDiscoverShelfRequest,
   assertSetSettingRequest,
   assertStatsOverTimeQuery,
   assertStatsQuery,
@@ -310,6 +311,20 @@ export function registerIpcHandlers(
   handle('playlists.exportM3u8', (request) =>
     playlists.exportM3u8(assertExportPlaylistRequest(request))
   )
+
+  handle('discover.shelves', () => library.discoverShelves())
+
+  handle('discover.saveShelf', async (request) => {
+    const { recipeId } = assertSaveDiscoverShelfRequest(request)
+    const snapshot = await library.discoverSaveShelf(recipeId)
+    const playlist = await playlists.create(snapshot.name)
+    if (snapshot.trackIds.length === 0) return playlist
+    return playlists.addTracks({
+      playlistId: playlist.id,
+      trackIds: snapshot.trackIds,
+      insertion: { at: 'end' }
+    })
+  })
 
   handle('podcasts.list', () => podcasts.listPodcasts())
 

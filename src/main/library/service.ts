@@ -20,6 +20,7 @@ import type {
   TrackFormatDetail
 } from '@shared/library'
 import type { RelatedQuery, RelatedResult } from '@shared/related'
+import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
 
 /**
  * Everything the IPC layer needs from the library, and nothing more.
@@ -76,6 +77,18 @@ export interface LibraryService {
    * phase 1 there is none to reach.
    */
   getRelated(query: RelatedQuery): Promise<RelatedResult | null>
+  /**
+   * Today's Discover shelves — named local recipes over the library and the
+   * listens log (**D20**). Clock is main's; tests call `compose` with `nowMs`
+   * directly.
+   */
+  discoverShelves(): Promise<DiscoverShelvesResult>
+  /**
+   * Snapshot one shelf from the last `discover.shelves` result as a name and
+   * an ordered track-id list — **D20**. Does not write a playlist; the IPC
+   * handler hands those to `playlists.create` / `playlists.addTracks`.
+   */
+  discoverSaveShelf(recipeId: DiscoverRecipeId): Promise<{ name: string; trackIds: number[] }>
   /** Metadata-only lookup used by the renderer's pre-fetch R1 admission guard. */
   getTrackAudioMetadata(trackId: number): Promise<TrackAudioMetadata | null>
   /**

@@ -1,4 +1,10 @@
 export { compose, DiscoverEngine, EXCLUSION_ORDER, memoKey } from './compose'
+export {
+  expandShelfTrackIds,
+  shelfPlaylistName,
+  snapshotShelf,
+  type DiscoverShelfSnapshot
+} from './saveShelf'
 export { buildTasteSeed, type TasteSeed } from './seed'
 export { dayKey, tieBreak } from './hash'
 export {
