@@ -355,6 +355,25 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     }
   }
 
+  /**
+   * Lands Curate on a playlist that was written elsewhere.
+   *
+   * Discover's save-as-playlist is the caller: main created the row, and this
+   * is the viewed-stop half. `create` already views what it made; this is that
+   * second step for a playlist the store did not create.
+   *
+   * Refresh first so the rail has the row. If a concurrent refresh was already
+   * in flight and skipped us, splice the returned playlist in rather than
+   * leaving `openTab` looking at an id the list does not yet know.
+   */
+  async function viewCreated(playlist: Playlist): Promise<void> {
+    await refresh()
+    if (byId(playlist.id) === null) {
+      list.value = [...list.value, playlist]
+    }
+    openTab(playlist.id)
+  }
+
   return {
     list,
     openIds,
@@ -377,6 +396,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     entriesEdited,
     noteEntriesChanged,
     reorder,
-    exportM3u8
+    exportM3u8,
+    viewCreated
   }
 })
