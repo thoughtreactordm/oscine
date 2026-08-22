@@ -157,6 +157,8 @@ Favorites are local and authoritative. Last.fm's loved tracks are never read in,
 
 *Revisit when*: a second system-owned collection appears (Recently Added, Most Played), at which point the pinned-view mechanism wants to be a general one rather than a special case with a hardcoded name.
 
+*Note (D20)*: Discover shelves are not this trigger. They are ephemeral recipes, recomputed, not pinned to the rail, and they become a playlist only when the operator saves one. "My Favorites" remains the sole system-owned collection. Recently Added is still the example that would fire this, and it is out of Discover 1.0 because `tracks` has no first-seen column.
+
 ### D19 — Scrobbling: **shipped app key, per-user session, provider-abstracted**
 
 Fermata registers its own Last.fm API account and the `api_key` and shared secret ship in the bundle, extractable from the asar. A durable setting lets an operator paste their own pair to override.
@@ -174,6 +176,18 @@ Targets sit behind a `ScrobbleTarget` interface in `src/shared`, with Last.fm fi
 *Revisit when*: Last.fm revokes or rate-limits the shipped key, or a third target appears whose auth model `ScrobbleTarget` cannot express without a special case.
 
 Full specification, including schema and the listen-event rules, is the wiki page `fermata-listening-and-scrobbling`.
+
+### D20 — Discover: **named local recipes, not a model and not a fixture**
+
+Discover is a page of **named SQL recipes** over the local library and the `listens` log. Each recipe produces at most ten playable items of one grain (album or track), with a one-line *why*, and is omitted when it cannot fill a minimum. The same library, the same log, and the same UTC day produce the same shelves. Nothing is fetched. Nothing is inferred beyond the tags and the listens. A shelf is not a playlist until the operator saves it as one.
+
+*Rejected*: a learned model, embedding space, or collaborative filter (the catalogue is one person's folders; there is no other user to collaborate with, and a model that cannot be explained is a shelf the operator cannot trust); calling MusicBrainz similar-artists (D14, and the pane already promised it phones nowhere); reprinting `stats.query` (that is the Listening dashboard, which faces backward); pinning shelves to the Curate rail as D18 fixtures (fires a revisit trigger this feature does not need; save-as-playlist is the conversion); `RANDOM()` on every tab open (reshuffles the wall and makes "why is this here" unanswerable); mixed artist/album/track cards on one scroller in 1.0 (two card shapes and two play actions on a strip that is already asking the operator to browse).
+
+*Accepted cost*: a library with no listens sees only the recipes that do not need a taste seed, which is a thinner page and the honest one. A recipe cannot recommend a file that is not in the library, which is the whole point and also the ceiling.
+
+*Revisit when*: a recipe needs a signal the schema does not have (first-seen, skip rate, a written rating), or the operator wants a shelf that is a live collection rather than a daily proposal. The first is a migration and a new recipe; the second is D18's trigger actually firing.
+
+Full specification, including the nine-recipe catalog, exclusion order, and IPC contract, is the wiki page `fermata-discover-1-0`.
 
 ## 3. Risks
 
@@ -477,6 +491,7 @@ fermata/
 | W9 | Podcasts — subscriptions, downloads, Discover (D16) | W2, W4 |
 | W10 | Listening — listens log, favorites, stats engine, dashboard (D17, D18) | W2, W3, W4, W5 |
 | W11 | Scrobbling — provider contract, Last.fm auth, outbox, Loved push (D19) | W10, W7 |
+| W12 | Discover — local recipe shelves on Curate's Discover pane (D20) | W2, W5, W10 |
 
 ## 9. Milestones
 
@@ -505,6 +520,8 @@ fermata/
 *Exit*: a track played past threshold appears in the dashboard **and** on the operator's Last.fm profile; the same track played with the network unplugged appears in the dashboard immediately and on the profile when the network returns; a root reorganised on disk loses no listening history.
 
 **Podcasts (W9, D16) are not on this ladder.** They landed as a self-contained vertical alongside M3–M5 rather than as a milestone of their own, which is why the schema, the view and Discover all arrived at once. The one thing that ladder ordering would have caught is recorded on the D14 note above and owed to W7-6: Discover reaches the network before the consent gate that M7 builds exists.
+
+**Discover (W12, D20) is not on this ladder.** It is a Curate 1.0 slice that sits on W10's listens log the way the dashboard does, but it faces the other direction. It can ship whenever W10's caches are in, which they are. It does not wait for M7: it uses no network, and putting it behind the artist nexus would imply it needed one. (Podcast Discover, the Apple-catalogue pane, remains W9 and is a different thing with the same word in the heading.)
 
 ## 10. Conventions and assumptions
 
