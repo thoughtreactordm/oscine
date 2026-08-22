@@ -16,6 +16,7 @@ import type { RecordListenRequest } from '@shared/listens'
 import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
 import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
+import type { DiscoverRecipeId } from '@shared/discover'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -164,6 +165,15 @@ export const playlists = {
   /** Resolves `null` when the operator dismisses the save dialog. */
   exportM3u8: (payload: ExportPlaylistRequest) =>
     unwrap(window.fermata.playlists.exportM3u8(payload))
+}
+
+/**
+ * Music Discover. Recipes run in main; the renderer asks for today's page and
+ * can snapshot one shelf as a playlist. Playing is not here.
+ */
+export const discover = {
+  shelves: () => unwrap(window.fermata.discover.shelves()),
+  saveShelf: (recipeId: DiscoverRecipeId) => unwrap(window.fermata.discover.saveShelf(recipeId))
 }
 
 export const podcasts = {

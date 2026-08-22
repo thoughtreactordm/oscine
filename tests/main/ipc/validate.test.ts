@@ -6,6 +6,7 @@ import {
   MAX_FAVORITE_STATE_IDS,
   MAX_FAVORITES_PAGE
 } from '@shared/favorites'
+import { DISCOVER_RECIPE_IDS } from '@shared/discover'
 import {
   MAX_FACET_ID_PAGE,
   MAX_FACET_PAGE,
@@ -32,6 +33,7 @@ import {
   assertListFavoritesQuery,
   assertOrderTrackIdsQuery,
   assertRemoveFavoritesRequest,
+  assertSaveDiscoverShelfRequest,
   assertStatsOverTimeQuery,
   assertStatsQuery,
   assertStatsSummaryQuery,
@@ -323,6 +325,27 @@ describe('net scope IPC validation', () => {
       { scope: 'tunedeck', force: true }
     ]) {
       expect(() => assertCancelNetScopeRequest(request)).toThrow(FermataError)
+    }
+  })
+})
+
+describe('discover save-shelf IPC validation', () => {
+  it('accepts every recipe in the 1.0 catalog', () => {
+    for (const recipeId of DISCOVER_RECIPE_IDS) {
+      expect(assertSaveDiscoverShelfRequest({ recipeId })).toEqual({ recipeId })
+    }
+  })
+
+  it('refuses an unknown recipe rather than saving nothing quietly', () => {
+    for (const request of [
+      { recipeId: 'for-yu' },
+      { recipeId: 'recently-added' },
+      { recipeId: '' },
+      { recipeId: 7 },
+      {},
+      { recipeId: 'for-you', force: true }
+    ]) {
+      expect(() => assertSaveDiscoverShelfRequest(request)).toThrow(FermataError)
     }
   })
 })

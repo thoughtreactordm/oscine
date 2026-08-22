@@ -19,6 +19,7 @@ import type {
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
+import type { DiscoverRecipeId } from '@shared/discover'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -216,6 +217,18 @@ const api = {
       request('playlists.removeEntries', payload),
     /** Opens a native save dialog in main. Resolves `null` if cancelled. */
     exportM3u8: (payload: ExportPlaylistRequest) => request('playlists.exportM3u8', payload)
+  },
+  /**
+   * Music Discover — named local recipes, nothing fetched (**D20**).
+   *
+   * Distinct from `podcasts.recommend`, which reaches Apple. Playing a card is
+   * not a channel; the pane already has the ids.
+   */
+  discover: {
+    /** Today's shelves. The clock is main's. */
+    shelves: () => request('discover.shelves', null),
+    /** Snapshot one shelf from the last `shelves` result as a playlist. */
+    saveShelf: (recipeId: DiscoverRecipeId) => request('discover.saveShelf', { recipeId })
   },
   podcasts: {
     list: () => request('podcasts.list', null),

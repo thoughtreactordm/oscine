@@ -83,6 +83,11 @@ import {
 } from '@shared/library'
 import type { RelatedQuery } from '@shared/related'
 import {
+  DISCOVER_RECIPE_IDS,
+  type DiscoverRecipeId,
+  type SaveDiscoverShelfRequest
+} from '@shared/discover'
+import {
   MAX_PLAYLIST_BATCH,
   MAX_PLAYLIST_ENTRY_ID_PAGE,
   MAX_PLAYLIST_ENTRY_PAGE,
@@ -792,6 +797,25 @@ export function assertTabIndex(value: unknown): number {
     invalid('toIndex must be a non-negative integer.')
   }
   return value
+}
+
+/**
+ * A recipe id from the closed 1.0 catalog, and nothing else.
+ *
+ * An unknown id is refused here rather than becoming a silent no-op inside
+ * save: the operator clicked a shelf the pane named, and if that name is not
+ * one compose knows, the request is malformed.
+ */
+export function assertSaveDiscoverShelfRequest(value: unknown): SaveDiscoverShelfRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['recipeId'])
+  if (
+    typeof raw.recipeId !== 'string' ||
+    !(DISCOVER_RECIPE_IDS as readonly string[]).includes(raw.recipeId)
+  ) {
+    invalid(`recipeId must be one of: ${DISCOVER_RECIPE_IDS.join(', ')}.`)
+  }
+  return { recipeId: raw.recipeId as DiscoverRecipeId }
 }
 
 const MAX_FEED_URL_LENGTH = 2048

@@ -56,6 +56,7 @@ import type {
   ScrobbleTargetStatus
 } from './scrobble'
 import type { RelatedQuery, RelatedResult } from './related'
+import type { DiscoverShelvesResult, SaveDiscoverShelfRequest } from './discover'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -477,6 +478,34 @@ export interface IpcContract {
     request: ExportPlaylistRequest
     response: PlaylistExportResult | null
   }
+  /**
+   * Today's Discover shelves — named local recipes over the library and the
+   * listens log (**D20**).
+   *
+   * Empty request: the clock is main's. Tests call compose with `nowMs` directly
+   * and do not go through this channel for determinism. `null` rather than
+   * `void`, like every other empty request in this map — structured clone has
+   * one unambiguous empty value.
+   *
+   * Not `podcasts.recommend`. That one reaches Apple. This one does not leave
+   * the machine, and a library with no listens answers with whatever recipes
+   * do not need a taste seed — often just `unplayed` — rather than with an
+   * error.
+   *
+   * There is no `discover.playShelf`. Playing is a renderer gesture over item
+   * ids the pane already has.
+   */
+  'discover.shelves': { request: null; response: DiscoverShelvesResult }
+  /**
+   * Snapshot one shelf from the last `discover.shelves` result as a playlist.
+   *
+   * The last result, not a re-query: the operator is saving what they are
+   * looking at. Album items expand to tracks in disc/track/id order; the name
+   * is `{shelf.title} · {dayKey}`. An ordinary D12 row — editing it later does
+   * not edit the recipe, and reopening Discover tomorrow does not edit the
+   * playlist.
+   */
+  'discover.saveShelf': { request: SaveDiscoverShelfRequest; response: Playlist }
   /** Every subscription, title order. */
   'podcasts.list': { request: null; response: Podcast[] }
   'podcasts.get': { request: { podcastId: number }; response: Podcast | null }
@@ -897,6 +926,8 @@ export const IPC_CHANNELS = [
   'playlists.moveEntries',
   'playlists.removeEntries',
   'playlists.exportM3u8',
+  'discover.shelves',
+  'discover.saveShelf',
   'podcasts.list',
   'podcasts.get',
   'podcasts.subscribe',
