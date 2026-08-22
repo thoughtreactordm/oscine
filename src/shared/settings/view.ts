@@ -30,7 +30,7 @@ import {
 // --- shapes ------------------------------------------------------------------
 
 /**
- * The pinned Favorites collection, as a place the strip can be — **D18**.
+ * The pinned Favorites collection, as a place Curate can be — **D18**.
  *
  * A string beside the row ids because it is not one. `track_favorites` has no
  * `playlists` row to name, which is the whole of D18, and the alternative — a
@@ -47,19 +47,19 @@ export const FAVORITES_TAB = 'favorites'
 export type TabFixture = typeof FAVORITES_TAB
 
 /**
- * Where a tab strip can be: an open tab, a pinned fixture, or `null`.
+ * Where Curate (or a tab strip) can be: a row id, a pinned fixture, or `null`.
  *
- * `null` is Discover in both strips that have one. Representing the fixtures as
- * values rather than as synthetic rows is what keeps them un-closeable and
+ * `null` is Discover in both surfaces that have one. Representing the fixtures
+ * as values rather than as synthetic rows is what keeps them un-closeable and
  * un-renameable by *type* — every verb that could damage one takes a `number`.
  */
 export type TabStop = number | TabFixture | null
 
 /** Which entities are open as tabs, and which of them is on screen. */
 export interface TabSession {
-  /** Open tabs, in tab order — not the order the rail lists them in. */
+  /** Recorded playlist ids, so a restart can restore a viewed playlist. */
   openIds: number[]
-  /** One of `openIds`, one of the strip's fixtures, or null. */
+  /** One of `openIds`, a pinned fixture, or null (Discover). */
   viewedId: TabStop
 }
 
@@ -114,12 +114,13 @@ function paneSizeValue(): SettingValidator<number> {
  * tabs that select each other.
  *
  * `viewFirstWhenMissing` is the difference between the two call sites. Curate
- * has no null tab, so a viewed id that is not open falls back to the leftmost
- * one; Podcasts has Discover sitting at null, so there it falls back to that.
+ * falls back to the first recorded id when a viewed playlist is not among them;
+ * Podcasts falls back to Discover at null. Discover itself (`null`) is restored
+ * on both, the way a named fixture is — it is pinned, not missing.
  *
- * `fixtures` are the pinned stops that strip has. They are checked against the
+ * `fixtures` are the pinned stops that surface has. They are checked against the
  * list rather than accepted as any string, so a session restored into a build
- * whose strip has since lost a fixture lands on a real stop instead of holding a
+ * whose rail has since lost a fixture lands on a real stop instead of holding a
  * name nothing renders — and so a Curate session cannot restore Podcasts into a
  * favorites view it does not have.
  */
@@ -139,10 +140,13 @@ function tabSessionValue({
       ? [...new Set(source.openIds.filter(isRowId))]
       : []
 
-    // A fixture is not in `openIds` and is never checked against it — it is
-    // pinned, so it is available whether or not anything else is open. That is
-    // also why this is tested first: an operator who left Curate on My Favorites
-    // with no tabs open must not come back to the leftmost of nothing.
+    // Discover is `null`, and like a named fixture it is pinned rather than
+    // recorded — so it is restored even when `openIds` still names playlists.
+    // Tested before `viewFirstWhenMissing`, which would otherwise eat it.
+    if (source.viewedId === null) {
+      return acceptValue({ openIds, viewedId: null })
+    }
+
     if (fixtures.includes(source.viewedId as TabFixture)) {
       return acceptValue({ openIds, viewedId: source.viewedId as TabFixture })
     }
@@ -317,8 +321,8 @@ export const VIEW_SETTINGS: readonly SettingDescriptor[] = [
     default: { openIds: [], viewedId: null },
     validate: tabSessionValue({ viewFirstWhenMissing: true, fixtures: [FAVORITES_TAB] }),
     category: 'interface',
-    label: 'Open playlist tabs',
-    help: 'Which playlists are open in Curate, and which one is showing.',
+    label: 'Curate view',
+    help: 'Which collection Curate was showing on this machine.',
     internal: true
   }),
 

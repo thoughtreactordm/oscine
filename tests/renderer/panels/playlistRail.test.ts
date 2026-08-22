@@ -27,9 +27,10 @@ function playlist(id: number, name: string, trackCount = 0): Playlist {
  * A rail of four playlists with one of them open, and a recorder behind it.
  *
  * `open` writes `openIds` and `viewedId` the way the store does, so the tests
- * can assert on the resulting tab set rather than on the call. `playingId` is a
- * ref nothing in the rail can write except through `play`, which is the §5 split
- * expressed as a fixture — and the one place the rail is *allowed* to cross it.
+ * can assert on the resulting viewed set rather than on the call. `playingId` is
+ * a ref nothing in the rail can write except through `play`, which is the §5
+ * split expressed as a fixture — and the one place the rail is *allowed* to
+ * cross it.
  */
 function rail(
   playlists: Playlist[] = [
@@ -147,15 +148,15 @@ describe('where the rail is focusable', () => {
   })
 })
 
-describe('opening from the rail', () => {
-  it('opens a closed playlist as a tab and views it', () => {
+describe('viewing from the rail', () => {
+  it('views a playlist and records it', () => {
     const h = rail()
     h.model.activate(3)
     expect(h.openIds.value).toEqual([1, 3])
     expect(h.viewedId.value).toBe(3)
   })
 
-  it('only views one that is already open, adding no second tab', () => {
+  it('only views one that is already recorded, adding no second id', () => {
     const h = rail(undefined, [1, 3])
     h.model.activate(3)
     h.model.activate(3)
@@ -163,7 +164,7 @@ describe('opening from the rail', () => {
     expect(h.viewedId.value).toBe(3)
   })
 
-  it('opens nothing for a playlist that is not there', () => {
+  it('views nothing for a playlist that is not there', () => {
     const h = rail()
     h.model.activate(99)
     expect(h.named('open')).toHaveLength(0)
@@ -180,7 +181,7 @@ describe('opening from the rail', () => {
 })
 
 describe('playing from the rail', () => {
-  it('opens the playlist as well as starting it', () => {
+  it('views the playlist as well as starting it', () => {
     const h = rail()
     h.model.play(3)
 
@@ -192,7 +193,7 @@ describe('playing from the rail', () => {
     expect(h.playingId.value).toBe(3)
   })
 
-  it('opens an empty playlist without starting it', () => {
+  it('views an empty playlist without starting it', () => {
     const h = rail()
     h.model.play(2)
     expect(h.openIds.value).toEqual([1, 2])
@@ -202,7 +203,7 @@ describe('playing from the rail', () => {
 })
 
 describe('creating from the rail', () => {
-  it('makes one, opens it, and drops straight into its rename', async () => {
+  it('makes one, views it, and drops straight into its rename', async () => {
     const h = rail()
     await h.model.create()
 
@@ -360,7 +361,7 @@ describe('walking the rail from the keyboard', () => {
     expect(h.model.focusedId.value).toBe(1)
   })
 
-  it('opens the focused row with Enter and with Space', () => {
+  it('views the focused row with Enter and with Space', () => {
     const h = rail()
     h.model.focusAt(1)
     expect(h.model.onKeydown(key({ key: 'Enter' }))).toBe('open')

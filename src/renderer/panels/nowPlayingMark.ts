@@ -68,8 +68,8 @@ export function nowPlayingIcon(mark: NowPlayingMark | null): string {
 /**
  * What a screen reader hears in place of the glyph.
  *
- * Parenthesised to match the rail and the tab strip, where "(playing)" already
- * trails the name it qualifies.
+ * Parenthesised to match the rail, where "(playing)" already trails the name
+ * it qualifies.
  */
 export function nowPlayingLabel(mark: NowPlayingMark | null): string {
   if (mark === null) return ''

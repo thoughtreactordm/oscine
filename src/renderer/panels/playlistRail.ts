@@ -6,20 +6,15 @@ import type { Playlist } from '@shared/playlists'
 /**
  * The rail's rules, with no DOM underneath them.
  *
- * The rail is the list of *every* playlist; the tab strip is the few that are
- * open. Splitting them is what makes a tab closeable: before the rail existed
- * the strip drew the whole library, so closing a tab and deleting a playlist
- * were necessarily the same gesture, and the close button called `remove`.
- *
- * So the destructive verbs live here and only here. This module can delete,
- * rename and reorder the library's playlists; `playlistTabs` can do none of
- * those. That is a structural guarantee rather than a convention — the strip's
- * `PlaylistTabCommands` has no `remove` to call.
+ * The rail is the list of *every* playlist, and clicking one views it. There
+ * is no tab strip beside it: this is the chooser, so the destructive verbs live
+ * here and only here. This module can delete, rename and reorder the library's
+ * playlists.
  *
  * Focus is a third thing, separate from viewed and from playing. A rail is a
- * listbox: arrowing through it moves a highlight, and Enter is what opens. If
- * the arrows opened tabs, walking a hundred playlists to find one would leave a
- * hundred tabs behind.
+ * listbox: arrowing through it moves a highlight, and Enter is what views. If
+ * the arrows opened playlists, walking a hundred of them to find one would
+ * yank the pane on every step.
  */
 
 export type { DropSide } from './playlistReorder'
@@ -49,7 +44,7 @@ export interface RailRow {
 }
 
 export interface PlaylistRailCommands {
-  /** Opens a tab if there is not one, and views it. Idempotent. */
+  /** Views the playlist. Idempotent. */
   open(playlistId: number): void
   create(name: string): Promise<Playlist | null>
   rename(playlistId: number, name: string): Promise<void>
@@ -63,7 +58,7 @@ export interface PlaylistRailCommands {
 export interface PlaylistRailDeps {
   /** Every playlist, in `playlists.position` order. */
   playlists: MaybeRefOrGetter<readonly Playlist[]>
-  /** The ids with a tab, so a row can say whether it is already open. */
+  /** Recorded playlist ids, so a row can say whether it is already viewed. */
   openIds: MaybeRefOrGetter<readonly number[]>
   viewedId: MaybeRefOrGetter<number | null>
   /** From the playback controller, never from the playlists store. See §5. */
@@ -144,9 +139,9 @@ export function createPlaylistRail(deps: PlaylistRailDeps) {
   // -- opening --------------------------------------------------------------
 
   /**
-   * A single click: open the playlist as a tab and view it.
+   * A single click: view the playlist.
    *
-   * Opening an already-open playlist just views it, which is why the store's
+   * Viewing an already-viewed playlist is a no-op, which is why the store's
    * verb is idempotent — the rail should not have to ask.
    */
   function activate(playlistId: number): void {
@@ -157,13 +152,13 @@ export function createPlaylistRail(deps: PlaylistRailDeps) {
   }
 
   /**
-   * A double click: open it *and* start playing it, from the top.
+   * A double click: view it *and* start playing it, from the top.
    *
-   * The open is not optional. §5 rule 3 makes this the playing playlist, and a
-   * playlist that started playing without appearing in the strip would be one
+   * The view is not optional. §5 rule 3 makes this the playing playlist, and a
+   * playlist that started playing without appearing as viewed would be one
    * the operator can hear and cannot get to.
    *
-   * An empty playlist opens and does not play. There is no position 0 to start
+   * An empty playlist views and does not play. There is no position 0 to start
    * at, and a transport that went through the motions on nothing would leave
    * `playingPlaylistId` naming a playlist that is not audible.
    */
@@ -186,7 +181,7 @@ export function createPlaylistRail(deps: PlaylistRailDeps) {
     return true
   }
 
-  /** Clamped, not wrapped, matching the strip: a list has ends. */
+  /** Clamped, not wrapped: a list has ends. */
   function focusRelative(delta: number): boolean {
     const from =
       focusIndex.value === -1 ? (delta < 0 ? playlists.value.length : -1) : focusIndex.value
@@ -196,7 +191,7 @@ export function createPlaylistRail(deps: PlaylistRailDeps) {
   // -- create ---------------------------------------------------------------
 
   /**
-   * Makes a playlist, opens it, and drops straight into renaming it.
+   * Makes a playlist, views it, and drops straight into renaming it.
    *
    * A dialog asking for a name before the playlist exists is one more modal than
    * this needs, and it makes the common case — make one, drag things onto it,
@@ -275,8 +270,7 @@ export function createPlaylistRail(deps: PlaylistRailDeps) {
 
   /**
    * The persisted order. `playlists.reorder` renumbers the whole list in one
-   * transaction, and this is its only caller — the strip's drag moves a tab
-   * inside the open set and never reaches here.
+   * transaction, and this is its only caller.
    */
   const drag = createReorderDrag(
     () => order.value,
@@ -289,9 +283,9 @@ export function createPlaylistRail(deps: PlaylistRailDeps) {
   /**
    * The rail's keymap. Inert while renaming, because the input owns its keys.
    *
-   * Enter opens rather than the arrows doing it, and Delete deletes rather than
-   * closing: this is the surface where the row *is* the playlist, so the
-   * destructive key belongs to it and the strip's does not.
+   * Enter views rather than the arrows doing it, and Delete deletes: this is
+   * the surface where the row *is* the playlist, so the destructive key
+   * belongs to it.
    */
   function onKeydown(event: RailKeyEvent): RailKeyAction {
     if (rename.renamingId.value !== null) return 'none'

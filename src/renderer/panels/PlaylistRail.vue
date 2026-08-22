@@ -4,7 +4,7 @@ import type { ContextMenuItem } from '@nuxt/ui'
 import { visibleRange } from '@renderer/panels/listViewport'
 import { createPlaylistRail, PLAYLIST_NAME_MAX_LENGTH } from '@renderer/panels/playlistRail'
 import type { DropSide } from '@renderer/panels/playlistReorder'
-import { FAVORITES_TAB } from '@renderer/panels/playlistTabs'
+import { DISCOVER_TAB, FAVORITES_TAB } from '@renderer/panels/playlistTabs'
 import { useSettings } from '@renderer/settings'
 import { useFavoritesListStore } from '@renderer/stores/favoritesList'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -13,38 +13,34 @@ import type { Playlist } from '@shared/playlists'
 import { CONFIRM_PLAYLIST_DELETE_KEY } from '@shared/settings'
 
 /**
- * Every playlist, in the Curate sidebar.
+ * Curate's chooser: Discover, My Favorites, and every playlist.
  *
- * This is the half of D5 that was missing. The strip is the backbone and stays
- * the backbone, but a backbone made of *every* playlist has no closed state, so
- * its close button had to be a delete. The rail is where a closed playlist
- * lives: click to open it, double-click to play it, and the strip is free to be
- * just the few you are working on.
+ * Clicking an entry views it in the pane next door. There is no tab strip to
+ * open something into — the rail *is* the switcher — so a click is a view and a
+ * double-click is a play. Virtualized, per the standing invariant: this holds
+ * however many playlists exist, and a rail that rendered two hundred rows to
+ * show twelve is the same mistake as a track list that renders 100k.
+ * `listViewport` and nothing else — the playlists are already in memory, so
+ * there is nothing to page and what is left is arithmetic.
  *
- * Virtualized, per the standing invariant and unlike the strip. The strip holds
- * what one operator opened by hand; this holds however many playlists exist, and
- * a rail that rendered two hundred rows to show twelve is the same mistake as a
- * track list that renders 100k. `listViewport` and nothing else — the playlists
- * are already in memory, so there is nothing to page and what is left is
- * arithmetic.
+ * ## Discover and My Favorites, pinned above the list
  *
- * ## My Favorites, pinned above all of it — **D18**
- *
- * It is drawn *outside* the scroll container and outside `createPlaylistRail`
+ * Both are drawn *outside* the scroll container and outside `createPlaylistRail`
  * entirely, and that placement is the design rather than a layout convenience.
  * The model holds `rows`, the focus index, the reorder drag and the delete
- * prompt, all of them keyed by `playlists.id`; the pinned entry has no id and
- * belongs to none of them. So it cannot be dragged, cannot be a drop target,
- * cannot be focused into a reorder and cannot be handed to `requestDelete` — not
- * because a branch refuses, but because it is not in the list those verbs
- * traverse. That is the same trick `DISCOVER_TAB` plays in the strip.
+ * prompt, all of them keyed by `playlists.id`; the pinned entries have no id
+ * and belong to none of them. So they cannot be dragged, cannot be a drop
+ * target, cannot be focused into a reorder and cannot be handed to
+ * `requestDelete` — not because a branch refuses, but because they are not in
+ * the list those verbs traverse. That is the same trick `DISCOVER_TAB` used to
+ * play in the strip, now played here for both fixtures.
  *
- * The rename and delete affordances are therefore *absent*, not disabled: this
- * row has no context menu and no inline input, where every row below it has
+ * The rename and delete affordances are therefore *absent*, not disabled: these
+ * rows have no context menu and no inline input, where every row below them has
  * both.
  *
  * D4 island rules: it imports no sibling panel and holds no reference to the
- * strip or the contents pane. All of them meet at the stores.
+ * contents pane. They meet at the stores.
  */
 
 const playlists = usePlaylistsStore()
@@ -52,7 +48,8 @@ const playback = usePlaybackStore()
 const settings = useSettings()
 const favorites = useFavoritesListStore()
 
-/** Whether the pinned entry is the thing on screen. It is never the *playing* one. */
+/** Whether a pinned entry is the thing on screen. Neither is ever the *playing* one. */
+const discoverViewed = computed(() => playlists.viewedStop === DISCOVER_TAB)
 const favoritesViewed = computed(() => playlists.viewedStop === FAVORITES_TAB)
 
 /**
@@ -198,8 +195,8 @@ function onDragOver(event: DragEvent, playlistId: number): void {
 function menu(playlist: Playlist): ContextMenuItem[] {
   return [
     {
-      label: model.isOpen(playlist.id) ? 'Go to tab' : 'Open in a tab',
-      icon: 'i-tabler-external-link',
+      label: 'Show',
+      icon: 'i-tabler-eye',
       onSelect: () => model.activate(playlist.id)
     },
     {
@@ -247,31 +244,15 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 flex-col" aria-label="Playlists">
-    <div class="flex h-9 shrink-0 items-center gap-2 border-b border-default bg-elevated/40 px-2">
-      <UIcon name="i-tabler-playlist" class="size-4 text-primary" />
-      <h2 class="text-sm font-semibold text-highlighted">Playlists</h2>
-      <span class="ml-auto text-xs tabular-nums text-muted">
-        {{ playlists.list.length.toLocaleString() }}
-      </span>
-      <UButton
-        icon="i-tabler-plus"
-        size="xs"
-        color="neutral"
-        variant="ghost"
-        aria-label="New playlist"
-        @click="model.create()"
-      />
-    </div>
-
+  <section class="flex h-full min-h-0 flex-col" aria-label="Curate">
     <!--
-      The pinned entry. Above the playlists and outside the scroll container, so
-      it stays put however far the rail is scrolled — pinned is the whole of what
-      the operator asked for.
+      The two pinned destinations. Above the playlists and outside the scroll
+      container, so they stay put however far the rail is scrolled — pinned is
+      the whole of what the operator asked for.
 
-      A `button`, not a `role="option"` in the listbox below: it is not one of
+      A `button`, not a `role="option"` in the listbox below: neither is one of
       the rail's rows and must not be arrowed into, dragged, or counted by the
-      reorder. Tab reaches it; the listbox is its own stop.
+      reorder. Tab reaches them; the listbox is its own stop.
 
       Note what is *not* here. No `UContextMenu`, so there is no Rename and no
       Delete to grey out. No `draggable`, no `dragover`, no drop indicator. Those
@@ -279,6 +260,26 @@ onMounted(() => {
       also the only version that cannot rot: there is no code path to forget to
       keep disabled.
     -->
+    <button
+      type="button"
+      class="flex h-8 shrink-0 cursor-default items-center gap-2 border-b border-default px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+      :class="
+        discoverViewed
+          ? 'bg-elevated text-highlighted shadow-[inset_2px_0_0_0_var(--ui-primary)]'
+          : 'text-muted hover:bg-elevated/60 hover:text-default'
+      "
+      :aria-current="discoverViewed ? 'true' : undefined"
+      @click="playlists.view(DISCOVER_TAB)"
+    >
+      <UIcon
+        name="i-tabler-compass"
+        class="size-3.5 shrink-0"
+        :class="discoverViewed ? 'text-primary' : ''"
+        aria-hidden="true"
+      />
+      <span class="min-w-0 flex-1 truncate font-medium">Discover</span>
+    </button>
+
     <button
       type="button"
       class="flex h-8 shrink-0 cursor-default items-center gap-2 border-b border-default px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
@@ -302,6 +303,22 @@ onMounted(() => {
         {{ favorites.total.toLocaleString() }}
       </span>
     </button>
+
+    <div class="flex h-9 shrink-0 items-center gap-2 border-b border-default bg-elevated/40 px-2">
+      <UIcon name="i-tabler-playlist" class="size-4 text-primary" />
+      <h2 class="text-sm font-semibold text-highlighted">Playlists</h2>
+      <span class="ml-auto text-xs tabular-nums text-muted">
+        {{ playlists.list.length.toLocaleString() }}
+      </span>
+      <UButton
+        icon="i-tabler-plus"
+        size="xs"
+        color="neutral"
+        variant="ghost"
+        aria-label="New playlist"
+        @click="model.create()"
+      />
+    </div>
 
     <!--
       One scroll container, two spacers, and only the rows between them. The
@@ -347,9 +364,10 @@ onMounted(() => {
           />
 
           <!--
-            Three states, three marks, because §5 makes them three facts. Playing
-            gets the glyph; open gets a dot, so a tab you left behind is visible
-            from here; viewed is the row's own surface and the primary edge.
+            Two states, two marks, because §5 makes them two facts. Playing gets
+            the glyph; viewed is the row's own surface and the primary edge. A
+            third "open" mark used to sit here when this rail fed a tab strip;
+            without one, viewed is the only workspace fact a row has.
           -->
           <UIcon
             v-if="row.isPlaying"
@@ -357,12 +375,7 @@ onMounted(() => {
             class="size-3 shrink-0 text-primary"
             aria-hidden="true"
           />
-          <span
-            v-else-if="row.isOpen"
-            class="size-1.5 shrink-0 rounded-full bg-primary/70"
-            aria-hidden="true"
-          />
-          <span v-else class="size-1.5 shrink-0" aria-hidden="true" />
+          <span v-else class="size-3 shrink-0" aria-hidden="true" />
 
           <input
             v-if="model.renamingId.value === row.playlist.id"
@@ -386,7 +399,6 @@ onMounted(() => {
               {{ row.playlist.name }}
             </span>
             <span v-if="row.isPlaying" class="sr-only">(playing)</span>
-            <span v-if="row.isOpen" class="sr-only">(open)</span>
             <span class="shrink-0 text-xs tabular-nums text-dimmed">
               {{ row.playlist.trackCount.toLocaleString() }}
             </span>

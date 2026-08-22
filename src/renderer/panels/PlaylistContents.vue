@@ -33,7 +33,7 @@ import { CONFIRM_ENTRY_REMOVAL_KEY, type CascadeScopeRef } from '@shared/setting
 import { useSettings } from '@renderer/settings'
 
 /**
- * The pane under the tab strip: the viewed collection's rows.
+ * The pane the rail is looking at: the viewed collection's rows.
  *
  * It is `TrackList` — the same virtualized island the library uses, handed a
  * different source — rather than a second list implementation. That was the
@@ -62,7 +62,7 @@ import { useSettings } from '@renderer/settings'
  *   `playlists` row, and there is not one. The affordances are absent rather
  *   than present-and-disabled.
  *
- * D4 island rules, upwards as well as downwards. The strip above is a sibling
+ * D4 island rules, upwards as well as downwards. The rail beside is a sibling
  * and this pane holds no reference to it beyond `viewedStop`, so either one can
  * be docked elsewhere without the other noticing.
  */
@@ -554,8 +554,8 @@ const removalOpen = computed({
     v-else
     variant="naked"
     icon="i-tabler-playlist-add"
-    title="No playlist open"
-    description="Click a playlist in the rail to open it, or double-click to play it."
+    title="No playlist showing"
+    description="Click a playlist in the rail to show it, or double-click to play it."
     class="h-full"
   />
 

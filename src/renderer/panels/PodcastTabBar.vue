@@ -6,10 +6,10 @@ import { hasArtwork } from '@shared/ipc'
 /**
  * Open show tabs + the Discover fixture.
  *
- * Visual and keyboard setup matches `PlaylistTabBar`: segmented strip, inset
- * primary underline on the viewed tab, close on hover / middle-click. Rename
- * and drag-reorder stay out for this slice — shows are not renamed from the
- * strip, and open-tab order is open order.
+ * Visual and keyboard setup: segmented strip, inset primary underline on the
+ * viewed tab, close on hover / middle-click. Rename and drag-reorder stay out
+ * for this slice — shows are not renamed from the strip, and open-tab order is
+ * open order.
  */
 
 type TabStop = number | typeof PODCAST_DISCOVER_TAB

@@ -163,7 +163,7 @@ describe('view.playlistTabs', () => {
     })
   })
 
-  it('falls back to the first tab when the viewed one is not among them', () => {
+  it('falls back to the first recorded id when the viewed one is not among them', () => {
     expect(resolved<TabSession>(KEY, { openIds: [3, 4], viewedId: 9 })).toEqual({
       openIds: [3, 4],
       viewedId: 3
@@ -171,6 +171,18 @@ describe('view.playlistTabs', () => {
     expect(resolved<TabSession>(KEY, { openIds: [3, 4] })).toEqual({
       openIds: [3, 4],
       viewedId: 3
+    })
+  })
+
+  /**
+   * Discover is `null`, and like My Favorites it is pinned rather than missing
+   * — so a session that left Curate there comes back there, even when
+   * `openIds` still names playlists from earlier views.
+   */
+  it('restores Discover even when playlists were left recorded', () => {
+    expect(resolved<TabSession>(KEY, { openIds: [3, 4], viewedId: null })).toEqual({
+      openIds: [3, 4],
+      viewedId: null
     })
   })
 

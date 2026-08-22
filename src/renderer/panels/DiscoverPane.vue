@@ -1,12 +1,12 @@
 <script setup lang="ts">
 /**
- * What the Discover tab shows: shelves, and nothing behind them yet.
+ * What Discover shows: shelves, and nothing behind them yet.
  *
  * The pane is a placeholder and says so on its face rather than in a comment —
  * an operator who cannot tell a stubbed shelf from an empty one will report the
- * wrong bug. What it is *not* is a scaffold in the earlier sense: the Discover
- * tab is permanent, so this file is the beginning of a pane rather than a
- * stand-in for one, and the shelves are the shape the real thing will fill.
+ * wrong bug. What it is *not* is a scaffold in the earlier sense: Discover is
+ * permanent, so this file is the beginning of a pane rather than a stand-in for
+ * one, and the shelves are the shape the real thing will fill.
  *
  * A different idiom from the Library tab on purpose. Library is where a hundred
  * thousand tracks are searched, and it is a dense grid of rows because that is
@@ -47,7 +47,7 @@ const shelves = [
         </h2>
         <p class="max-w-prose text-sm text-muted">
           Shelves that read your library the way a streaming service reads its catalogue — except
-          the catalogue is yours, and nothing here phones anywhere. Open a playlist from the rail to
+          the catalogue is yours, and nothing here phones anywhere. Pick a playlist from the rail to
           edit one, or start a new one from a shelf once these are wired up.
         </p>
       </header>

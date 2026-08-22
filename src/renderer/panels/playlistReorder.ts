@@ -1,12 +1,12 @@
 import { ref } from 'vue'
 
 /**
- * Where a drag lands, for the two lists of playlists that have one.
+ * Where a drag lands, for the lists that reorder by dragging.
  *
- * Its own module because the rail and the tab strip both reorder by dragging and
- * neither owns the arithmetic. They reorder *different sequences* — the rail
- * writes `playlists.position` through the main process, the strip moves a tab
- * inside the open set — but both splice the dragged item out before splicing it
+ * Its own module because the rail and anything else that splices by pointer
+ * share the arithmetic. The rail writes `playlists.position` through the main
+ * process; the same index math is what `playlists.moveOpen` and
+ * `UpNextQueue.move` read. Both splice the dragged item out before splicing it
  * back in, so the index they need is the same index computed the same way.
  */
 

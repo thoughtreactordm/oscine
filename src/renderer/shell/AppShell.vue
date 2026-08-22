@@ -107,10 +107,10 @@ const bodyTransition = computed(() => `tab-${shell.direction}`)
  * subscription rather than the sidebar that happens to draw them.
  *
  * The playlists are here for the same reason, and it took a real gap to notice:
- * the rail and the tab strip each read them on mount, and both live in Curate,
- * so on a launch straight into Library the "Add to playlist" submenu offered
- * "New playlist…" and nothing else — against a library that had three. The list
- * is not Curate's; Curate is just where it was first drawn.
+ * the rail and the body each read them on mount, and both live in Curate, so on
+ * a launch straight into Library the "Add to playlist" submenu offered "New
+ * playlist…" and nothing else — against a library that had three. The list is
+ * not Curate's; Curate is just where it was first drawn.
  */
 onMounted(() => {
   roots.start()
