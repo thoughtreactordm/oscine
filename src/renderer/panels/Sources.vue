@@ -12,6 +12,7 @@ import { useSettings } from '@renderer/settings'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
 import { SOURCES_ARTISTS_PANE } from '@renderer/shell/shellLayout'
 import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
+import { useArtistFavorites } from '@renderer/stores/artistStars'
 import { useBrowseStore } from '@renderer/stores/browse'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -54,6 +55,7 @@ const addToPlaylist = useAddToPlaylistStore()
 const playback = usePlaybackStore()
 const playlists = usePlaylistsStore()
 const trackList = useTrackListStore()
+const artistFavorites = useArtistFavorites()
 
 /**
  * The Artists/Albums divide, dragged and remembered.
@@ -144,6 +146,19 @@ interface FacetPaneSpec<T extends { id: number }> {
   unit: string
   /** What to suggest as a new playlist's name for a single row. */
   nameOf: (item: T) => string
+  /**
+   * The star, for the panes whose rows can be favorited — artists today (**D24**,
+   * product rule 6). Present makes the row menu carry a toggle whose wording
+   * follows the current state; absent leaves the menu as it was. Keyed on the
+   * facet `id`, which for artists is the `artists` row id the star store uses.
+   */
+  favorite?: {
+    isFavorite: (id: number) => boolean
+    toggle: (id: number) => void
+    hydrate: (ids: readonly number[]) => void
+    /** The noun in the menu label, e.g. "artist". */
+    noun: string
+  }
 }
 
 /**
@@ -205,12 +220,13 @@ function facetPane<T extends { id: number }>(spec: FacetPaneSpec<T>) {
   }
 
   function menu(index: number): ContextMenuItem[] {
+    const item = spec.model.rowAt(index)
     const target = targetFor(index)
     // A row whose page has not arrived has no id to act on. Saying so beats an
     // empty menu, and beats verbs that would quietly do nothing.
-    if (target === null) return [{ label: 'Loading…', disabled: true }]
+    if (target === null || !item) return [{ label: 'Loading…', disabled: true }]
 
-    return [
+    const items: ContextMenuItem[] = [
       {
         label: queueCommandLabel('playNext', target.count, spec.unit),
         icon: 'i-tabler-corner-right-down',
@@ -224,6 +240,35 @@ function facetPane<T extends { id: number }>(spec: FacetPaneSpec<T>) {
       { type: 'separator' },
       addToPlaylist.menuItem(target)
     ]
+
+    // The star acts on the one row under the pointer, not the selection: a
+    // favorite is a boolean about an entity, and its state-aware label would be
+    // a lie over a mixed set. `favorited` is reactive and hydrated on menu open,
+    // so the wording is right by the time the menu paints (see `onMenuOpen`).
+    if (spec.favorite) {
+      const favorited = spec.favorite.isFavorite(item.id)
+      items.push(
+        { type: 'separator' },
+        {
+          label: favorited ? `Unfavorite ${spec.favorite.noun}` : `Favorite ${spec.favorite.noun}`,
+          icon: favorited ? 'i-tabler-star-filled' : 'i-tabler-star',
+          onSelect: () => spec.favorite?.toggle(item.id)
+        }
+      )
+    }
+
+    return items
+  }
+
+  /**
+   * Hydrates the row's star the instant its menu opens, so the toggle's wording
+   * reflects the real state on the first frame rather than defaulting to "not
+   * favorited" until a batch lands. A no-op for panes without a star.
+   */
+  function onMenuOpen(index: number): void {
+    if (!spec.favorite) return
+    const item = spec.model.rowAt(index)
+    if (item) spec.favorite.hydrate([item.id])
   }
 
   /**
@@ -253,14 +298,20 @@ function facetPane<T extends { id: number }>(spec: FacetPaneSpec<T>) {
     })
   }
 
-  return { menu, activate }
+  return { menu, activate, onMenuOpen }
 }
 
 const artistPane = facetPane<ArtistFacet>({
   model: browse.artists,
   dimension: 'artistIds',
   unit: 'artists',
-  nameOf: (artist) => artist.name
+  nameOf: (artist) => artist.name,
+  favorite: {
+    isFavorite: (id) => artistFavorites.isFavorite(id),
+    toggle: (id) => void artistFavorites.toggle(id),
+    hydrate: (ids) => void artistFavorites.hydrate(ids),
+    noun: 'artist'
+  }
 })
 
 const albumPane = facetPane<AlbumFacet>({
@@ -408,6 +459,7 @@ const albumPane = facetPane<AlbumFacet>({
           label="Artists"
           :menu="artistPane.menu"
           @activate="artistPane.activate"
+          @menu-open="artistPane.onMenuOpen"
         >
           <template #row="{ item }">
             <span class="truncate">{{ item?.name ?? 'Loading…' }}</span>

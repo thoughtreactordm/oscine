@@ -41,6 +41,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** A row was activated — double-clicked or Enter. */
   activate: [item: T, index: number]
+  /**
+   * A row's context menu is opening. Fires with the row index before the menu
+   * paints, so a supplier can hydrate anything its items read — an artist's
+   * star state, say — in time for the first frame.
+   */
+  menuOpen: [index: number]
 }>()
 
 const OVERSCAN_DEFAULT = 8
@@ -161,6 +167,7 @@ function onRowContextmenu(index: number, event: Event): void {
   claimedContextmenu = event
   if (!props.model.isSelectedAt(index)) void props.model.select(index, 'replace')
   menuIndex.value = index
+  emit('menuOpen', index)
 }
 
 function onViewportContextmenu(event: Event): void {
