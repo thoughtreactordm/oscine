@@ -1,4 +1,5 @@
 import { MAX_TRACK_ID_PAGE, MAX_TRACK_PAGE, type Track } from './library'
+import type { Playlist } from './playlists'
 
 /**
  * Favorites — **D18**.
@@ -176,3 +177,106 @@ export interface RemoveFavoritesResult {
 
 /** The same ceiling as the batch state lookup, and for the same reason. */
 export const MAX_FAVORITE_REMOVE_IDS = MAX_TRACK_ID_PAGE
+
+/**
+ * Favorites beyond tracks — **D24**.
+ *
+ * Playlists and artists become favoritable on their own per-entity tables
+ * (`playlist_favorites`, `artist_favorites`), each mirroring `track_favorites`
+ * exactly. The **star** glyph denotes them; the **heart** stays tracks-only.
+ * This preserves D18's per-entity design rather than replacing it with a
+ * polymorphic table.
+ *
+ * The shapes below mirror the track surface — toggle, batch state, list — for
+ * two new subjects. What is deliberately *not* mirrored is the paging: the
+ * playlist and artist lists are the Quick Menu's short, capped, recomputed-on-
+ * open convenience views (D26), not windowed collections. There is no `offset`,
+ * no `total`, and no id-only variant — a drawer of a dozen rows needs none of
+ * the machinery a 100k-track rail does.
+ */
+
+/**
+ * The favorited subset of a batch, shared by both new entity types.
+ *
+ * The answer is the ids that *are* favorited rather than a boolean per id, for
+ * `FavoriteStateResult`'s reason: the caller already holds the ids it asked
+ * about, and a sparse answer is smaller by exactly the amount that matters. A
+ * toggle returns it too — the row that flipped is either in the set or not, and
+ * the star reads its own state off that rather than predicting the outcome of
+ * its own click.
+ */
+export interface EntityFavoriteStateResult {
+  /** The ids from the request that are favorited. Order is not meaningful. */
+  readonly favoritedIds: number[]
+}
+
+export interface TogglePlaylistFavoriteRequest {
+  readonly playlistId: number
+}
+
+export interface PlaylistFavoriteStateRequest {
+  readonly playlistIds: readonly number[]
+}
+
+export type PlaylistFavoriteStateResult = EntityFavoriteStateResult
+
+/**
+ * The Quick Menu's Favorite Playlists list — star-favorited playlists,
+ * `favorited_at` descending, capped (D26). Short and computed, not paged.
+ */
+export interface ListFavoritePlaylistsQuery {
+  readonly limit: number
+}
+
+export interface ListFavoritePlaylistsResult {
+  readonly playlists: Playlist[]
+}
+
+export interface ToggleArtistFavoriteRequest {
+  readonly artistId: number
+}
+
+export interface ArtistFavoriteStateRequest {
+  readonly artistIds: readonly number[]
+}
+
+export type ArtistFavoriteStateResult = EntityFavoriteStateResult
+
+/**
+ * A favorited artist as the Quick Menu draws it — **the real thing**, not the
+ * existing `artistFavorites.ts` store, which is "favorite tracks by this
+ * artist" and favorites no artist at all.
+ *
+ * There is no `Artist` type in `src/shared` today and the drawer needs only
+ * three fields: the id it navigates to, the name it shows, and an artwork hash
+ * where D14's artist image has resolved one (`null` for the many artists it has
+ * not). Kept minimal on purpose — a fuller artist projection is not this list's
+ * to carry.
+ */
+export interface FavoriteArtist {
+  readonly id: number
+  readonly name: string
+  readonly artworkHash: string | null
+}
+
+/**
+ * The Quick Menu's Favorite Artists list — star-favorited artists,
+ * `favorited_at` descending, capped (D26). Short and computed, not paged.
+ */
+export interface ListFavoriteArtistsQuery {
+  readonly limit: number
+}
+
+export interface ListFavoriteArtistsResult {
+  readonly artists: FavoriteArtist[]
+}
+
+/**
+ * The default cap for both Quick Menu favorite lists.
+ *
+ * D26 keeps these lists short — a drawer, not a rail. Ten is well past what the
+ * three-list drawer shows at rest and small enough that the whole answer is a
+ * handful of rows of structured clone, which is what lets each list be one
+ * unpaged query recomputed on open.
+ */
+export const QUICK_MENU_FAVORITES_LIMIT = 10

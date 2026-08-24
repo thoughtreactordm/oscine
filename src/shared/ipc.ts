@@ -9,19 +9,31 @@ import type { ArtistRelationsResult, GetArtistRelationsRequest } from './artistR
 import type { ArtistBiographyResult, GetArtistBiographyRequest } from './biography'
 import type { ArtistImageResult, GetArtistImageRequest } from './artistImage'
 import type {
+  ArtistFavoriteStateRequest,
+  ArtistFavoriteStateResult,
   ArtistFavoritesQuery,
   ArtistFavoritesResult,
   FavoriteState,
   FavoriteStateRequest,
   FavoriteStateResult,
+  ListFavoriteArtistsQuery,
+  ListFavoriteArtistsResult,
   ListFavoriteIdsQuery,
   ListFavoriteIdsResult,
+  ListFavoritePlaylistsQuery,
+  ListFavoritePlaylistsResult,
   ListFavoritesQuery,
   ListFavoritesResult,
+  PlaylistFavoriteStateRequest,
+  PlaylistFavoriteStateResult,
   RemoveFavoritesRequest,
   RemoveFavoritesResult,
+  ToggleArtistFavoriteRequest,
+  TogglePlaylistFavoriteRequest,
   ToggleFavoriteRequest
 } from './favorites'
+import type { AlbumCard } from './albums'
+import type { SearchQuery, SearchResult } from './search'
 import type { ListPlayHistoryQuery, PlayEntry } from './history'
 import type { ListenCommit, RecordListenRequest } from './listens'
 import type {
@@ -424,6 +436,70 @@ export interface IpcContract {
    * that removal calls, and it says which direction it goes.
    */
   'favorites.remove': { request: RemoveFavoritesRequest; response: RemoveFavoritesResult }
+  /**
+   * One blended, grouped, ranked pass over every local entity type — the
+   * command palette's data side (**D23**). Tracks reuse `tracks_fts`; albums,
+   * artists and playlists get lightweight indexing; "shows" are the operator's
+   * *subscribed* podcasts matched locally.
+   *
+   * One channel rather than one per type, so ranking stays on the main side of
+   * the wire and a new searchable type is not another round trip to debounce.
+   * It never reaches the network — Apple's catalogue stays behind
+   * `podcasts.searchCatalog` (D14). Empty groups are omitted; per-group caps and
+   * the renderer's prefixes are the two brakes on cross-type ranking (RQ2).
+   */
+  'search.query': { request: SearchQuery; response: SearchResult }
+  /**
+   * Flips a playlist's **star** and answers with the favorited subset of the
+   * ids it touched — **D24**. The playlist counterpart of `favorites.toggle`,
+   * returning state rather than nothing for the same reason: main read the
+   * table, main says what it says now, and no star predicts its own click.
+   */
+  'favorites.togglePlaylist': {
+    request: TogglePlaylistFavoriteRequest
+    response: PlaylistFavoriteStateResult
+  }
+  /** Which of these playlist ids are starred — the batch star lookup. */
+  'favorites.playlistState': {
+    request: PlaylistFavoriteStateRequest
+    response: PlaylistFavoriteStateResult
+  }
+  /**
+   * The Quick Menu's Favorite Playlists list — starred playlists,
+   * `favorited_at` descending, capped (**D26**). Short and computed on open,
+   * not a paged collection.
+   */
+  'favorites.listPlaylists': {
+    request: ListFavoritePlaylistsQuery
+    response: ListFavoritePlaylistsResult
+  }
+  /** The artist star, mirroring `favorites.togglePlaylist` (**D24**). */
+  'favorites.toggleArtist': {
+    request: ToggleArtistFavoriteRequest
+    response: ArtistFavoriteStateResult
+  }
+  /** Which of these artist ids are starred — the batch star lookup. */
+  'favorites.artistState': {
+    request: ArtistFavoriteStateRequest
+    response: ArtistFavoriteStateResult
+  }
+  /**
+   * The Quick Menu's Favorite Artists list — starred artists, `favorited_at`
+   * descending, capped (**D26**). Returns the real favorited artists, not the
+   * track-by-artist set the existing `artistFavorites` store holds.
+   */
+  'favorites.listArtists': {
+    request: ListFavoriteArtistsQuery
+    response: ListFavoriteArtistsResult
+  }
+  /**
+   * The Quick Menu's Recent Additions — albums by arrival, newest first
+   * (**D25/D26**). Ordered by `MAX(indexed_at)` over each album's tracks, never
+   * by `mtime`. A bare array capped by `limit`: a short drawer list, not a
+   * windowed collection, and it is not D18's "Recently Added" trigger firing —
+   * it is a computed, ephemeral view recomputed on open.
+   */
+  'library.recentlyAddedAlbums': { request: { limit: number }; response: AlbumCard[] }
   /**
    * Every playlist, in tab order. Unpaged: these are tabs, and a user who has
    * made a thousand of them has a different problem than pagination solves.
@@ -914,6 +990,14 @@ export const IPC_CHANNELS = [
   'favorites.listIds',
   'favorites.byArtist',
   'favorites.remove',
+  'search.query',
+  'favorites.togglePlaylist',
+  'favorites.playlistState',
+  'favorites.listPlaylists',
+  'favorites.toggleArtist',
+  'favorites.artistState',
+  'favorites.listArtists',
+  'library.recentlyAddedAlbums',
   'playlists.list',
   'playlists.create',
   'playlists.rename',

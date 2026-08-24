@@ -48,6 +48,7 @@ import type {
   SetSettingRequest,
   SettingsChange
 } from '@shared/settings'
+import type { SearchQuery } from '@shared/search'
 
 /**
  * The entire main/renderer seam.
@@ -229,6 +230,16 @@ const api = {
     shelves: () => request('discover.shelves', null),
     /** Snapshot one shelf from the last `shelves` result as a playlist. */
     saveShelf: (recipeId: DiscoverRecipeId) => request('discover.saveShelf', { recipeId })
+  },
+  search: {
+    /**
+     * One blended, grouped, ranked pass over every local entity type — the
+     * command palette's data side (D23). The renderer parses the prefix into a
+     * `SearchMode` before it gets here; main never sees `action` or `setting`.
+     * Local only: subscribed shows match against the `podcasts` table, and
+     * Apple's catalogue stays behind `podcasts.searchCatalog`.
+     */
+    query: (query: SearchQuery) => request('search.query', query)
   },
   podcasts: {
     list: () => request('podcasts.list', null),

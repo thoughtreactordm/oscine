@@ -17,6 +17,7 @@ import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/
 import type { NetScope } from '@shared/net'
 import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
 import type { DiscoverRecipeId } from '@shared/discover'
+import type { SearchQuery } from '@shared/search'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -165,6 +166,15 @@ export const playlists = {
   /** Resolves `null` when the operator dismisses the save dialog. */
   exportM3u8: (payload: ExportPlaylistRequest) =>
     unwrap(window.fermata.playlists.exportM3u8(payload))
+}
+
+/**
+ * Unified search — the command palette's data side (D23). One channel, grouped
+ * and ranked in main. The renderer parses the prefix into a `SearchMode` first;
+ * `action` and `setting` modes resolve in the renderer and never call this.
+ */
+export const search = {
+  query: (query: SearchQuery) => unwrap(window.fermata.search.query(query))
 }
 
 /**
