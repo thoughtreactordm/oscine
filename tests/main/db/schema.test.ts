@@ -67,7 +67,8 @@ describe('openDatabase', () => {
         'scrobble-outbox',
         'track-genres',
         'listens-log',
-        'favorites'
+        'favorites',
+        'quick-access'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -113,7 +114,8 @@ describe('openDatabase', () => {
         'scrobble-outbox',
         'track-genres',
         'listens-log',
-        'favorites'
+        'favorites',
+        'quick-access'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -148,7 +150,8 @@ describe('openDatabase', () => {
         'scrobble-outbox',
         'track-genres',
         'listens-log',
-        'favorites'
+        'favorites',
+        'quick-access'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
@@ -399,6 +402,69 @@ describe('openDatabase', () => {
 })
 
 /**
+ * Migration 016's backfill (D25). The arrival clock is derived, not observed,
+ * for every row that predates the column: a root's `added_at` is the nearest
+ * honest answer, and a single migration-time `nowMs` is the floor for a row
+ * whose root cannot be resolved at all.
+ */
+describe('migration 016 backfills indexed_at', () => {
+  /** Migrations strictly before `quick-access`, found rather than written down. */
+  const BEFORE_016 = MIGRATIONS.findIndex((step) => step.name === 'quick-access')
+
+  function seedRoot(db: Database.Database, path: string, addedAt: number): number {
+    return Number(
+      db
+        .prepare('INSERT INTO roots (label, path, added_at) VALUES (?, ?, ?)')
+        .run(path, path, addedAt).lastInsertRowid
+    )
+  }
+
+  function seedTrack(db: Database.Database, rootId: number, relPath: string): number {
+    return Number(
+      db
+        .prepare('INSERT INTO tracks (root_id, rel_path, mtime, size) VALUES (?, ?, ?, ?)')
+        .run(rootId, relPath, 1, 2).lastInsertRowid
+    )
+  }
+
+  it('resolves each row from its root, and falls back to one nowMs for the rootless', () => {
+    const old = new Database(file)
+    // Off, so the orphan below can exist: deleting its root must not cascade the
+    // track away, since a rootless row is the only way to reach the fallback.
+    old.pragma('foreign_keys = OFF')
+    migrate(old, MIGRATIONS.slice(0, BEFORE_016))
+    expect(old.pragma('user_version', { simple: true })).toBe(BEFORE_016)
+
+    const rootA = seedRoot(old, '/a', 1000)
+    const rootB = seedRoot(old, '/b', 2000)
+    const rootC = seedRoot(old, '/c', 3000)
+    const trackA = seedTrack(old, rootA, 'a.flac')
+    const trackB = seedTrack(old, rootB, 'b.flac')
+    const orphan = seedTrack(old, rootC, 'c.flac')
+    // The root vanishes but its track does not — a row whose `added_at` no longer
+    // resolves, so the `COALESCE` fallback is the only branch that can stamp it.
+    old.prepare('DELETE FROM roots WHERE id = ?').run(rootC)
+
+    const before = Date.now()
+    migrate(old, MIGRATIONS)
+    const after = Date.now()
+
+    const indexedAt = (id: number): number =>
+      (old.prepare('SELECT indexed_at AS at FROM tracks WHERE id = ?').get(id) as { at: number }).at
+
+    try {
+      expect(indexedAt(trackA)).toBe(1000)
+      expect(indexedAt(trackB)).toBe(2000)
+      const fallback = indexedAt(orphan)
+      expect(fallback).toBeGreaterThanOrEqual(before)
+      expect(fallback).toBeLessThanOrEqual(after)
+    } finally {
+      old.close()
+    }
+  })
+})
+
+/**
  * These are the tests that prove `PRAGMA foreign_keys = ON` actually took
  * effect. Without it the schema still builds and every cascade below silently
  * becomes a no-op, leaving orphaned rows that only surface much later.
@@ -535,6 +601,48 @@ describe('referential integrity', () => {
       expect(db.prepare('SELECT count(*) n FROM playlist_entries').get()).toEqual({ n: 0 })
       // Deleting a playlist must not delete the music in it.
       expect(db.prepare('SELECT count(*) n FROM tracks').get()).toEqual({ n: 1 })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('cascades a playlist deletion to its favorite star', () => {
+    const { db } = openDatabase(file)
+    try {
+      const playlistId = Number(
+        db
+          .prepare(
+            'INSERT INTO playlists (name, position, created_at, updated_at) VALUES (?, ?, ?, ?)'
+          )
+          .run('Late night', 0, 1, 1).lastInsertRowid
+      )
+      db.prepare('INSERT INTO playlist_favorites (playlist_id, favorited_at) VALUES (?, ?)').run(
+        playlistId,
+        5000
+      )
+
+      db.prepare('DELETE FROM playlists WHERE id = ?').run(playlistId)
+
+      expect(db.prepare('SELECT count(*) n FROM playlist_favorites').get()).toEqual({ n: 0 })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('cascades an artist deletion to its favorite star', () => {
+    const { db } = openDatabase(file)
+    try {
+      const artistId = Number(
+        db.prepare('INSERT INTO artists (name) VALUES (?)').run('Boards of Canada').lastInsertRowid
+      )
+      db.prepare('INSERT INTO artist_favorites (artist_id, favorited_at) VALUES (?, ?)').run(
+        artistId,
+        5000
+      )
+
+      db.prepare('DELETE FROM artists WHERE id = ?').run(artistId)
+
+      expect(db.prepare('SELECT count(*) n FROM artist_favorites').get()).toEqual({ n: 0 })
     } finally {
       db.close()
     }

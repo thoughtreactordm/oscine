@@ -180,7 +180,9 @@ export async function scanRoot(
     })
 
     const indexed = parsed.filter((entry): entry is ScannedTrack => entry !== null)
-    const changedAlbums = store.writeTracks(root.id, indexed)
+    // D25: one arrival stamp for the whole scan — every track this run first
+    // indexes shares the moment the scan began. The upsert ignores it on rescan.
+    const changedAlbums = store.writeTracks(root.id, indexed, startedAtMs)
     deps.onAlbumsChanged?.(changedAlbums)
     tracksIndexed += indexed.length
 
@@ -337,7 +339,9 @@ export async function reconcilePaths(
       }
     })
     const indexed = parsed.filter((entry): entry is ScannedTrack => entry !== null)
-    const changedAlbums = store.writeTracks(root.id, indexed)
+    // D25: newly-reconciled files arrive as of this reconcile pass; a rescan of
+    // an existing row keeps its original stamp because the upsert omits it.
+    const changedAlbums = store.writeTracks(root.id, indexed, startedAtMs)
     deps.onAlbumsChanged?.(changedAlbums)
     tracksIndexed += indexed.length
     await yieldToEventLoop()

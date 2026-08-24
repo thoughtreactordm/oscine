@@ -204,6 +204,28 @@ export const BUNDLE_TABLES: readonly BundleTable[] = [
       'Resolves by recency: the row is kept with the later `favorited_at`, which is idempotent ' +
       'and independent of import order. There is no un-favorite tombstone to reconcile against ' +
       '(D18), so an un-heart on one machine does not travel.'
+  },
+  {
+    name: 'playlist_favorites',
+    side: 'open',
+    why:
+      'D24 makes a playlist favoritable on the same footing D18 gave a track, so by the ' +
+      '`track_favorites` argument this is a candidate to carry — and its parent `playlists` ' +
+      'already does. But W13-2 only adds the table; the D11 exporter card (W10-13) has not ruled ' +
+      'on it, and carrying it means riding the parent’s per-import merge choice (keep vs merge) ' +
+      'and re-keying `playlist_id` the way `playlist_entries` does. That is the exporter’s design ' +
+      'to make, not this migration’s. Do not read the resemblance to `track_favorites` as a ruling.'
+  },
+  {
+    name: 'artist_favorites',
+    side: 'open',
+    why:
+      'The same D24 star, and the same unruled question as `playlist_favorites` — with a sharper ' +
+      'edge: `artists` is `excluded` because the importer re-derives it from its own scan, so ' +
+      '`artist_id` is a local surrogate with no cross-machine identity. Carrying this row would ' +
+      'first need an artist named the portable way (by name, as tracks are named by root label ' +
+      'and rel_path), a mechanism the bundle does not yet have. The exporter card decides both ' +
+      'whether it travels and how it would be keyed if it did.'
   }
 ]
 

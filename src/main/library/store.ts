@@ -489,12 +489,17 @@ function prepareStatements(db: Database.Database) {
       INSERT INTO tracks (
         root_id, rel_path, mtime, size, duration_ms, codec, sample_rate, channels,
         bit_depth, title, artist_id, album_id, track_no, disc_no, genre,
-        rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, rg_source
+        rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, rg_source,
+        indexed_at
       ) VALUES (
         @rootId, @relPath, @mtime, @size, @durationMs, @codec, @sampleRate, @channels,
         @bitDepth, @title, @artistId, @albumId, @trackNo, @discNo, @genre,
-        @rgTrackGain, @rgTrackPeak, @rgAlbumGain, @rgAlbumPeak, @rgSource
+        @rgTrackGain, @rgTrackPeak, @rgAlbumGain, @rgAlbumPeak, @rgSource,
+        @indexedAt
       )
+      -- D25: indexed_at is the arrival clock. It is set on INSERT and deliberately
+      -- absent from this UPDATE set — a rescan is not an arrival, so an existing
+      -- row keeps the stamp it was first indexed with. Stamped once, never on rescan.
       ON CONFLICT(root_id, rel_path) DO UPDATE SET
         mtime = excluded.mtime, size = excluded.size, duration_ms = excluded.duration_ms,
         codec = excluded.codec, sample_rate = excluded.sample_rate,
@@ -952,13 +957,17 @@ export class LibraryStore {
    * are written, so a rollback would leave them naming rows that no longer
    * exist — hence the clear on failure.
    */
-  writeTracks(rootId: number, entries: readonly ScannedTrack[]): Set<number> {
+  writeTracks(
+    rootId: number,
+    entries: readonly ScannedTrack[],
+    indexedAt: number = Date.now()
+  ): Set<number> {
     const albumIds = new Set<number>()
     if (entries.length === 0) return albumIds
 
     const write = this.db.transaction((items: readonly ScannedTrack[]) => {
       for (const item of items) {
-        for (const albumId of this.writeTrack(rootId, item)) albumIds.add(albumId)
+        for (const albumId of this.writeTrack(rootId, item, indexedAt)) albumIds.add(albumId)
       }
     })
 
@@ -972,7 +981,7 @@ export class LibraryStore {
     return albumIds
   }
 
-  private writeTrack(rootId: number, { file, tags }: ScannedTrack): Set<number> {
+  private writeTrack(rootId: number, { file, tags }: ScannedTrack, indexedAt: number): Set<number> {
     const affected = new Set<number>()
     const previous = this.statements.findTrackAlbum.get(rootId, file.relPath) as
       { albumId: number | null } | undefined
@@ -1017,7 +1026,10 @@ export class LibraryStore {
       rgTrackPeak: gain?.trackPeak ?? null,
       rgAlbumGain: gain?.albumGainDb ?? null,
       rgAlbumPeak: gain?.albumPeak ?? null,
-      rgSource: gain === null ? null : 'tag'
+      rgSource: gain === null ? null : 'tag',
+      // D25: the arrival stamp. Ignored by the upsert's UPDATE set on a rescan,
+      // so it only ever takes effect on the row's first insert.
+      indexedAt
     }) as { id: number }
 
     // Migration 013's `track_genres` is derived, and this is where it is

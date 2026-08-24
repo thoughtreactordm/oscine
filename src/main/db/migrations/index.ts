@@ -14,6 +14,7 @@ import { scrobbleOutbox } from './012-scrobble-outbox'
 import { trackGenres } from './013-track-genres'
 import { listensLog } from './014-listens-log'
 import { favorites } from './015-favorites'
+import { quickAccess } from './016-quick-access'
 
 /**
  * Every migration, in order.
@@ -39,5 +40,6 @@ export const MIGRATIONS: readonly Migration[] = [
   scrobbleOutbox,
   trackGenres,
   listensLog,
-  favorites
+  favorites,
+  quickAccess
 ]
