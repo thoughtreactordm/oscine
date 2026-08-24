@@ -1,7 +1,7 @@
 ---
 taskId: 01M0TDQKAZJKWG6K13NPA36W5C
 title: 'Renderer: command / action / settings registry'
-status: in-progress
+status: in-review
 priority: high
 labels:
   - renderer
@@ -13,9 +13,9 @@ workstreamId: W13-7
 dependsOn:
   - 01M0TDPXYBEEGNWR6WBNRD7ZCS
   - 01M0TDP6QRS7EBP62F7ZG38R4P
-order: 0
+order: 1
 created: '2026-08-24T17:40:15.326Z'
-updated: '2026-08-24T20:13:06.346Z'
+updated: '2026-08-24T20:48:07.046Z'
 ---
 Spec: wiki `fermata-quick-access` → D21, D22, Renderer architecture, product rules 4/5.
 
