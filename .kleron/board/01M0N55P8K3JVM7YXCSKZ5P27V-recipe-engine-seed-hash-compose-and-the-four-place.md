@@ -1,7 +1,7 @@
 ---
 taskId: 01M0N55P8K3JVM7YXCSKZ5P27V
 title: 'Recipe engine — seed, hash, compose, and the four placeholder recipes'
-status: in-progress
+status: done
 priority: high
 labels:
   - main
@@ -11,9 +11,9 @@ workstream: W12
 workstreamId: W12-2
 dependsOn:
   - 01M0N554FR56WRJ0B85AES6HF1
-order: 1
+order: 4
 created: '2026-08-22T16:34:27.730Z'
-updated: '2026-08-22T16:46:24.412Z'
+updated: '2026-08-24T17:56:51.556Z'
 ---
 Spec: wiki `fermata-discover-1-0` → Constants, Freshness, Exclusion order, recipes 1–4, Engine shape, Testing.
 

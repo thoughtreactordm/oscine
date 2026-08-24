@@ -139,6 +139,20 @@
         "W5",
         "W10"
       ]
+    },
+    {
+      "tag": "W13",
+      "name": "Quick Access",
+      "description": "Instant keyboard-first navigation and quick access. Two features on one new substrate, specified in the wiki page `fermata-quick-access` (owns D21–D27, migration 016).\n\nThe **command palette** (D21) is a Nuxt UI `UCommandPalette` in a modal, global via Ctrl/Cmd+K and a title-bar affordance, that fuzzy-finds any view/album/artist/playlist/track/subscribed-show and runs the top actions — play, queue, play next, jump-to-a-setting, download the latest episode of a podcast. Blended grouped results by default; `>`/`@`/`#`/`/` prefixes narrow the mode. The palette is stateless (D22): actions fire-and-forget with a toast and their progress lives in the owning panel. The **Quick Menu** (D26) is a left-edge `UDrawer` on Now Playing holding three computed lists — Favorite Playlists, Recent Additions, Favorite Artists — left-side to stay clear of the Tunedeck.\n\nThree new pieces of foundation are why this is one stream: a unified `search.query` channel (D23) — today only `tracks` are indexed via `tracks_fts`; favorites beyond tracks (D24), adding `playlist_favorites` and `artist_favorites` as per-entity tables mirroring D18's `track_favorites`, denoted by a **star** vs the track **heart**; and the arrival clock `tracks.indexed_at` (D25), stamped on insert and never on rescan-upsert — the exact column W12 recorded-debt #1 sketched, which this stream delivers and W12's future \"Just arrived\" recipe reads.\n\nDoes NOT reopen D18 (the drawer's Recent Additions is a computed list, not a pinned collection — see the D18 amendment), does NOT build W8's homeless keyboard-shortcut subsystem (D27 ships one binding as a seam W8 absorbs), and does NOT reach Apple's catalogue (D23/D14 — the palette is local; catalogue search stays in W9). Integrates W5 (queue/play activation) and W9 (podcast downloads) without duplicating either.",
+      "color": "blue",
+      "order": 12,
+      "cardCounter": 8,
+      "dependsOn": [
+        "W2",
+        "W4",
+        "W8",
+        "W10"
+      ]
     }
   ]
 }

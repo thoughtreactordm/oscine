@@ -1,7 +1,7 @@
 ---
 taskId: 01M0N564GA0Y4AVY2QPN8D6ABC
 title: 'DiscoverPane — real shelves, empty and cold-start, drop the Placeholder badge'
-status: in-progress
+status: done
 priority: high
 labels:
   - ui
@@ -11,9 +11,9 @@ workstream: W12
 workstreamId: W12-4
 dependsOn:
   - 01M0N55P8K3JVM7YXCSKZ5P27V
-order: 69
+order: 6
 created: '2026-08-22T16:34:42.314Z'
-updated: '2026-08-22T17:16:02.738Z'
+updated: '2026-08-24T17:56:51.579Z'
 ---
 Spec: wiki `fermata-discover-1-0` → UI.
 

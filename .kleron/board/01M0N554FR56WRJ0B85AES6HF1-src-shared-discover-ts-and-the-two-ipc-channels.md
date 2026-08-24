@@ -1,7 +1,7 @@
 ---
 taskId: 01M0N554FR56WRJ0B85AES6HF1
 title: '`src/shared/discover.ts` and the two IPC channels'
-status: in-progress
+status: done
 priority: high
 labels:
   - ipc
@@ -9,9 +9,9 @@ labels:
   - D20
 workstream: W12
 workstreamId: W12-1
-order: 0
+order: 3
 created: '2026-08-22T16:34:09.528Z'
-updated: '2026-08-22T16:40:17.915Z'
+updated: '2026-08-24T17:56:51.539Z'
 ---
 Spec: wiki `fermata-discover-1-0` → Data contract.
 

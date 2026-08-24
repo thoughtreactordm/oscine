@@ -1,7 +1,7 @@
 ---
 taskId: 01M0N564BESMZQA7TBREDX0J1P
 title: Recipe engine — the five local-library extras
-status: in-progress
+status: done
 priority: medium
 labels:
   - main
@@ -11,9 +11,9 @@ workstream: W12
 workstreamId: W12-3
 dependsOn:
   - 01M0N55P8K3JVM7YXCSKZ5P27V
-order: 68
+order: 5
 created: '2026-08-22T16:34:42.157Z'
-updated: '2026-08-22T17:03:05.902Z'
+updated: '2026-08-24T17:56:51.568Z'
 ---
 Spec: wiki `fermata-discover-1-0` → recipes 5–9.
 
