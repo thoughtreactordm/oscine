@@ -29,7 +29,12 @@ import type {
   MovePlaylistEntriesRequest,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
-import type { ListFavoriteIdsQuery, ListFavoritesQuery } from '@shared/favorites'
+import type {
+  ListFavoriteArtistsQuery,
+  ListFavoriteIdsQuery,
+  ListFavoritePlaylistsQuery,
+  ListFavoritesQuery
+} from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
 import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
@@ -116,6 +121,8 @@ const api = {
     /** The same two windows, ids only — for range selection and pruning. */
     listArtistIds: (query: ListFacetIdsQuery) => request('library.listArtistIds', query),
     listAlbumIds: (query: ListFacetIdsQuery) => request('library.listAlbumIds', query),
+    /** The Quick Menu's Recent Additions — albums by arrival, newest first (D25/D26). */
+    recentlyAddedAlbums: (limit: number) => request('library.recentlyAddedAlbums', { limit }),
     listTracks: (query: ListTracksQuery) => request('library.listTracks', query),
     /** The same window as `listTracks`, ids only — for range selection. */
     listTrackIds: (query: ListTrackIdsQuery) => request('library.listTrackIds', query),
@@ -203,7 +210,11 @@ const api = {
     /** The artist star, mirroring `togglePlaylist` — D24. */
     toggleArtist: (artistId: number) => request('favorites.toggleArtist', { artistId }),
     /** Which of these artists are starred — the batch hydrate for an artist surface. */
-    artistState: (artistIds: readonly number[]) => request('favorites.artistState', { artistIds })
+    artistState: (artistIds: readonly number[]) => request('favorites.artistState', { artistIds }),
+    /** The Quick Menu's Favorite Playlists — starred playlists, newest first, capped (D26). */
+    listPlaylists: (query: ListFavoritePlaylistsQuery) => request('favorites.listPlaylists', query),
+    /** The Quick Menu's Favorite Artists — the real starred artists, capped (D26). */
+    listArtists: (query: ListFavoriteArtistsQuery) => request('favorites.listArtists', query)
   },
   playlists: {
     /** Every playlist, in tab order. */

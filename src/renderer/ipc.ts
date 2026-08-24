@@ -11,7 +11,12 @@ import type {
   ReplayGainJobProgress,
   ScanProgress
 } from '@shared/library'
-import type { ListFavoriteIdsQuery, ListFavoritesQuery } from '@shared/favorites'
+import type {
+  ListFavoriteArtistsQuery,
+  ListFavoriteIdsQuery,
+  ListFavoritePlaylistsQuery,
+  ListFavoritesQuery
+} from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
 import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
@@ -73,6 +78,8 @@ export const library = {
   listAlbums: (query: ListFacetsQuery) => unwrap(window.fermata.library.listAlbums(query)),
   listArtistIds: (query: ListFacetIdsQuery) => unwrap(window.fermata.library.listArtistIds(query)),
   listAlbumIds: (query: ListFacetIdsQuery) => unwrap(window.fermata.library.listAlbumIds(query)),
+  /** The Quick Menu's Recent Additions — albums by arrival, newest first (D25/D26). */
+  recentlyAddedAlbums: (limit: number) => unwrap(window.fermata.library.recentlyAddedAlbums(limit)),
   listTracks: (query: ListTracksQuery) => unwrap(window.fermata.library.listTracks(query)),
   listTrackIds: (query: ListTrackIdsQuery) => unwrap(window.fermata.library.listTrackIds(query)),
   listTrackGroups: (query: ListTrackGroupsQuery) =>
@@ -151,7 +158,13 @@ export const favorites = {
   toggleArtist: (artistId: number) => unwrap(window.fermata.favorites.toggleArtist(artistId)),
   /** Which of these artists are starred — the batch an artist surface hydrates through. */
   artistState: (artistIds: readonly number[]) =>
-    unwrap(window.fermata.favorites.artistState(artistIds))
+    unwrap(window.fermata.favorites.artistState(artistIds)),
+  /** The Quick Menu's Favorite Playlists — starred playlists, newest first, capped (D26). */
+  listPlaylists: (query: ListFavoritePlaylistsQuery) =>
+    unwrap(window.fermata.favorites.listPlaylists(query)),
+  /** The Quick Menu's Favorite Artists — the real starred artists, capped (D26). */
+  listArtists: (query: ListFavoriteArtistsQuery) =>
+    unwrap(window.fermata.favorites.listArtists(query))
 }
 
 export const playlists = {

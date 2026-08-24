@@ -23,6 +23,7 @@ declare module 'vue' {
     UColorModeSwitch: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/vue/components/color-mode/ColorModeSwitch.vue')['default']
     UCommandPalette: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/CommandPalette.vue')['default']
     UContextMenu: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/ContextMenu.vue')['default']
+    UDrawer: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Drawer.vue')['default']
     UDropdownMenu: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/DropdownMenu.vue')['default']
     UEmpty: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/Empty.vue')['default']
     UFormField: typeof import('./../../node_modules/@nuxt/ui/dist/runtime/components/FormField.vue')['default']

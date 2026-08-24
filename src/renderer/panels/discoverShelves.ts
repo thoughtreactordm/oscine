@@ -84,3 +84,20 @@ export function albumPlayParams(albumId: number): {
   const filters = { albumIds: [albumId] }
   return { sort: defaultSortFor(filters), direction: 'asc', filters }
 }
+
+/**
+ * How an artist plays: `albumPlayParams`' neighbour, one dimension over.
+ *
+ * `defaultSortFor` with an `artistIds` filter is `album` — the artist's tracks
+ * in release/track order, the same order the Library facets adopt when a row is
+ * played (product rule 5). The filter is the artist alone, for `albumPlayParams`'
+ * reason: a caller must not inherit the Library tab's root or search.
+ */
+export function artistPlayParams(artistId: number): {
+  sort: TrackSortColumn
+  direction: SortDirection
+  filters: LibraryBrowseFilters
+} {
+  const filters = { artistIds: [artistId] }
+  return { sort: defaultSortFor(filters), direction: 'asc', filters }
+}

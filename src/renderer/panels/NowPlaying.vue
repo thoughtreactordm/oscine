@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
+import QuickMenu from '@renderer/panels/QuickMenu.vue'
 import UpNextOverlay from '@renderer/panels/UpNextOverlay.vue'
 import { hasArtwork } from '@shared/ipc'
 import { useFavoritesStore } from '@renderer/stores/favorites'
@@ -50,6 +51,13 @@ const shell = useShellStore()
 
 /** The deck's toggle, for the same reason and by the same route. */
 const tunedeck = useTunedeckStore()
+
+/**
+ * The Quick Menu belongs to the Now Playing screen alone (D26). The transport is
+ * always mounted, so without this its handle would follow the operator onto
+ * every tab; gating on the active route keeps it scoped to where the drawer is.
+ */
+const onNowPlayingScreen = computed(() => shell.activeTab === 'now-playing')
 
 /**
  * The heart — **D18**.
@@ -435,6 +443,15 @@ function onSeekInput(value: number | undefined): void {
       </UTooltip>
     </div>
   </UCard>
+
+  <!--
+    The Quick Menu — a left-edge drawer of favorite playlists, recent additions
+    and favorite artists (D26). Rendered by the transport as the spec asks, but
+    scoped to the Now Playing screen and drawn as a fixed pull-tab on the
+    window's left edge rather than a control in this bar; opposite the Tunedeck
+    toggle on the right, so the drawer it opens never fights a deck that is open.
+  -->
+  <QuickMenu v-if="onNowPlayingScreen" />
 </template>
 
 <style scoped>
