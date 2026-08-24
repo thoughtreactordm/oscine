@@ -1,18 +1,24 @@
 import type Database from 'better-sqlite3'
 import {
   ARTIST_FAVORITES_LIMIT,
+  type ArtistFavoriteStateResult,
   type ArtistFavoritesQuery,
   type ArtistFavoritesResult,
+  type FavoriteArtist,
   type FavoriteState,
   type FavoriteStateResult,
+  type ListFavoriteArtistsResult,
   type ListFavoriteIdsQuery,
   type ListFavoriteIdsResult,
+  type ListFavoritePlaylistsResult,
   type ListFavoritesQuery,
   type ListFavoritesResult,
+  type PlaylistFavoriteStateResult,
   type RemoveFavoritesResult
 } from '@shared/favorites'
 import type { ScrobblePayload, ScrobbleTarget } from '@shared/scrobble'
 import { scrobbleEnqueueRejection, type ScrobbleOutbox } from '../scrobble/outbox'
+import { PLAYLIST_PROJECTION, toPlaylist, type PlaylistRow } from '../library/playlists/store'
 import { TRACK_JOINS, TRACK_PROJECTION, toTrack, type TrackRow } from '../library/store'
 
 /**
@@ -100,6 +106,16 @@ export class FavoriteStore {
     count: Database.Statement<[]>
     loveSnapshot: Database.Statement<[number]>
     loveSnapshots: Database.Statement<{ ids: string }>
+    // D24 — playlists and artists, on their own tables. No love push: the star
+    // is local-only, so these are plain writes, never an outbox row.
+    togglePlaylistInsert: Database.Statement<{ playlistId: number; favoritedAt: number }>
+    togglePlaylistRemove: Database.Statement<[number]>
+    playlistState: Database.Statement<{ ids: string }>
+    listPlaylists: Database.Statement<{ limit: number }>
+    toggleArtistInsert: Database.Statement<{ artistId: number; favoritedAt: number }>
+    toggleArtistRemove: Database.Statement<[number]>
+    artistState: Database.Statement<{ ids: string }>
+    listArtists: Database.Statement<{ limit: number }>
   }
 
   private readonly toggleTransaction: (params: {
@@ -108,6 +124,16 @@ export class FavoriteStore {
   }) => FavoriteState
 
   private readonly removeTransaction: (params: { ids: string; at: number }) => RemoveFavoritesResult
+
+  private readonly togglePlaylistTransaction: (params: {
+    playlistId: number
+    favoritedAt: number
+  }) => PlaylistFavoriteStateResult
+
+  private readonly toggleArtistTransaction: (params: {
+    artistId: number
+    favoritedAt: number
+  }) => ArtistFavoriteStateResult
 
   private readonly scrobble: FavoriteScrobbleSink | null
 
@@ -243,6 +269,72 @@ export class FavoriteStore {
         JOIN tracks t ON t.id = f.track_id
         LEFT JOIN track_overrides o ON o.track_id = t.id
         LEFT JOIN artists ar ON ar.id = t.artist_id
+      `),
+
+      // D24 — the playlist and artist stars. Each mirrors the track heart's two
+      // gestures (toggle, batch state) and adds a short capped list, but neither
+      // enqueues a thing: a star is a local fact and there is no remote loved-
+      // playlists list to push it to.
+      //
+      // The insert is `INSERT ... SELECT FROM playlists` for `insert`'s reason —
+      // a playlist that left between render and click becomes a `changes` of zero
+      // rather than a foreign-key throw — and `OR IGNORE` is the same belt to its
+      // braces, since the toggle deletes before it inserts.
+      togglePlaylistInsert: db.prepare(`
+        INSERT OR IGNORE INTO playlist_favorites (playlist_id, favorited_at)
+        SELECT p.id, @favoritedAt FROM playlists p WHERE p.id = @playlistId
+      `),
+      togglePlaylistRemove: db.prepare('DELETE FROM playlist_favorites WHERE playlist_id = ?'),
+      // One statement whatever the batch size, driven from `json_each` into the
+      // primary key — `state`'s shape exactly, one table over.
+      playlistState: db.prepare(`
+        SELECT f.playlist_id AS id
+        FROM json_each(@ids) requested
+        JOIN playlist_favorites f ON f.playlist_id = requested.value
+      `),
+      // The Quick Menu's Favorite Playlists list: the shared playlist projection
+      // with a `WHERE` supplied by the join, newest-starred first and `playlist_id`
+      // breaking ties for `list`'s reason. Capped by the caller, never paged (D26).
+      listPlaylists: db.prepare(`
+        SELECT ${PLAYLIST_PROJECTION}
+        FROM playlist_favorites f
+        JOIN playlists p ON p.id = f.playlist_id
+        ORDER BY f.favorited_at DESC, f.playlist_id DESC
+        LIMIT @limit
+      `),
+      toggleArtistInsert: db.prepare(`
+        INSERT OR IGNORE INTO artist_favorites (artist_id, favorited_at)
+        SELECT a.id, @favoritedAt FROM artists a WHERE a.id = @artistId
+      `),
+      toggleArtistRemove: db.prepare('DELETE FROM artist_favorites WHERE artist_id = ?'),
+      artistState: db.prepare(`
+        SELECT f.artist_id AS id
+        FROM json_each(@ids) requested
+        JOIN artist_favorites f ON f.artist_id = requested.value
+      `),
+      // Favorite Artists, and the one place this surface reaches past its own
+      // table. `artists` carries no artwork of its own (D14's resolved artist
+      // photo lives in the renderer's cache, not here), so the thumbnail is
+      // borrowed from the artist's own discography: the newest album they are the
+      // album-artist of that actually has cover art. `null` for the many artists
+      // that have none, which is the field's documented empty value rather than a
+      // failure. The subquery is correlated and bounded — one probe per listed
+      // artist, and the list itself is capped short.
+      listArtists: db.prepare(`
+        SELECT
+          a.id AS id,
+          a.name AS name,
+          (
+            SELECT al.artwork_hash
+            FROM albums al
+            WHERE al.album_artist_id = a.id AND al.artwork_hash IS NOT NULL
+            ORDER BY al.year IS NULL, al.year DESC, al.id ASC
+            LIMIT 1
+          ) AS artworkHash
+        FROM artist_favorites f
+        JOIN artists a ON a.id = f.artist_id
+        ORDER BY f.favorited_at DESC, f.artist_id DESC
+        LIMIT @limit
       `)
     }
 
@@ -284,6 +376,37 @@ export class FavoriteStore {
         const { changes } = this.statements.removeMany.run({ ids: params.ids })
         this.enqueueLoves('unlove', snapshots, params.at)
         return { removed: changes }
+      }
+    )
+
+    // Delete, and insert only if the delete found nothing — the track toggle's
+    // transaction without the love push, because the star has none. A `favoritedIds`
+    // of `[id]` means it is now starred, `[]` means it is not: the same
+    // `EntityFavoriteStateResult` the batch state returns, so the caller reads the
+    // outcome off the row that flipped rather than predicting its own click. A
+    // zero from the insert is a playlist not in the library, and the honest answer
+    // for a thing that does not exist is that it is not favorited.
+    this.togglePlaylistTransaction = db.transaction(
+      (params: { playlistId: number; favoritedAt: number }): PlaylistFavoriteStateResult => {
+        if (this.statements.togglePlaylistRemove.run(params.playlistId).changes > 0) {
+          return { favoritedIds: [] }
+        }
+        if (this.statements.togglePlaylistInsert.run(params).changes === 0) {
+          return { favoritedIds: [] }
+        }
+        return { favoritedIds: [params.playlistId] }
+      }
+    )
+
+    this.toggleArtistTransaction = db.transaction(
+      (params: { artistId: number; favoritedAt: number }): ArtistFavoriteStateResult => {
+        if (this.statements.toggleArtistRemove.run(params.artistId).changes > 0) {
+          return { favoritedIds: [] }
+        }
+        if (this.statements.toggleArtistInsert.run(params).changes === 0) {
+          return { favoritedIds: [] }
+        }
+        return { favoritedIds: [params.artistId] }
       }
     )
   }
@@ -484,5 +607,58 @@ export class FavoriteStore {
     const unique = [...new Set(trackIds)]
     if (unique.length === 0) return { removed: 0 }
     return this.removeTransaction({ ids: JSON.stringify(unique), at: Date.now() })
+  }
+
+  /**
+   * Flips one playlist's star — **D24**.
+   *
+   * `favorited_at` is stamped here, like the track heart's and for its reason: a
+   * star happens at the click and there is no earlier moment the renderer could
+   * claim.
+   */
+  togglePlaylist(playlistId: number): PlaylistFavoriteStateResult {
+    return this.togglePlaylistTransaction({ playlistId, favoritedAt: Date.now() })
+  }
+
+  /** The starred subset of a batch of playlist ids. Deduped, `state`'s shape. */
+  playlistState(playlistIds: readonly number[]): PlaylistFavoriteStateResult {
+    const unique = [...new Set(playlistIds)]
+    if (unique.length === 0) return { favoritedIds: [] }
+    const rows = this.statements.playlistState.all({ ids: JSON.stringify(unique) }) as {
+      id: number
+    }[]
+    return { favoritedIds: rows.map((row) => row.id) }
+  }
+
+  /** The Quick Menu's Favorite Playlists, newest-starred first, capped by `limit`. */
+  listPlaylists(limit: number): ListFavoritePlaylistsResult {
+    const rows = this.statements.listPlaylists.all({ limit }) as PlaylistRow[]
+    return { playlists: rows.map(toPlaylist) }
+  }
+
+  /** Flips one artist's star — **D24**. `togglePlaylist`'s twin. */
+  toggleArtist(artistId: number): ArtistFavoriteStateResult {
+    return this.toggleArtistTransaction({ artistId, favoritedAt: Date.now() })
+  }
+
+  /** The starred subset of a batch of artist ids. */
+  artistState(artistIds: readonly number[]): ArtistFavoriteStateResult {
+    const unique = [...new Set(artistIds)]
+    if (unique.length === 0) return { favoritedIds: [] }
+    const rows = this.statements.artistState.all({ ids: JSON.stringify(unique) }) as {
+      id: number
+    }[]
+    return { favoritedIds: rows.map((row) => row.id) }
+  }
+
+  /**
+   * The Quick Menu's Favorite Artists, newest-starred first, capped by `limit`.
+   *
+   * `artworkHash` is borrowed from the artist's discography — see the statement —
+   * and comes back already the `FavoriteArtist` shape, so there is nothing to map.
+   */
+  listArtists(limit: number): ListFavoriteArtistsResult {
+    const rows = this.statements.listArtists.all({ limit }) as FavoriteArtist[]
+    return { artists: rows }
   }
 }

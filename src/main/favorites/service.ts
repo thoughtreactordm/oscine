@@ -1,13 +1,17 @@
 import type Database from 'better-sqlite3'
 import type {
+  ArtistFavoriteStateResult,
   ArtistFavoritesQuery,
   ArtistFavoritesResult,
   FavoriteState,
   FavoriteStateResult,
+  ListFavoriteArtistsResult,
   ListFavoriteIdsQuery,
   ListFavoriteIdsResult,
+  ListFavoritePlaylistsResult,
   ListFavoritesQuery,
   ListFavoritesResult,
+  PlaylistFavoriteStateResult,
   RemoveFavoritesResult
 } from '@shared/favorites'
 import { FavoriteStore, type FavoriteScrobbleSink } from './store'
@@ -41,6 +45,24 @@ export interface FavoriteService {
   byArtist(query: ArtistFavoritesQuery): Promise<ArtistFavoritesResult>
   /** Un-favorites a batch. Ids that were not favorited are simply not removed. */
   remove(trackIds: readonly number[]): Promise<RemoveFavoritesResult>
+
+  /**
+   * The playlist and artist stars — **D24**. Local-only, so unlike the track
+   * heart none of these wakes the drain worker: there is no remote loved-
+   * playlists list, so a star enqueues nothing and `onChanged` has nothing to say.
+   */
+  /** Flips one playlist's star and answers with the state that resulted. */
+  togglePlaylist(playlistId: number): Promise<PlaylistFavoriteStateResult>
+  /** Which of these playlist ids are starred. */
+  playlistState(playlistIds: readonly number[]): Promise<PlaylistFavoriteStateResult>
+  /** The Quick Menu's Favorite Playlists — newest-starred first, capped. */
+  listPlaylists(limit: number): Promise<ListFavoritePlaylistsResult>
+  /** Flips one artist's star and answers with the state that resulted. */
+  toggleArtist(artistId: number): Promise<ArtistFavoriteStateResult>
+  /** Which of these artist ids are starred. */
+  artistState(artistIds: readonly number[]): Promise<ArtistFavoriteStateResult>
+  /** The Quick Menu's Favorite Artists — newest-starred first, capped. */
+  listArtists(limit: number): Promise<ListFavoriteArtistsResult>
 }
 
 export interface SqliteFavoriteDeps {
@@ -102,5 +124,32 @@ export class SqliteFavoriteService implements FavoriteService {
     const result = this.store.removeMany(trackIds)
     this.onChanged?.()
     return result
+  }
+
+  // The star surface — D24. No `onChanged`: a star is local and enqueues
+  // nothing, so there is never a drain to wake.
+
+  async togglePlaylist(playlistId: number): Promise<PlaylistFavoriteStateResult> {
+    return this.store.togglePlaylist(playlistId)
+  }
+
+  async playlistState(playlistIds: readonly number[]): Promise<PlaylistFavoriteStateResult> {
+    return this.store.playlistState(playlistIds)
+  }
+
+  async listPlaylists(limit: number): Promise<ListFavoritePlaylistsResult> {
+    return this.store.listPlaylists(limit)
+  }
+
+  async toggleArtist(artistId: number): Promise<ArtistFavoriteStateResult> {
+    return this.store.toggleArtist(artistId)
+  }
+
+  async artistState(artistIds: readonly number[]): Promise<ArtistFavoriteStateResult> {
+    return this.store.artistState(artistIds)
+  }
+
+  async listArtists(limit: number): Promise<ListFavoriteArtistsResult> {
+    return this.store.listArtists(limit)
   }
 }
