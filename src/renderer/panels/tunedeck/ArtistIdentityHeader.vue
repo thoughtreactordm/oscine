@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
+import FavoriteStar from '@renderer/panels/FavoriteStar.vue'
 import { describeIdentity } from '@renderer/panels/tunedeck/artistIdentity'
 import ArtistPicker from '@renderer/panels/tunedeck/ArtistPicker.vue'
+import { useArtistFavorites } from '@renderer/stores/artistStars'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
 
 /**
@@ -56,6 +58,27 @@ const wording = computed(() =>
 const headlineClass = computed(() =>
   wording.value.tone === 'resolved' ? 'text-highlighted' : 'text-muted'
 )
+
+/**
+ * The star favorites *this artist* — the local `artists` row the deck resolved,
+ * not the tracks by them (D24, product rule 6). Keyed on the same `artistId` the
+ * "not this artist?" affordance already acts on, so it is present exactly when
+ * that control is: whenever the deck holds an artist to name.
+ *
+ * Hydrated as the resolved artist changes. `artistId` is the local row and is
+ * known the moment resolution lands, so the star does not wait on the mbid
+ * lookup the biography and image do.
+ */
+const stars = useArtistFavorites()
+const artistId = computed(() => identity.resolution?.artistId ?? null)
+const artistName = computed(() => identity.resolution?.name ?? 'this artist')
+watch(
+  artistId,
+  (id) => {
+    if (id !== null) void stars.hydrate([id])
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -91,6 +114,21 @@ const headlineClass = computed(() =>
         {{ identity.loading ? 'Looking…' : wording.detail }}
       </p>
     </div>
+
+    <!--
+      The artist star, alongside the correction controls rather than in the name
+      block: favoriting an artist and disputing which artist this is are two
+      verbs on the same subject, and they read as a set. Present whenever the
+      deck holds an `artistId`, which is the moment there is an artist to star.
+    -->
+    <UTooltip v-if="artistId !== null" text="Favorite this artist">
+      <FavoriteStar
+        :favorite="stars.isFavorite(artistId)"
+        :pending="stars.isPending(artistId)"
+        :label="artistName"
+        @toggle="stars.toggle(artistId)"
+      />
+    </UTooltip>
 
     <UTooltip v-if="wording.retryable" text="Try the lookup again">
       <UButton

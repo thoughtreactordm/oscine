@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import type { ContextMenuItem } from '@nuxt/ui'
+import FavoriteStar from '@renderer/panels/FavoriteStar.vue'
 import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import { createPlaylistContents } from '@renderer/panels/playlistContents'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
@@ -23,6 +24,7 @@ import {
 } from '@renderer/playback/queueCommands'
 import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
 import { useFavoritesListStore } from '@renderer/stores/favoritesList'
+import { usePlaylistFavorites } from '@renderer/stores/playlistFavorites'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { usePlaylistEntriesStore } from '@renderer/stores/playlistEntries'
@@ -86,6 +88,23 @@ const favoritesViewed = computed(() => playlists.viewedStop === FAVORITES_TAB)
  * collection without growing a second implementation.
  */
 const source = computed<TrackListSource>(() => (favoritesViewed.value ? favorites : entries))
+
+/**
+ * The star on this header — favoriting *this playlist*, not a track in it (D24).
+ *
+ * Absent in My Favorites, which is a view over `track_favorites` and not a
+ * `playlists` row there is anything to star. Hydrated as the viewed playlist
+ * changes, so the star arrives already filled or empty rather than flickering to
+ * its true state a frame later.
+ */
+const playlistStars = usePlaylistFavorites()
+watch(
+  () => (favoritesViewed.value ? null : (playlists.viewed?.id ?? null)),
+  (id) => {
+    if (id !== null) void playlistStars.hydrate([id])
+  },
+  { immediate: true }
+)
 
 /**
  * The gear on this header edits *this playlist's* crossfade.
@@ -433,6 +452,20 @@ const removalOpen = computed({
     <div class="flex h-9 shrink-0 items-center gap-2 border-b border-default bg-elevated/40 px-2">
       <UIcon :name="icon" class="size-4 text-primary" />
       <h2 class="truncate font-semibold text-highlighted">{{ title }}</h2>
+
+      <!--
+        The playlist star, next to the name it favorites. Absent in My Favorites
+        for the reason export is: there is no `playlists` row to star, so the
+        affordance is gone rather than present and inert.
+      -->
+      <UTooltip v-if="!favoritesViewed && playlists.viewed !== null" text="Favorite this playlist">
+        <FavoriteStar
+          :favorite="playlistStars.isFavorite(playlists.viewed.id)"
+          :pending="playlistStars.isPending(playlists.viewed.id)"
+          :label="title"
+          @toggle="playlistStars.toggle(playlists.viewed.id)"
+        />
+      </UTooltip>
 
       <span
         v-if="source.selectionCount > 0"

@@ -140,7 +140,18 @@ export const favorites = {
   /** The playing artist's favorites — the deck's pane, seeded by track, all local. */
   byArtist: (trackId: number) => unwrap(window.fermata.favorites.byArtist(trackId)),
   /** Un-favorites a batch. Removing a row from the pinned rail entry is this. */
-  remove: (trackIds: readonly number[]) => unwrap(window.fermata.favorites.remove(trackIds))
+  remove: (trackIds: readonly number[]) => unwrap(window.fermata.favorites.remove(trackIds)),
+  /** Flips a playlist's star, answering with the favorited subset it touched — D24. */
+  togglePlaylist: (playlistId: number) =>
+    unwrap(window.fermata.favorites.togglePlaylist(playlistId)),
+  /** Which of these playlists are starred — the batch a playlist surface hydrates through. */
+  playlistState: (playlistIds: readonly number[]) =>
+    unwrap(window.fermata.favorites.playlistState(playlistIds)),
+  /** The artist star, mirroring `togglePlaylist` — D24. */
+  toggleArtist: (artistId: number) => unwrap(window.fermata.favorites.toggleArtist(artistId)),
+  /** Which of these artists are starred — the batch an artist surface hydrates through. */
+  artistState: (artistIds: readonly number[]) =>
+    unwrap(window.fermata.favorites.artistState(artistIds))
 }
 
 export const playlists = {

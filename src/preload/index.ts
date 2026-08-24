@@ -194,7 +194,16 @@ const api = {
     /** The playing artist's favorites, seeded by track. Local, and bounded not paged. */
     byArtist: (trackId: number) => request('favorites.byArtist', { trackId }),
     /** Un-favorites a batch. Not a bulk `toggle`: it says which direction it goes. */
-    remove: (trackIds: readonly number[]) => request('favorites.remove', { trackIds })
+    remove: (trackIds: readonly number[]) => request('favorites.remove', { trackIds }),
+    /** Flips a playlist's star. Answers with the favorited subset of the id it touched — D24. */
+    togglePlaylist: (playlistId: number) => request('favorites.togglePlaylist', { playlistId }),
+    /** Which of these playlists are starred — a list hydrates its stars from one read. */
+    playlistState: (playlistIds: readonly number[]) =>
+      request('favorites.playlistState', { playlistIds }),
+    /** The artist star, mirroring `togglePlaylist` — D24. */
+    toggleArtist: (artistId: number) => request('favorites.toggleArtist', { artistId }),
+    /** Which of these artists are starred — the batch hydrate for an artist surface. */
+    artistState: (artistIds: readonly number[]) => request('favorites.artistState', { artistIds })
   },
   playlists: {
     /** Every playlist, in tab order. */
