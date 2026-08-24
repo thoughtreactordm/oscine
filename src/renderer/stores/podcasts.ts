@@ -345,6 +345,31 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     }
   }
 
+  /**
+   * Download a show's most recent episode — the palette's "download latest"
+   * action (D22). It reuses the ordinary episode listing, which main orders
+   * newest first (`pub_date DESC`), so the head at offset 0 is the latest, and
+   * `downloadEpisode` — there is no second downloader. Returns the episode so
+   * the caller can name it in its toast, or null when the show is empty or the
+   * listing fails; a failed download reports through `downloadEpisode`'s notice.
+   */
+  async function downloadLatest(podcastId: number): Promise<Episode | null> {
+    notice.value = null
+    try {
+      const { episodes } = await podcastsApi.listEpisodes({ podcastId, offset: 0, limit: 1 })
+      const latest = episodes[0]
+      if (!latest) {
+        notice.value = 'That show has no episodes yet.'
+        return null
+      }
+      if (latest.downloadStatus !== 'ready') await downloadEpisode(latest.id)
+      return latest
+    } catch (error) {
+      notice.value = error instanceof FermataError ? error.message : 'Download failed.'
+      return null
+    }
+  }
+
   function stopIfPlayingEpisode(episodeId: number): void {
     const playback = usePlaybackStore()
     if (playback.nowPlaying?.id === episodePlaybackTrackId(episodeId)) {
@@ -516,6 +541,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     refreshPodcast,
     refreshAll,
     downloadEpisode,
+    downloadLatest,
     deleteDownload,
     clearDownloads,
     playEpisode,

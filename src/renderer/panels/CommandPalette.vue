@@ -3,16 +3,29 @@ import { computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { CommandPaletteGroup, CommandPaletteItem } from '@nuxt/ui'
 import type { SearchEntityKind, SearchHit } from '@shared/search'
-import { search as searchIpc } from '@renderer/ipc'
+import { library, search as searchIpc } from '@renderer/ipc'
+import { albumPlayParams } from '@renderer/panels/discoverShelves'
+import { useSettings } from '@renderer/settings'
+import { buildActionCommands } from '@renderer/shell/actionCommands'
+import { matchCommands, type Command } from '@renderer/shell/commandRegistry'
 import {
   buildNavigationCommands,
   matchNavigation,
   type NavigationCommand
 } from '@renderer/shell/navigationCommands'
-import { homeTabForKind, performSelection } from '@renderer/shell/paletteActivation'
+import {
+  activateHit,
+  performSelection,
+  type HitActivationDeps
+} from '@renderer/shell/paletteActivation'
 import { createPaletteSearch } from '@renderer/shell/paletteSearch'
+import { buildSettingsCommands } from '@renderer/shell/settingsCommands'
 import { shellTabs } from '@renderer/shell/routes'
 import { usePaletteStore } from '@renderer/stores/palette'
+import { usePlaybackStore } from '@renderer/stores/playback'
+import { usePlaylistsStore } from '@renderer/stores/playlists'
+import { usePodcastsStore } from '@renderer/stores/podcasts'
+import { useSettingsNavStore } from '@renderer/stores/settingsNav'
 
 /**
  * The command palette — D21's one prefixed modal, and RQ1's spike.
@@ -30,16 +43,26 @@ import { usePaletteStore } from '@renderer/stores/palette'
  * the brakes (RQ2), not a client-side pass. The mitigation the design reserved —
  * windowing the entity groups — is not needed at these caps and stays available.
  *
- * Actions and Settings are the other two D21 groups; they are stubs here and
- * W13-7 fills them from the command and settings registries.
+ * Actions and Settings are the other two D21 groups, filled from the command
+ * registry (`actionCommands`) and the settings registry (`settingsCommands`);
+ * entity hits carry their own verb through `activateHit`.
  */
 const palette = usePaletteStore()
 const router = useRouter()
+const playback = usePlaybackStore()
+const playlists = usePlaylistsStore()
+const podcasts = usePodcastsStore()
+const settings = useSettings()
+const settingsNav = useSettingsNavStore()
+const toast = useToast()
 
 const search = createPaletteSearch({ query: searchIpc.query })
 
 /** Built once — a new tab is a new command with no work here. */
 const navCommands = buildNavigationCommands(shellTabs)
+
+/** In blended mode the command groups are capped so they never bury the entities. */
+const COMMANDS_BLENDED_CAP = 5
 
 const GROUP_LABELS: Record<Exclude<SearchEntityKind, 'view'>, string> = {
   album: 'Albums',
@@ -64,7 +87,7 @@ function close(): void {
 /**
  * Navigation is a router push, like the tab row — the frame mirrors the route
  * back into `shell.activeTab`, so this stays the one place that writes it. Deep
- * targets (a specific playlist) layer on here in W13-7.
+ * targets (a specific playlist) reach it through `hitDeps` below.
  */
 function navigate(tab: string): void {
   void router.push({ name: tab })
@@ -78,12 +101,66 @@ function navItem(command: NavigationCommand): CommandPaletteItem {
   }
 }
 
+/** The D22 confirmation, shared by the Actions and Settings groups. */
+function notify(message: string): void {
+  toast.add({ title: message, icon: 'i-tabler-check', color: 'primary' })
+}
+
+/**
+ * The two registry-backed groups, built once. Their `run` closures carry the
+ * store verbs, the toast and the dismissal, so `matchCommands` is all the
+ * component does at query time — the same shape as the Views group.
+ */
+const actionCommands = buildActionCommands({
+  toggle: () => playback.toggle(),
+  next: () => playback.next(),
+  previous: () => playback.previous(),
+  toggleShuffle: () => playback.toggleShuffle(),
+  cycleRepeat: () => playback.cycleRepeat(),
+  clearQueue: () => playback.clearQueue(),
+  notify,
+  close
+})
+
+const settingCommands = buildSettingsCommands({
+  get: (key) => settings.get(key),
+  set: (key, value) => settings.set(key, value),
+  reveal: (key) => settingsNav.reveal(key),
+  goToSettings: () => navigate('settings'),
+  notify,
+  close
+})
+
+function commandItem(command: Command): CommandPaletteItem {
+  return { label: command.label, icon: command.icon, onSelect: () => void command.run() }
+}
+
+/** Play one track now, resolving the row main holds behind the hit's id. */
+async function playTrackNow(trackId: number): Promise<void> {
+  const [track] = await library.getTracksByIds({ ids: [trackId] })
+  if (track) await playback.playTracks({ tracks: [track], index: 0 })
+}
+
+/** How an entity hit is activated — album/track play, a show downloads, the rest navigate. */
+const hitDeps: HitActivationDeps = {
+  playAlbum: (albumId) => void playback.playFromList(albumPlayParams(albumId)),
+  playTrack: (trackId) => void playTrackNow(trackId),
+  openPlaylist: (playlistId) => playlists.openTab(playlistId),
+  openShow: (podcastId) => podcasts.openTab(podcastId),
+  downloadLatestEpisode: (podcastId) =>
+    void podcasts.downloadLatest(podcastId).then((episode) => {
+      if (episode) notify(`Downloading “${episode.title}”`)
+    }),
+  navigate,
+  close
+}
+
 function hitItem(hit: SearchHit): CommandPaletteItem {
   return {
     label: hit.title,
     suffix: hit.subtitle ?? undefined,
     icon: hit.kind === 'view' ? undefined : GROUP_ICONS[hit.kind],
-    onSelect: () => performSelection({ tab: homeTabForKind(hit.kind) }, { navigate, close })
+    onSelect: () => activateHit(hit, hitDeps)
   }
 }
 
@@ -114,7 +191,34 @@ const groups = computed<CommandPaletteGroup[]>(() => {
     })
   }
 
-  // Actions and Settings — the remaining D21 groups — are wired in W13-7.
+  // Actions and Settings — the last two D21 groups. Their own prefix shows the
+  // whole group; blended shows them only once there is text to match and caps
+  // them, so a keystroke of entities is never buried under every command.
+  if (mode === 'action' || (mode === 'blended' && text.length > 0)) {
+    const items = matchCommands(actionCommands, text)
+    if (items.length > 0) {
+      out.push({
+        id: 'actions',
+        label: 'Actions',
+        ignoreFilter: true,
+        items: items.map(commandItem)
+      })
+    }
+  }
+
+  if (mode === 'setting' || (mode === 'blended' && text.length > 0)) {
+    const matched = matchCommands(settingCommands, text)
+    const items = mode === 'blended' ? matched.slice(0, COMMANDS_BLENDED_CAP) : matched
+    if (items.length > 0) {
+      out.push({
+        id: 'settings',
+        label: 'Settings',
+        ignoreFilter: true,
+        items: items.map(commandItem)
+      })
+    }
+  }
+
   return out
 })
 

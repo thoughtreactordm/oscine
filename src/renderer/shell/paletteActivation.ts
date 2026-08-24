@@ -1,4 +1,4 @@
-import type { SearchEntityKind } from '@shared/search'
+import type { SearchEntityKind, SearchHit } from '@shared/search'
 
 /**
  * What selecting a palette hit does — the shell's tab-level activation.
@@ -44,5 +44,61 @@ export interface SelectionDeps {
  */
 export function performSelection(selection: PaletteSelection, deps: SelectionDeps): void {
   deps.navigate(selection.tab)
+  deps.close()
+}
+
+export interface HitActivationDeps {
+  /** Play an album, through the same list order Library and Discover use. */
+  playAlbum: (albumId: number) => void
+  /** Play one track now, its own list of one. */
+  playTrack: (trackId: number) => void
+  /** Land Curate on a playlist. The `navigate` below takes the view there. */
+  openPlaylist: (playlistId: number) => void
+  /** Open a show's tab in Podcasts, so its download progress is on screen. */
+  openShow: (podcastId: number) => void
+  /** Download a show's latest episode — the W9 downloader, with a toast. */
+  downloadLatestEpisode: (podcastId: number) => void
+  navigate: (tab: string) => void
+  close: () => void
+}
+
+/**
+ * What selecting an *entity* hit does — the deep half W13-7 layers onto W13-5's
+ * tab navigation.
+ *
+ * Album and track are activated where they sit, through the store gestures
+ * Library and Discover already use (product rule 5 — no second play-order
+ * builder); the playback surface is the confirmation, so there is no toast.
+ * Playlist opens its Curate tab and the navigation lands on it. Artist
+ * navigates to where it lives. A show downloads its latest episode (D22 — the
+ * palette dispatches, the Podcasts view owns the progress), opening its tab and
+ * landing there so the download is visible. Always closes, per D22.
+ *
+ * Pure and injected for the same reason `performSelection` is: the verb per
+ * kind is decided here and tested without a store or a mounted palette.
+ */
+export function activateHit(hit: SearchHit, deps: HitActivationDeps): void {
+  switch (hit.kind) {
+    case 'album':
+      deps.playAlbum(hit.id)
+      break
+    case 'track':
+      deps.playTrack(hit.id)
+      break
+    case 'playlist':
+      deps.openPlaylist(hit.id)
+      deps.navigate(homeTabForKind('playlist'))
+      break
+    case 'artist':
+      deps.navigate(homeTabForKind('artist'))
+      break
+    case 'show':
+      deps.openShow(hit.id)
+      deps.downloadLatestEpisode(hit.id)
+      deps.navigate(homeTabForKind('show'))
+      break
+    case 'view':
+      break
+  }
   deps.close()
 }
