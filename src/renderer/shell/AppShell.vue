@@ -2,10 +2,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppTitleBar from '@renderer/panels/AppTitleBar.vue'
+import CommandPalette from '@renderer/panels/CommandPalette.vue'
 import NewPlaylistModal from '@renderer/panels/NewPlaylistModal.vue'
 import NowPlaying from '@renderer/panels/NowPlaying.vue'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
 import { shellTabs } from '@renderer/shell/routes'
+import { useGlobalShortcuts } from '@renderer/shell/useGlobalShortcuts'
 import { SIDEBAR_PANE } from '@renderer/shell/shellLayout'
 import ShellSidebar from '@renderer/shell/ShellSidebar.vue'
 import ShellTabs from '@renderer/shell/ShellTabs.vue'
@@ -56,6 +58,13 @@ const tunedeck = useTunedeckStore()
  * not drawn at all.
  */
 useBrowseStore()
+
+/**
+ * The app's one global shortcut, registered once with the frame — D27. Mounted
+ * here and nowhere else, so there is a single seam for W8's keyboard subsystem
+ * to absorb rather than a scatter of `keydown` listeners to hunt down.
+ */
+useGlobalShortcuts()
 
 const sidebarWidth = shell.paneSize(SIDEBAR_PANE)
 
@@ -236,6 +245,13 @@ onUnmounted(() => {
       change unmounts. It draws nothing until something asks it to.
     -->
     <NewPlaylistModal />
+
+    <!--
+      The command palette, mounted with the frame for the reason the playlist
+      modal is: Ctrl/Cmd+K and the title-bar box both open it from outside any
+      one tab, so it cannot live under a route that a tab change unmounts.
+    -->
+    <CommandPalette />
   </main>
 </template>
 

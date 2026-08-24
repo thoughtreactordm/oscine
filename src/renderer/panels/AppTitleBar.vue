@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { windowControls } from '@renderer/ipc'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
+import { usePaletteStore } from '@renderer/stores/palette'
 import { usePlaybackStore } from '@renderer/stores/playback'
 
 /**
@@ -11,8 +12,18 @@ import { usePlaybackStore } from '@renderer/stores/playback'
  * the panel an "Add music folder…" would have been forwarded to.
  */
 const roots = useLibraryRootsStore()
+const palette = usePaletteStore()
 const playback = usePlaybackStore()
 const maximized = ref(false)
+
+/**
+ * The shortcut hint on the search box. Cosmetic — the binding itself is
+ * `useGlobalShortcuts`, which reads `metaKey || ctrlKey` and does not care which
+ * this label shows. macOS gets ⌘, everything else Ctrl.
+ */
+const shortcutHint = computed(() =>
+  navigator.platform.toUpperCase().includes('MAC') ? '⌘K' : 'Ctrl K'
+)
 let stopMaximizedListener: (() => void) | null = null
 
 /**
@@ -167,7 +178,24 @@ async function toggleMaximize(): Promise<void> {
       </UDropdownMenu>
     </nav>
 
-    <div class="flex-1" />
+    <div class="flex flex-1 justify-center px-4">
+      <!--
+        The palette's discoverable face — D21. A button, not a live omnibar: it
+        opens the same modal the shortcut does rather than becoming a second
+        always-on search box in the chrome. `app-no-drag` so the click lands
+        instead of starting a window drag.
+      -->
+      <button
+        type="button"
+        class="app-no-drag flex h-6 w-full max-w-80 items-center gap-2 rounded-md border border-default bg-default/60 px-2.5 text-xs text-muted transition-colors hover:bg-elevated hover:text-default"
+        aria-label="Search"
+        @click="palette.openPalette()"
+      >
+        <UIcon name="i-tabler-search" class="size-3.5 shrink-0" />
+        <span class="flex-1 text-left">Search…</span>
+        <UKbd :value="shortcutHint" size="sm" />
+      </button>
+    </div>
 
     <div class="app-no-drag flex h-full shrink-0 items-center" aria-label="Window controls">
       <UColorModeSwitch />
