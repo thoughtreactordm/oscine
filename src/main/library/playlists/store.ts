@@ -36,7 +36,7 @@ import { spread } from './positions'
  * under plain Node against a temp file.
  */
 
-interface PlaylistRow {
+export interface PlaylistRow {
   id: number
   name: string
   trackCount: number
@@ -73,7 +73,7 @@ export interface PlaylistExportSnapshot {
 }
 
 /** The projection every playlist read shares. Tab order is `position`. */
-const PLAYLIST_PROJECTION = `
+export const PLAYLIST_PROJECTION = `
   p.id           AS id,
   p.name         AS name,
   p.created_at   AS createdAt,
@@ -299,7 +299,7 @@ function prepareStatements(db: Database.Database) {
   }
 }
 
-function toPlaylist(row: PlaylistRow): Playlist {
+export function toPlaylist(row: PlaylistRow): Playlist {
   return {
     id: row.id,
     name: row.name,

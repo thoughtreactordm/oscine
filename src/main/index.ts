@@ -18,6 +18,7 @@ import { SqliteListenService } from './listens/service'
 import { rebuildTrackCounters } from './stats/counters'
 import { SqliteStatsService } from './stats/service'
 import { SqliteFavoriteService } from './favorites/service'
+import { SqliteSearchService } from './search/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { createDerivedArtworkStore } from './library/derivedArtwork'
@@ -586,6 +587,11 @@ if (!app.requestSingleInstanceLock()) {
       onChanged: () => void scrobbleDrain.wake()
     })
 
+    // The command palette's finder (D23). Same connection, no tables of its own
+    // and no network: it reuses `tracks_fts` for tracks and a light LIKE over
+    // the small entity sets, and reaches nothing but this database.
+    const search = new SqliteSearchService({ db })
+
     // A migration is the one moment `listens` can move without the listen commit
     // maintaining the cache alongside it, so the flag it declares is honoured
     // here, at startup, before the window can sort by a stale play count.
@@ -676,7 +682,8 @@ if (!app.requestSingleInstanceLock()) {
       artists,
       biographies,
       relations,
-      images
+      images,
+      search
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

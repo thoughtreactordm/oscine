@@ -14,11 +14,17 @@ import {
   MAX_FAVORITE_REMOVE_IDS,
   MAX_FAVORITE_STATE_IDS,
   MAX_FAVORITES_PAGE,
+  type ArtistFavoriteStateRequest,
   type ArtistFavoritesQuery,
   type FavoriteStateRequest,
+  type ListFavoriteArtistsQuery,
   type ListFavoriteIdsQuery,
+  type ListFavoritePlaylistsQuery,
   type ListFavoritesQuery,
+  type PlaylistFavoriteStateRequest,
   type RemoveFavoritesRequest,
+  type ToggleArtistFavoriteRequest,
+  type TogglePlaylistFavoriteRequest,
   type ToggleFavoriteRequest
 } from '@shared/favorites'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
@@ -82,6 +88,8 @@ import {
   type TrackSortColumn
 } from '@shared/library'
 import type { RelatedQuery } from '@shared/related'
+import { MAX_SEARCH_LIMIT_PER_GROUP, type SearchMode, type SearchQuery } from '@shared/search'
+import { MAX_RECENT_ALBUMS } from '@shared/albums'
 import {
   DISCOVER_RECIPE_IDS,
   type DiscoverRecipeId,
@@ -428,6 +436,73 @@ export function assertRemoveFavoritesRequest(value: unknown): RemoveFavoritesReq
 }
 
 /**
+ * D24's requests — the playlist and artist stars.
+ *
+ * The same three shapes the track heart validates (toggle, batch state, list),
+ * one id space over, and held to the same discipline: `assertOnlyKeys` on every
+ * one, the batch bounded by `MAX_FAVORITE_STATE_IDS`, and the list `limit`
+ * bounded by `MAX_FAVORITES_PAGE`. The lists are the Quick Menu's short capped
+ * views (D26) — one `limit`, no `offset`, no batch ceiling of their own — so
+ * they reuse the display-page ceiling as the outer safety bound rather than
+ * inventing a second number.
+ */
+export function assertTogglePlaylistFavoriteRequest(value: unknown): TogglePlaylistFavoriteRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['playlistId'])
+  return { playlistId: assertPositiveInt(raw.playlistId, 'playlistId') }
+}
+
+export function assertPlaylistFavoriteStateRequest(value: unknown): PlaylistFavoriteStateRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['playlistIds'])
+
+  const playlistIds = raw.playlistIds
+  if (!Array.isArray(playlistIds)) invalid('playlistIds must be an array.')
+  if (playlistIds.length > MAX_FAVORITE_STATE_IDS) {
+    invalid(`playlistIds must not exceed ${MAX_FAVORITE_STATE_IDS} entries.`)
+  }
+  for (const id of playlistIds) assertPositiveInt(id, 'playlistIds entry')
+
+  return { playlistIds: playlistIds as number[] }
+}
+
+export function assertListFavoritePlaylistsQuery(value: unknown): ListFavoritePlaylistsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['limit'])
+  const limit = assertPositiveInt(raw.limit, 'limit')
+  if (limit > MAX_FAVORITES_PAGE) invalid(`limit must not exceed ${MAX_FAVORITES_PAGE}.`)
+  return { limit }
+}
+
+export function assertToggleArtistFavoriteRequest(value: unknown): ToggleArtistFavoriteRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artistId'])
+  return { artistId: assertPositiveInt(raw.artistId, 'artistId') }
+}
+
+export function assertArtistFavoriteStateRequest(value: unknown): ArtistFavoriteStateRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artistIds'])
+
+  const artistIds = raw.artistIds
+  if (!Array.isArray(artistIds)) invalid('artistIds must be an array.')
+  if (artistIds.length > MAX_FAVORITE_STATE_IDS) {
+    invalid(`artistIds must not exceed ${MAX_FAVORITE_STATE_IDS} entries.`)
+  }
+  for (const id of artistIds) assertPositiveInt(id, 'artistIds entry')
+
+  return { artistIds: artistIds as number[] }
+}
+
+export function assertListFavoriteArtistsQuery(value: unknown): ListFavoriteArtistsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, ['limit'])
+  const limit = assertPositiveInt(raw.limit, 'limit')
+  if (limit > MAX_FAVORITES_PAGE) invalid(`limit must not exceed ${MAX_FAVORITES_PAGE}.`)
+  return { limit }
+}
+
+/**
  * The related pane's only request (W7-5).
  *
  * One id and nothing else — no limit, no strand selection, no filters. The
@@ -440,6 +515,56 @@ export function assertRelatedQuery(value: unknown): RelatedQuery {
   const raw = assertRecord(value, 'query')
   assertOnlyKeys(raw, ['trackId'])
   return { trackId: assertPositiveInt(raw.trackId, 'trackId') }
+}
+
+/**
+ * The modes this channel accepts — **D23**.
+ *
+ * `action` and `setting` resolve entirely in the renderer and never cross the
+ * wire, so a request carrying one is malformed rather than merely empty: main
+ * only ever answers `blended`, `artist` or `playlist`.
+ */
+const SEARCH_QUERY_MODES: readonly SearchMode[] = ['blended', 'artist', 'playlist']
+
+/**
+ * The unified search request — **D23**.
+ *
+ * `text` is trimmed and length-bounded here; the trigram floor for tracks is the
+ * store's concern, because a two-character query still has honest album, artist
+ * and playlist matches over the LIKE index and refusing it at the seam would
+ * deny them. `limitPerGroup` is capped so one keystroke cannot ask main to rank
+ * the whole library (RQ2).
+ */
+export function assertSearchQuery(value: unknown): SearchQuery {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['text', 'mode', 'limitPerGroup'])
+
+  if (typeof raw.text !== 'string') invalid('text must be a string.')
+  const text = raw.text.trim()
+  if (text.length === 0) invalid('text must not be empty.')
+  if ([...text].length > MAX_SEARCH_LENGTH) {
+    invalid(`text must not exceed ${MAX_SEARCH_LENGTH} characters.`)
+  }
+
+  if (typeof raw.mode !== 'string' || !SEARCH_QUERY_MODES.includes(raw.mode as SearchMode)) {
+    invalid(`mode must be one of ${SEARCH_QUERY_MODES.join(', ')}.`)
+  }
+
+  const limitPerGroup = assertPositiveInt(raw.limitPerGroup, 'limitPerGroup')
+  if (limitPerGroup > MAX_SEARCH_LIMIT_PER_GROUP) {
+    invalid(`limitPerGroup must not exceed ${MAX_SEARCH_LIMIT_PER_GROUP}.`)
+  }
+
+  return { text, mode: raw.mode as SearchMode, limitPerGroup }
+}
+
+/** Recent Additions — one bounded `limit` and nothing else (**D25/D26**). */
+export function assertRecentlyAddedAlbumsRequest(value: unknown): { limit: number } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['limit'])
+  const limit = assertPositiveInt(raw.limit, 'limit')
+  if (limit > MAX_RECENT_ALBUMS) invalid(`limit must not exceed ${MAX_RECENT_ALBUMS}.`)
+  return { limit }
 }
 
 /**

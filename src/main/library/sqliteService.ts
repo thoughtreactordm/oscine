@@ -28,6 +28,7 @@ import {
   type TrackFormatDetail
 } from '@shared/library'
 import type { RelatedQuery, RelatedResult } from '@shared/related'
+import type { AlbumCard } from '@shared/albums'
 import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
 import { buildRelated } from './related'
 import { DiscoverEngine, expandShelfTrackIds, snapshotShelf } from './discover'
@@ -260,6 +261,10 @@ export class SqliteLibraryService implements LibraryService {
 
   async getTracksByIds(query: GetTracksByIdsQuery): Promise<Track[]> {
     return this.store.getTracksByIds(query)
+  }
+
+  async recentlyAddedAlbums(limit: number): Promise<AlbumCard[]> {
+    return this.store.recentlyAddedAlbums(limit)
   }
 
   /**

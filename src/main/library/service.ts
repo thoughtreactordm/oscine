@@ -20,6 +20,7 @@ import type {
   TrackFormatDetail
 } from '@shared/library'
 import type { RelatedQuery, RelatedResult } from '@shared/related'
+import type { AlbumCard } from '@shared/albums'
 import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
 
 /**
@@ -68,6 +69,13 @@ export interface LibraryService {
   orderTrackIds(query: OrderTrackIdsQuery): Promise<number[]>
   /** Display rows for an id list the caller already ordered. */
   getTracksByIds(query: GetTracksByIdsQuery): Promise<Track[]>
+  /**
+   * Albums by arrival, newest first — the Quick Menu's Recent Additions
+   * (**D25/D26**). Ordered by `MAX(indexed_at)` over each album's tracks and
+   * never by `mtime`, so a rescan does not reorder the list. A bare capped array
+   * computed on open, not a paged collection.
+   */
+  recentlyAddedAlbums(limit: number): Promise<AlbumCard[]>
   /**
    * Catalog and neighbourhood relations for one track (W7-5).
    *

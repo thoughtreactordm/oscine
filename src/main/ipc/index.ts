@@ -10,6 +10,7 @@ import type { ArtistIdentityService, ArtistRelationsService } from '../musicbrai
 import type { NetService } from '../net'
 import type { ScrobbleAccountsService } from '../scrobble/accounts'
 import type { ScrobbleStatusService } from '../scrobble/status'
+import type { SearchService } from '../search/service'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
 import type { StatsService } from '../stats/service'
@@ -65,7 +66,15 @@ import {
   assertStatsQuery,
   assertStatsSummaryQuery,
   assertTabIndex,
-  assertToggleFavoriteRequest
+  assertToggleFavoriteRequest,
+  assertTogglePlaylistFavoriteRequest,
+  assertPlaylistFavoriteStateRequest,
+  assertListFavoritePlaylistsQuery,
+  assertToggleArtistFavoriteRequest,
+  assertArtistFavoriteStateRequest,
+  assertListFavoriteArtistsQuery,
+  assertSearchQuery,
+  assertRecentlyAddedAlbumsRequest
 } from './validate'
 
 /**
@@ -89,7 +98,8 @@ export function registerIpcHandlers(
   artists: ArtistIdentityService,
   biographies: ArtistBiographyService,
   relations: ArtistRelationsService,
-  images: ArtistImageService
+  images: ArtistImageService,
+  search: SearchService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -261,6 +271,45 @@ export function registerIpcHandlers(
 
   handle('favorites.remove', (request) =>
     favorites.remove(assertRemoveFavoritesRequest(request).trackIds)
+  )
+
+  // The playlist and artist stars — D24. Owned by the same service as the track
+  // heart, but with none of its network arrangement: a star is a local fact, so
+  // these are plain reads and writes and the star glyph is entirely the
+  // renderer's to draw.
+  handle('favorites.togglePlaylist', (request) =>
+    favorites.togglePlaylist(assertTogglePlaylistFavoriteRequest(request).playlistId)
+  )
+
+  handle('favorites.playlistState', (request) =>
+    favorites.playlistState(assertPlaylistFavoriteStateRequest(request).playlistIds)
+  )
+
+  handle('favorites.listPlaylists', (request) =>
+    favorites.listPlaylists(assertListFavoritePlaylistsQuery(request).limit)
+  )
+
+  handle('favorites.toggleArtist', (request) =>
+    favorites.toggleArtist(assertToggleArtistFavoriteRequest(request).artistId)
+  )
+
+  handle('favorites.artistState', (request) =>
+    favorites.artistState(assertArtistFavoriteStateRequest(request).artistIds)
+  )
+
+  handle('favorites.listArtists', (request) =>
+    favorites.listArtists(assertListFavoriteArtistsQuery(request).limit)
+  )
+
+  // D23 — one grouped, ranked pass over every local entity type. The service
+  // owns the ranking so a new searchable kind is not another round trip to
+  // debounce, and reaches no socket: the palette's finder is local.
+  handle('search.query', (request) => search.query(assertSearchQuery(request)))
+
+  // D25/D26 — albums by arrival for the Quick Menu's Recent Additions, a short
+  // capped list computed on open rather than a paged collection.
+  handle('library.recentlyAddedAlbums', (request) =>
+    library.recentlyAddedAlbums(assertRecentlyAddedAlbumsRequest(request).limit)
   )
 
   handle('playlists.list', () => playlists.list())

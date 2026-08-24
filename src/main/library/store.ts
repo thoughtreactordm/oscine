@@ -21,6 +21,7 @@ import type {
   TrackGroup,
   TrackSortColumn
 } from '@shared/library'
+import type { AlbumCard } from '@shared/albums'
 import { splitGenres } from '@shared/genre'
 import { artworkUrl } from '@shared/ipc'
 import type { FavoriteBias, RelatedAlbum } from '@shared/related'
@@ -467,6 +468,30 @@ function prepareStatements(db: Database.Database) {
     // Only fills a gap. The first track of an album may be the untagged one.
     fillAlbumYear: db.prepare('UPDATE albums SET year = ? WHERE id = ? AND year IS NULL'),
     setAlbumArtwork: db.prepare('UPDATE albums SET artwork_hash = ? WHERE id = ?'),
+    // The Quick Menu's Recent Additions — albums by arrival, newest first
+    // (D25/D26). Arrival is `MAX(indexed_at)` over the album's tracks and never
+    // `mtime`: a re-tag or a rescan moves the file clock but not the arrival
+    // stamp, so ordering by it would reshuffle "recent" on a rescan — the exact
+    // failure D25 names. `indexed_at IS NOT NULL` drops any album that predates
+    // the column *and* somehow escaped the 016 backfill, so `addedAt` is never
+    // the `null` `AlbumCard` forbids; the backfill makes that unreachable in
+    // practice. `album_id DESC` breaks ties for a stable order across reopens.
+    recentlyAddedAlbums: db.prepare(`
+      SELECT
+        al.id           AS albumId,
+        al.title        AS title,
+        aa.name         AS artist,
+        al.year         AS year,
+        al.artwork_hash AS artworkHash,
+        MAX(t.indexed_at) AS addedAt
+      FROM albums al
+      JOIN tracks t ON t.album_id = al.id
+      LEFT JOIN artists aa ON aa.id = al.album_artist_id
+      WHERE t.indexed_at IS NOT NULL
+      GROUP BY al.id
+      ORDER BY addedAt DESC, al.id DESC
+      LIMIT @limit
+    `),
     listReferencedArtworkHashes: db.prepare(`
       SELECT DISTINCT al.artwork_hash AS artworkHash
       FROM albums al
@@ -1324,6 +1349,20 @@ export class LibraryStore {
       })),
       total
     }
+  }
+
+  /**
+   * Albums by arrival, newest first — the Quick Menu's Recent Additions
+   * (D25/D26).
+   *
+   * A bare capped array rather than a window: it is a short drawer list computed
+   * on open, not a paged collection with a scrollbar to size, so there is no
+   * `total`. The rows are already the `AlbumCard` shape — `artworkHash` is the
+   * raw cache key rather than an artwork URL, because a drawer row addresses its
+   * own thumbnail through `artworkUrl` on the renderer side.
+   */
+  recentlyAddedAlbums(limit: number): AlbumCard[] {
+    return this.statements.recentlyAddedAlbums.all({ limit }) as AlbumCard[]
   }
 
   /**
