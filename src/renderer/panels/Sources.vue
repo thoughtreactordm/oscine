@@ -92,8 +92,21 @@ const folderItems = computed<DropdownMenuItem[][]>(() => {
   const rootId = browse.rootValue
   const scanning = roots.scan !== null
 
+  // Adding a folder is a create action rather than a verb on whatever the
+  // select is pointing at, so it leads the menu in its own group and is offered
+  // whether "All folders" or a single root is selected.
+  const addGroup: DropdownMenuItem[] = [
+    {
+      label: 'Add folder…',
+      icon: 'i-tabler-folder-plus',
+      disabled: roots.adding,
+      onSelect: () => void roots.addFolder()
+    }
+  ]
+
   if (rootId === 0) {
     return [
+      addGroup,
       [
         {
           label: roots.roots.length > 1 ? 'Rescan all folders' : 'Rescan',
@@ -106,6 +119,7 @@ const folderItems = computed<DropdownMenuItem[][]>(() => {
   }
 
   return [
+    addGroup,
     [
       {
         label: 'Rescan this folder',
@@ -325,55 +339,41 @@ const albumPane = facetPane<AlbumFacet>({
 <template>
   <section class="flex h-full min-h-0 flex-col" aria-label="Library sources">
     <div class="space-y-2 border-b border-default bg-elevated/40 p-2">
-      <div class="flex items-center gap-2">
-        <UIcon name="i-tabler-library" class="size-5 text-primary" />
-        <h1 class="font-semibold text-highlighted">Library</h1>
-        <!--
-          Watcher behaviour belongs beside the roots it watches: the operator
-          deciding whether a network share should be followed is looking at the
-          share. Generated from the registry, so this is the settings view's
-          rows in a smaller frame rather than a second copy of them.
-        -->
-        <UFieldGroup class="ml-auto">
-          <PanelSettingsPopover :surface="watchSettings" />
-
-          <UButton
-            icon="i-tabler-folder-plus"
-            size="lg"
-            color="neutral"
-            variant="ghost"
-            :loading="roots.adding"
-            aria-label="Add library folder"
-            @click="roots.addFolder()"
-          />
-        </UFieldGroup>
-      </div>
-
       <UFormField label="Library folder" :ui="{ label: 'sr-only' }">
         <div class="flex items-center gap-1">
           <USelect
             v-model="browse.rootValue"
             value-key="value"
             :items="rootItems"
+            size="lg"
             class="min-w-0 flex-1"
             aria-label="Library folder"
           />
           <!--
-            The verbs for whatever the select is pointing at. Here rather than
-            in the title bar's submenus because this is where a folder is
-            already chosen — the operator who wants to rescan the folder they
-            are looking at should not have to pick it a second time from a list.
+            The watcher settings and the folder verbs, grouped: both act on the
+            roots the select is pointing at, and neither owns a folder of its
+            own to sit beside. Watcher behaviour belongs here — the operator
+            deciding whether a network share should be followed is looking at
+            the share — and it is generated from the same registry the settings
+            view renders, so this is those rows in a smaller frame rather than a
+            second copy. The kebab carries the verbs for whatever the select
+            names, adding a folder among them, so a folder is chosen once here
+            rather than a second time from a title-bar list.
           -->
-          <UDropdownMenu :items="folderItems" :content="{ align: 'end' }">
-            <UButton
-              icon="i-tabler-dots-vertical"
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              :loading="roots.removing !== null"
-              aria-label="Library folder actions"
-            />
-          </UDropdownMenu>
+          <UFieldGroup>
+            <PanelSettingsPopover :surface="watchSettings" />
+
+            <UDropdownMenu :items="folderItems" :content="{ align: 'end' }">
+              <UButton
+                icon="i-tabler-dots-vertical"
+                size="lg"
+                color="neutral"
+                variant="ghost"
+                :loading="roots.removing !== null"
+                aria-label="Library folder actions"
+              />
+            </UDropdownMenu>
+          </UFieldGroup>
         </div>
       </UFormField>
 
