@@ -194,14 +194,30 @@ describe('the backend Fermata asks for', () => {
     // to `basic` — this is the way out if detection ever picks a backend that
     // hangs, and a way out that only worked in the easy cases would not be one.
     expect(
+      select({ XDG_CURRENT_DESKTOP: 'KDE', OSCINE_PASSWORD_STORE: 'gnome-libsecret' }, {})
+    ).toBe('gnome-libsecret')
+    expect(select({ XDG_CURRENT_DESKTOP: 'Hyprland', OSCINE_PASSWORD_STORE: 'basic' })).toBe('basic')
+  })
+
+  it('still honours the pre-rename FERMATA_PASSWORD_STORE spelling', () => {
+    // An operator who set it before the Oscine rename should not be quietly
+    // dropped back to Chromium's guess by an upgrade.
+    expect(
       select({ XDG_CURRENT_DESKTOP: 'KDE', FERMATA_PASSWORD_STORE: 'gnome-libsecret' }, {})
     ).toBe('gnome-libsecret')
-    expect(select({ XDG_CURRENT_DESKTOP: 'Hyprland', FERMATA_PASSWORD_STORE: 'basic' })).toBe(
-      'basic'
-    )
+  })
+
+  it('prefers the new name when both are set', () => {
+    expect(
+      select({
+        XDG_CURRENT_DESKTOP: 'Hyprland',
+        OSCINE_PASSWORD_STORE: 'basic',
+        FERMATA_PASSWORD_STORE: 'gnome-libsecret'
+      })
+    ).toBe('basic')
   })
 
   it('ignores a blank override rather than passing an empty switch', () => {
-    expect(select({ XDG_CURRENT_DESKTOP: 'Hyprland', FERMATA_PASSWORD_STORE: '  ' })).toBeNull()
+    expect(select({ XDG_CURRENT_DESKTOP: 'Hyprland', OSCINE_PASSWORD_STORE: '  ' })).toBeNull()
   })
 })

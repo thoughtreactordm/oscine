@@ -214,7 +214,13 @@ export function selectPasswordStore({
   // Set by hand, by an operator who has already decided. Reading it here and
   // returning `null` keeps the precedence obvious: their flag wins, and it wins
   // by us not competing for the same switch.
-  if (env.FERMATA_PASSWORD_STORE?.trim()) return env.FERMATA_PASSWORD_STORE.trim()
+  //
+  // `OSCINE_PASSWORD_STORE` is the current name; `FERMATA_PASSWORD_STORE` is the
+  // pre-rename spelling, still honoured so an operator who baked it into a shell
+  // profile before the rename is not silently dropped back to Chromium's guess.
+  // New name wins when both are set.
+  const override = env.OSCINE_PASSWORD_STORE?.trim() || env.FERMATA_PASSWORD_STORE?.trim()
+  if (override) return override
   if (desktopIsRecognised(env.XDG_CURRENT_DESKTOP)) return null
 
   const evidence =
