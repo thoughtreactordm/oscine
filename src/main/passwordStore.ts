@@ -17,7 +17,7 @@
  * ```
  *
  * So on a bare wlroots session an operator can install gnome-keyring, start it,
- * unlock it, and watch Fermata still refuse to save a sign-in — because nothing
+ * unlock it, and watch Oscine still refuse to save a sign-in — because nothing
  * in that chain changes the string Chromium is branching on. That is not a
  * misconfiguration to be documented, it is a detection rule that does not fit,
  * and the fix belongs here.
@@ -55,7 +55,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { posix } from 'node:path'
 
 /** The value Chromium's `--password-store` takes for the libsecret backend. */
 export const GNOME_LIBSECRET_STORE = 'gnome-libsecret'
@@ -68,7 +68,7 @@ export const GNOME_LIBSECRET_STORE = 'gnome-libsecret'
  * `GNOME-Classic:GNOME` arrives in practice.
  *
  * Erring towards a longer list is the safe direction: a name wrongly listed here
- * means Fermata leaves a session alone that it could have helped, which is the
+ * means Oscine leaves a session alone that it could have helped, which is the
  * behaviour every build had before this file. A name wrongly *missing* means
  * overriding a choice Chromium made deliberately, and for KDE that would put the
  * credential somewhere the operator's session never unlocks.
@@ -98,16 +98,20 @@ export interface KeyringProbe {
 /**
  * Where gnome-keyring keeps its keyrings.
  *
- * `XDG_DATA_HOME` when set, the specified default otherwise. Built with `join`
- * rather than by concatenation, per the repository's path invariant — this file
- * is Linux-only in effect but not in form, and the lint rule does not take
- * "only runs on Linux" for an answer.
+ * `XDG_DATA_HOME` when set, the specified default otherwise. Built with
+ * `posix.join`, not the platform-default `join`, and the distinction is the whole
+ * bug this comment used to get wrong: these are XDG and gnome-keyring paths, and
+ * they only ever name a location on a Linux filesystem. `path.join` on the
+ * Windows CI runner is `path.win32.join`, which turns `/data/keyrings` into
+ * `\data\keyrings` and fails a test measuring a path that has no Windows meaning
+ * to begin with. `posix.join` satisfies the repository's "never concatenate a
+ * path by hand" invariant while keeping the separator these Linux paths require.
  */
 export function keyringsDirectory(env: NodeJS.ProcessEnv, homeDirectory: string): string {
   const dataHome = env.XDG_DATA_HOME?.trim()
   return dataHome !== undefined && dataHome !== ''
-    ? join(dataHome, 'keyrings')
-    : join(homeDirectory, '.local', 'share', 'keyrings')
+    ? posix.join(dataHome, 'keyrings')
+    : posix.join(homeDirectory, '.local', 'share', 'keyrings')
 }
 
 /**
@@ -128,20 +132,24 @@ export function keyringsDirectory(env: NodeJS.ProcessEnv, homeDirectory: string)
  * they do.
  */
 export function hasKeyringOnDisk(directory: string, probe: KeyringProbe): boolean {
-  const named = probe.read(join(directory, 'default'))?.trim()
-  if (named !== undefined && named !== '' && probe.exists(join(directory, `${named}.keyring`))) {
+  const named = probe.read(posix.join(directory, 'default'))?.trim()
+  if (
+    named !== undefined &&
+    named !== '' &&
+    probe.exists(posix.join(directory, `${named}.keyring`))
+  ) {
     return true
   }
   return (
-    probe.exists(join(directory, 'login.keyring')) ||
-    probe.exists(join(directory, 'Default_Keyring.keyring'))
+    probe.exists(posix.join(directory, 'login.keyring')) ||
+    probe.exists(posix.join(directory, 'Default_Keyring.keyring'))
   )
 }
 
 /**
  * Where D-Bus looks for the activation file that starts a secret service.
  *
- * The specification's search path, in its own precedence order. Fermata only
+ * The specification's search path, in its own precedence order. Oscine only
  * asks whether the file is *there* — starting the service is Chromium's business
  * and happens later, on a thread that is allowed to wait.
  */
@@ -152,12 +160,14 @@ export function secretServiceActivationPaths(
   const name = 'org.freedesktop.secrets.service'
   const dataHome = env.XDG_DATA_HOME?.trim()
   const userDataHome =
-    dataHome !== undefined && dataHome !== '' ? dataHome : join(homeDirectory, '.local', 'share')
+    dataHome !== undefined && dataHome !== ''
+      ? dataHome
+      : posix.join(homeDirectory, '.local', 'share')
   const dataDirs = (env.XDG_DATA_DIRS?.trim() ?? '/usr/local/share:/usr/share')
     .split(':')
     .map((entry) => entry.trim())
     .filter((entry) => entry !== '')
-  return [userDataHome, ...dataDirs].map((base) => join(base, 'dbus-1', 'services', name))
+  return [userDataHome, ...dataDirs].map((base) => posix.join(base, 'dbus-1', 'services', name))
 }
 
 /**
