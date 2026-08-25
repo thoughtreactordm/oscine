@@ -42,7 +42,17 @@ import type { SettingsReader } from './reader'
  * carry the unknown entries back to disk by hand on every write, and would lose
  * the lot to one quota failure instead of one key.
  */
-export const VIEW_STORAGE_PREFIX = 'fermata.view.'
+export const VIEW_STORAGE_PREFIX = 'oscine.view.'
+
+/**
+ * The pre-rename spelling of the prefix above.
+ *
+ * Renaming the app changed the namespace these keys live under; a profile
+ * written before the rename still has its pane sizes, tabs and column layouts
+ * under `fermata.view.*`. `migrateViewStoragePrefix` moves them across once,
+ * before the store's first load, so the rename does not read as a reset.
+ */
+export const LEGACY_VIEW_STORAGE_PREFIX = 'fermata.view.'
 
 /** How long writes coalesce for. A pane drag emits on every pointer move. */
 export const VIEW_WRITE_DEBOUNCE_MS = 250

@@ -1,11 +1,13 @@
 import { settings as durableSettings } from '@renderer/ipc'
 import { browserViewStorage } from './browserViewStorage'
 import { absorbLegacyViewKeys } from './legacyViewKeys'
+import { migrateViewStoragePrefix } from './viewStorageMigration'
 import { createSettingsStore, type SettingsStore } from './settingsStore'
 import { createViewSettings, type ViewSettings } from './viewStore'
 
 export { browserViewStorage } from './browserViewStorage'
 export { absorbLegacyViewKeys, LEGACY_VIEW_KEYS, type LegacyViewKey } from './legacyViewKeys'
+export { migrateViewStoragePrefix } from './viewStorageMigration'
 export type { CascadingSettings, CascadingSettingsReader, SettingsReader } from './reader'
 export { restoredTabSession } from './session'
 export { useCascade, type CascadeBinding } from './useCascade'
@@ -45,6 +47,10 @@ export function useViewSettings(): ViewSettings {
   if (instance) return instance
 
   const storage = browserViewStorage()
+  // Before the store's first read: move a pre-rename profile's `fermata.view.*`
+  // entries onto the current `oscine.view.*` prefix, or the store loads defaults
+  // and the rename looks like a wipe.
+  migrateViewStoragePrefix(storage)
   const settings = createViewSettings({ storage })
   absorbLegacyViewKeys(settings, storage)
 
