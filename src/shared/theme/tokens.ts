@@ -528,13 +528,26 @@ export function findToken(id: string): TokenDescriptor | undefined {
 export const PUBLIC_TOKENS: readonly TokenDescriptor[] = TOKENS.filter((t) => t.public)
 
 /**
- * Curated font stacks. Each is picked so it resolves to something reasonable on
- * both Windows and Linux without shipping a font file — first the platform's
- * own, then a widely-packaged Linux equivalent, then the generic family. T11's
- * free-text escape hatch exists for the operator who has something specific
- * installed and accepts that it may not exist on their other machine.
+ * Curated font stacks. The first two ship with the app — Fontsource's
+ * self-hosted Roboto and Sora, imported in `renderer/main.ts` — so they render
+ * identically on Windows and Linux. The rest are picked so they resolve to
+ * something reasonable on both platforms without shipping a font file: first the
+ * platform's own, then a widely-packaged Linux equivalent, then the generic
+ * family. T11's free-text escape hatch exists for the operator who has something
+ * specific installed and accepts that it may not exist on their other machine.
  */
 export const FONT_STACKS = [
+  {
+    id: 'roboto',
+    label: 'Roboto',
+    value:
+      '"Roboto Variable", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif'
+  },
+  {
+    id: 'sora',
+    label: 'Sora',
+    value: '"Sora Variable", system-ui, -apple-system, "Segoe UI", "Noto Sans", sans-serif'
+  },
   {
     id: 'system',
     label: 'System UI',

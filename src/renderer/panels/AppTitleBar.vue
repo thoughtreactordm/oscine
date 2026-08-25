@@ -153,7 +153,7 @@ async function toggleMaximize(): Promise<void> {
       <span class="flex size-5 items-center justify-center rounded bg-primary text-inverted">
         <UIcon name="i-tabler-wave-sine" class="size-3.5" />
       </span>
-      <span class="text-xs font-semibold tracking-wide text-highlighted">Oscine</span>
+      <span class="app-logo text-sm font-semibold tracking-wide text-highlighted">oscine</span>
     </div>
 
     <nav class="app-no-drag flex h-full items-center" aria-label="Application menu">
@@ -245,3 +245,15 @@ async function toggleMaximize(): Promise<void> {
     </UModal>
   </header>
 </template>
+
+<style scoped>
+/*
+ * The wordmark is brand, not body copy: it wears Sora regardless of the theme's
+ * type tokens, which is why the family is set here rather than routed through a
+ * token. Only the colour of the mark is themeable, and that already is (the
+ * `text-highlighted` class on the span).
+ */
+.app-logo {
+  font-family: 'Sora Variable', system-ui, sans-serif;
+}
+</style>

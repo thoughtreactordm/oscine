@@ -40,6 +40,8 @@
     "probe:m2-fixture": "node scripts/make-m2-probe-fixture.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/roboto": "^5.3.0",
+    "@fontsource-variable/sora": "^5.3.0",
     "better-sqlite3": "^13.0.1",
     "music-metadata": "^11.14.0",
     "node-web-audio-api": "^2.1.0",

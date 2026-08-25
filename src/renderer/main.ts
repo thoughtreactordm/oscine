@@ -4,6 +4,12 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import ui from '@nuxt/ui/vue-plugin'
 import App from './App.vue'
 import { shellRoutes } from './shell/routes'
+// Self-hosted Google Fonts. Bundled by Vite and served from the app origin, so
+// they satisfy `font-src 'self'` with no CSP change and no runtime network
+// fetch — the library is offline-first. Variable files carry every weight in
+// one face, which is what lets the heading token's 600 resolve natively.
+import '@fontsource-variable/roboto/index.css'
+import '@fontsource-variable/sora/index.css'
 import './theme/main.css'
 import { installTheme } from './theme'
 
