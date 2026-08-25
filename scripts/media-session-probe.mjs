@@ -139,7 +139,7 @@ writeFileSync(
 protocol.registerSchemesAsPrivileged([
   { scheme: 'fermata', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }
 ])
-app.setAppUserModelId('dev.fermata.app')
+app.setAppUserModelId('app.oscine.desktop')
 ${process.env.FERMATA_PROBE_SET_NAME === '1' ? "app.setName('Fermata')" : '// app.setName deliberately not called; see src/main/index.ts'}
 app.whenReady().then(() => {
   protocol.handle('fermata', () =>

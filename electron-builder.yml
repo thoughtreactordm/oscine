@@ -1,4 +1,4 @@
-appId: dev.fermata.app
+appId: app.oscine.desktop
 productName: Fermata
 directories:
   output: release

@@ -292,7 +292,7 @@ if (!app.requestSingleInstanceLock()) {
   // electron-builder.yml, not from the bus name. No Chromium feature switch is
   // needed for the MPRIS path on Electron 43; the probe confirms it publishes
   // unaided.
-  app.setAppUserModelId('dev.fermata.app')
+  app.setAppUserModelId('app.oscine.desktop')
 
   // Which credential store `safeStorage` will use, on the sessions where
   // Chromium cannot tell. Read `passwordStore.ts` before changing this — in
