@@ -28,10 +28,12 @@ describe('planning the userData relocation', () => {
   })
 
   it('moves the capitalised packaged directory, which is named after productName', () => {
-    expect(planUserDataMigration('/data/Roaming/Oscine', probeOf('/data/Roaming/Fermata'))).toEqual({
-      from: '/data/Roaming/Fermata',
-      to: '/data/Roaming/Oscine'
-    })
+    expect(planUserDataMigration('/data/Roaming/Oscine', probeOf('/data/Roaming/Fermata'))).toEqual(
+      {
+        from: '/data/Roaming/Fermata',
+        to: '/data/Roaming/Oscine'
+      }
+    )
   })
 
   it('refuses to move onto a new directory that already exists', () => {

@@ -196,7 +196,9 @@ describe('the backend Fermata asks for', () => {
     expect(
       select({ XDG_CURRENT_DESKTOP: 'KDE', OSCINE_PASSWORD_STORE: 'gnome-libsecret' }, {})
     ).toBe('gnome-libsecret')
-    expect(select({ XDG_CURRENT_DESKTOP: 'Hyprland', OSCINE_PASSWORD_STORE: 'basic' })).toBe('basic')
+    expect(select({ XDG_CURRENT_DESKTOP: 'Hyprland', OSCINE_PASSWORD_STORE: 'basic' })).toBe(
+      'basic'
+    )
   })
 
   it('still honours the pre-rename FERMATA_PASSWORD_STORE spelling', () => {
