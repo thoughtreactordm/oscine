@@ -124,11 +124,12 @@ defineEmits<{
       </div>
 
       <!--
-        One clamped line, because in the settings view the row is a fixed height
-        and the list is virtualized on that number. The full text is on the
-        element, so it is a hover away rather than gone.
+        Up to two lines: the settings view is a fixed-height virtualized list, so
+        the row height (SETTING_ROW_PX) and this clamp move together — two lines
+        holds every shipped description. The full text stays on the element, so a
+        longer one is a hover away rather than gone.
       -->
-      <p class="truncate text-[11px] text-muted" :title="row.descriptor.help">
+      <p class="line-clamp-2 text-[11px] text-muted" :title="row.descriptor.help">
         {{ row.descriptor.help }}
       </p>
 

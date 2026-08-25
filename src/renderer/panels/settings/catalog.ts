@@ -38,7 +38,7 @@ export const SETTING_ANCHOR_PREFIX = 'setting-'
  * are what let `visibleRange` do the arithmetic without measuring anything. The
  * cost is that help text is one clamped line; the row's `title` carries the rest.
  */
-export const SETTING_ROW_PX = 64
+export const SETTING_ROW_PX = 76
 
 /**
  * The row's id, from its key.
