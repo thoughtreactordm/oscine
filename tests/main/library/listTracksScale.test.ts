@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openDatabase } from '../../../src/main/db'
 import { SqliteLibraryService } from '../../../src/main/library/sqliteService'
 import type { ListTracksQuery } from '../../../src/shared/library'
+import { expectWithinBudget } from '../../support/perfBudget'
 
 const TRACK_COUNT = 100_000
 
@@ -95,7 +96,7 @@ describe('listTracks at the scale target', () => {
     // The pre-fix query takes 40–125 ms here because every column builds a
     // temporary 100k-row sort. The indexed path keeps the same deep lookup
     // inside this deliberately conservative 30 ms regression budget.
-    expect(Math.max(...medians)).toBeLessThan(30)
+    expectWithinBudget(Math.max(...medians), 30, 'deep one-row page median')
   })
 
   it('keeps warm first-page browse, facet and true-infix search under one frame', async () => {
@@ -134,7 +135,8 @@ describe('listTracks at the scale target', () => {
     }
 
     console.info('100k warm first-page p95 ms', timings)
-    for (const elapsed of Object.values(timings)) expect(elapsed).toBeLessThan(16.7)
+    for (const [label, elapsed] of Object.entries(timings))
+      expectWithinBudget(elapsed, 16.7, `warm first-page ${label}`)
   })
 
   it('records indexed deep-window timings for the M3 exit gate', async () => {
@@ -159,6 +161,7 @@ describe('listTracks at the scale target', () => {
     }
 
     console.info('100k warm deep-window ms', timings)
-    for (const elapsed of Object.values(timings)) expect(elapsed).toBeLessThan(30)
+    for (const [label, elapsed] of Object.entries(timings))
+      expectWithinBudget(elapsed, 30, `deep-window ${label}`)
   })
 })

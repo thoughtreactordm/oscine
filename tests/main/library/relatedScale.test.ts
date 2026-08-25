@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openDatabase } from '../../../src/main/db'
 import { SqliteLibraryService } from '../../../src/main/library/sqliteService'
+import { expectWithinBudget } from '../../support/perfBudget'
 
 /**
  * W7-5's first acceptance criterion, measured rather than asserted.
@@ -157,6 +158,6 @@ describe('getRelated at the scale target', () => {
     }
 
     const elapsed = await p95(() => service.getRelated({ trackId: seedTrackId }))
-    expect(elapsed).toBeLessThan(FRAME_MS)
+    expectWithinBudget(elapsed, FRAME_MS, 'getRelated p95')
   })
 })

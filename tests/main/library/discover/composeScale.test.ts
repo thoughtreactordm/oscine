@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openDatabase } from '../../../../src/main/db'
 import { compose } from '../../../../src/main/library/discover/compose'
 import { DAY_MS } from '../../../../src/main/library/discover/constants'
+import { expectWithinBudget } from '../../../support/perfBudget'
 import { NOW } from './fixture'
 
 /**
@@ -131,6 +132,6 @@ describe('compose at the scale target', () => {
     }
     samples.sort((a, b) => a - b)
     const p95 = samples[Math.ceil(samples.length * 0.95) - 1]
-    expect(p95).toBeLessThan(BUDGET_MS)
+    expectWithinBudget(p95, BUDGET_MS, 'compose tab-open p95')
   })
 })

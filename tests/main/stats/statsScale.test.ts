@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openDatabase } from '../../../src/main/db'
 import { StatsStore } from '../../../src/main/stats/store'
 import type { StatsDimension, StatsRange, StatsRow, StatsSort } from '../../../src/shared/stats'
+import { expectWithinBudget } from '../../support/perfBudget'
 
 /**
  * The stats engine at scale (W10-10), and the measurement migration 014 defers
@@ -558,7 +559,7 @@ describe('the time budget', () => {
     )
 
     for (const { label, ms, budget } of measurements) {
-      expect(ms, `${label} exceeded its ${budget} ms budget`).toBeLessThan(budget)
+      expectWithinBudget(ms, budget, label)
     }
   })
 })
