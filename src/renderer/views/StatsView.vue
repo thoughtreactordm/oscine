@@ -11,7 +11,7 @@ import { useListeningStore } from '@renderer/stores/listening'
 import { STATS_SORTS, type StatsSort } from '@shared/stats'
 
 /**
- * The Listening dashboard — **D17**, and a dashboard rather than a retrospective.
+ * The Stats dashboard — **D17**, and a dashboard rather than a retrospective.
  *
  * It answers "what have I been listening to" at whatever moment it is opened,
  * which is a different artifact from one that performs a year back at you in
@@ -100,7 +100,7 @@ function reveal(text: string): void {
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 flex-col" aria-label="Listening">
+  <section class="flex h-full min-h-0 flex-col" aria-label="Stats">
     <!--
       One filter row, above everything it scopes. Never inside a card and never
       per-panel: two ranges on one screen is two screens.
@@ -110,7 +110,7 @@ function reveal(text: string): void {
     >
       <div class="flex items-center gap-2">
         <UIcon name="i-tabler-chart-histogram" class="size-5 text-primary" />
-        <h1 class="font-semibold text-highlighted">Listening</h1>
+        <h1 class="font-semibold text-highlighted">Stats</h1>
       </div>
 
       <div class="flex items-center gap-1" role="group" aria-label="Time range">

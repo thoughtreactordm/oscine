@@ -6,11 +6,11 @@ import Sources from '@renderer/panels/Sources.vue'
 import CurateSidebar from '@renderer/views/CurateSidebar.vue'
 import CurateView from '@renderer/views/CurateView.vue'
 import LibraryView from '@renderer/views/LibraryView.vue'
-import ListeningView from '@renderer/views/ListeningView.vue'
 import PodcastsSidebar from '@renderer/views/PodcastsSidebar.vue'
 import PodcastsView from '@renderer/views/PodcastsView.vue'
 import SettingsView from '@renderer/views/SettingsView.vue'
 import StageView from '@renderer/views/StageView.vue'
+import StatsView from '@renderer/views/StatsView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -44,6 +44,13 @@ interface ShellTab {
    * that want the full width — the frame drops the whole sidebar for those.
    */
   sidebar?: Component
+  /**
+   * Whether the tab sits in the trailing group of the row, pushed to the right
+   * and separated from the primary navigation. Stats and Settings are utilities
+   * about the library rather than places within it, so they read as a distinct
+   * cluster (G1). Everything else defaults to the leading group.
+   */
+  trailing?: boolean
 }
 
 const TABS: ShellTab[] = [
@@ -71,20 +78,6 @@ const TABS: ShellTab[] = [
     view: PodcastsView,
     sidebar: PodcastsSidebar
   },
-  /**
-   * The Listening dashboard — W10-12's "top-level destination", which is a tab.
-   *
-   * No sidebar, like Now Playing: its one control is a range that scopes the
-   * whole view, which belongs in a row above the content rather than in a rail
-   * beside it, and four ranked lists and a chart want the width.
-   */
-  {
-    name: 'listening',
-    path: 'listening',
-    label: 'Listening',
-    icon: 'i-tabler-chart-histogram',
-    view: ListeningView
-  },
   {
     name: 'now-playing',
     path: 'now-playing',
@@ -92,13 +85,32 @@ const TABS: ShellTab[] = [
     icon: 'i-tabler-disc',
     view: StageView
   },
+  /**
+   * The Stats dashboard — W10-12's "top-level destination", which is a tab.
+   *
+   * No sidebar, like Now Playing: its one control is a range that scopes the
+   * whole view, which belongs in a row above the content rather than in a rail
+   * beside it, and four ranked lists and a chart want the width.
+   *
+   * Trailing, with Settings: both are utilities about the library rather than
+   * places within it, so they cluster to the right of the primary tabs (G1).
+   */
+  {
+    name: 'stats',
+    path: 'stats',
+    label: 'Stats',
+    icon: 'i-tabler-chart-histogram',
+    view: StatsView,
+    trailing: true
+  },
   {
     name: 'settings',
     path: 'settings',
     label: 'Settings',
     icon: 'i-tabler-settings',
     view: SettingsView,
-    sidebar: SettingsRail
+    sidebar: SettingsRail,
+    trailing: true
   }
 ]
 
@@ -116,7 +128,12 @@ export function settingsRouteFor(key: string): RouteLocationRaw {
 }
 
 /** What the tab row needs, without handing it the components. */
-export const shellTabs = TABS.map(({ name, label, icon }) => ({ name, label, icon }))
+export const shellTabs = TABS.map(({ name, label, icon, trailing }) => ({
+  name,
+  label,
+  icon,
+  trailing: Boolean(trailing)
+}))
 
 export const shellRoutes: RouteRecordRaw[] = [
   {
