@@ -1,5 +1,5 @@
 appId: app.oscine.desktop
-productName: Fermata
+productName: Oscine
 directories:
   output: release
   buildResources: build
@@ -56,7 +56,7 @@ linux:
   desktop:
     entry:
       Categories: AudioVideo;Audio;Player;
-      StartupWMClass: Fermata
+      StartupWMClass: Oscine
       MimeType: audio/flac;audio/mpeg;audio/x-vorbis+ogg;audio/mp4;audio/x-wav;
 
 # better-sqlite3 arrives in W2-1 and is native: it must be unpacked from the
