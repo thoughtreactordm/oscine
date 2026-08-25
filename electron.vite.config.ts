@@ -17,13 +17,13 @@ const BASE_CSP = [
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   // No remote origin, including for Discover's Apple catalogue thumbnails:
-  // those are proxied through main over `fermata:` so the renderer never opens
+  // those are proxied through main over `oscine:` so the renderer never opens
   // a socket (D14) and the operator's IP never reaches Apple.
-  "img-src 'self' data: blob: fermata:",
+  "img-src 'self' data: blob: oscine:",
   "font-src 'self' data:",
-  // `fermata:` is the custom protocol main registers to serve track bytes.
+  // `oscine:` is the custom protocol main registers to serve track bytes.
   // The renderer fetches it for decodeAudioData; it never sees a real path.
-  "media-src 'self' blob: fermata:",
+  "media-src 'self' blob: oscine:",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
@@ -35,15 +35,14 @@ const BASE_CSP = [
 
 // The dev server needs a websocket back to Vite for HMR. Production must not
 // carry that allowance, so the policy is built per mode rather than shared.
-const devCsp = [
-  ...BASE_CSP,
-  "connect-src 'self' fermata: ws://localhost:* http://localhost:*"
-].join('; ')
-const prodCsp = [...BASE_CSP, "connect-src 'self' fermata:"].join('; ')
+const devCsp = [...BASE_CSP, "connect-src 'self' oscine: ws://localhost:* http://localhost:*"].join(
+  '; '
+)
+const prodCsp = [...BASE_CSP, "connect-src 'self' oscine:"].join('; ')
 
 function cspPlugin(): Plugin {
   return {
-    name: 'fermata:csp',
+    name: 'oscine:csp',
     transformIndexHtml: {
       order: 'pre',
       handler(html, ctx) {
