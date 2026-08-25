@@ -34,8 +34,9 @@ const shell = useShellStore()
       size="xs"
       variant="ghost"
       :color="shell.activeTab === tab.name ? 'primary' : 'neutral'"
-      class="h-full rounded-none border-b-2 px-3 text-xs"
+      class="h-full rounded-none border-b-2 px-3 text-sm tracking-wide"
       :class="shell.activeTab === tab.name ? 'border-primary' : 'border-transparent'"
+      :ui="{ leadingIcon: shell.activeTab === tab.name ? '' : 'opacity-50' }"
       :aria-pressed="shell.activeTab === tab.name"
       @click="router.push({ name: tab.name })"
     />

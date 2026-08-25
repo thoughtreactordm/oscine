@@ -334,17 +334,19 @@ const albumPane = facetPane<AlbumFacet>({
           share. Generated from the registry, so this is the settings view's
           rows in a smaller frame rather than a second copy of them.
         -->
-        <PanelSettingsPopover class="ml-auto" :surface="watchSettings" />
+        <UFieldGroup class="ml-auto">
+          <PanelSettingsPopover :surface="watchSettings" />
 
-        <UButton
-          icon="i-tabler-folder-plus"
-          size="xs"
-          color="neutral"
-          variant="ghost"
-          :loading="roots.adding"
-          aria-label="Add library folder"
-          @click="roots.addFolder()"
-        />
+          <UButton
+            icon="i-tabler-folder-plus"
+            size="lg"
+            color="neutral"
+            variant="ghost"
+            :loading="roots.adding"
+            aria-label="Add library folder"
+            @click="roots.addFolder()"
+          />
+        </UFieldGroup>
       </div>
 
       <UFormField label="Library folder" :ui="{ label: 'sr-only' }">
