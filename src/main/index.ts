@@ -27,7 +27,7 @@ import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { SqlitePodcastService } from './podcasts/service'
 import { createArtistIdentityService, createArtistRelationsService } from './musicbrainz'
-import { createNetService } from './net'
+import { createNetService, createNetworkConsent } from './net'
 import { createKeyringProbe, selectPasswordStore } from './passwordStore'
 import { migrateUserDataDirectory } from './userDataMigration'
 import { createScrobbleAccounts } from './scrobble/accounts'
@@ -394,6 +394,13 @@ if (!app.requestSingleInstanceLock()) {
     // and without an invalidation path to get wrong. See `net/consent.ts`.
     const net = createNetService(settings)
 
+    // The same live-read gate `net`'s client bakes in, as a free-standing object
+    // for the two sockets that do not go through that client: podcast Discover's
+    // catalogue fetches and the catalogue-artwork proxy. Reading `settings`
+    // rather than a copied flag keeps "re-enabling takes effect without a
+    // restart" true here too (W9-5).
+    const networkConsent = createNetworkConsent(settings)
+
     // D19's accounts. Built from `net`'s limiter and scope registry rather than
     // from its client, because scrobbling is the one caller outside D14's
     // consent gate and the gate is baked into a client at construction — the
@@ -624,6 +631,7 @@ if (!app.requestSingleInstanceLock()) {
       db,
       podcastsRoot: podcastsDirectoryPath(),
       artworkCacheDir: artworkCachePath(),
+      consent: networkConsent,
       artworkProcessor,
       onDownloadProgress: broadcastEpisodeDownloadProgress
     })
@@ -680,7 +688,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     setTrustedRendererUrl(rendererUrl)
-    registerTrackProtocol(library, artworkCachePath(), podcasts)
+    registerTrackProtocol(library, artworkCachePath(), networkConsent, podcasts)
     registerIpcHandlers(
       library,
       playlists,

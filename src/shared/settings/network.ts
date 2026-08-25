@@ -25,9 +25,9 @@
  * the episode audio that feed points at, are requests the operator asked for by
  * asking for them; gating those behind this toggle would read as broken rather
  * than as careful. This key gates the lookups *Oscine* decides to make —
- * currently MusicBrainz and Wikipedia for artist information, and W9-5 will
- * bring Apple's podcast catalogue under it too, since browsing a catalogue is
- * Oscine's idea of what to fetch rather than the operator's.
+ * MusicBrainz and Wikipedia for artist information, and Apple's podcast
+ * catalogue for Discover's search and recommendations (W9-5), since browsing a
+ * catalogue is Oscine's idea of what to fetch rather than the operator's.
  */
 
 import { booleanValue, defineSetting, type SettingDescriptor } from './kernel'
@@ -43,11 +43,8 @@ export const NETWORK_SETTINGS: readonly SettingDescriptor[] = [
     validate: booleanValue(),
     control: { kind: 'toggle' },
     category: 'network',
-    label: 'Look up artist information online',
-    help:
-      'Off by default. When on, Oscine sends the playing artist’s name to MusicBrainz and ' +
-      'Wikipedia to fill in biographies, relations and links, and caches the replies beside ' +
-      'your library. Your library, your plays and your files are never sent.',
+    label: 'Allow online lookups',
+    help: 'Fetch artist info and browse the podcast catalogue online. Off by default.',
     keywords: [
       'network',
       'internet',
@@ -58,9 +55,18 @@ export const NETWORK_SETTINGS: readonly SettingDescriptor[] = [
       'musicbrainz',
       'wikipedia',
       'wikidata',
+      'apple',
+      'itunes',
+      'podcast',
+      'catalogue',
+      'discover',
       'metadata',
       'lookup'
     ],
-    order: 10
+    // Sorts after the Last.fm cluster (orders 80–110) on purpose: the account
+    // card is pinned to the top of the Network section, so keeping this toggle
+    // there wedged the one non-scrobbling setting between the account and its
+    // own settings. Last on its own reads as the distinct thing it is.
+    order: 200
   })
 ]

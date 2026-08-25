@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { CATALOG_ARTWORK_HOST, isCatalogArtworkHost, TRACK_SCHEME } from '@shared/ipc'
 import type { ArtworkVariant } from '@shared/library'
+import type { NetworkConsent } from '../net'
 import { OSCINE_USER_AGENT, readCappedBytes } from '../net/http'
 import type { PodcastService } from '../podcasts/service'
 import { parseByteRange, UNSATISFIABLE_RANGE } from './byteRange'
@@ -51,6 +52,7 @@ export function registerTrackScheme(): void {
 export function registerTrackProtocol(
   library: LibraryService,
   artworkCacheDir: string,
+  consent: NetworkConsent,
   podcasts?: PodcastService
 ): void {
   protocol.handle(TRACK_SCHEME, async (request) => {
@@ -66,7 +68,7 @@ export function registerTrackProtocol(
     }
 
     if (url.hostname === CATALOG_ARTWORK_HOST) {
-      return serveCatalogArtwork(url)
+      return serveCatalogArtwork(url, consent)
     }
 
     if (url.hostname !== 'track' && url.hostname !== 'episode') {
@@ -212,7 +214,14 @@ const CATALOG_ARTWORK_TIMEOUT_MS = 15_000
  * capped at a few megabytes, so a slow-but-alive transfer that trips it was
  * never going to be a usable image anyway.
  */
-async function serveCatalogArtwork(url: URL): Promise<Response> {
+async function serveCatalogArtwork(url: URL, consent: NetworkConsent): Promise<Response> {
+  // D14's first rule, at the socket that would actually reach Apple's CDN. The
+  // pane deciding whether to render an `<img>` is not the gate — this is, so a
+  // stale render or a forgetful caller still cannot pull a thumbnail while
+  // lookups are off. A placeholder rather than a 403: the row shows the same
+  // neutral art it shows for any unreachable thumbnail, not an error.
+  if (!consent.granted()) return placeholderResponse()
+
   const remote = url.searchParams.get('u')
   if (!remote) return new Response('Bad request', { status: 400 })
 

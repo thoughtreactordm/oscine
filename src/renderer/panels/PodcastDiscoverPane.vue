@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import PodcastCatalogCard from '@renderer/panels/PodcastCatalogCard.vue'
+import { useSettings } from '@renderer/settings'
 import { usePodcastsStore } from '@renderer/stores/podcasts'
+import { NETWORK_EXTERNAL_LOOKUPS_KEY } from '@shared/settings'
 import {
   PODCAST_BROWSE_CATEGORIES,
   podcastCategoryName,
@@ -22,6 +24,20 @@ import {
  */
 
 const podcasts = usePodcastsStore()
+const settings = useSettings()
+
+/**
+ * D14's first rule, on the display side: the catalogue reaches Apple, so the
+ * whole reaching-out surface — search, the category rail, recommendation
+ * shelves — stays behind the operator's one-time consent. This mirrors the live
+ * gate main enforces at the socket; main is the guarantee, this is the
+ * explanation-with-a-way-to-enable the operator sees instead of an empty grid.
+ * Subscribing to a feed by URL is the operator's own request and never gates.
+ */
+const catalogueEnabled = computed(
+  () => settings.get<boolean>(NETWORK_EXTERNAL_LOOKUPS_KEY) === true
+)
+
 const searchTerm = ref('')
 const feedUrl = ref('')
 const showManualAdd = ref(false)
@@ -45,8 +61,22 @@ const shelvesEmpty = computed(
 )
 
 onMounted(() => {
-  void podcasts.loadRecommendations()
+  if (catalogueEnabled.value) void podcasts.loadRecommendations()
 })
+
+// Turning the gate on — here or from Settings — fills the shelves without a
+// reload of the view. Turning it off leaves the panel; the socket has already
+// stopped answering, so nothing new arrives.
+watch(catalogueEnabled, (enabled) => {
+  if (enabled) void podcasts.loadRecommendations()
+})
+
+async function enableCatalogue(): Promise<void> {
+  // Land on the shelves, not a stale category or search left over from before.
+  searchTerm.value = ''
+  if (podcasts.activeCategoryId !== null) void podcasts.browseCategory(null)
+  await settings.set(NETWORK_EXTERNAL_LOOKUPS_KEY, true)
+}
 
 watch(searchTerm, (value) => {
   if (searchTimer) clearTimeout(searchTimer)
@@ -124,6 +154,7 @@ function shelfIcon(kind: string): string {
 
           <div class="flex items-center gap-2">
             <UButton
+              v-if="catalogueEnabled"
               size="sm"
               color="neutral"
               variant="ghost"
@@ -146,7 +177,13 @@ function shelfIcon(kind: string): string {
           </div>
         </div>
 
+        <!--
+          Search and the category rail reach Apple, so they live behind the
+          consent gate with the shelves. Add-by-URL stays: that is the operator's
+          own request, and gating it would read as broken.
+        -->
         <UInput
+          v-if="catalogueEnabled"
           v-model="searchTerm"
           size="lg"
           icon="i-tabler-search"
@@ -168,7 +205,7 @@ function shelfIcon(kind: string): string {
 
         <!-- Category rail. Renders instantly: the list is a shared constant. -->
         <div
-          v-show="!searching"
+          v-show="catalogueEnabled && !searching"
           class="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           <button
@@ -245,183 +282,227 @@ function shelfIcon(kind: string): string {
           invariant is about library lists at 100k scale; it does not apply here.
         -->
 
-        <!-- Search -->
-        <section v-if="mode === 'search'" class="flex flex-col gap-5">
-          <div class="flex items-baseline justify-between gap-3">
-            <h3 class="text-sm font-semibold text-highlighted">
-              Results for “{{ searchTerm.trim() }}”
-            </h3>
-            <p v-if="podcasts.catalogHits.length" class="text-xs text-dimmed">
-              {{ podcasts.catalogHits.length }} shows
+        <!--
+          Consent gate (D14). Not an error state — the operator has not been
+          asked yet — so it explains what Discover would reach and offers to turn
+          it on, and points at the URL path that needs no catalogue at all.
+        -->
+        <div
+          v-if="!catalogueEnabled"
+          class="mx-auto flex max-w-md flex-col items-center gap-4 rounded-xl border border-dashed border-default py-20 text-center"
+        >
+          <UIcon name="i-tabler-world-search" class="size-8 text-dimmed" aria-hidden="true" />
+          <div class="flex flex-col gap-1.5">
+            <h3 class="text-base font-semibold text-highlighted">Browse the podcast catalogue</h3>
+            <p class="text-sm text-muted">
+              Search and recommendations query Apple’s podcast catalogue. Oscine doesn’t contact
+              Apple until you turn this on — your subscriptions, downloads and playback never do.
             </p>
           </div>
-
-          <div v-if="podcasts.searchingCatalog && !podcasts.catalogHits.length" class="grid-cards">
-            <div v-for="n in 12" :key="n" class="flex flex-col gap-2.5">
-              <div class="aspect-square animate-pulse rounded-xl bg-elevated" />
-              <div class="h-3 w-3/4 animate-pulse rounded bg-elevated" />
-              <div class="h-2.5 w-1/2 animate-pulse rounded bg-elevated" />
-            </div>
-          </div>
-
-          <div
-            v-else-if="!podcasts.catalogHits.length"
-            class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-default py-16 text-center"
-          >
-            <UIcon name="i-tabler-mood-search" class="size-8 text-dimmed" aria-hidden="true" />
-            <p class="text-sm text-muted">No catalogue matches for that term.</p>
+          <div class="flex flex-wrap items-center justify-center gap-2">
+            <UButton icon="i-tabler-world-bolt" @click="enableCatalogue">
+              Turn on catalogue search
+            </UButton>
             <UButton
-              size="xs"
               color="neutral"
               variant="soft"
               icon="i-tabler-plus"
               @click="showManualAdd = true"
             >
-              Subscribe by feed URL instead
+              Subscribe by feed URL
             </UButton>
           </div>
+        </div>
 
-          <div v-else class="grid-cards">
-            <PodcastCatalogCard
-              v-for="hit in podcasts.catalogHits"
-              :key="hit.collectionId"
-              :hit="hit"
-              :subscribed="podcasts.isSubscribedFeed(hit.feedUrl)"
-              :busy="podcasts.subscribing"
-              @subscribe="subscribeHit"
-            />
-          </div>
-        </section>
-
-        <!-- One browsed category -->
-        <section v-else-if="mode === 'category'" class="flex flex-col gap-5">
-          <div class="flex items-center gap-3">
-            <UButton
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              icon="i-tabler-arrow-left"
-              @click="podcasts.browseCategory(null)"
-            >
-              All shelves
-            </UButton>
-            <h3 class="text-sm font-semibold text-highlighted">
-              Top in {{ activeCategory?.name ?? 'this category' }}
-            </h3>
-          </div>
-
-          <div v-if="podcasts.browsingCategory" class="grid-cards">
-            <div v-for="n in 12" :key="n" class="flex flex-col gap-2.5">
-              <div class="aspect-square animate-pulse rounded-xl bg-elevated" />
-              <div class="h-3 w-3/4 animate-pulse rounded bg-elevated" />
-              <div class="h-2.5 w-1/2 animate-pulse rounded bg-elevated" />
+        <template v-else>
+          <!-- Search -->
+          <section v-if="mode === 'search'" class="flex flex-col gap-5">
+            <div class="flex items-baseline justify-between gap-3">
+              <h3 class="text-sm font-semibold text-highlighted">
+                Results for “{{ searchTerm.trim() }}”
+              </h3>
+              <p v-if="podcasts.catalogHits.length" class="text-xs text-dimmed">
+                {{ podcasts.catalogHits.length }} shows
+              </p>
             </div>
-          </div>
 
-          <p v-else-if="!podcasts.categoryHits.length" class="py-16 text-center text-sm text-muted">
-            Nothing came back for that category. Apple's charts may be unreachable right now.
-          </p>
-
-          <div v-else class="grid-cards">
-            <PodcastCatalogCard
-              v-for="hit in podcasts.categoryHits"
-              :key="hit.collectionId"
-              :hit="hit"
-              :subscribed="podcasts.isSubscribedFeed(hit.feedUrl)"
-              :busy="podcasts.subscribing"
-              @subscribe="subscribeHit"
-            />
-          </div>
-        </section>
-
-        <!-- Shelves -->
-        <section v-else class="flex flex-col gap-10">
-          <p
-            v-if="podcasts.coldStart && podcasts.recommendShelves.length"
-            class="-mb-4 text-xs text-dimmed"
-          >
-            Charts to start from. Once you follow a few shows these shelves retune to your genres.
-          </p>
-
-          <template v-if="podcasts.recommending && !podcasts.recommendShelves.length">
-            <div v-for="n in 2" :key="n" class="flex flex-col gap-4">
-              <div class="h-4 w-40 animate-pulse rounded bg-elevated" />
-              <div class="flex gap-4 overflow-hidden">
-                <div v-for="c in 7" :key="c" class="flex w-44 shrink-0 flex-col gap-2.5">
-                  <div class="aspect-square animate-pulse rounded-xl bg-elevated" />
-                  <div class="h-3 w-3/4 animate-pulse rounded bg-elevated" />
-                </div>
+            <div
+              v-if="podcasts.searchingCatalog && !podcasts.catalogHits.length"
+              class="grid-cards"
+            >
+              <div v-for="n in 12" :key="n" class="flex flex-col gap-2.5">
+                <div class="aspect-square animate-pulse rounded-xl bg-elevated" />
+                <div class="h-3 w-3/4 animate-pulse rounded bg-elevated" />
+                <div class="h-2.5 w-1/2 animate-pulse rounded bg-elevated" />
               </div>
             </div>
-          </template>
 
-          <div
-            v-else-if="shelvesEmpty"
-            class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-default py-20 text-center"
-          >
-            <UIcon name="i-tabler-antenna-bars-off" class="size-8 text-dimmed" aria-hidden="true" />
-            <p class="max-w-sm text-sm text-muted">
-              Recommendations could not load. Search above, pick a category, or subscribe by feed
-              URL — none of those need the charts.
+            <div
+              v-else-if="!podcasts.catalogHits.length"
+              class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-default py-16 text-center"
+            >
+              <UIcon name="i-tabler-mood-search" class="size-8 text-dimmed" aria-hidden="true" />
+              <p class="text-sm text-muted">No catalogue matches for that term.</p>
+              <UButton
+                size="xs"
+                color="neutral"
+                variant="soft"
+                icon="i-tabler-plus"
+                @click="showManualAdd = true"
+              >
+                Subscribe by feed URL instead
+              </UButton>
+            </div>
+
+            <div v-else class="grid-cards">
+              <PodcastCatalogCard
+                v-for="hit in podcasts.catalogHits"
+                :key="hit.collectionId"
+                :hit="hit"
+                :subscribed="podcasts.isSubscribedFeed(hit.feedUrl)"
+                :busy="podcasts.subscribing"
+                @subscribe="subscribeHit"
+              />
+            </div>
+          </section>
+
+          <!-- One browsed category -->
+          <section v-else-if="mode === 'category'" class="flex flex-col gap-5">
+            <div class="flex items-center gap-3">
+              <UButton
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                icon="i-tabler-arrow-left"
+                @click="podcasts.browseCategory(null)"
+              >
+                All shelves
+              </UButton>
+              <h3 class="text-sm font-semibold text-highlighted">
+                Top in {{ activeCategory?.name ?? 'this category' }}
+              </h3>
+            </div>
+
+            <div v-if="podcasts.browsingCategory" class="grid-cards">
+              <div v-for="n in 12" :key="n" class="flex flex-col gap-2.5">
+                <div class="aspect-square animate-pulse rounded-xl bg-elevated" />
+                <div class="h-3 w-3/4 animate-pulse rounded bg-elevated" />
+                <div class="h-2.5 w-1/2 animate-pulse rounded bg-elevated" />
+              </div>
+            </div>
+
+            <p
+              v-else-if="!podcasts.categoryHits.length"
+              class="py-16 text-center text-sm text-muted"
+            >
+              Nothing came back for that category. Apple's charts may be unreachable right now.
             </p>
-            <UButton
-              size="xs"
-              color="neutral"
-              variant="soft"
-              icon="i-tabler-refresh"
-              @click="podcasts.loadRecommendations()"
-            >
-              Try again
-            </UButton>
-          </div>
 
-          <template v-else>
-            <section
-              v-for="shelf in podcasts.recommendShelves"
-              :key="shelf.id"
-              class="flex flex-col gap-4"
+            <div v-else class="grid-cards">
+              <PodcastCatalogCard
+                v-for="hit in podcasts.categoryHits"
+                :key="hit.collectionId"
+                :hit="hit"
+                :subscribed="podcasts.isSubscribedFeed(hit.feedUrl)"
+                :busy="podcasts.subscribing"
+                @subscribe="subscribeHit"
+              />
+            </div>
+          </section>
+
+          <!-- Shelves -->
+          <section v-else class="flex flex-col gap-10">
+            <p
+              v-if="podcasts.coldStart && podcasts.recommendShelves.length"
+              class="-mb-4 text-xs text-dimmed"
             >
-              <div class="flex items-baseline gap-2.5">
-                <UIcon
-                  :name="shelfIcon(shelf.kind)"
-                  class="size-4 shrink-0 translate-y-0.5 text-primary"
-                  aria-hidden="true"
-                />
-                <h3 class="text-base font-semibold tracking-tight text-highlighted">
-                  {{ shelf.title }}
-                </h3>
-                <p v-if="shelf.reason" class="truncate text-xs text-dimmed">{{ shelf.reason }}</p>
-                <!--
+              Charts to start from. Once you follow a few shows these shelves retune to your genres.
+            </p>
+
+            <template v-if="podcasts.recommending && !podcasts.recommendShelves.length">
+              <div v-for="n in 2" :key="n" class="flex flex-col gap-4">
+                <div class="h-4 w-40 animate-pulse rounded bg-elevated" />
+                <div class="flex gap-4 overflow-hidden">
+                  <div v-for="c in 7" :key="c" class="flex w-44 shrink-0 flex-col gap-2.5">
+                    <div class="aspect-square animate-pulse rounded-xl bg-elevated" />
+                    <div class="h-3 w-3/4 animate-pulse rounded bg-elevated" />
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <div
+              v-else-if="shelvesEmpty"
+              class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-default py-20 text-center"
+            >
+              <UIcon
+                name="i-tabler-antenna-bars-off"
+                class="size-8 text-dimmed"
+                aria-hidden="true"
+              />
+              <p class="max-w-sm text-sm text-muted">
+                Recommendations could not load. Search above, pick a category, or subscribe by feed
+                URL — none of those need the charts.
+              </p>
+              <UButton
+                size="xs"
+                color="neutral"
+                variant="soft"
+                icon="i-tabler-refresh"
+                @click="podcasts.loadRecommendations()"
+              >
+                Try again
+              </UButton>
+            </div>
+
+            <template v-else>
+              <section
+                v-for="shelf in podcasts.recommendShelves"
+                :key="shelf.id"
+                class="flex flex-col gap-4"
+              >
+                <div class="flex items-baseline gap-2.5">
+                  <UIcon
+                    :name="shelfIcon(shelf.kind)"
+                    class="size-4 shrink-0 translate-y-0.5 text-primary"
+                    aria-hidden="true"
+                  />
+                  <h3 class="text-base font-semibold tracking-tight text-highlighted">
+                    {{ shelf.title }}
+                  </h3>
+                  <p v-if="shelf.reason" class="truncate text-xs text-dimmed">{{ shelf.reason }}</p>
+                  <!--
                   Only for shelves whose genre is on the rail: main's browse
                   handler takes an allowlist, and a sub-genre shelf would be
                   rejected. A dead-end link is worse than no link.
                 -->
-                <button
-                  v-if="isBrowsable(shelf.id)"
-                  type="button"
-                  class="ml-auto shrink-0 text-xs font-medium text-muted transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                  @click="podcasts.browseCategory(shelf.id)"
-                >
-                  See all
-                </button>
-              </div>
+                  <button
+                    v-if="isBrowsable(shelf.id)"
+                    type="button"
+                    class="ml-auto shrink-0 text-xs font-medium text-muted transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                    @click="podcasts.browseCategory(shelf.id)"
+                  >
+                    See all
+                  </button>
+                </div>
 
-              <div
-                class="-mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-2 [scrollbar-width:thin]"
-              >
-                <PodcastCatalogCard
-                  v-for="hit in shelf.hits"
-                  :key="hit.collectionId"
-                  class="w-44 shrink-0 snap-start"
-                  :hit="hit"
-                  :subscribed="podcasts.isSubscribedFeed(hit.feedUrl)"
-                  :busy="podcasts.subscribing"
-                  @subscribe="subscribeHit"
-                />
-              </div>
-            </section>
-          </template>
-        </section>
+                <div
+                  class="-mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-2 [scrollbar-width:thin]"
+                >
+                  <PodcastCatalogCard
+                    v-for="hit in shelf.hits"
+                    :key="hit.collectionId"
+                    class="w-44 shrink-0 snap-start"
+                    :hit="hit"
+                    :subscribed="podcasts.isSubscribedFeed(hit.feedUrl)"
+                    :busy="podcasts.subscribing"
+                    @subscribe="subscribeHit"
+                  />
+                </div>
+              </section>
+            </template>
+          </section>
+        </template>
       </div>
     </div>
   </div>

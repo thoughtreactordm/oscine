@@ -9,6 +9,7 @@
 import { OscineError } from '@shared/errors'
 import type { PodcastCatalogHit } from '@shared/podcasts'
 import { OSCINE_USER_AGENT } from '../net/http'
+import type { NetworkConsent } from '../net'
 
 const ITUNES_TIMEOUT_MS = 15_000
 /** Apple's root "Podcasts" genre — noise for recommendation weighting. */
@@ -28,14 +29,30 @@ export interface ItunesClientDeps {
   fetchImpl?: typeof fetch
   country?: string
   userAgent?: string
+  /**
+   * **D14**'s first rule, at the socket. When present and denied, no request
+   * leaves — the same gate `NetClient` bakes in for MusicBrainz and Wikipedia,
+   * applied to Apple's catalogue. Omitted only by tests exercising transport
+   * and parsing; every production client is built with it in `service.ts`.
+   */
+  consent?: NetworkConsent
 }
 
 export function createItunesClient(deps: ItunesClientDeps = {}): ItunesClient {
   const fetchImpl = deps.fetchImpl ?? fetch
   const country = deps.country ?? DEFAULT_COUNTRY
   const userAgent = deps.userAgent ?? OSCINE_USER_AGENT
+  const consent = deps.consent
 
   async function getJson(url: string): Promise<unknown> {
+    // Checked here rather than in the panes that want the data: a rule enforced
+    // at the point of display is one a new caller can forget, and forgetting
+    // this one means a request left the machine before the operator agreed to
+    // it. Read live, so switching the toggle off stops fetching without a
+    // restart. See `net/consent.ts`.
+    if (consent && !consent.granted()) {
+      throw new OscineError('io-error', 'Online catalogue lookups are turned off.')
+    }
     let response: Response
     try {
       response = await fetchImpl(url, {

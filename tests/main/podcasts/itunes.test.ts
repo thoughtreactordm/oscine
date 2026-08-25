@@ -98,6 +98,38 @@ describe('itunes catalogue parsers', () => {
     expect(calls.some((u) => u.includes('genre=1488'))).toBe(true)
   })
 
+  it('refuses every catalogue request at the socket when consent is denied (D14)', async () => {
+    const calls: string[] = []
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      calls.push(String(input))
+      return new Response(JSON.stringify({ resultCount: 0, results: [] }))
+    }) as unknown as typeof fetch
+
+    const client = createItunesClient({ fetchImpl, consent: { granted: () => false } })
+    await expect(client.search('serial', 5)).rejects.toThrow()
+    await expect(client.lookupIds([917918570])).rejects.toThrow()
+    await expect(client.chart('1488', 5)).rejects.toThrow()
+    // The point of the card: not one request reached Apple.
+    expect(calls).toEqual([])
+  })
+
+  it('reads consent live, so re-enabling takes effect without a new client', async () => {
+    let granted = false
+    const calls: string[] = []
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      calls.push(String(input))
+      return new Response(JSON.stringify({ resultCount: 1, results: [SERIAL_RESULT] }))
+    }) as unknown as typeof fetch
+
+    const client = createItunesClient({ fetchImpl, consent: { granted: () => granted } })
+    await expect(client.search('serial', 5)).rejects.toThrow()
+    expect(calls).toHaveLength(0)
+
+    granted = true
+    expect(await client.search('serial', 5)).toHaveLength(1)
+    expect(calls).toHaveLength(1)
+  })
+
   it('charts come from the toppodcasts generator, not the audio-only one', async () => {
     // Not pedantry about a URL: `topaudiopodcasts` answers 200 with an empty
     // feed for most genres, so picking the wrong generator fails as silently

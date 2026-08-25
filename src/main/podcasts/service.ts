@@ -41,6 +41,7 @@ import {
   ResponseTooLargeError,
   TransferStalledError
 } from '../net/http'
+import type { NetworkConsent } from '../net'
 import { parseOpml } from './opml'
 import { episodeRelPath, podcastDirName, resolveEpisodeAbsPath } from './paths'
 import { parsePodcastRss, RssParseError } from './rss'
@@ -97,6 +98,12 @@ export interface PodcastServiceDeps {
   artworkCacheDir: string
   fetchImpl?: typeof fetch
   itunes?: ItunesClient
+  /**
+   * **D14**'s consent gate, handed to the catalogue client so every Apple
+   * request refuses at the socket when external lookups are off. Absent only
+   * when a test injects its own `itunes`.
+   */
+  consent?: NetworkConsent
   artworkProcessor?: ArtworkImageProcessor
   onDownloadProgress?: (progress: EpisodeDownloadProgress) => void
   now?: () => number
@@ -126,7 +133,12 @@ export class SqlitePodcastService implements PodcastService {
     this.artworkCacheDir = deps.artworkCacheDir
     this.fetchImpl = deps.fetchImpl ?? fetch
     this.itunes =
-      deps.itunes ?? createItunesClient({ fetchImpl: this.fetchImpl, userAgent: OSCINE_USER_AGENT })
+      deps.itunes ??
+      createItunesClient({
+        fetchImpl: this.fetchImpl,
+        userAgent: OSCINE_USER_AGENT,
+        consent: deps.consent
+      })
     this.artwork = deps.artworkProcessor ?? new WorkerArtworkImageProcessor()
     this.onDownloadProgress = deps.onDownloadProgress ?? (() => undefined)
     this.now = deps.now ?? (() => Date.now())
