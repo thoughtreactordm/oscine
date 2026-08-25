@@ -1,7 +1,7 @@
 ---
 taskId: 01M0TDPXYBEEGNWR6WBNRD7ZCS
 title: 'Renderer: useGlobalShortcuts + palette shell + title-bar affordance'
-status: in-review
+status: done
 priority: high
 labels:
   - renderer
@@ -14,9 +14,9 @@ workstreamId: W13-5
 dependsOn:
   - 01M0TDNEXM17131MG55E72K2EK
   - 01M0TDPGQG2BFA5MT5SN4XE4HR
-order: 1
+order: 4
 created: '2026-08-24T17:39:53.418Z'
-updated: '2026-08-24T19:46:10.472Z'
+updated: '2026-08-25T21:17:15.141Z'
 ---
 Spec: wiki `fermata-quick-access` → D21, D27, Renderer architecture, RQ1.
 

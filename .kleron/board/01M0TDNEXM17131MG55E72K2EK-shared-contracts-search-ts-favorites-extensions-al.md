@@ -1,7 +1,7 @@
 ---
 taskId: 01M0TDNEXM17131MG55E72K2EK
 title: 'Shared contracts: search.ts, favorites extensions, AlbumCard, IPC channels'
-status: in-review
+status: done
 priority: high
 labels:
   - shared
@@ -12,9 +12,9 @@ labels:
   - D25
 workstream: W13
 workstreamId: W13-1
-order: 0
+order: 1
 created: '2026-08-24T17:39:05.267Z'
-updated: '2026-08-24T17:56:53.301Z'
+updated: '2026-08-25T21:17:15.088Z'
 ---
 Spec: wiki `fermata-quick-access` → Data contract.
 

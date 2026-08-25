@@ -1,7 +1,7 @@
 ---
 taskId: 01M0TDP6QRS7EBP62F7ZG38R4P
 title: 'Main: favorites service for playlists & artists'
-status: in-review
+status: done
 priority: medium
 labels:
   - main
@@ -12,9 +12,9 @@ workstreamId: W13-3
 dependsOn:
   - 01M0TDNEXM17131MG55E72K2EK
   - 01M0TDNVBPBXZCA5WH3G70JSSM
-order: 2
+order: 6
 created: '2026-08-24T17:39:29.656Z'
-updated: '2026-08-24T18:47:42.165Z'
+updated: '2026-08-25T21:17:15.172Z'
 ---
 Spec: wiki `fermata-quick-access` → D24, Data contract (IPC channels).
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01M0TDPGQG2BFA5MT5SN4XE4HR
 title: 'Main: unified search.query + library.recentlyAddedAlbums'
-status: in-review
+status: done
 priority: high
 labels:
   - main
@@ -14,9 +14,9 @@ workstreamId: W13-4
 dependsOn:
   - 01M0TDNEXM17131MG55E72K2EK
   - 01M0TDNVBPBXZCA5WH3G70JSSM
-order: 3
+order: 7
 created: '2026-08-24T17:39:39.887Z'
-updated: '2026-08-24T19:06:59.288Z'
+updated: '2026-08-25T21:17:15.188Z'
 ---
 Spec: wiki `fermata-quick-access` → D23, D25, Data contract, RQ1/RQ2.
 

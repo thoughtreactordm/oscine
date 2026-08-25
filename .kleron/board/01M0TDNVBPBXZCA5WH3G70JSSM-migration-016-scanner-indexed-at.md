@@ -1,7 +1,7 @@
 ---
 taskId: 01M0TDNVBPBXZCA5WH3G70JSSM
 title: Migration 016 + scanner indexed_at
-status: in-review
+status: done
 priority: high
 labels:
   - main
@@ -13,9 +13,9 @@ workstream: W13
 workstreamId: W13-2
 dependsOn:
   - 01M0TDNEXM17131MG55E72K2EK
-order: 1
+order: 3
 created: '2026-08-24T17:39:18.005Z'
-updated: '2026-08-24T18:19:09.778Z'
+updated: '2026-08-25T21:17:15.131Z'
 ---
 Spec: wiki `fermata-quick-access` → Data contract (Schema), D24, D25.
 

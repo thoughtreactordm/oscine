@@ -1,7 +1,7 @@
 ---
 taskId: 01M0TDQW2SENE9P8BBENXJZ68A
 title: 'Renderer: Quick Menu UDrawer on Now Playing'
-status: in-progress
+status: done
 priority: medium
 labels:
   - renderer
@@ -13,9 +13,9 @@ workstreamId: W13-8
 dependsOn:
   - 01M0TDQ6N6PMEF2JK32C0JGP32
   - 01M0TDPGQG2BFA5MT5SN4XE4HR
-order: 0
+order: 2
 created: '2026-08-24T17:40:24.280Z'
-updated: '2026-08-24T20:48:08.878Z'
+updated: '2026-08-25T21:17:15.112Z'
 ---
 Spec: wiki `fermata-quick-access` → D26, Renderer architecture, product rules 8/9.
 

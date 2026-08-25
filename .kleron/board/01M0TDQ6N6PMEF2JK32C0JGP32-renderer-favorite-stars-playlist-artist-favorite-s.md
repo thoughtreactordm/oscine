@@ -1,7 +1,7 @@
 ---
 taskId: 01M0TDQ6N6PMEF2JK32C0JGP32
 title: 'Renderer: favorite stars + playlist/artist favorite stores'
-status: in-review
+status: done
 priority: medium
 labels:
   - renderer
@@ -13,9 +13,9 @@ workstreamId: W13-6
 dependsOn:
   - 01M0TDNEXM17131MG55E72K2EK
   - 01M0TDP6QRS7EBP62F7ZG38R4P
-order: 5
+order: 8
 created: '2026-08-24T17:40:02.341Z'
-updated: '2026-08-24T20:13:01.281Z'
+updated: '2026-08-25T21:17:15.201Z'
 ---
 Spec: wiki `fermata-quick-access` → D24, Renderer architecture, product rule 6.
 
