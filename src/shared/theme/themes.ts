@@ -207,9 +207,9 @@ const STATUS_RAMPS = {
   error: palette('red')
 } as const
 
-const FERMATA: BuiltInTheme = {
-  id: 'fermata',
-  label: 'Fermata',
+const OSCINE: BuiltInTheme = {
+  id: 'oscine',
+  label: 'Oscine',
   description: 'Warm amber on a taupe grey. What the app has always looked like.',
   light: {
     ramps: {
@@ -333,12 +333,22 @@ const HIGH_CONTRAST: BuiltInTheme = {
   }
 }
 
-export const BUILT_IN_THEMES: readonly BuiltInTheme[] = [FERMATA, NOCTURNE, HIGH_CONTRAST]
+export const BUILT_IN_THEMES: readonly BuiltInTheme[] = [OSCINE, NOCTURNE, HIGH_CONTRAST]
 
 /** The theme measured against the strict pair set. */
 export const HIGH_CONTRAST_THEME_ID = HIGH_CONTRAST.id
 
-export const DEFAULT_THEME_ID = FERMATA.id
+export const DEFAULT_THEME_ID = OSCINE.id
+
+/**
+ * The default theme's id before the Fermata → Oscine rename.
+ *
+ * The theme itself is unchanged — same amber-on-taupe ramps — only its id and
+ * label moved. A profile that stored the old id is upgraded to the current one
+ * by the `theme.name` setting's version bump, so the selection resolves cleanly
+ * instead of falling through `findTheme` and reporting the theme missing.
+ */
+export const LEGACY_DEFAULT_THEME_ID = 'fermata'
 
 export function findTheme(id: string): BuiltInTheme | undefined {
   return BUILT_IN_THEMES.find((theme) => theme.id === id)

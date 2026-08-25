@@ -16,7 +16,13 @@
  * is deliberately not durable. See its note below.
  */
 
-import { BUILT_IN_THEMES, DEFAULT_THEME_ID, parseOverrides, type ThemeOverrides } from '../theme'
+import {
+  BUILT_IN_THEMES,
+  DEFAULT_THEME_ID,
+  LEGACY_DEFAULT_THEME_ID,
+  parseOverrides,
+  type ThemeOverrides
+} from '../theme'
 import {
   acceptValue,
   booleanValue,
@@ -90,6 +96,13 @@ export const THEME_SETTINGS: readonly SettingDescriptor[] = [
     key: THEME_NAME_KEY,
     scope: 'durable',
     default: DEFAULT_THEME_ID,
+    // v2: the default theme's id moved from `fermata` to `oscine` in the rename.
+    // The theme is otherwise unchanged, so a profile holding the old id is
+    // rewritten to the new one — without this the id survives (any string is
+    // accepted here) but `findTheme` misses it and the theme reads as missing.
+    // Every other stored id, built-in or not, passes through untouched.
+    version: 2,
+    upgrade: (value) => (value === LEGACY_DEFAULT_THEME_ID ? DEFAULT_THEME_ID : value),
     validate: themeIdValue(),
     control: {
       kind: 'select',

@@ -95,8 +95,9 @@ export interface SqliteSettingsServiceOptions {
    * Defaults to the real registry.
    *
    * Overridable for the same reason `auditRegistry` and `resolveSettings` take a
-   * descriptor list: every shipped key is at version 1, so the upgrade-on-read
-   * path has nothing to exercise it until one of them changes shape.
+   * descriptor list: nearly every shipped key is at version 1 — `theme.name` is
+   * the one exception, bumped to v2 by the rename — so a test wanting to
+   * exercise a particular upgrade path still builds its own registry.
    */
   registry?: readonly SettingDescriptor[]
   /** Injectable so a test can assert on `updated_at` without racing the clock. */
