@@ -3,10 +3,12 @@
  *
  * ## Provenance
  *
- * > Registered at <https://www.last.fm/api/account/create> on **Monday 3 August
- * > 2026, 23:38**, under the Last.fm account **`mdelally`**. Rotating, revoking
- * > or raising a quota on this pair means signing in as that account — there is
- * > no other route to it, which is the whole reason this paragraph exists.
+ * > Registered at <https://www.last.fm/api/account/create> on **25 August 2026**
+ * > as the **Oscine** application, under the Last.fm account **`mdelally`** —
+ * > replacing the original Fermata registration, whose shared secret Last.fm
+ * > would no longer re-display on the API accounts page. Rotating, revoking or
+ * > raising a quota on this pair means signing in as that account; there is no
+ * > other route to it, which is the whole reason this paragraph exists.
  *
  * That block is the deliverable, not decoration. A shipped credential with no
  * record of whose account it belongs to is a credential nobody can rotate,
@@ -20,7 +22,7 @@
  * it can do. Scrobbling requires a session key bound to one account, obtained by
  * that account's owner typing their own password on Last.fm's own login page.
  * An extracted app key buys someone the ability to write a scrobbler that calls
- * itself Fermata. It buys them no account, no listening history and no library.
+ * itself Oscine. It buys them no account, no listening history and no library.
  *
  * Hiding it would therefore be theatre — an obfuscation that costs a build step
  * and defeats nobody who can run `npx asar extract`. What it would cost is the
@@ -48,10 +50,10 @@ import type { SettingsService } from '../../settings'
  * these two lines and nothing else, and it must degrade to "no application key
  * configured" rather than to a signature failure against a dead key.
  */
-export const SHIPPED_LASTFM_API_KEY: string = '471404f0fbcd043e841af5712343851d'
+export const SHIPPED_LASTFM_API_KEY: string = '8a0b5308752ce84d0485be82c630f14e'
 
 /** Its shared secret — the other half of *which application*, not of *who*. */
-export const SHIPPED_LASTFM_API_SECRET: string = '3476522a884403ee5f069064b5426bbb'
+export const SHIPPED_LASTFM_API_SECRET: string = 'aad070cdf629b96d457dcbc8ace40764'
 
 export interface LastfmAppKey {
   readonly apiKey: string
