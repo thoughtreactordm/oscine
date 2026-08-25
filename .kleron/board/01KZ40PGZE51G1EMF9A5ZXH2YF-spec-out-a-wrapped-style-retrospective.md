@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40PGZE51G1EMF9A5ZXH2YF
 title: Spec out a Wrapped-style retrospective
-status: todo
+status: backlog
 priority: low
 labels:
   - spec
@@ -11,9 +11,9 @@ workstream: W10
 workstreamId: W10-14
 dependsOn:
   - 01KZ40NGY6GCWYGQSSSBE5QTJ7
-order: 56
+order: 7
 created: '2026-08-03T14:33:29.326Z'
-updated: '2026-08-03T14:33:29.326Z'
+updated: '2026-08-25T22:23:18.181Z'
 ---
 **A specification card. Produces a wiki document, not code.**
 

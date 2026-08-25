@@ -1,7 +1,7 @@
 ---
 taskId: 01KYXFXWNZXDAQ9YWB09C4PP2W
 title: Discover's catalogue fetches behind the D14 consent gate
-status: in-progress
+status: done
 priority: high
 labels:
   - D14
@@ -13,7 +13,7 @@ dependsOn:
   - 01KYTKXNGSRRBNQEF2W1SY93P3
 order: 0
 created: '2026-08-01T01:44:58.300Z'
-updated: '2026-08-25T21:17:30.190Z'
+updated: '2026-08-25T22:23:29.272Z'
 ---
 ## Scope
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ4Q5KF9RXX2JS0YR85BAAKN
 title: The artist nexus favorites annotation — a local count against a remote list
-status: todo
+status: backlog
 priority: low
 labels:
   - main
@@ -12,9 +12,9 @@ workstream: W10
 workstreamId: W10-15
 dependsOn:
   - 01KZ40M85TA043BH193Z81VD2D
-order: 65
+order: 9
 created: '2026-08-03T21:06:12.072Z'
-updated: '2026-08-03T21:06:12.072Z'
+updated: '2026-08-25T22:23:18.206Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → Favorites → "As a relations parameter", second half.
 
