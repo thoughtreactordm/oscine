@@ -29,6 +29,7 @@ import { SqlitePodcastService } from './podcasts/service'
 import { createArtistIdentityService, createArtistRelationsService } from './musicbrainz'
 import { createNetService } from './net'
 import { createKeyringProbe, selectPasswordStore } from './passwordStore'
+import { migrateUserDataDirectory } from './userDataMigration'
 import { createScrobbleAccounts } from './scrobble/accounts'
 import { createCredentialFileIo, createScrobbleCredentialStore } from './scrobble/credentials'
 import { createScrobbleDrainWorker } from './scrobble/drain'
@@ -318,6 +319,13 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
+    // Before anything resolves a path under userData: the Fermata → Oscine
+    // rename moves the directory the whole library lives in, and skipping this
+    // would open a fresh empty database beside the operator's real one. Inert
+    // after the first launch under the new name.
+    const relocated = migrateUserDataDirectory()
+    if (relocated) console.info(`[fermata] migrated userData ${relocated.from} → ${relocated.to}`)
+
     const filePath = libraryDatabasePath()
     let db: BetterSqlite3.Database
     let listensMoved: boolean
