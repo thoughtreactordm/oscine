@@ -1,5 +1,5 @@
 /*
- * The bridge: Fermata tokens in, Tailwind and Nuxt UI variables out.
+ * The bridge: Oscine tokens in, Tailwind and Nuxt UI variables out.
  *
  * This file is the whole reason a theme swap touches zero component code. The
  * 40 components in this app render against Nuxt UI's semantic classes —

@@ -1,5 +1,5 @@
 /**
- * The one identity Fermata presents to every host it talks to.
+ * The one identity Oscine presents to every host it talks to.
  *
  * One constant rather than a literal per call site: a client that identifies
  * itself differently depending on which of its own requests you look at is the

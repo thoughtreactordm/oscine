@@ -1,5 +1,5 @@
 /**
- * Which credential backend Fermata asks Chromium for.
+ * Which credential backend Oscine asks Chromium for.
  *
  * The rule is narrow on purpose — fill in a blank, never correct an answer — and
  * both halves of it are load-bearing in a way a reading of the code will not
