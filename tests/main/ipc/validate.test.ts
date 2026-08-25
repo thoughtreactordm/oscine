@@ -31,6 +31,7 @@ import {
   assertFavoriteStateRequest,
   assertListFavoriteIdsQuery,
   assertListFavoritesQuery,
+  assertOpenExternalRequest,
   assertOrderTrackIdsQuery,
   assertRemoveFavoritesRequest,
   assertSaveDiscoverShelfRequest,
@@ -326,6 +327,42 @@ describe('net scope IPC validation', () => {
     ]) {
       expect(() => assertCancelNetScopeRequest(request)).toThrow(OscineError)
     }
+  })
+})
+
+describe('open-external IPC validation', () => {
+  it('accepts http and https URLs, normalised', () => {
+    expect(assertOpenExternalRequest({ url: 'https://ui.nuxt.com' })).toEqual({
+      url: 'https://ui.nuxt.com/'
+    })
+    expect(assertOpenExternalRequest({ url: 'http://example.org/docs' })).toEqual({
+      url: 'http://example.org/docs'
+    })
+  })
+
+  it('refuses any non-web scheme so the renderer cannot reach the shell', () => {
+    // The whole point of the guard: `shell.openExternal` will launch `file:`,
+    // `mailto:` and worse, and the renderer is the last place that should decide
+    // which scheme is safe.
+    for (const url of [
+      'file:///etc/passwd',
+      'mailto:a@b.c',
+      'javascript:alert(1)',
+      'oscine://track/1',
+      'not a url',
+      '',
+      'ftp://example.org'
+    ]) {
+      expect(() => assertOpenExternalRequest({ url })).toThrow(OscineError)
+    }
+  })
+
+  it('refuses a non-string url and unexpected fields', () => {
+    expect(() => assertOpenExternalRequest({ url: 7 })).toThrow(OscineError)
+    expect(() => assertOpenExternalRequest({})).toThrow(OscineError)
+    expect(() => assertOpenExternalRequest({ url: 'https://ok.dev', target: '_blank' })).toThrow(
+      OscineError
+    )
   })
 })
 

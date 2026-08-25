@@ -948,6 +948,28 @@ const MAX_OPML_CHARS = 2_000_000
 const MAX_PODCAST_EPISODE_PAGE = 100
 const MAX_PODCAST_RECENT_PAGE = 50
 
+export function assertOpenExternalRequest(value: unknown): { url: string } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['url'])
+  if (typeof raw.url !== 'string' || raw.url.trim() === '') {
+    invalid('url must be a non-empty string.')
+  }
+  // http/https only. `shell.openExternal` will happily launch `file:`, `mailto:`
+  // and worse, and the renderer is the last place that should decide which is
+  // safe — so the scheme is fixed here, at the boundary, the same way the main
+  // window's own `setWindowOpenHandler` fixes it.
+  let parsed: URL
+  try {
+    parsed = new URL(raw.url)
+  } catch {
+    invalid('url must be a valid absolute URL.')
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    invalid('url must be an http or https URL.')
+  }
+  return { url: parsed.toString() }
+}
+
 export function assertFeedUrl(value: unknown): string {
   if (typeof value !== 'string' || value.trim() === '') {
     invalid('feedUrl must be a non-empty string.')

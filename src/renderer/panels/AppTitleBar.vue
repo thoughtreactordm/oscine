@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type { DropdownMenuItem } from '@nuxt/ui'
-import { windowControls } from '@renderer/ipc'
+import { appInfo, windowControls } from '@renderer/ipc'
+import { shellTabs } from '@renderer/shell/routes'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { usePaletteStore } from '@renderer/stores/palette'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useShellStore } from '@renderer/stores/shell'
+import { useTunedeckStore } from '@renderer/stores/tunedeck'
+import { OPEN_SOURCE_CREDITS } from '@renderer/panels/openSourceCredits'
 
 /**
  * The menu reaches the stores directly rather than emitting to a parent. The
@@ -14,7 +19,30 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 const roots = useLibraryRootsStore()
 const palette = usePaletteStore()
 const playback = usePlaybackStore()
+const shell = useShellStore()
+const tunedeck = useTunedeckStore()
+const router = useRouter()
 const maximized = ref(false)
+
+/**
+ * The About dialog and the Open Source dialog, opened from the Help menu and
+ * closed by their own chrome. Both live here because the title bar is the one
+ * component mounted for the whole life of the window — the same reason the
+ * remove-folder confirmation does.
+ */
+const aboutOpen = ref(false)
+const openSourceOpen = ref(false)
+
+/**
+ * The running version, read once when the bar mounts. It comes from
+ * `app.getVersion()` in main rather than from a bundled `package.json` so the
+ * number in the About box is the one the built app actually reports, not a copy
+ * that a packaging step could leave behind.
+ */
+const version = ref('')
+
+/** Placeholder until the documentation site exists — G7 says a stand-in is fine. */
+const DOCS_URL = 'https://github.com/thoughtreactordm/oscine'
 
 /**
  * The shortcut hint on the search box. Cosmetic — the binding itself is
@@ -109,25 +137,142 @@ const removeOpen = computed({
   }
 })
 
-const playbackItems = computed<DropdownMenuItem[]>(() => [
-  {
-    label: 'Previous',
-    icon: 'i-tabler-player-skip-back',
-    disabled: !playback.hasTrack,
-    onSelect: () => playback.previous()
-  },
-  {
-    label: playback.isPlaying ? 'Pause' : 'Play',
-    icon: playback.isPlaying ? 'i-tabler-player-pause' : 'i-tabler-player-play',
-    disabled: !playback.hasTrack,
-    onSelect: () => playback.toggle()
-  },
-  {
-    label: 'Next',
-    icon: 'i-tabler-player-skip-forward',
-    disabled: !playback.hasTrack,
-    onSelect: () => playback.next()
-  }
+/**
+ * Transport verbs, then the two standing modes.
+ *
+ * The verbs act on the current track and grey out with an empty transport, the
+ * way the transport bar's own buttons do. Shuffle and repeat are modes, not
+ * verbs — they can be armed with nothing playing and apply to the next thing
+ * started — so they stay enabled and read as a separate group below the divider.
+ *
+ * Shuffle is a checkbox because it is on or off; repeat is a submenu of three
+ * mutually exclusive modes rather than the transport's single cycling button,
+ * because a menu can show all three at once and say which is current, where the
+ * button can only show the one it is on.
+ */
+const playbackItems = computed<DropdownMenuItem[][]>(() => [
+  [
+    {
+      label: 'Previous',
+      icon: 'i-tabler-player-skip-back',
+      disabled: !playback.hasTrack,
+      onSelect: () => playback.previous()
+    },
+    {
+      label: playback.isPlaying ? 'Pause' : 'Play',
+      icon: playback.isPlaying ? 'i-tabler-player-pause' : 'i-tabler-player-play',
+      disabled: !playback.hasTrack,
+      onSelect: () => playback.toggle()
+    },
+    {
+      label: 'Next',
+      icon: 'i-tabler-player-skip-forward',
+      disabled: !playback.hasTrack,
+      onSelect: () => playback.next()
+    }
+  ],
+  [
+    {
+      label: 'Shuffle',
+      icon: playback.shuffleEnabled ? 'i-tabler-arrows-shuffle' : 'i-tabler-arrows-right',
+      type: 'checkbox',
+      checked: playback.shuffleEnabled,
+      onUpdateChecked: () => void playback.toggleShuffle()
+    },
+    {
+      label: 'Repeat',
+      icon: playback.repeatMode === 'one' ? 'i-tabler-repeat-once' : 'i-tabler-repeat',
+      children: [
+        {
+          label: 'Off',
+          type: 'checkbox',
+          checked: playback.repeatMode === 'off',
+          onUpdateChecked: () => playback.setRepeatMode('off')
+        },
+        {
+          label: 'All',
+          type: 'checkbox',
+          checked: playback.repeatMode === 'all',
+          onUpdateChecked: () => playback.setRepeatMode('all')
+        },
+        {
+          label: 'This track',
+          type: 'checkbox',
+          checked: playback.repeatMode === 'one',
+          onUpdateChecked: () => playback.setRepeatMode('one')
+        }
+      ]
+    }
+  ]
+])
+
+/**
+ * View — every tab, then the two surfaces that are not tabs.
+ *
+ * The tab list is `shellTabs`, the same array the tab row renders, so the menu
+ * cannot list a destination the row does not have or miss one it gains. Tunedeck
+ * and Quick Menu follow after a divider: neither is a place you navigate to, so
+ * they read as a separate group. Tunedeck toggles in place; Quick Menu belongs
+ * to Now Playing, so choosing it goes there and asks the drawer to open — see
+ * `shell.requestQuickMenu`.
+ */
+const viewItems = computed<DropdownMenuItem[][]>(() => [
+  shellTabs.map((tab) => ({
+    label: tab.label,
+    icon: tab.icon,
+    onSelect: () => void router.push({ name: tab.name })
+  })),
+  [
+    {
+      label: 'Tunedeck',
+      icon: 'i-tabler-adjustments',
+      // The deck stands down with an empty transport, and the toggle refuses in
+      // that state — so it is disabled here for the same reason the transport's
+      // own button is, rather than offering a click that does nothing.
+      disabled: !playback.hasTrack,
+      onSelect: () => tunedeck.toggle()
+    },
+    {
+      label: 'Quick Menu',
+      icon: 'i-tabler-layout-sidebar-left-expand',
+      onSelect: () => {
+        void router.push({ name: 'now-playing' })
+        shell.requestQuickMenu()
+      }
+    }
+  ]
+])
+
+/**
+ * Help — About, the documentation link, then the Open Source credits.
+ *
+ * The documentation target is a placeholder for now (G7). Both modals are opened
+ * from here and rendered at the foot of this component.
+ */
+const helpItems = computed<DropdownMenuItem[][]>(() => [
+  [
+    {
+      label: 'About Oscine',
+      icon: 'i-tabler-info-circle',
+      onSelect: () => {
+        aboutOpen.value = true
+      }
+    },
+    {
+      label: 'Documentation',
+      icon: 'i-tabler-book',
+      onSelect: () => void appInfo.openExternal(DOCS_URL)
+    }
+  ],
+  [
+    {
+      label: 'Open Source',
+      icon: 'i-tabler-heart-handshake',
+      onSelect: () => {
+        openSourceOpen.value = true
+      }
+    }
+  ]
 ])
 
 onMounted(async () => {
@@ -135,6 +280,7 @@ onMounted(async () => {
     maximized.value = value
   })
   maximized.value = await windowControls.isMaximized()
+  version.value = await appInfo.getVersion()
 })
 
 onUnmounted(() => stopMaximizedListener?.())
@@ -170,6 +316,26 @@ async function toggleMaximize(): Promise<void> {
       <UDropdownMenu :items="playbackItems" :content="{ align: 'start', sideOffset: 0 }">
         <UButton
           label="Playback"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          class="h-full rounded-none px-2.5 text-xs"
+        />
+      </UDropdownMenu>
+
+      <UDropdownMenu :items="viewItems" :content="{ align: 'start', sideOffset: 0 }">
+        <UButton
+          label="View"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          class="h-full rounded-none px-2.5 text-xs"
+        />
+      </UDropdownMenu>
+
+      <UDropdownMenu :items="helpItems" :content="{ align: 'start', sideOffset: 0 }">
+        <UButton
+          label="Help"
           color="neutral"
           variant="ghost"
           size="xs"
@@ -241,6 +407,67 @@ async function toggleMaximize(): Promise<void> {
         <UButton color="error" icon="i-tabler-folder-minus" @click="roots.confirmRemove()">
           Remove
         </UButton>
+      </template>
+    </UModal>
+
+    <!--
+      About — the mark and wordmark exactly as the bar wears them, the running
+      version, and the byline. The mark is the same badge the title bar and the
+      app icon are built from (see `scripts/make-icons.mjs`), rebuilt here rather
+      than referenced so it themes with everything else.
+    -->
+    <UModal v-model:open="aboutOpen" title="About Oscine">
+      <template #body>
+        <div class="flex flex-col items-center gap-4 py-4 text-center">
+          <span
+            class="flex size-16 items-center justify-center rounded-2xl bg-primary text-inverted"
+          >
+            <UIcon name="i-tabler-wave-sine" class="size-9" />
+          </span>
+          <div class="flex flex-col items-center gap-1">
+            <span class="app-logo text-2xl font-semibold tracking-wide text-highlighted">
+              oscine
+            </span>
+            <span class="text-sm text-muted">Version {{ version || '—' }}</span>
+          </div>
+          <p class="text-sm text-muted">Created with love by Michael DeLally</p>
+        </div>
+      </template>
+    </UModal>
+
+    <!--
+      Open Source — the notable stack, hand-curated (G7). Deliberately not a dump
+      of the dependency tree: name, licence and a link to each project Oscine
+      leans on. The list lives in `openSourceCredits.ts`.
+    -->
+    <UModal
+      v-model:open="openSourceOpen"
+      title="Open Source"
+      description="Oscine is built on the work of these projects."
+      :ui="{ body: 'sm:max-h-[60vh] overflow-y-auto' }"
+    >
+      <template #body>
+        <ul class="flex flex-col gap-1">
+          <li
+            v-for="credit in OPEN_SOURCE_CREDITS"
+            :key="credit.name"
+            class="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-elevated"
+          >
+            <div class="flex min-w-0 flex-col">
+              <button
+                type="button"
+                class="truncate text-left text-sm font-medium text-highlighted hover:underline"
+                @click="appInfo.openExternal(credit.url)"
+              >
+                {{ credit.name }}
+              </button>
+              <span class="truncate text-xs text-muted">{{ credit.purpose }}</span>
+            </div>
+            <UBadge color="neutral" variant="subtle" size="sm" class="shrink-0">
+              {{ credit.license }}
+            </UBadge>
+          </li>
+        </ul>
       </template>
     </UModal>
   </header>

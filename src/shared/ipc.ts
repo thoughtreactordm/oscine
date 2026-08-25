@@ -145,6 +145,14 @@ export interface IpcContract {
   'window.toggleMaximize': { request: null; response: boolean }
   'window.isMaximized': { request: null; response: boolean }
   'window.close': { request: null; response: null }
+  /** The running application version, for the About dialog. */
+  'app.getVersion': { request: null; response: string }
+  /**
+   * Opens an `http`/`https` URL in the system browser. Any other scheme is
+   * refused in main — the renderer has no path to the shell of its own, and the
+   * Help and Open Source links are the only reason this exists.
+   */
+  'app.openExternal': { request: { url: string }; response: null }
   /** Opens a native folder picker in main. Resolves `null` if the user cancels. */
   'library.addRoot': { request: null; response: LibraryRoot | null }
   'library.listRoots': { request: null; response: LibraryRoot[] }
@@ -954,6 +962,8 @@ export const IPC_CHANNELS = [
   'window.toggleMaximize',
   'window.isMaximized',
   'window.close',
+  'app.getVersion',
+  'app.openExternal',
   'library.addRoot',
   'library.listRoots',
   'library.scanRoot',

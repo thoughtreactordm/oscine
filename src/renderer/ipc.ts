@@ -319,6 +319,12 @@ export const windowControls = {
     window.oscine.windowControls.onMaximizedChange(listener)
 }
 
+export const appInfo = {
+  getVersion: () => unwrap(window.oscine.appInfo.getVersion()),
+  /** Opens an http/https link in the system browser; main refuses the rest. */
+  openExternal: (url: string) => unwrap(window.oscine.appInfo.openExternal(url))
+}
+
 export const versions = (): typeof window.oscine.versions => window.oscine.versions
 
 export { OscineError } from '@shared/errors'

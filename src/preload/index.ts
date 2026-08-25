@@ -109,6 +109,12 @@ const api = {
     onMaximizedChange: (listener: (maximized: boolean) => void) =>
       subscribe('window.maximizedChange', listener)
   },
+  appInfo: {
+    /** The running application version, for the About dialog. */
+    getVersion: () => request('app.getVersion', null),
+    /** Opens an http/https link in the system browser; main refuses the rest. */
+    openExternal: (url: string) => request('app.openExternal', { url })
+  },
   library: {
     /** Opens a native folder picker in main. Resolves `null` if cancelled. */
     addRoot: () => request('library.addRoot', null),

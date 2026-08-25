@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { albumPlayParams, artistPlayParams } from '@renderer/panels/discoverShelves'
 import {
   activateAlbum,
@@ -13,6 +13,7 @@ import { favorites, library } from '@renderer/ipc'
 import { QUICK_MENU_FAVORITES_LIMIT } from '@shared/favorites'
 import { artworkUrl } from '@shared/ipc'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useShellStore } from '@renderer/stores/shell'
 
 /**
  * The Quick Menu drawer — **D26**, product rules 8 and 9.
@@ -28,6 +29,7 @@ import { usePlaybackStore } from '@renderer/stores/playback'
  * row here plays or navigates exactly as the same thing does anywhere else.
  */
 const playback = usePlaybackStore()
+const shell = useShellStore()
 
 const open = ref(false)
 const loading = ref(false)
@@ -60,6 +62,24 @@ function setOpen(next: boolean): void {
   open.value = next
   if (next) void load()
 }
+
+/**
+ * Honours a request from the View menu to open the drawer — see
+ * `shell.requestQuickMenu`.
+ *
+ * Two entry points because the menu can be used from either state. When Now
+ * Playing is already showing this component is mounted and the watcher catches
+ * the flag flipping; when the menu navigates here first, this component mounts
+ * with the flag already set and reads it in `onMounted`. Either way the request
+ * is consumed the instant it is seen, so it fires once and does not reopen a
+ * drawer the operator then closes.
+ */
+function honourOpenRequest(): void {
+  if (shell.consumeQuickMenuRequest()) setOpen(true)
+}
+
+watch(() => shell.quickMenuRequested, honourOpenRequest)
+onMounted(honourOpenRequest)
 
 /**
  * Reloads the three lists — that is "recomputed on open" (product rule 8), and

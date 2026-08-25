@@ -68,6 +68,30 @@ export const useShellStore = defineStore('shell', () => {
     activeTabIndex.value = index
   }
 
+  /**
+   * A standing request from the chrome to reveal the Quick Menu.
+   *
+   * The View menu can ask for the Quick Menu from anywhere, but the drawer lives
+   * inside Now Playing and only exists while that tab is on screen — so the menu
+   * navigates there and leaves this flag set rather than reaching into a
+   * component that may not be mounted yet. `QuickMenu` clears it the moment it
+   * sees it, whether it was already mounted (a watcher fires) or is arriving on
+   * the navigation the menu just triggered (it reads the flag on mount). A flag
+   * rather than an event so the second case cannot miss a signal sent before it
+   * existed.
+   */
+  const quickMenuRequested = ref(false)
+
+  function requestQuickMenu(): void {
+    quickMenuRequested.value = true
+  }
+
+  function consumeQuickMenuRequest(): boolean {
+    if (!quickMenuRequested.value) return false
+    quickMenuRequested.value = false
+    return true
+  }
+
   return {
     ...layout,
     coverExpanded,
@@ -77,6 +101,9 @@ export const useShellStore = defineStore('shell', () => {
     activeTabIndex,
     direction,
     setActiveTab,
+    quickMenuRequested,
+    requestQuickMenu,
+    consumeQuickMenuRequest,
     rememberScroll: scroll.remember,
     recallScroll: scroll.recall,
     forgetScroll: scroll.forget

@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import { OscineError } from '@shared/errors'
 import { trackUrl } from '@shared/ipc'
 import type { FavoriteService } from '../favorites/service'
@@ -51,6 +51,7 @@ import {
   assertGetTracksByIdsQuery,
   assertRelatedQuery,
   assertImportSettingsProfileRequest,
+  assertOpenExternalRequest,
   assertOpmlXml,
   assertOrderTrackIdsQuery,
   assertPlaylistName,
@@ -120,6 +121,14 @@ export function registerIpcHandlers(
 
   handle('window.close', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.close()
+    return null
+  })
+
+  handle('app.getVersion', () => app.getVersion())
+
+  handle('app.openExternal', (request) => {
+    const { url } = assertOpenExternalRequest(request)
+    void shell.openExternal(url)
     return null
   })
 
