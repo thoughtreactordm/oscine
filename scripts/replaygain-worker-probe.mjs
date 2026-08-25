@@ -33,7 +33,7 @@ function wavFixture() {
   return bytes
 }
 
-const dir = mkdtempSync(join(tmpdir(), 'fermata-rg-probe-'))
+const dir = mkdtempSync(join(tmpdir(), 'oscine-rg-probe-'))
 const fixture = join(dir, 'reference.wav')
 writeFileSync(fixture, wavFixture())
 

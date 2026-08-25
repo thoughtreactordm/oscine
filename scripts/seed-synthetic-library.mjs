@@ -28,7 +28,7 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 /** Marks every row this script owns, so `--clear` can remove exactly them. */
-const SYNTHETIC_ROOT_PATH = resolve('/__fermata_synthetic__')
+const SYNTHETIC_ROOT_PATH = resolve('/__oscine_synthetic__')
 const SYNTHETIC_ROOT_LABEL = 'Synthetic benchmark'
 
 const ARTIST_COUNT = 2_000

@@ -49,7 +49,7 @@ if (values.help) {
 const rendererPort = positivePort(values['renderer-port'], 'renderer-port')
 const mainPort = positivePort(values['main-port'], 'main-port')
 const runRoot = resolvePath(
-  values.fixture ?? join(tmpdir(), `fermata-m2-exit-${platform()}-${process.pid}`)
+  values.fixture ?? join(tmpdir(), `oscine-m2-exit-${platform()}-${process.pid}`)
 )
 const fixtureRoot = join(runRoot, 'fixture')
 const userDataDir = join(runRoot, 'user-data')

@@ -17,7 +17,7 @@ if (values.help) {
   process.exit(0)
 }
 
-const outDir = resolve(values.out ?? join(tmpdir(), 'fermata-m2-probe-fixture'))
+const outDir = resolve(values.out ?? join(tmpdir(), 'oscine-m2-probe-fixture'))
 console.log(`Building M2 probe fixture in ${outDir}`)
 const manifest = await buildM2Fixture(outDir, (message) => console.log(`  ${message}`))
 console.log(`Built ${Object.keys(manifest.tracks).length} tracks.`)

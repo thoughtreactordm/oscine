@@ -38,7 +38,7 @@ if (!process.versions.electron) {
 // Child leg: running under Electron's Node.
 const { default: Database } = await import('better-sqlite3')
 
-const dir = mkdtempSync(join(tmpdir(), 'fermata-abi-'))
+const dir = mkdtempSync(join(tmpdir(), 'oscine-abi-'))
 const file = join(dir, 'probe.db')
 let failed = false
 

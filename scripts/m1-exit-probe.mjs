@@ -59,7 +59,7 @@ if (values.help) {
 const outPath = values.out ?? join(tmpdir(), `m1-exit-${platform()}.md`)
 // Must agree with make-probe-fixture.mjs's default, and does so by construction:
 // both compose it from `tmpdir()` rather than writing it down twice.
-const fixtureDir = values.fixture ?? join(tmpdir(), 'fermata-probe-fixture')
+const fixtureDir = values.fixture ?? join(tmpdir(), 'oscine-probe-fixture')
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const mib = (bytes) => bytes / 1024 ** 2

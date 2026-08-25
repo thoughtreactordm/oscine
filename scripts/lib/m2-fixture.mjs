@@ -81,7 +81,7 @@ function metadataArgs(title, replayGain = TAGGED_GAIN) {
     '-metadata',
     `title=${title}`,
     '-metadata',
-    'artist=Fermata M2 Gate',
+    'artist=Oscine M2 Gate',
     '-metadata',
     'album=M2 Exit Probe'
   ]

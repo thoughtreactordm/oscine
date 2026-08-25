@@ -94,7 +94,7 @@ async function listTargets(endpoint) {
 
 /** The renderer. `endpoint` overridable for the rare case of a second window. */
 export async function connectToRenderer(
-  endpoint = process.env.FERMATA_CDP ?? DEFAULT_PAGE_ENDPOINT
+  endpoint = process.env.OSCINE_CDP ?? DEFAULT_PAGE_ENDPOINT
 ) {
   const targets = await listTargets(endpoint)
   if (targets === null) {
@@ -110,7 +110,7 @@ export async function connectToRenderer(
 
 /** The Electron main process, via its Node inspector. */
 export async function connectToMain(
-  endpoint = process.env.FERMATA_INSPECT ?? DEFAULT_MAIN_ENDPOINT
+  endpoint = process.env.OSCINE_INSPECT ?? DEFAULT_MAIN_ENDPOINT
 ) {
   const targets = await listTargets(endpoint)
   if (targets === null || targets.length === 0) {

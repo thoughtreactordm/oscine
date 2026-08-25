@@ -34,7 +34,7 @@ if (values.help) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const MIB = 1024 ** 2
 const TOTAL_BUDGET_MIB = (600 * MIB) / MIB
-const fixtureDir = resolvePath(values.fixture ?? join(tmpdir(), 'fermata-probe-fixture'))
+const fixtureDir = resolvePath(values.fixture ?? join(tmpdir(), 'oscine-probe-fixture'))
 const PLAYBACK =
   "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('playback')"
 

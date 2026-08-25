@@ -45,7 +45,7 @@ if (values.help) {
 
 // `join(tmpdir(), ...)` rather than a literal, so this is one of the paths that
 // stays correct on both platforms without anyone thinking about it.
-const outDir = values.out ?? join(tmpdir(), 'fermata-probe-fixture')
+const outDir = values.out ?? join(tmpdir(), 'oscine-probe-fixture')
 const longMinutes = Number.parseFloat(values['long-minutes'])
 
 if (!Number.isFinite(longMinutes) || longMinutes <= 0) {
@@ -113,7 +113,7 @@ function encode({ path, hz, seconds, args, title, trackNo }) {
     '-metadata',
     `title=${title}`,
     '-metadata',
-    'artist=Fermata Gate',
+    'artist=Oscine Gate',
     '-metadata',
     'album=M1 Exit Probe',
     '-metadata',

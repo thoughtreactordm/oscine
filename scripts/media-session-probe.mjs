@@ -3,7 +3,7 @@
  * Settles W3-10's three unknowns by observation instead of assumption.
  *
  * The card names them explicitly because each one is a fork in the
- * implementation and none can be answered by reading Fermata's code:
+ * implementation and none can be answered by reading Oscine's code:
  *
  *  1. Can Chromium resolve a `oscine://` artwork URL for MPRIS `mpris:artUrl`,
  *     which requires it to materialise the image as a file?
@@ -19,7 +19,7 @@
  * without contending for the single-instance lock. What it reproduces is the
  * exact mechanism `browserMediaSession.ts` uses — a privileged `oscine://`
  * scheme, a silent looping WAV anchor, `navigator.mediaSession` — so a result
- * here is a result about Fermata.
+ * here is a result about Oscine.
  *
  *   node scripts/media-session-probe.mjs
  *
@@ -33,7 +33,7 @@ import { pathToFileURL } from 'node:url'
 import electron from 'electron'
 import sharp from 'sharp'
 
-const workDir = mkdtempSync(join(tmpdir(), 'fermata-media-session-'))
+const workDir = mkdtempSync(join(tmpdir(), 'oscine-media-session-'))
 
 /**
  * The page under test. Deliberately a near-copy of `browserMediaSession.ts`
@@ -42,7 +42,7 @@ const workDir = mkdtempSync(join(tmpdir(), 'fermata-media-session-'))
  */
 const page = `<!doctype html>
 <meta charset="utf-8" />
-<title>Fermata media session probe</title>
+<title>Oscine media session probe</title>
 <body style="background:#0a0a0a;color:#ddd;font:13px system-ui;padding:1rem">
 <pre id="log">starting…</pre>
 <script>
@@ -85,7 +85,7 @@ for (const action of ['play','pause','stop','previoustrack','nexttrack','seekbac
 
 // Two artwork sources, chosen by env, so the report says which one was under
 // test. "scheme" is what W3-10 assumed would work; "blob" is the fallback.
-const artworkMode = ${JSON.stringify(process.env.FERMATA_PROBE_ARTWORK ?? 'scheme')}
+const artworkMode = ${JSON.stringify(process.env.OSCINE_PROBE_ARTWORK ?? 'scheme')}
 
 async function artworkSrc() {
   if (artworkMode !== 'blob') return 'oscine://artwork/probe/large'
@@ -140,7 +140,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'oscine', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }
 ])
 app.setAppUserModelId('app.oscine.desktop')
-${process.env.FERMATA_PROBE_SET_NAME === '1' ? "app.setName('Fermata')" : '// app.setName deliberately not called; see src/main/index.ts'}
+${process.env.OSCINE_PROBE_SET_NAME === '1' ? "app.setName('Oscine')" : '// app.setName deliberately not called; see src/main/index.ts'}
 app.whenReady().then(() => {
   protocol.handle('oscine', () =>
     new Response(Buffer.from(${JSON.stringify(pngBase64)}, 'base64'), { headers: { 'content-type': 'image/png' } })
@@ -188,15 +188,15 @@ try {
   console.log('\n===== W3-10 media session probe =====')
   console.log(`electron:            ${sh(electron, ['--version'])}`)
   console.log(`session type:        ${process.env.XDG_SESSION_TYPE ?? 'unknown'}`)
-  console.log(`app.setName called:  ${process.env.FERMATA_PROBE_SET_NAME === '1' ? 'yes' : 'no'}`)
-  console.log(`artwork mode:        ${process.env.FERMATA_PROBE_ARTWORK ?? 'scheme'}`)
+  console.log(`app.setName called:  ${process.env.OSCINE_PROBE_SET_NAME === '1' ? 'yes' : 'no'}`)
+  console.log(`artwork mode:        ${process.env.OSCINE_PROBE_ARTWORK ?? 'scheme'}`)
   console.log(`\n[2] MPRIS bus names: ${names.length ? names.join(', ') : 'NONE'}`)
   console.log(`    playerctl sees:  ${players.length ? players.join(', ') : 'NONE'}`)
 
   if (!names.length) {
     failed = true
     console.log(
-      '\n[3] No name published. Re-run with FERMATA_PROBE_FEATURES set to a\n' +
+      '\n[3] No name published. Re-run with OSCINE_PROBE_FEATURES set to a\n' +
         '    Chromium --enable-features value to test whether a switch is required.'
     )
   } else {
