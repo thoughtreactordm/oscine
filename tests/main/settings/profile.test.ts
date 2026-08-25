@@ -193,7 +193,7 @@ describe('readProfile', () => {
 
   it.each([
     ['not json at all', /not valid JSON/],
-    ['{"format":"something.else"}', /not a Fermata settings profile/]
+    ['{"format":"something.else"}', /not an Oscine settings profile/]
   ])('refuses %s', async (contents, message) => {
     const path = join(tempDir(), 'bad.json')
     writeFileSync(path, contents, 'utf8')

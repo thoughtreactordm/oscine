@@ -29,7 +29,17 @@ import {
 } from './kernel'
 
 /** Written into every file, and checked on read. */
-export const SETTINGS_PROFILE_FORMAT = 'fermata.settings'
+export const SETTINGS_PROFILE_FORMAT = 'oscine.settings'
+
+/**
+ * The pre-rename marker, still accepted on import.
+ *
+ * A profile is a file an operator exported and keeps; refusing one because it
+ * predates the Fermata → Oscine rename would strand it. Imports accept either
+ * marker and re-stamp the result with the current one, so the old name only
+ * ever appears on a file this build did not write.
+ */
+export const LEGACY_SETTINGS_PROFILE_FORMAT = 'fermata.settings'
 
 /**
  * The *envelope's* version, which is not a schema version for the values.
@@ -43,7 +53,7 @@ export const SETTINGS_PROFILE_FORMAT = 'fermata.settings'
 export const SETTINGS_PROFILE_VERSION = 1
 
 /** What the save dialog suggests, and what the import filter looks for. */
-export const SETTINGS_PROFILE_FILE_NAME = 'fermata-settings.json'
+export const SETTINGS_PROFILE_FILE_NAME = 'oscine-settings.json'
 
 export interface SettingsProfile {
   format: typeof SETTINGS_PROFILE_FORMAT
@@ -228,7 +238,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export function parseSettingsProfile(raw: unknown): SettingsProfileParse {
   if (!isRecord(raw)) return { ok: false, reason: 'expected a JSON object' }
-  if (raw.format !== SETTINGS_PROFILE_FORMAT) {
+  if (raw.format !== SETTINGS_PROFILE_FORMAT && raw.format !== LEGACY_SETTINGS_PROFILE_FORMAT) {
     return { ok: false, reason: `format must be "${SETTINGS_PROFILE_FORMAT}"` }
   }
 
@@ -242,7 +252,7 @@ export function parseSettingsProfile(raw: unknown): SettingsProfileParse {
   if ((formatVersion as number) > SETTINGS_PROFILE_VERSION) {
     return {
       ok: false,
-      reason: `formatVersion ${formatVersion} was written by a newer version of Fermata`
+      reason: `formatVersion ${formatVersion} was written by a newer version of Oscine`
     }
   }
 

@@ -8,6 +8,7 @@ import {
   parseSettingsProfile,
   planSettingsImport,
   resolveDefault,
+  LEGACY_SETTINGS_PROFILE_FORMAT,
   SETTINGS_PROFILE_FORMAT,
   SETTINGS_PROFILE_VERSION,
   SETTINGS_REGISTRY,
@@ -266,11 +267,19 @@ describe('parseSettingsProfile', () => {
     expect(parsed.ok && parsed.profile).toEqual(profile)
   })
 
+  it('accepts a pre-rename profile and re-stamps it with the current marker', () => {
+    // An operator's exported file predating the Fermata → Oscine rename carries
+    // `fermata.settings`; refusing it would strand the file.
+    const parsed = parseSettingsProfile({ ...valid, format: LEGACY_SETTINGS_PROFILE_FORMAT })
+    expect(parsed.ok).toBe(true)
+    expect(parsed.ok && parsed.profile.format).toBe(SETTINGS_PROFILE_FORMAT)
+  })
+
   it.each([
     [{}, /format/],
     [{ ...valid, format: 'something.else' }, /format/],
     [{ ...valid, formatVersion: 0 }, /formatVersion/],
-    [{ ...valid, formatVersion: SETTINGS_PROFILE_VERSION + 1 }, /newer version of Fermata/],
+    [{ ...valid, formatVersion: SETTINGS_PROFILE_VERSION + 1 }, /newer version of Oscine/],
     [{ ...valid, settings: [] }, /settings must be an object/],
     [{ ...valid, settings: { 'test.gain': 70 } }, /must be an object with a value/],
     [{ ...valid, settings: { 'test.gain': { value: 70 } } }, /version must be an integer/]

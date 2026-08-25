@@ -427,7 +427,7 @@ export class SqliteSettingsService implements SettingsService {
     if (!parsed.ok) {
       throw new OscineError(
         'invalid-request',
-        `That file is not a Fermata settings profile: ${parsed.reason}.`
+        `That file is not an Oscine settings profile: ${parsed.reason}.`
       )
     }
 
