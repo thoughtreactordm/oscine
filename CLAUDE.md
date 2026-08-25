@@ -1,4 +1,4 @@
-# Fermata — Project Instructions
+# Oscine — Project Instructions
 
 ## What this is
 
@@ -63,7 +63,7 @@ platform puts in the tree, so `dist:win` run from Linux produces an installer wh
 ReplayGain paths cannot load. That is what the CI matrix is for. Artifacts land in `release/`,
 which is gitignored.
 
-`fermata/no-windows-path-literals` (`tools/eslint/`) enforces the path invariant below across
+`oscine/no-windows-path-literals` (`tools/eslint/`) enforces the path invariant below across
 `src/`: no backslash separators, no hand-rolled path concatenation. It is off under `tests/`, where
 literal Windows paths are the fixtures. `tests/tooling/pathPortability.test.ts` lints broken paths
 through the real config on every run, so the rule cannot quietly stop being wired up.
@@ -101,7 +101,7 @@ contend for the single-instance lock — reproducing exactly what `browserMediaS
 reports what Chromium's MPRIS backend actually publishes. Re-run it when Electron is upgraded. The
 three things it established on Electron 43 are load-bearing and are commented at their use sites:
 
-- `MediaImage` refuses the `fermata://` scheme however it is privileged, so artwork has to be
+- `MediaImage` refuses the `oscine://` scheme however it is privileged, so artwork has to be
   re-addressed as a blob before Chromium will publish `mpris:artUrl`.
 - The bus name is `org.mpris.MediaPlayer2.chromium.instance<pid>` regardless of `setAppUserModelId`
   or `app.setName`. Linux identity comes from the desktop entry, not the bus name.

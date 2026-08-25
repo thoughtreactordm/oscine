@@ -1,6 +1,6 @@
 # ReplayGain analysis contract
 
-Fermata computes missing values with ReplayGain 2.0 semantics:
+Oscine computes missing values with ReplayGain 2.0 semantics:
 
 - decoded PCM is K-weighted and measured in overlapping 400 ms BS.1770 blocks;
 - the absolute -70 LUFS and relative -10 LU gates are applied;

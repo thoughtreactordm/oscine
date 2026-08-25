@@ -1,8 +1,8 @@
-# Fermata
+# Oscine
 
 A format-first local music player for large libraries.
 
-Fermata plays the files you already own. It indexes local folders into SQLite, browses and searches
+Oscine plays the files you already own. It indexes local folders into SQLite, browses and searches
 tens of thousands of tracks without stuttering, and handles MP3, FLAC, Ogg Vorbis, Opus, AAC and WAV
 consistently across platforms. No streaming service, no account, no cloud library.
 
@@ -15,13 +15,13 @@ milestones are in progress. Not yet usable as a music player.
 
 ## A caveat worth stating up front: no bit-perfect output
 
-Fermata is built on Electron and the Web Audio API. Chromium always resamples audio to a single
+Oscine is built on Electron and the Web Audio API. Chromium always resamples audio to a single
 device sample rate, and it offers no exclusive-mode or WASAPI-exclusive output path.
 
-**That means Fermata cannot deliver bit-perfect playback.** A 24-bit/192 kHz file will be resampled
+**That means Oscine cannot deliver bit-perfect playback.** A 24-bit/192 kHz file will be resampled
 to whatever rate the output device is running at. For most listening this is inaudible, and the
 trade buys a consistent decoder across every platform plus a mature audio graph for crossfade, gain
-and EQ. If bit-perfect or exclusive-mode output is a requirement for you, Fermata is the wrong
+and EQ. If bit-perfect or exclusive-mode output is a requirement for you, Oscine is the wrong
 player and no amount of configuration will change that.
 
 This is decision **D1** in the design document, recorded with its rejected alternatives. It is a

@@ -1,7 +1,7 @@
 # Artwork cache
 
 Artwork thumbnails are derived, disposable local data owned by the main process.
-The renderer receives only `fermata://artwork/<hash>/<variant>` URLs.
+The renderer receives only `oscine://artwork/<hash>/<variant>` URLs.
 
 ## Selection and identity
 
@@ -10,7 +10,7 @@ id, POSIX relative path, then track id. Within a track, front-cover pictures are
 preferred and parser order breaks ties. All embedded candidates are preferred
 over sidecar images.
 
-When an album has no valid embedded picture, Fermata checks each track directory
+When an album has no valid embedded picture, Oscine checks each track directory
 for the case-insensitive basenames `cover`, `folder`, `front`, `albumart`,
 `albumcover`, and `artwork`, in that order. Supported sidecar extensions are
 JPG/JPEG, PNG, WebP, AVIF, GIF, and TIFF. For albums split across sibling disc

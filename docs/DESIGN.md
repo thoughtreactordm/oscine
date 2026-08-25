@@ -1,4 +1,4 @@
-# Fermata — design documentation
+# Oscine — design documentation
 
 The design document lives in the project's Kleron wiki, which is version-controlled inside this
 repository and travels with every clone:
@@ -9,7 +9,7 @@ It is the single canonical copy. It covers:
 
 | Section | Contents |
 |---|---|
-| 1 | What Fermata is, and the definition of "v1 is done" |
+| 1 | What Oscine is, and the definition of "v1 is done" |
 | 2 | Decisions D1–D15, each with rationale, rejected alternatives and a revisit trigger |
 | 3 | Risks R1–R5, with mitigations |
 | 4 | Data model — schema v1 |
