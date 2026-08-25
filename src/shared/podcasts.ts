@@ -217,7 +217,7 @@ export interface EpisodeAudioMetadata {
  * AudioEngine boundary.
  *
  * Library track ids are positive. Episode playback uses the negation so the
- * existing `load(trackId)` / `fermata://` resolver seam can carry both without
+ * existing `load(trackId)` / `oscine://` resolver seam can carry both without
  * colliding with `tracks.id`.
  */
 export function episodePlaybackTrackId(episodeId: number): number {

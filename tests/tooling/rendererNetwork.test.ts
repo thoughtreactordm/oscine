@@ -24,7 +24,7 @@ async function lint(code: string, filePath: string): Promise<string[]> {
   return result.messages.map((message) => message.ruleId ?? '<fatal>')
 }
 
-const RULE = 'fermata/no-renderer-network'
+const RULE = 'oscine/no-renderer-network'
 const RENDERER = 'src/renderer/panels/network-probe.ts'
 const MAIN = 'src/main/net/network-probe.ts'
 
@@ -77,10 +77,10 @@ describe('the renderer is held off the network', () => {
 })
 
 describe('the rule leaves the renderer’s legitimate reads alone', () => {
-  it('accepts a fetch of a fermata:// URL', async () => {
+  it('accepts a fetch of a oscine:// URL', async () => {
     // What `audio/DecodedAudioEngine.ts` does with a URL main minted.
     expect(
-      await lint(`export const go = () => fetch('fermata://track/12')`, RENDERER)
+      await lint(`export const go = () => fetch('oscine://track/12')`, RENDERER)
     ).not.toContain(RULE)
   })
 

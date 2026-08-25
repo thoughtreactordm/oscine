@@ -39,21 +39,21 @@ export interface IpcErrorPayload {
  * chosen deliberately and are safe to show the user. The preload bridge
  * re-throws the same shape in the renderer, so one `catch` works on both sides.
  *
- * Anything that is not a `FermataError` is treated as unanticipated and
+ * Anything that is not a `OscineError` is treated as unanticipated and
  * flattened to a generic `internal` error before it leaves main.
  */
-export class FermataError extends Error {
+export class OscineError extends Error {
   readonly code: IpcErrorCode
 
   constructor(code: IpcErrorCode, message: string) {
     super(message)
-    this.name = 'FermataError'
+    this.name = 'OscineError'
     this.code = code
   }
 }
 
-export function isFermataError(value: unknown): value is FermataError {
-  return value instanceof FermataError
+export function isOscineError(value: unknown): value is OscineError {
+  return value instanceof OscineError
 }
 
 /** Discriminated envelope every handler returns. Never thrown across the wire. */

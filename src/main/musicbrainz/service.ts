@@ -32,7 +32,7 @@ import {
   type ArtistResolutionStatus,
   isMbid
 } from '@shared/artist'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import type { NetFailure } from '@shared/net'
 import type Database from 'better-sqlite3'
 import type { CacheService } from '../cache'
@@ -178,7 +178,7 @@ export function createArtistIdentityService({
   function requireIdentity(artistId: number): StoredIdentity {
     const identity = store.byId(artistId)
     if (!identity) {
-      throw new FermataError('not-found', 'That artist is no longer in the library.')
+      throw new OscineError('not-found', 'That artist is no longer in the library.')
     }
     return identity
   }
@@ -289,7 +289,7 @@ export function createArtistIdentityService({
 
     async setMbid(artistId, mbid): Promise<ArtistResolution> {
       if (mbid !== null && !isMbid(mbid)) {
-        throw new FermataError('invalid-request', 'That is not a MusicBrainz identifier.')
+        throw new OscineError('invalid-request', 'That is not a MusicBrainz identifier.')
       }
       const existing = requireIdentity(artistId)
       store.setManual(artistId, mbid)

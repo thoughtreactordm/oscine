@@ -50,7 +50,7 @@ const artworkSrc = computed(() => catalogArtworkUrl(props.hit.artworkUrl))
       <div
         v-if="subscribed"
         class="absolute right-2 top-2 flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium backdrop-blur-sm"
-        :style="{ background: 'var(--fermata-scrim)', color: 'var(--fermata-on-scrim)' }"
+        :style="{ background: 'var(--oscine-scrim)', color: 'var(--oscine-on-scrim)' }"
       >
         <UIcon name="i-tabler-check" class="size-3" aria-hidden="true" />
         Following

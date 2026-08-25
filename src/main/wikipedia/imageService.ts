@@ -16,7 +16,7 @@
  *
  * The card is explicit and so is D14: the picture goes into the *existing*
  * content-hashed thumbnail cache, the one album art lives in, served by the same
- * `fermata://artwork/<hash>/<variant>` route. What lands in `cache.db` is a few
+ * `oscine://artwork/<hash>/<variant>` route. What lands in `cache.db` is a few
  * hundred bytes naming the hash and the credit.
  *
  * That split is also what makes the eviction acceptance true. Nothing here

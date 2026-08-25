@@ -81,7 +81,7 @@ export function searchQuery(name: string): string {
 
 /** Escapes a query for MusicBrainz's Lucene parser. */
 export function escapeLucene(query: string): string {
-  // eslint-disable-next-line fermata/no-windows-path-literals -- a Lucene escape, not a path separator
+  // eslint-disable-next-line oscine/no-windows-path-literals -- a Lucene escape, not a path separator
   return query.replace(LUCENE_RESERVED, (char) => `\\${char}`)
 }
 

@@ -16,7 +16,7 @@ function group(title: string, trackCount: number, albumId: number | null = 1): T
     albumArtist: null,
     year: null,
     trackCount,
-    artwork: { small: 'fermata://artwork/missing/small', large: 'fermata://artwork/missing/large' }
+    artwork: { small: 'oscine://artwork/missing/small', large: 'oscine://artwork/missing/large' }
   }
 }
 

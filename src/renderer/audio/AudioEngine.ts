@@ -70,7 +70,7 @@ export type AudioErrorCode = (typeof AUDIO_ERROR_CODES)[number]
 /**
  * A playback failure.
  *
- * Distinct from `FermataError` because the failure modes are distinct: nothing
+ * Distinct from `OscineError` because the failure modes are distinct: nothing
  * on the IPC boundary can be `decode-failed`, and nothing here is `conflict`.
  * Sharing one enum would mean every handler switching over codes that cannot
  * occur in its half of the app.

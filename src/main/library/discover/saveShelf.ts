@@ -1,4 +1,4 @@
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import type { DiscoverItem, DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
 
 /**
@@ -33,11 +33,11 @@ export function snapshotShelf(
   recipeId: DiscoverRecipeId
 ): DiscoverShelfSnapshot {
   if (last === null) {
-    throw new FermataError('not-found', 'Discover has no shelf to save yet.')
+    throw new OscineError('not-found', 'Discover has no shelf to save yet.')
   }
   const shelf = last.shelves.find((entry) => entry.id === recipeId)
   if (shelf === undefined) {
-    throw new FermataError('not-found', "That shelf is not on today's page.")
+    throw new OscineError('not-found', "That shelf is not on today's page.")
   }
   return { name: shelfPlaylistName(shelf.title, last.dayKey), items: shelf.items }
 }

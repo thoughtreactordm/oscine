@@ -59,8 +59,8 @@ function syntheticLibrary(total = LIBRARY_SIZE) {
         lastPlayedAt: null,
         favorite: false,
         artwork: {
-          small: 'fermata://artwork/missing/small',
-          large: 'fermata://artwork/missing/large'
+          small: 'oscine://artwork/missing/small',
+          large: 'oscine://artwork/missing/large'
         },
         rgTrackGainDb: null,
         rgTrackPeak: null,

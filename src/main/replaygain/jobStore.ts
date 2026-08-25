@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import type { ReplayGainJobProgress, ReplayGainJobState } from '@shared/library'
 import { toAbsPath } from '../db/paths'
 import {
@@ -66,7 +66,7 @@ export class ReplayGainJobStore {
       )
       .get() as { id: number } | undefined
     if (existing) {
-      throw new FermataError(
+      throw new OscineError(
         'conflict',
         `ReplayGain job ${existing.id} can be resumed instead of starting another.`
       )
@@ -105,14 +105,14 @@ export class ReplayGainJobStore {
   progress(jobId: number, currentTitle: string | null = null): ReplayGainJobProgress {
     const row = this.db.prepare(`${PROGRESS_SQL} WHERE j.id = ? GROUP BY j.id`).get(jobId) as
       ProgressRow | undefined
-    if (!row) throw new FermataError('not-found', 'That ReplayGain job no longer exists.')
+    if (!row) throw new OscineError('not-found', 'That ReplayGain job no longer exists.')
     return toProgress(row, currentTitle)
   }
 
   state(jobId: number): ReplayGainJobState {
     const row = this.db.prepare('SELECT state FROM replaygain_jobs WHERE id = ?').get(jobId) as
       { state: ReplayGainJobState } | undefined
-    if (!row) throw new FermataError('not-found', 'That ReplayGain job no longer exists.')
+    if (!row) throw new OscineError('not-found', 'That ReplayGain job no longer exists.')
     return row.state
   }
 
@@ -121,7 +121,7 @@ export class ReplayGainJobStore {
       .prepare('UPDATE replaygain_jobs SET state = ?, updated_at = ? WHERE id = ?')
       .run(state, Date.now(), jobId).changes
     if (changed === 0) {
-      throw new FermataError('not-found', 'That ReplayGain job no longer exists.')
+      throw new OscineError('not-found', 'That ReplayGain job no longer exists.')
     }
   }
 

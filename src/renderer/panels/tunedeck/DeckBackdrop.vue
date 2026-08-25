@@ -180,9 +180,9 @@ const source = computed(() => photo.value?.large ?? cover.value)
  * two states.
  */
 .deck-backdrop-cover {
-  filter: blur(var(--fermata-cover-blur)) saturate(2.2) brightness(0.55);
+  filter: blur(var(--oscine-cover-blur)) saturate(2.2) brightness(0.55);
   transform: scale(1.4);
-  opacity: calc(var(--fermata-cover-bleed) * 1.1 * var(--deck-backdrop-strength, 1));
+  opacity: calc(var(--oscine-cover-bleed) * 1.1 * var(--deck-backdrop-strength, 1));
 }
 
 /*

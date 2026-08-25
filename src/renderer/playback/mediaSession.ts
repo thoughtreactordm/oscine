@@ -137,7 +137,7 @@ export interface MediaSessionSurfaceDeps {
  * Adapts `navigator.mediaSession` into the surface the binding drives.
  *
  * Almost all of this is one problem: **Chromium will not accept our artwork
- * routes.** W3-10 assumed the privileged `fermata://` scheme would be enough,
+ * routes.** W3-10 assumed the privileged `oscine://` scheme would be enough,
  * since `registerTrackScheme` declares it `standard`, `secure`,
  * `supportFetchAPI` and `corsEnabled`. It is not.
  * `scripts/media-session-probe.mjs` settles it — Chromium answers a custom
@@ -324,7 +324,7 @@ export function toPlaybackState(
  *
  * Both artwork variants are advertised because SMTC wants something reasonably
  * large while a DE widget wants a thumbnail. They are the ordinary
- * `fermata://artwork/...` routes — the domain value — and the platform layer
+ * `oscine://artwork/...` routes — the domain value — and the platform layer
  * re-wraps them, because `MediaImage` rejects custom schemes outright no matter
  * how the scheme is privileged. See `browserMediaSession.ts`.
  *

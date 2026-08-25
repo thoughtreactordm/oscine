@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
-import { FermataError, favorites as ipc } from '@renderer/ipc'
+import { OscineError, favorites as ipc } from '@renderer/ipc'
 import { createFavoritesWindow } from '@renderer/panels/favoritesWindow'
 import { useFavoritesStore } from '@renderer/stores/favorites'
 
@@ -77,7 +77,7 @@ export const useFavoritesListStore = defineStore('favoritesList', () => {
       notice.value = null
     } catch (cause) {
       notice.value =
-        cause instanceof FermataError ? cause.message : 'Those tracks could not be removed.'
+        cause instanceof OscineError ? cause.message : 'Those tracks could not be removed.'
     }
   }
 

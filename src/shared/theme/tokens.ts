@@ -117,7 +117,7 @@ export function rampTokenId(role: ColorRoleId | string, step: string): string {
 function colorRoleDescriptors(): TokenDescriptor[] {
   return COLOR_ROLES.map((role, index) => ({
     id: `color.${role.id}`,
-    cssVar: `--fermata-color-${role.id}`,
+    cssVar: `--oscine-color-${role.id}`,
     kind: 'ramp' as const,
     group: 'color' as const,
     label: role.label,
@@ -145,7 +145,7 @@ function colorRoleDescriptors(): TokenDescriptor[] {
 function accentDescriptors(): TokenDescriptor[] {
   return COLOR_ROLES.filter((role) => role.id !== 'neutral').map((role, index) => ({
     id: `accent.${role.id}`,
-    cssVar: `--fermata-accent-${role.id}`,
+    cssVar: `--oscine-accent-${role.id}`,
     kind: 'color' as const,
     group: 'accent' as const,
     label: role.label,
@@ -168,7 +168,7 @@ function accentDescriptors(): TokenDescriptor[] {
 const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   {
     id: 'surface.base',
-    cssVar: '--fermata-surface-base',
+    cssVar: '--oscine-surface-base',
     group: 'surface',
     label: 'Window',
     help: 'The base background the app sits on.',
@@ -177,7 +177,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'surface.muted',
-    cssVar: '--fermata-surface-muted',
+    cssVar: '--oscine-surface-muted',
     group: 'surface',
     label: 'Recessed',
     help: 'Table headers and inset wells — a step back from the window.',
@@ -186,7 +186,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'surface.elevated',
-    cssVar: '--fermata-surface-elevated',
+    cssVar: '--oscine-surface-elevated',
     group: 'surface',
     label: 'Raised',
     help: 'Rails, popovers, the drawer — a step forward from the window.',
@@ -195,7 +195,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'surface.accented',
-    cssVar: '--fermata-surface-accented',
+    cssVar: '--oscine-surface-accented',
     group: 'surface',
     label: 'Accented',
     help: 'Hovered rows and pressed controls.',
@@ -204,7 +204,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'surface.inverted',
-    cssVar: '--fermata-surface-inverted',
+    cssVar: '--oscine-surface-inverted',
     group: 'surface',
     label: 'Inverted',
     help: 'Tooltips and toasts, which read against the opposite of everything else.',
@@ -214,7 +214,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
 
   {
     id: 'text.dimmed',
-    cssVar: '--fermata-text-dimmed',
+    cssVar: '--oscine-text-dimmed',
     group: 'text',
     label: 'Dimmed',
     help: 'Placeholders and disabled controls.',
@@ -223,7 +223,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'text.muted',
-    cssVar: '--fermata-text-muted',
+    cssVar: '--oscine-text-muted',
     group: 'text',
     label: 'Muted',
     help: 'Artist, album and duration beside a track title.',
@@ -232,7 +232,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'text.toned',
-    cssVar: '--fermata-text-toned',
+    cssVar: '--oscine-text-toned',
     group: 'text',
     label: 'Toned',
     help: 'Help text under a setting.',
@@ -241,7 +241,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'text.base',
-    cssVar: '--fermata-text-base',
+    cssVar: '--oscine-text-base',
     group: 'text',
     label: 'Body',
     help: 'Ordinary reading text.',
@@ -250,7 +250,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'text.highlighted',
-    cssVar: '--fermata-text-highlighted',
+    cssVar: '--oscine-text-highlighted',
     group: 'text',
     label: 'Highlighted',
     help: 'Headings, track titles, the selected row.',
@@ -259,7 +259,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'text.inverted',
-    cssVar: '--fermata-text-inverted',
+    cssVar: '--oscine-text-inverted',
     group: 'text',
     label: 'Inverted',
     help: 'Text on an inverted surface.',
@@ -269,7 +269,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
 
   {
     id: 'border.muted',
-    cssVar: '--fermata-border-muted',
+    cssVar: '--oscine-border-muted',
     group: 'border',
     label: 'Muted',
     help: 'The quietest dividers.',
@@ -278,7 +278,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'border.base',
-    cssVar: '--fermata-border-base',
+    cssVar: '--oscine-border-base',
     group: 'border',
     label: 'Default',
     help: 'Panel edges and list separators.',
@@ -287,7 +287,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'border.accented',
-    cssVar: '--fermata-border-accented',
+    cssVar: '--oscine-border-accented',
     group: 'border',
     label: 'Accented',
     help: 'Input outlines and the scrollbar thumb.',
@@ -296,7 +296,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
   },
   {
     id: 'border.inverted',
-    cssVar: '--fermata-border-inverted',
+    cssVar: '--oscine-border-inverted',
     group: 'border',
     label: 'Inverted',
     help: 'Edges on an inverted surface.',
@@ -318,7 +318,7 @@ const SEMANTIC_COLORS: readonly Omit<TokenDescriptor, 'kind' | 'public'>[] = [
 const STRUCTURAL: readonly TokenDescriptor[] = [
   {
     id: 'shape.radius',
-    cssVar: '--fermata-shape-radius',
+    cssVar: '--oscine-shape-radius',
     kind: 'length',
     group: 'shape',
     label: 'Corner radius',
@@ -340,7 +340,7 @@ const STRUCTURAL: readonly TokenDescriptor[] = [
 
   {
     id: 'type.baseSize',
-    cssVar: '--fermata-type-base-size',
+    cssVar: '--oscine-type-base-size',
     kind: 'length',
     group: 'type',
     label: 'Base text size',
@@ -352,7 +352,7 @@ const STRUCTURAL: readonly TokenDescriptor[] = [
 
   {
     id: 'motion.duration',
-    cssVar: '--fermata-motion-duration',
+    cssVar: '--oscine-motion-duration',
     kind: 'duration',
     group: 'motion',
     label: 'Transition speed',
@@ -363,7 +363,7 @@ const STRUCTURAL: readonly TokenDescriptor[] = [
   },
   {
     id: 'motion.easing',
-    cssVar: '--fermata-motion-easing',
+    cssVar: '--oscine-motion-easing',
     kind: 'easing',
     group: 'motion',
     label: 'Easing',
@@ -375,14 +375,14 @@ const STRUCTURAL: readonly TokenDescriptor[] = [
 
   /*
    * These three keep the CSS variable names they shipped with, rather than
-   * being renamed into the `--fermata-now-playing-*` shape the ids suggest.
+   * being renamed into the `--oscine-now-playing-*` shape the ids suggest.
    * Renaming them would mean editing NowPlaying — the one component edit this
    * whole card exists to prove is unnecessary. The id is the stable name; the
    * variable is an implementation detail the bridge owns.
    */
   {
     id: 'nowPlaying.coverBleed',
-    cssVar: '--fermata-cover-bleed',
+    cssVar: '--oscine-cover-bleed',
     kind: 'number',
     group: 'nowPlaying',
     label: 'Cover bleed',
@@ -393,7 +393,7 @@ const STRUCTURAL: readonly TokenDescriptor[] = [
   },
   {
     id: 'nowPlaying.coverBlur',
-    cssVar: '--fermata-cover-blur',
+    cssVar: '--oscine-cover-blur',
     kind: 'length',
     group: 'nowPlaying',
     label: 'Cover blur',
@@ -404,7 +404,7 @@ const STRUCTURAL: readonly TokenDescriptor[] = [
   },
   {
     id: 'nowPlaying.coverDrift',
-    cssVar: '--fermata-cover-drift',
+    cssVar: '--oscine-cover-drift',
     kind: 'duration',
     group: 'nowPlaying',
     label: 'Cover drift',
@@ -422,7 +422,7 @@ const STRUCTURAL: readonly TokenDescriptor[] = [
    */
   {
     id: 'nowPlaying.scrim',
-    cssVar: '--fermata-scrim',
+    cssVar: '--oscine-scrim',
     kind: 'color',
     group: 'nowPlaying',
     label: 'Cover scrim',
@@ -433,7 +433,7 @@ const STRUCTURAL: readonly TokenDescriptor[] = [
   },
   {
     id: 'nowPlaying.onScrim',
-    cssVar: '--fermata-on-scrim',
+    cssVar: '--oscine-on-scrim',
     kind: 'color',
     group: 'nowPlaying',
     label: 'Text on scrim',
@@ -472,7 +472,7 @@ function fontDescriptors(): TokenDescriptor[] {
   return FONT_ROLES.flatMap((role) => [
     {
       id: `type.${role.id}.family`,
-      cssVar: `--fermata-type-${role.id}-family`,
+      cssVar: `--oscine-type-${role.id}-family`,
       kind: 'fontFamily' as const,
       group: 'type' as const,
       label: `${role.label} — font`,
@@ -483,7 +483,7 @@ function fontDescriptors(): TokenDescriptor[] {
     },
     {
       id: `type.${role.id}.weight`,
-      cssVar: `--fermata-type-${role.id}-weight`,
+      cssVar: `--oscine-type-${role.id}-weight`,
       kind: 'fontWeight' as const,
       group: 'type' as const,
       label: `${role.label} — weight`,
@@ -494,7 +494,7 @@ function fontDescriptors(): TokenDescriptor[] {
     },
     {
       id: `type.${role.id}.style`,
-      cssVar: `--fermata-type-${role.id}-style`,
+      cssVar: `--oscine-type-${role.id}-style`,
       kind: 'fontStyle' as const,
       group: 'type' as const,
       label: `${role.label} — slant`,

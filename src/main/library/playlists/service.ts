@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 import { writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -159,7 +159,7 @@ export class SqlitePlaylistService implements PlaylistService {
       // The path is logged in main and deliberately not forwarded: an
       // `IpcErrorPayload` never carries one. See `toSafeError`.
       console.error(`[playlists] export to ${destination} failed:`, error)
-      throw new FermataError('io-error', 'That playlist could not be written to disk.')
+      throw new OscineError('io-error', 'That playlist could not be written to disk.')
     }
 
     return {

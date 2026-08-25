@@ -40,7 +40,7 @@ function track(id: number): Track {
     playCount: 0,
     lastPlayedAt: null,
     favorite: false,
-    artwork: { small: 'fermata://artwork/missing/small', large: 'fermata://artwork/missing/large' },
+    artwork: { small: 'oscine://artwork/missing/small', large: 'oscine://artwork/missing/large' },
     rgTrackGainDb: null,
     rgTrackPeak: null,
     rgAlbumGainDb: null,
@@ -101,7 +101,7 @@ function albumGroups(total: number): ListPlaylistEntryGroupsResult {
     albumArtist: 'Artist',
     year: null,
     trackCount,
-    artwork: { small: 'fermata://artwork/missing/small', large: 'fermata://artwork/missing/large' }
+    artwork: { small: 'oscine://artwork/missing/small', large: 'oscine://artwork/missing/large' }
   })
   return { groups: [run(1, 'A', first), run(2, 'B', total - first)], total }
 }

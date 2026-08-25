@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { FermataError, library } from '@renderer/ipc'
+import { OscineError, library } from '@renderer/ipc'
 import type { LibraryRoot, ScanProgress } from '@shared/library'
 
 /** What the removal dialog shows. Built in the store; see `removePrompt`. */
@@ -53,7 +53,7 @@ export const useLibraryRootsStore = defineStore('libraryRoots', () => {
       if (root) await refresh()
     } catch (cause) {
       notice.value =
-        cause instanceof FermataError ? cause.message : 'That folder could not be added.'
+        cause instanceof OscineError ? cause.message : 'That folder could not be added.'
     } finally {
       adding.value = false
     }
@@ -94,7 +94,7 @@ export const useLibraryRootsStore = defineStore('libraryRoots', () => {
           : `No audio files found in ${path}.`
     } catch (cause) {
       notice.value =
-        cause instanceof FermataError ? cause.message : 'That folder could not be rescanned.'
+        cause instanceof OscineError ? cause.message : 'That folder could not be rescanned.'
     }
   }
 
@@ -120,7 +120,7 @@ export const useLibraryRootsStore = defineStore('libraryRoots', () => {
       version.value += 1
     } catch (cause) {
       notice.value =
-        cause instanceof FermataError ? cause.message : 'That folder could not be removed.'
+        cause instanceof OscineError ? cause.message : 'That folder could not be removed.'
     } finally {
       removing.value = null
     }

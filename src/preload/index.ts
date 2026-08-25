@@ -71,7 +71,7 @@ import type { SearchQuery } from '@shared/search'
  * plain `Error` with only `message`. The renderer would have been left
  * string-matching messages to tell "no such track" from "disk unreadable".
  * Data survives the crossing intact, so the envelope crosses and
- * `src/renderer/ipc.ts` rebuilds a real `FermataError` on the far side.
+ * `src/renderer/ipc.ts` rebuilds a real `OscineError` on the far side.
  */
 
 function request<C extends IpcChannel>(
@@ -138,7 +138,7 @@ const api = {
       request('library.getTrackAudioMetadata', { trackId }),
     /** On-demand format block for the signal readout. Re-parsed, not indexed. */
     getTrackFormatDetail: (trackId: number) => request('library.getTrackFormatDetail', { trackId }),
-    /** Opaque `fermata://` URL for the track's bytes. Never a filesystem path. */
+    /** Opaque `oscine://` URL for the track's bytes. Never a filesystem path. */
     getTrackFileUrl: (trackId: number) => request('library.getTrackFileUrl', { trackId }),
     startReplayGain: () => request('library.startReplayGain', null),
     getReplayGainJob: () => request('library.getReplayGainJob', null),
@@ -394,7 +394,7 @@ const api = {
     /**
      * The Commons photograph, by way of Wikidata's image claim.
      *
-     * Two `fermata://artwork/…` routes and a credit — never bytes, and never a
+     * Two `oscine://artwork/…` routes and a credit — never bytes, and never a
      * remote URL to load. The picture is already in the same thumbnail cache
      * album art comes from by the time this resolves, so the renderer loads it
      * from the same privileged scheme and the same handler.
@@ -403,6 +403,6 @@ const api = {
   }
 } as const
 
-export type FermataApi = typeof api
+export type OscineApi = typeof api
 
-contextBridge.exposeInMainWorld('fermata', api)
+contextBridge.exposeInMainWorld('oscine', api)

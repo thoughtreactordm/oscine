@@ -877,7 +877,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    *
    * Not a playlist: `playingPlaylistId` clears, and the order is the rows
    * themselves rather than another round trip per position. Caller downloads
-   * first — the engine only resolves `fermata://episode/<id>` for files on disk.
+   * first — the engine only resolves `oscine://episode/<id>` for files on disk.
    */
   async function playTracks(params: { tracks: readonly Track[]; index: number }): Promise<void> {
     if (params.tracks.length === 0) return

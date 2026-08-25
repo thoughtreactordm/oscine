@@ -7,7 +7,7 @@
  * failure mode, and the way to not have two policies is to not have two caches.
  * An artist photograph from Wikimedia Commons is hashed by the same function,
  * written to the same directory under the same filename scheme, served by the
- * same `fermata://artwork/<hash>/<variant>` route, and swept by the same prune.
+ * same `oscine://artwork/<hash>/<variant>` route, and swept by the same prune.
  *
  * What it deliberately does *not* know is who references a hash. Album art is
  * referenced from `albums.artwork_hash`, a podcast cover from

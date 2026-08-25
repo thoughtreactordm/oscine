@@ -1,4 +1,4 @@
-/* eslint-disable fermata/no-windows-path-literals -- regex metacharacter escapes, not filesystem paths */
+/* eslint-disable oscine/no-windows-path-literals -- regex metacharacter escapes, not filesystem paths */
 
 /**
  * Minimal podcast RSS parser.

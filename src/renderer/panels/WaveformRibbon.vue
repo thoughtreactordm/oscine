@@ -118,7 +118,7 @@ function measure(): void {
  * the entire payload — the visible colour comes from `--ui-primary` via
  * `readAccent`. Black is the conventional carrier for an alpha-only stop.
  */
-// eslint-disable-next-line fermata/no-raw-colours -- alpha-only mask carrier, see above
+// eslint-disable-next-line oscine/no-raw-colours -- alpha-only mask carrier, see above
 const maskAlpha = (alpha: number): string => `rgba(0, 0, 0, ${alpha})`
 
 /** Smooth the outline through the bin tops rather than stepping between them. */

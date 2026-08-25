@@ -190,8 +190,8 @@ describe('library browse and infix search', () => {
           year: 1975,
           trackCount: 2,
           artwork: {
-            small: 'fermata://artwork/missing/small',
-            large: 'fermata://artwork/missing/large'
+            small: 'oscine://artwork/missing/small',
+            large: 'oscine://artwork/missing/large'
           }
         }
       ]

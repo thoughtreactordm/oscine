@@ -35,7 +35,7 @@ import type { NetworkConsent } from './consent'
 import { readCappedBytes, readCappedText, ResponseTooLargeError } from './http'
 import type { RateLimiter } from './rateLimiter'
 import { RequestTimeoutError, ScopeCancelledError, type ScopeRegistry } from './scopes'
-import { FERMATA_USER_AGENT } from './userAgent'
+import { OSCINE_USER_AGENT } from './userAgent'
 
 /** One attempt's deadline, covering the reply and the body read together. */
 const DEFAULT_TIMEOUT_MS = 10_000
@@ -268,7 +268,7 @@ export function createNetClient({
   limiter,
   scopes,
   fetchImpl = fetch,
-  userAgent = FERMATA_USER_AGENT,
+  userAgent = OSCINE_USER_AGENT,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   timeoutMs: defaultTimeoutMs = DEFAULT_TIMEOUT_MS,
   maxBytes: defaultMaxBytes = DEFAULT_MAX_BYTES,

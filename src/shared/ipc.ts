@@ -242,7 +242,7 @@ export interface IpcContract {
     response: TrackFormatDetail
   }
   /**
-   * Resolves a track id to an opaque `fermata://track/<id>` URL the renderer can
+   * Resolves a track id to an opaque `oscine://track/<id>` URL the renderer can
    * fetch. Never returns a filesystem path — see `docs`/the W1-3 card for the
    * reasoning behind the custom protocol.
    */
@@ -864,7 +864,7 @@ export interface IpcContract {
    * The artist's photograph, by way of Wikidata's P18 claim and Commons.
    *
    * Keyed on the artist for `artist.biography`'s reason. What comes back is not
-   * the picture: it is two `fermata://artwork/…` routes into the same
+   * the picture: it is two `oscine://artwork/…` routes into the same
    * content-hashed thumbnail cache album art lives in, plus the credit Commons
    * requires be shown with it. The bytes never cross this boundary, and the
    * renderer never learns where they are on disk.
@@ -1077,7 +1077,7 @@ void _allChannelsListed
 void _allEventChannelsListed
 
 /** The scheme registered in main to serve track bytes. */
-export const TRACK_SCHEME = 'fermata'
+export const TRACK_SCHEME = 'oscine'
 
 /**
  * Builds the opaque URL for a track. Lives in shared so main and the renderer

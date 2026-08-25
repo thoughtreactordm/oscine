@@ -29,7 +29,7 @@ const FADE_MS = 320
  * Read one artwork URL and pick its accent, or null if anything at all went
  * wrong.
  *
- * `fetch` on the `fermata://` scheme is already how `browserMediaSession.ts`
+ * `fetch` on the `oscine://` scheme is already how `browserMediaSession.ts`
  * re-addresses artwork as a blob, so this needs no new IPC surface and no new
  * privilege — and because the bytes arrive as a blob rather than as an `<img>`
  * src, the canvas is never tainted and `getImageData` is allowed.

@@ -37,9 +37,9 @@ describe('the catalog', () => {
     expect(new Set(vars).size).toBe(vars.length)
   })
 
-  it('names every custom property in the --fermata- namespace', () => {
+  it('names every custom property in the --oscine- namespace', () => {
     for (const token of TOKENS) {
-      expect(token.cssVar, token.id).toMatch(/^--fermata-/)
+      expect(token.cssVar, token.id).toMatch(/^--oscine-/)
     }
   })
 
@@ -47,9 +47,9 @@ describe('the catalog', () => {
     // Renaming these would mean editing NowPlaying — the one component edit
     // this card exists to prove is unnecessary.
     const byId = new Map(TOKENS.map((t) => [t.id, t]))
-    expect(byId.get('nowPlaying.coverBleed')?.cssVar).toBe('--fermata-cover-bleed')
-    expect(byId.get('nowPlaying.coverBlur')?.cssVar).toBe('--fermata-cover-blur')
-    expect(byId.get('nowPlaying.coverDrift')?.cssVar).toBe('--fermata-cover-drift')
+    expect(byId.get('nowPlaying.coverBleed')?.cssVar).toBe('--oscine-cover-bleed')
+    expect(byId.get('nowPlaying.coverBlur')?.cssVar).toBe('--oscine-cover-blur')
+    expect(byId.get('nowPlaying.coverDrift')?.cssVar).toBe('--oscine-cover-drift')
   })
 
   it('keeps the scrim pair internal, so no theme can tint text over cover art', () => {
@@ -83,9 +83,9 @@ describe('resolveTheme', () => {
   it('emits a custom property for every resolved token', () => {
     const { tokens, cssVars } = resolve(DEFAULT_THEME_ID, 'dark')
     expect(cssVars.size).toBe(tokens.size)
-    expect(cssVars.get('--fermata-surface-base')).toBeDefined()
-    expect(cssVars.get('--fermata-color-primary-500')).toBeDefined()
-    expect(cssVars.get('--fermata-cover-bleed')).toBe('0.28')
+    expect(cssVars.get('--oscine-surface-base')).toBeDefined()
+    expect(cssVars.get('--oscine-color-primary-500')).toBeDefined()
+    expect(cssVars.get('--oscine-cover-bleed')).toBe('0.28')
   })
 
   it('gives light and dark genuinely different surfaces', () => {
@@ -138,7 +138,7 @@ describe('resolveTheme', () => {
     // undefined custom property.
     const { cssVars } = resolve(DEFAULT_THEME_ID, 'dark')
     for (const role of ['primary', 'secondary', 'success', 'info', 'warning', 'error']) {
-      expect(cssVars.get(`--fermata-accent-${role}`), role).toBeDefined()
+      expect(cssVars.get(`--oscine-accent-${role}`), role).toBeDefined()
     }
   })
 

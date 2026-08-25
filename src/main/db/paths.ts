@@ -12,7 +12,7 @@ import type { PlatformPath } from 'node:path'
  * storage is always POSIX and rejoining is always per-platform.
  *
  * `toAbsPath` is also a security boundary. W2-2 wires it into
- * `resolveTrackPath`, which feeds the `fermata://` protocol handler — if a
+ * `resolveTrackPath`, which feeds the `oscine://` protocol handler — if a
  * crafted `rel_path` could escape its root, the renderer would gain the
  * arbitrary-file-read primitive that `src/shared`'s pathless `Track` exists to
  * deny it.

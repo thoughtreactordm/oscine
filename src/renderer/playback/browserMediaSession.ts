@@ -122,7 +122,7 @@ function createAnchor(): MediaSessionAnchor {
  * Reads one artwork route and re-addresses it as a blob URL.
  *
  * The reason Chromium needs this, and the probe that established it, are on
- * `createMediaSessionSurface`. Only `MediaImage` refuses the `fermata://`
+ * `createMediaSessionSurface`. Only `MediaImage` refuses the `oscine://`
  * scheme — `fetch` reaches it fine, which is what makes the re-address cheap.
  */
 async function loadArtwork(image: MediaArtworkDescriptor): Promise<MediaArtworkDescriptor | null> {

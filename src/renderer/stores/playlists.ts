@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
-import { FermataError, playlists } from '@renderer/ipc'
+import { OscineError, playlists } from '@renderer/ipc'
 import { restoredTabSession, useViewSettings } from '@renderer/settings'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import type { TabSession, TabStop } from '@shared/settings'
@@ -136,7 +136,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   }
 
   function report(cause: unknown, fallback: string): void {
-    notice.value = cause instanceof FermataError ? cause.message : fallback
+    notice.value = cause instanceof OscineError ? cause.message : fallback
   }
 
   /**

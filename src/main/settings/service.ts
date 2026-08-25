@@ -15,7 +15,7 @@
 import type BetterSqlite3 from 'better-sqlite3'
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import {
   buildSettingsProfile,
   cascadeLayers,
@@ -86,7 +86,7 @@ export interface SettingsService {
 
 /** Opens a dialog this build was not wired with. */
 function noPicker(): Promise<string | null> {
-  throw new FermataError('io-error', 'Settings profiles are unavailable in this build.')
+  throw new OscineError('io-error', 'Settings profiles are unavailable in this build.')
 }
 
 export interface SqliteSettingsServiceOptions {
@@ -192,7 +192,7 @@ export class SqliteSettingsService implements SettingsService {
   }
 
   /**
-   * Throws a `RangeError` rather than a `FermataError` on a bad key, because the
+   * Throws a `RangeError` rather than a `OscineError` on a bad key, because the
    * callers are main-process code rather than the renderer: a typo here is a bug
    * in this repo, and a bug in this repo should not be flattened into a polite
    * message the renderer displays.
@@ -280,7 +280,7 @@ export class SqliteSettingsService implements SettingsService {
 
     const resolved = validateValue(descriptor, value)
     if (resolved.notice) {
-      throw new FermataError('invalid-request', `${key}: ${resolved.notice.reason}`)
+      throw new OscineError('invalid-request', `${key}: ${resolved.notice.reason}`)
     }
 
     this.store.put([{ key, scope, value: resolved.value, version: descriptor.version }], this.now())
@@ -385,7 +385,7 @@ export class SqliteSettingsService implements SettingsService {
       // The path is logged in main and deliberately not forwarded: an
       // `IpcErrorPayload` never carries one. See `toSafeError`.
       console.error(`[settings] export to ${destination} failed:`, error)
-      throw new FermataError('io-error', 'Those settings could not be written to disk.')
+      throw new OscineError('io-error', 'Those settings could not be written to disk.')
     }
 
     return {
@@ -412,19 +412,19 @@ export class SqliteSettingsService implements SettingsService {
       text = await readFile(picked, 'utf8')
     } catch (error) {
       console.error(`[settings] import from ${picked} failed:`, error)
-      throw new FermataError('io-error', 'That file could not be read.')
+      throw new OscineError('io-error', 'That file could not be read.')
     }
 
     let raw: unknown
     try {
       raw = JSON.parse(text) as unknown
     } catch (error) {
-      throw new FermataError('invalid-request', `That file is not valid JSON: ${asMessage(error)}`)
+      throw new OscineError('invalid-request', `That file is not valid JSON: ${asMessage(error)}`)
     }
 
     const parsed = parseSettingsProfile(raw)
     if (!parsed.ok) {
-      throw new FermataError(
+      throw new OscineError(
         'invalid-request',
         `That file is not a Fermata settings profile: ${parsed.reason}.`
       )
@@ -488,7 +488,7 @@ export class SqliteSettingsService implements SettingsService {
     if (category === undefined) return durable
 
     if (!SETTING_CATEGORIES.some((entry) => entry.id === category)) {
-      throw new FermataError('invalid-request', `Unknown settings category: ${category}`)
+      throw new OscineError('invalid-request', `Unknown settings category: ${category}`)
     }
     return durable.filter((descriptor) => descriptor.category === category)
   }
@@ -502,9 +502,9 @@ export class SqliteSettingsService implements SettingsService {
    */
   private requireDurable(key: string): SettingDescriptor {
     const descriptor = this.byKey.get(key)
-    if (!descriptor) throw new FermataError('invalid-request', `Unknown setting: ${key}`)
+    if (!descriptor) throw new OscineError('invalid-request', `Unknown setting: ${key}`)
     if (descriptor.scope !== 'durable') {
-      throw new FermataError('invalid-request', `${key} is view-scoped and is not stored in main.`)
+      throw new OscineError('invalid-request', `${key} is view-scoped and is not stored in main.`)
     }
     return descriptor
   }
@@ -525,19 +525,19 @@ export class SqliteSettingsService implements SettingsService {
 function assertScope(descriptor: SettingDescriptor, scope: SettingScopeRef): void {
   if (scope.kind === 'global') {
     if (scope.id !== null) {
-      throw new FermataError('invalid-request', 'The global scope has no id.')
+      throw new OscineError('invalid-request', 'The global scope has no id.')
     }
     return
   }
 
   if (!descriptor.cascade.includes(scope.kind)) {
-    throw new FermataError(
+    throw new OscineError(
       'invalid-request',
       `${descriptor.key} cannot be overridden per ${scope.kind}.`
     )
   }
   if (!Number.isInteger(scope.id) || (scope.id as number) < 1) {
-    throw new FermataError('invalid-request', `A ${scope.kind} scope needs a positive id.`)
+    throw new OscineError('invalid-request', `A ${scope.kind} scope needs a positive id.`)
   }
 }
 

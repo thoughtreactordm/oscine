@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { watch } from 'vue'
-import { FermataError, playlists as ipc } from '@renderer/ipc'
+import { OscineError, playlists as ipc } from '@renderer/ipc'
 import { createPlaylistEntryWindow } from '@renderer/panels/playlistEntryWindow'
 import { useTrackGroupingStore } from '@renderer/stores/grouping'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
@@ -73,7 +73,7 @@ export const usePlaylistEntriesStore = defineStore('playlistEntries', () => {
   )
 
   function report(cause: unknown, fallback: string): void {
-    playlists.notice = cause instanceof FermataError ? cause.message : fallback
+    playlists.notice = cause instanceof OscineError ? cause.message : fallback
   }
 
   /**

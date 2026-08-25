@@ -36,7 +36,7 @@ import {
  * *query*, not of anything cached here — a column click discards the cache and
  * re-asks, because SQLite ordering 100k rows is cheaper than IPC shipping them.
  *
- * Kept free of Vue components and of `window.fermata` so it can be driven
+ * Kept free of Vue components and of `window.oscine` so it can be driven
  * against a synthetic 100k-row source in a plain unit test, which is the only
  * honest way to check the scaling claims this panel makes.
  */

@@ -8,7 +8,7 @@ import {
 import type { GetArtistRelationsRequest } from '@shared/artistRelations'
 import type { GetArtistBiographyRequest } from '@shared/biography'
 import type { GetArtistImageRequest } from '@shared/artistImage'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import {
   MAX_FAVORITE_IDS_PAGE,
   MAX_FAVORITE_REMOVE_IDS,
@@ -123,7 +123,7 @@ import {
  */
 
 function invalid(message: string): never {
-  throw new FermataError('invalid-request', message)
+  throw new OscineError('invalid-request', message)
 }
 
 function assertOnlyKeys(raw: Record<string, unknown>, allowed: readonly string[]): void {

@@ -97,7 +97,7 @@ function onPick(event: Event): void {
       A native colour input rather than a component: it is the one control that
       opens the platform's own picker, and the platform's picker is the one an
       operator already knows. Its colour is bound from the token value at
-      runtime, never from a class — `fermata/no-raw-colours` would be right to
+      runtime, never from a class — `oscine/no-raw-colours` would be right to
       reject the alternative.
     -->
     <input

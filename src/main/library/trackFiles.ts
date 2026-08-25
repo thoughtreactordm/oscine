@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { CATALOG_ARTWORK_HOST, isCatalogArtworkHost, TRACK_SCHEME } from '@shared/ipc'
 import type { ArtworkVariant } from '@shared/library'
-import { FERMATA_USER_AGENT, readCappedBytes } from '../net/http'
+import { OSCINE_USER_AGENT, readCappedBytes } from '../net/http'
 import type { PodcastService } from '../podcasts/service'
 import { parseByteRange, UNSATISFIABLE_RANGE } from './byteRange'
 import type { LibraryService } from './service'
@@ -14,7 +14,7 @@ import type { LibraryService } from './service'
  *
  * The renderer needs playable bytes for `decodeAudioData`, but design section 6
  * forbids it touching the filesystem. This resolves the tension with a custom
- * protocol: the renderer fetches `fermata://track/<id>`, main maps the id to a
+ * protocol: the renderer fetches `oscine://track/<id>`, main maps the id to a
  * path, and the path never leaves main.
  *
  * The alternative — main handing back a validated `file://` URL — was rejected.
@@ -234,7 +234,7 @@ async function serveCatalogArtwork(url: URL): Promise<Response> {
   try {
     upstream = await net.fetch(target.toString(), {
       signal: AbortSignal.timeout(CATALOG_ARTWORK_TIMEOUT_MS),
-      headers: { accept: 'image/*', 'user-agent': FERMATA_USER_AGENT }
+      headers: { accept: 'image/*', 'user-agent': OSCINE_USER_AGENT }
     })
   } catch {
     return placeholderResponse()

@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 import type Database from 'better-sqlite3'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import { episodeUrl } from '@shared/ipc'
 import type {
   BrowsePodcastCategoryResult,
@@ -35,7 +35,7 @@ import {
 } from './itunes'
 import {
   createStallGuard,
-  FERMATA_USER_AGENT,
+  OSCINE_USER_AGENT,
   readCappedBytes,
   readCappedText,
   ResponseTooLargeError,
@@ -104,7 +104,7 @@ export interface PodcastServiceDeps {
 
 /**
  * Subscribe, refresh, download. Network and filesystem stay here; the renderer
- * only sees ids and opaque `fermata://` URLs.
+ * only sees ids and opaque `oscine://` URLs.
  */
 export class SqlitePodcastService implements PodcastService {
   private readonly store: PodcastStore
@@ -126,8 +126,7 @@ export class SqlitePodcastService implements PodcastService {
     this.artworkCacheDir = deps.artworkCacheDir
     this.fetchImpl = deps.fetchImpl ?? fetch
     this.itunes =
-      deps.itunes ??
-      createItunesClient({ fetchImpl: this.fetchImpl, userAgent: FERMATA_USER_AGENT })
+      deps.itunes ?? createItunesClient({ fetchImpl: this.fetchImpl, userAgent: OSCINE_USER_AGENT })
     this.artwork = deps.artworkProcessor ?? new WorkerArtworkImageProcessor()
     this.onDownloadProgress = deps.onDownloadProgress ?? (() => undefined)
     this.now = deps.now ?? (() => Date.now())
@@ -145,7 +144,7 @@ export class SqlitePodcastService implements PodcastService {
     const url = normalizeFeedUrl(feedUrl)
     const existing = this.store.findByFeedUrl(url)
     if (existing) {
-      throw new FermataError('conflict', 'Already subscribed to that feed.')
+      throw new OscineError('conflict', 'Already subscribed to that feed.')
     }
 
     const feed = await this.fetchFeed(url)
@@ -164,14 +163,14 @@ export class SqlitePodcastService implements PodcastService {
     await this.cacheArtwork(podcastId, feed.artworkUrl, url)
 
     const podcast = this.store.getPodcast(podcastId)
-    if (!podcast) throw new FermataError('internal', 'Subscription vanished after insert.')
+    if (!podcast) throw new OscineError('internal', 'Subscription vanished after insert.')
     this.invalidateDiscoverCaches()
     return podcast
   }
 
   async unsubscribe(podcastId: number): Promise<void> {
     const podcast = this.store.getPodcast(podcastId)
-    if (!podcast) throw new FermataError('not-found', 'That podcast is not in your subscriptions.')
+    if (!podcast) throw new OscineError('not-found', 'That podcast is not in your subscriptions.')
 
     // Always the show directory named from id+title — not only when rows still
     // carry rel_paths — so unsub never leaves orphan audio behind.
@@ -183,7 +182,7 @@ export class SqlitePodcastService implements PodcastService {
 
   async refresh(podcastId: number): Promise<Podcast> {
     const podcast = this.store.getPodcast(podcastId)
-    if (!podcast) throw new FermataError('not-found', 'That podcast is not in your subscriptions.')
+    if (!podcast) throw new OscineError('not-found', 'That podcast is not in your subscriptions.')
 
     try {
       const feed = await this.fetchFeed(podcast.feedUrl)
@@ -194,11 +193,11 @@ export class SqlitePodcastService implements PodcastService {
     } catch (error) {
       const message = errorMessage(error)
       this.store.setPodcastError(podcastId, message)
-      throw error instanceof FermataError ? error : new FermataError('io-error', message)
+      throw error instanceof OscineError ? error : new OscineError('io-error', message)
     }
 
     const updated = this.store.getPodcast(podcastId)
-    if (!updated) throw new FermataError('not-found', 'That podcast is not in your subscriptions.')
+    if (!updated) throw new OscineError('not-found', 'That podcast is not in your subscriptions.')
     return updated
   }
 
@@ -216,7 +215,7 @@ export class SqlitePodcastService implements PodcastService {
 
   async listEpisodes(query: ListEpisodesQuery): Promise<ListEpisodesResult> {
     if (!this.store.getPodcast(query.podcastId)) {
-      throw new FermataError('not-found', 'That podcast is not in your subscriptions.')
+      throw new OscineError('not-found', 'That podcast is not in your subscriptions.')
     }
     return this.store.listEpisodes(
       {
@@ -252,7 +251,7 @@ export class SqlitePodcastService implements PodcastService {
 
   async deleteDownload(episodeId: number): Promise<Episode> {
     const pathRow = this.store.getEpisodePath(episodeId)
-    if (!pathRow) throw new FermataError('not-found', 'That episode is gone.')
+    if (!pathRow) throw new OscineError('not-found', 'That episode is gone.')
 
     if (pathRow.rel_path) {
       const abs = resolveEpisodeAbsPath(this.podcastsRoot, pathRow.rel_path)
@@ -263,7 +262,7 @@ export class SqlitePodcastService implements PodcastService {
     this.downloadJobs.delete(episodeId)
 
     const episode = this.store.getEpisode(episodeId, this.downloading)
-    if (!episode) throw new FermataError('not-found', 'That episode is gone.')
+    if (!episode) throw new OscineError('not-found', 'That episode is gone.')
 
     const podcastId = episode.podcastId
     this.onDownloadProgress({
@@ -277,31 +276,31 @@ export class SqlitePodcastService implements PodcastService {
 
   async clearDownloads(podcastId: number): Promise<Podcast> {
     const podcast = this.store.getPodcast(podcastId)
-    if (!podcast) throw new FermataError('not-found', 'That podcast is not in your subscriptions.')
+    if (!podcast) throw new OscineError('not-found', 'That podcast is not in your subscriptions.')
 
     const showDir = join(this.podcastsRoot, podcastDirName(podcastId, podcast.title))
     await rm(showDir, { recursive: true, force: true }).catch(() => undefined)
     this.store.clearDownloadsForPodcast(podcastId)
 
     const updated = this.store.getPodcast(podcastId)
-    if (!updated) throw new FermataError('not-found', 'That podcast is not in your subscriptions.')
+    if (!updated) throw new OscineError('not-found', 'That podcast is not in your subscriptions.')
     return updated
   }
 
   async setPlayed(episodeId: number, played: boolean): Promise<Episode> {
     if (!this.store.getEpisode(episodeId, this.downloading)) {
-      throw new FermataError('not-found', 'That episode is gone.')
+      throw new OscineError('not-found', 'That episode is gone.')
     }
     this.store.setPlayed(episodeId, played)
     const episode = this.store.getEpisode(episodeId, this.downloading)
-    if (!episode) throw new FermataError('not-found', 'That episode is gone.')
+    if (!episode) throw new OscineError('not-found', 'That episode is gone.')
     return episode
   }
 
   async importOpml(xml: string): Promise<ImportOpmlResult> {
     const outlines = parseOpml(xml)
     if (outlines.length === 0) {
-      throw new FermataError('invalid-request', 'No podcast feeds found in that OPML file.')
+      throw new OscineError('invalid-request', 'No podcast feeds found in that OPML file.')
     }
     const subscribed: Podcast[] = []
     const failed: ImportOpmlResult['failed'] = []
@@ -330,7 +329,7 @@ export class SqlitePodcastService implements PodcastService {
 
   async getEpisodeFileUrl(episodeId: number): Promise<string> {
     if ((await this.resolveEpisodePath(episodeId)) === null) {
-      throw new FermataError('not-found', 'That episode is not downloaded.')
+      throw new OscineError('not-found', 'That episode is not downloaded.')
     }
     return episodeUrl(episodeId)
   }
@@ -338,7 +337,7 @@ export class SqlitePodcastService implements PodcastService {
   async getEpisodeAudioMetadata(episodeId: number): Promise<EpisodeAudioMetadata> {
     const row = this.store.getEpisodePath(episodeId)
     if (!row?.rel_path) {
-      throw new FermataError('not-found', 'That episode is not downloaded.')
+      throw new OscineError('not-found', 'That episode is not downloaded.')
     }
     return {
       episodeId,
@@ -419,7 +418,7 @@ export class SqlitePodcastService implements PodcastService {
   async browseCategory(genreId: string): Promise<BrowsePodcastCategoryResult> {
     const id = genreId.trim()
     if (!/^\d+$/.test(id)) {
-      throw new FermataError('invalid-request', 'That is not a known podcast category.')
+      throw new OscineError('invalid-request', 'That is not a known podcast category.')
     }
     const cached = this.categoryCache.get(id)
     if (cached && this.now() - cached.at < RECOMMEND_TTL_MS) return { hits: cached.hits }
@@ -536,10 +535,10 @@ export class SqlitePodcastService implements PodcastService {
 
   private async runDownload(episodeId: number): Promise<Episode> {
     const episode = this.store.getEpisode(episodeId, this.downloading)
-    if (!episode) throw new FermataError('not-found', 'That episode is gone.')
+    if (!episode) throw new OscineError('not-found', 'That episode is gone.')
 
     const pathRow = this.store.getEpisodePath(episodeId)
-    if (!pathRow) throw new FermataError('not-found', 'That episode is gone.')
+    if (!pathRow) throw new OscineError('not-found', 'That episode is gone.')
     if (pathRow.rel_path) {
       const abs = resolveEpisodeAbsPath(this.podcastsRoot, pathRow.rel_path)
       try {
@@ -551,7 +550,7 @@ export class SqlitePodcastService implements PodcastService {
     }
 
     const enclosure = this.store.getEnclosureUrl(episodeId)
-    if (!enclosure) throw new FermataError('not-found', 'That episode is gone.')
+    if (!enclosure) throw new OscineError('not-found', 'That episode is gone.')
 
     const podcastTitle = this.store.podcastTitle(enclosure.podcastId) ?? 'podcast'
     const relPath = episodeRelPath(
@@ -576,16 +575,16 @@ export class SqlitePodcastService implements PodcastService {
       await mkdir(dirname(absPath), { recursive: true })
       const response = await this.fetchImpl(enclosure.enclosureUrl, {
         signal: guard.signal,
-        headers: { 'user-agent': FERMATA_USER_AGENT }
+        headers: { 'user-agent': OSCINE_USER_AGENT }
       })
       if (!response.ok || !response.body) {
-        throw new FermataError('io-error', `Download failed (${response.status}).`)
+        throw new OscineError('io-error', `Download failed (${response.status}).`)
       }
 
       const total = Number(response.headers.get('content-length'))
       const hasTotal = Number.isFinite(total) && total > 0
       if (hasTotal && total > MAX_EPISODE_BYTES) {
-        throw new FermataError('io-error', 'That episode is too large to download.')
+        throw new OscineError('io-error', 'That episode is too large to download.')
       }
       let received = 0
 
@@ -594,7 +593,7 @@ export class SqlitePodcastService implements PodcastService {
         guard.keepAlive(DOWNLOAD_STALL_TIMEOUT_MS)
         received += chunk.length
         if (received > MAX_EPISODE_BYTES) {
-          nodeBody.destroy(new FermataError('io-error', 'That episode is too large to download.'))
+          nodeBody.destroy(new OscineError('io-error', 'That episode is too large to download.'))
           return
         }
         this.onDownloadProgress({
@@ -631,11 +630,11 @@ export class SqlitePodcastService implements PodcastService {
         status: 'failed',
         fraction: null
       })
-      throw error instanceof FermataError ? error : new FermataError('io-error', message)
+      throw error instanceof OscineError ? error : new OscineError('io-error', message)
     }
 
     const ready = this.store.getEpisode(episodeId, this.downloading)
-    if (!ready) throw new FermataError('not-found', 'That episode is gone.')
+    if (!ready) throw new OscineError('not-found', 'That episode is gone.')
     return ready
   }
 
@@ -646,29 +645,29 @@ export class SqlitePodcastService implements PodcastService {
         signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
         headers: {
           accept: 'application/rss+xml, application/xml, text/xml, */*',
-          'user-agent': FERMATA_USER_AGENT
+          'user-agent': OSCINE_USER_AGENT
         }
       })
     } catch {
-      throw new FermataError('io-error', 'Could not reach that feed.')
+      throw new OscineError('io-error', 'Could not reach that feed.')
     }
     if (!response.ok) {
-      throw new FermataError('io-error', `Feed returned HTTP ${response.status}.`)
+      throw new OscineError('io-error', `Feed returned HTTP ${response.status}.`)
     }
     let xml: string
     try {
       xml = await readCappedText(response, MAX_FEED_BYTES)
     } catch (error) {
       if (error instanceof ResponseTooLargeError) {
-        throw new FermataError('io-error', 'That feed is too large to read.')
+        throw new OscineError('io-error', 'That feed is too large to read.')
       }
-      throw new FermataError('io-error', 'Could not read that feed.')
+      throw new OscineError('io-error', 'Could not read that feed.')
     }
     try {
       return parsePodcastRss(xml)
     } catch (error) {
       if (error instanceof RssParseError) {
-        throw new FermataError('invalid-request', error.message)
+        throw new OscineError('invalid-request', error.message)
       }
       throw error
     }
@@ -684,7 +683,7 @@ export class SqlitePodcastService implements PodcastService {
     try {
       const response = await this.fetchImpl(absolute, {
         signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
-        headers: { 'user-agent': FERMATA_USER_AGENT }
+        headers: { 'user-agent': OSCINE_USER_AGENT }
       })
       if (!response.ok) {
         console.warn(`[podcasts] artwork HTTP ${response.status} for podcast ${podcastId}`)
@@ -729,16 +728,16 @@ function normalizeFeedUrl(raw: string): string {
   try {
     url = new URL(trimmed)
   } catch {
-    throw new FermataError('invalid-request', 'That is not a valid feed URL.')
+    throw new OscineError('invalid-request', 'That is not a valid feed URL.')
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new FermataError('invalid-request', 'Feed URL must be http or https.')
+    throw new OscineError('invalid-request', 'Feed URL must be http or https.')
   }
   return url.toString()
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof FermataError) return error.message
+  if (error instanceof OscineError) return error.message
   if (error instanceof Error && error.message) return 'Could not complete that podcast request.'
   return 'Could not complete that podcast request.'
 }

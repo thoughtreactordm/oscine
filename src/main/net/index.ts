@@ -34,7 +34,7 @@ export {
   ScopeCancelledError,
   type ScopeRegistry
 } from './scopes'
-export { FERMATA_USER_AGENT } from './userAgent'
+export { OSCINE_USER_AGENT } from './userAgent'
 export { NETWORK_EXTERNAL_LOOKUPS_KEY }
 
 /**

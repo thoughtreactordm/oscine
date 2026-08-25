@@ -55,7 +55,7 @@ export interface TrackReplayGain {
  *
  * Note what is absent: there is no `path`, no `relPath`, no filename. The
  * renderer identifies a track solely by `id` and obtains playable bytes through
- * `library.getTrackFileUrl`, which returns an opaque `fermata://` URL. Adding a
+ * `library.getTrackFileUrl`, which returns an opaque `oscine://` URL. Adding a
  * path field here would hand the renderer an arbitrary-file-read primitive and
  * quietly undo the reason this boundary exists.
  */

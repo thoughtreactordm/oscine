@@ -130,7 +130,7 @@ describe('a successful request', () => {
     const headers = init.headers as Record<string, string>
     // MusicBrainz requires an identifying agent; a version-less or absent one
     // is what gets a client blocked.
-    expect(headers['user-agent']).toMatch(/^Fermata\/\d+\.\d+\.\d+ /)
+    expect(headers['user-agent']).toMatch(/^Oscine\/\d+\.\d+\.\d+ /)
     expect(headers.accept).toBe('application/json')
   })
 

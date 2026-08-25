@@ -5,7 +5,7 @@
  * The card names them explicitly because each one is a fork in the
  * implementation and none can be answered by reading Fermata's code:
  *
- *  1. Can Chromium resolve a `fermata://` artwork URL for MPRIS `mpris:artUrl`,
+ *  1. Can Chromium resolve a `oscine://` artwork URL for MPRIS `mpris:artUrl`,
  *     which requires it to materialise the image as a file?
  *  2. What bus name does Electron actually publish? Chromium derives it from
  *     its product name, and whether `app.setName` moves it is worth checking
@@ -17,7 +17,7 @@
  * This runs a throwaway Electron app in its own temporary user-data directory:
  * it never opens the real library, and it can run alongside a dev instance
  * without contending for the single-instance lock. What it reproduces is the
- * exact mechanism `browserMediaSession.ts` uses — a privileged `fermata://`
+ * exact mechanism `browserMediaSession.ts` uses — a privileged `oscine://`
  * scheme, a silent looping WAV anchor, `navigator.mediaSession` — so a result
  * here is a result about Fermata.
  *
@@ -88,10 +88,10 @@ for (const action of ['play','pause','stop','previoustrack','nexttrack','seekbac
 const artworkMode = ${JSON.stringify(process.env.FERMATA_PROBE_ARTWORK ?? 'scheme')}
 
 async function artworkSrc() {
-  if (artworkMode !== 'blob') return 'fermata://artwork/probe/large'
+  if (artworkMode !== 'blob') return 'oscine://artwork/probe/large'
   // The renderer can still *fetch* the privileged scheme — it is only
   // MediaImage that refuses it — so re-wrapping the bytes costs one request.
-  const response = await fetch('fermata://artwork/probe/large')
+  const response = await fetch('oscine://artwork/probe/large')
   const url = URL.createObjectURL(await response.blob())
   log('artwork re-wrapped as ' + url.slice(0, 12) + '…')
   return url
@@ -137,12 +137,12 @@ writeFileSync(
   mainPath,
   `const { app, BrowserWindow, protocol } = require('electron')
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'fermata', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }
+  { scheme: 'oscine', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }
 ])
 app.setAppUserModelId('app.oscine.desktop')
 ${process.env.FERMATA_PROBE_SET_NAME === '1' ? "app.setName('Fermata')" : '// app.setName deliberately not called; see src/main/index.ts'}
 app.whenReady().then(() => {
-  protocol.handle('fermata', () =>
+  protocol.handle('oscine', () =>
     new Response(Buffer.from(${JSON.stringify(pngBase64)}, 'base64'), { headers: { 'content-type': 'image/png' } })
   )
   const win = new BrowserWindow({ width: 520, height: 300, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } })

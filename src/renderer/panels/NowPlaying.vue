@@ -466,7 +466,7 @@ function onSeekInput(value: number | undefined): void {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: var(--fermata-cover-bleed);
+  opacity: var(--oscine-cover-bleed);
 }
 
 .cover-bleed-art {
@@ -475,11 +475,11 @@ function onSeekInput(value: number | undefined): void {
   background-position: center;
   background-repeat: no-repeat;
   background-size: 100% 100%;
-  filter: blur(var(--fermata-cover-blur)) saturate(3.6);
+  filter: blur(var(--oscine-cover-blur)) saturate(3.6);
   /* The resting value for when the drift is off, set to the keyframes' midpoint
      so reduced motion gets the same framing as the average animated frame. */
   transform: scale(1.33);
-  animation: cover-drift var(--fermata-cover-drift) ease-in-out infinite alternate;
+  animation: cover-drift var(--oscine-cover-drift) ease-in-out infinite alternate;
   /* The blur is expensive to recompute; promoting the layer means the drift is
      a composited transform of a cached result, not a re-blur per frame. */
   will-change: transform;

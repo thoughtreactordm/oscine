@@ -24,7 +24,7 @@ import type { NetFailure } from './net'
  *
  * ## Why the images are URLs and not a hash
  *
- * They are `fermata://artwork/<hash>/<variant>` routes into the same
+ * They are `oscine://artwork/<hash>/<variant>` routes into the same
  * content-addressed thumbnail cache album art uses, built in main exactly as
  * `TrackSummary.artwork` is. The renderer never learns the hash, because a hash
  * is a filesystem fact and the renderer does not have filesystem facts.
@@ -59,9 +59,9 @@ export interface ArtistImage {
   entityId: string
   /** The Commons file name — `Kurt Cobain 1992.jpg`. Identity, not a URL. */
   file: string
-  /** `fermata://artwork/<hash>/small` — 160px. */
+  /** `oscine://artwork/<hash>/small` — 160px. */
   small: string
-  /** `fermata://artwork/<hash>/large` — 640px. The one the deck renders. */
+  /** `oscine://artwork/<hash>/large` — 640px. The one the deck renders. */
   large: string
   credit: ArtistImageCredit
 }

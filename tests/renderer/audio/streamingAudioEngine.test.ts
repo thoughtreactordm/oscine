@@ -61,7 +61,7 @@ class FakeMedia implements StreamingMedia {
 function source(overrides: Partial<TrackAudioSource> = {}): TrackAudioSource {
   return {
     trackId: 4,
-    url: 'fermata://track/4',
+    url: 'oscine://track/4',
     durationSec: 120,
     encodedBytes: 10_000_000,
     channels: 2,
@@ -104,7 +104,7 @@ describe('StreamingAudioEngine', () => {
     engine.on('timeupdate', (position) => times.push(position))
 
     await engine.load(source({ rgTrackGainDb: -6, rgTrackPeak: 0.9, rgSource: 'tag' }))
-    expect(media.source).toBe('fermata://track/4')
+    expect(media.source).toBe('oscine://track/4')
     expect(engine.status).toBe('ready')
     expect(engine.duration).toBe(120)
     expect(normalizations[0]).toEqual({
@@ -170,7 +170,7 @@ describe('StreamingAudioEngine', () => {
     engine.on('error', errors)
 
     const first = engine.load(source())
-    const second = engine.load(source({ trackId: 5, url: 'fermata://track/5' }))
+    const second = engine.load(source({ trackId: 5, url: 'oscine://track/5' }))
     media.readyState = 1
     media.emit('loadedmetadata')
 

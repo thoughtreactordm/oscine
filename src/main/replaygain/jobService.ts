@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import type { ReplayGainJobProgress } from '@shared/library'
 import { WorkerReplayGainAnalyzer, type ReplayGainAnalyzer } from './analyzer'
 import { ReplayGainJobStore, type ReplayGainWorkItem } from './jobStore'
@@ -71,7 +71,7 @@ export class ReplayGainJobService {
     this.assertComputeAllowed()
     const state = this.store.state(jobId)
     if (state !== 'paused' && state !== 'cancelled') {
-      throw new FermataError('conflict', 'Only a paused or cancelled ReplayGain job can resume.')
+      throw new OscineError('conflict', 'Only a paused or cancelled ReplayGain job can resume.')
     }
     this.store.setState(jobId, 'running')
     this.launch(jobId)
@@ -98,7 +98,7 @@ export class ReplayGainJobService {
    */
   private assertComputeAllowed(): void {
     if (this.deps.canCompute && !this.deps.canCompute()) {
-      throw new FermataError(
+      throw new OscineError(
         'conflict',
         'Analysing untagged tracks is turned off in audio settings.'
       )
@@ -107,7 +107,7 @@ export class ReplayGainJobService {
 
   private launch(jobId: number): void {
     if (this.running) {
-      throw new FermataError('conflict', 'A ReplayGain job is already running.')
+      throw new OscineError('conflict', 'A ReplayGain job is already running.')
     }
     const abort = new AbortController()
     this.abort = abort

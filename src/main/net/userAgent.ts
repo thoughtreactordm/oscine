@@ -19,4 +19,4 @@
 
 import { version } from '../../../package.json'
 
-export const FERMATA_USER_AGENT = `Fermata/${version} (local music player)`
+export const OSCINE_USER_AGENT = `Oscine/${version} (local music player)`

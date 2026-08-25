@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
-import { FermataError, podcasts as podcastsApi } from '@renderer/ipc'
+import { OscineError, podcasts as podcastsApi } from '@renderer/ipc'
 import { episodeAsTrack } from '@renderer/playback/episodeTrack'
 import { restoredTabSession, useViewSettings } from '@renderer/settings'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -102,7 +102,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       }
       await refreshRecent()
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Could not load podcasts.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not load podcasts.'
     } finally {
       loading.value = false
     }
@@ -131,7 +131,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     viewedPodcastId.value = podcastId
     focusEpisodeId.value = episodeId ?? null
     void loadEpisodes(podcastId).catch((error: unknown) => {
-      notice.value = error instanceof FermataError ? error.message : 'Could not load episodes.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not load episodes.'
     })
   }
 
@@ -140,7 +140,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     focusEpisodeId.value = null
     if (podcastId !== null) {
       void loadEpisodes(podcastId).catch((error: unknown) => {
-        notice.value = error instanceof FermataError ? error.message : 'Could not load episodes.'
+        notice.value = error instanceof OscineError ? error.message : 'Could not load episodes.'
       })
     }
   }
@@ -170,7 +170,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       openTab(podcast.id)
       return podcast
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Could not subscribe.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not subscribe.'
       return null
     } finally {
       subscribing.value = false
@@ -215,7 +215,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     } catch (error) {
       if (generation !== searchGeneration) return
       catalogHits.value = []
-      notice.value = error instanceof FermataError ? error.message : 'Catalogue search failed.'
+      notice.value = error instanceof OscineError ? error.message : 'Catalogue search failed.'
     } finally {
       if (generation === searchGeneration) searchingCatalog.value = false
     }
@@ -240,7 +240,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     } catch (error) {
       recommendShelves.value = []
       notice.value =
-        error instanceof FermataError ? error.message : 'Could not load recommendations.'
+        error instanceof OscineError ? error.message : 'Could not load recommendations.'
     } finally {
       recommending.value = false
     }
@@ -263,7 +263,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     } catch (error) {
       if (generation !== categoryGeneration) return
       categoryHits.value = []
-      notice.value = error instanceof FermataError ? error.message : 'Could not load that category.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not load that category.'
     } finally {
       if (generation === categoryGeneration) browsingCategory.value = false
     }
@@ -284,7 +284,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
           : `Subscribed to ${ok}; ${failed} feed${failed === 1 ? '' : 's'} failed.`
       if (result.subscribed[0]) openTab(result.subscribed[0].id)
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Could not import OPML.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not import OPML.'
     } finally {
       subscribing.value = false
     }
@@ -300,7 +300,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       await refreshRecent()
       episodesByPodcast.value.delete(podcastId)
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Could not unsubscribe.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not unsubscribe.'
     }
   }
 
@@ -313,7 +313,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       await loadEpisodes(podcastId)
       await refreshRecent()
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Could not refresh feed.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not refresh feed.'
     } finally {
       refreshing.value = false
     }
@@ -327,7 +327,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       await refreshRecent()
       if (viewedPodcastId.value !== null) await loadEpisodes(viewedPodcastId.value)
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Could not refresh feeds.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not refresh feeds.'
     } finally {
       refreshing.value = false
     }
@@ -341,7 +341,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       await refreshRecent()
       list.value = await podcastsApi.list()
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Download failed.'
+      notice.value = error instanceof OscineError ? error.message : 'Download failed.'
     }
   }
 
@@ -365,7 +365,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       if (latest.downloadStatus !== 'ready') await downloadEpisode(latest.id)
       return latest
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Download failed.'
+      notice.value = error instanceof OscineError ? error.message : 'Download failed.'
       return null
     }
   }
@@ -397,7 +397,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       await refreshRecent()
       list.value = await podcastsApi.list()
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Could not remove download.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not remove download.'
     }
   }
 
@@ -410,7 +410,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       await loadEpisodes(podcastId)
       await refreshRecent()
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Could not clear downloads.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not clear downloads.'
     }
   }
 
@@ -452,7 +452,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       await playback.playTracks({ tracks, index: 0 })
       void setPlayed(episodeId, true)
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Could not play that episode.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not play that episode.'
     }
   }
 
@@ -462,7 +462,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       patchEpisode(episode)
       list.value = await podcastsApi.list()
     } catch (error) {
-      notice.value = error instanceof FermataError ? error.message : 'Could not update episode.'
+      notice.value = error instanceof OscineError ? error.message : 'Could not update episode.'
     }
   }
 

@@ -40,7 +40,7 @@ function track(overrides: Partial<Track> = {}): Track {
     playCount: 0,
     lastPlayedAt: null,
     favorite: false,
-    artwork: { small: 'fermata://artwork/missing/small', large: 'fermata://artwork/missing/large' },
+    artwork: { small: 'oscine://artwork/missing/small', large: 'oscine://artwork/missing/large' },
     rgTrackGainDb: null,
     rgTrackPeak: null,
     rgAlbumGainDb: null,
@@ -51,8 +51,8 @@ function track(overrides: Partial<Track> = {}): Track {
 }
 
 const COVERED = {
-  small: 'fermata://artwork/abc123/small',
-  large: 'fermata://artwork/abc123/large'
+  small: 'oscine://artwork/abc123/small',
+  large: 'oscine://artwork/abc123/large'
 }
 
 /** Records everything handed to the OS, and lets a test fire an action back. */
@@ -282,7 +282,7 @@ describe('media session surface', () => {
   it('publishes the tags before the artwork has been read', () => {
     // A track change must not hold the title hostage to an image read.
     const h = surfaceHarness()
-    h.surface.setMetadata(withArt('So What', ['fermata://artwork/a/large']))
+    h.surface.setMetadata(withArt('So What', ['oscine://artwork/a/large']))
 
     expect(h.metadata()?.title).toBe('So What')
     expect(h.metadata()?.artwork).toEqual([])
@@ -291,7 +291,7 @@ describe('media session surface', () => {
 
   it('re-addresses artwork, because Chromium refuses the fermata scheme', async () => {
     const h = surfaceHarness()
-    h.surface.setMetadata(withArt('So What', ['fermata://artwork/a/large']))
+    h.surface.setMetadata(withArt('So What', ['oscine://artwork/a/large']))
     await h.settleAll()
 
     expect(h.metadata()?.artwork).toEqual([
@@ -303,10 +303,10 @@ describe('media session surface', () => {
     // Every track on an album carries the same routes. Re-reading them would
     // republish with no artwork first, at every gapless boundary.
     const h = surfaceHarness()
-    h.surface.setMetadata(withArt('So What', ['fermata://artwork/a/large']))
+    h.surface.setMetadata(withArt('So What', ['oscine://artwork/a/large']))
     await h.settleAll()
 
-    h.surface.setMetadata(withArt('Blue in Green', ['fermata://artwork/a/large']))
+    h.surface.setMetadata(withArt('Blue in Green', ['oscine://artwork/a/large']))
 
     expect(h.outstanding()).toBe(0)
     expect(h.metadata()?.title).toBe('Blue in Green')
@@ -318,9 +318,9 @@ describe('media session surface', () => {
 
   it('releases the previous resolution when the cover changes', async () => {
     const h = surfaceHarness()
-    h.surface.setMetadata(withArt('So What', ['fermata://artwork/a/large']))
+    h.surface.setMetadata(withArt('So What', ['oscine://artwork/a/large']))
     await h.settleAll()
-    h.surface.setMetadata(withArt('Flamenco Sketches', ['fermata://artwork/b/large']))
+    h.surface.setMetadata(withArt('Flamenco Sketches', ['oscine://artwork/b/large']))
     await h.settleAll()
 
     expect(h.released).toEqual(['blob:resolved-1'])
@@ -329,8 +329,8 @@ describe('media session surface', () => {
 
   it('discards a read whose track has already been skipped past', async () => {
     const h = surfaceHarness()
-    h.surface.setMetadata(withArt('So What', ['fermata://artwork/a/large']))
-    h.surface.setMetadata(withArt('Flamenco Sketches', ['fermata://artwork/b/large']))
+    h.surface.setMetadata(withArt('So What', ['oscine://artwork/a/large']))
+    h.surface.setMetadata(withArt('Flamenco Sketches', ['oscine://artwork/b/large']))
     await h.settleAll()
 
     // Both reads land together; only the surviving track's may be published,
@@ -342,7 +342,7 @@ describe('media session surface', () => {
 
   it('releases everything when playback stops', async () => {
     const h = surfaceHarness()
-    h.surface.setMetadata(withArt('So What', ['fermata://artwork/a/large']))
+    h.surface.setMetadata(withArt('So What', ['oscine://artwork/a/large']))
     await h.settleAll()
     h.surface.setMetadata(null)
 
@@ -352,7 +352,7 @@ describe('media session surface', () => {
 
   it('keeps the card when a cover cannot be read at all', async () => {
     const h = surfaceHarness()
-    h.surface.setMetadata(withArt('So What', ['fermata://artwork/missing/large']))
+    h.surface.setMetadata(withArt('So What', ['oscine://artwork/missing/large']))
     await h.settleAll()
 
     expect(h.metadata()?.title).toBe('So What')

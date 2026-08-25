@@ -1,4 +1,4 @@
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import {
   AudioEngineError,
   type AudioEngine,
@@ -359,7 +359,7 @@ export class GuardedAudioEngine implements AudioEngine {
 
   #toFailure(err: unknown, trackId: number): AudioEngineError {
     if (err instanceof AudioEngineError) return err
-    if (err instanceof FermataError) {
+    if (err instanceof OscineError) {
       const code: AudioErrorCode = err.code === 'not-found' ? 'not-found' : 'io-error'
       return new AudioEngineError(code, err.message, trackId)
     }

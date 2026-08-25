@@ -15,10 +15,10 @@
  * `fetch` is not, because two renderer call sites legitimately use it and must
  * keep working:
  *
- *   - `audio/DecodedAudioEngine.ts` reads a track's bytes from a `fermata://`
+ *   - `audio/DecodedAudioEngine.ts` reads a track's bytes from a `oscine://`
  *     URL that main minted.
  *   - `playback/browserMediaSession.ts` re-addresses artwork as a blob, because
- *     Chromium's `MediaImage` refuses the `fermata://` scheme however it is
+ *     Chromium's `MediaImage` refuses the `oscine://` scheme however it is
  *     privileged.
  *
  * Both pass a URL that came from main, and neither can be told apart from a
@@ -69,7 +69,7 @@ export const noRendererNetwork = {
       remoteFetch:
         'fetch() to a remote URL from the renderer. D14 puts every outbound request in main — ' +
         'add a channel to src/shared/ipc.ts and go through src/main/net instead. Local ' +
-        'fermata:// and blob: reads are fine and are why this rule does not ban fetch outright.'
+        'oscine:// and blob: reads are fine and are why this rule does not ban fetch outright.'
     }
   },
 
@@ -122,7 +122,7 @@ export const noRendererNetwork = {
   }
 }
 
-/** Packaged as a plugin so the flat config can name it `fermata/...`. */
+/** Packaged as a plugin so the flat config can name it `oscine/...`. */
 export default {
   rules: {
     'no-renderer-network': noRendererNetwork

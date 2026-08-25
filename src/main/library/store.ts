@@ -1606,7 +1606,7 @@ export class LibraryStore {
    * `rel_path` no longer resolves inside its root.
    *
    * The containment check is `toAbsPath`'s, and it is the last line of defence
-   * for the `fermata://` handler — see the note in `db/paths.ts`.
+   * for the `oscine://` handler — see the note in `db/paths.ts`.
    */
   resolveTrackPath(trackId: number): string | null {
     const row = this.statements.resolveTrack.get(trackId) as

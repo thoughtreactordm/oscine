@@ -81,7 +81,7 @@ describe('search', () => {
   })
 
   it('matches the custom property, so a name read off the DOM can be pasted back', () => {
-    const built = buildTokenRows({ overrides: NONE, unknown: [], query: '--fermata-shape-radius' })
+    const built = buildTokenRows({ overrides: NONE, unknown: [], query: '--oscine-shape-radius' })
     expect(tokenIds(built.rows)).toEqual(['shape.radius'])
   })
 

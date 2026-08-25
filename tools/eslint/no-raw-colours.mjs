@@ -11,7 +11,7 @@
  *
  *   1. A CSS colour in a string or template literal — `#1e293b`, `rgb(...)`,
  *      `oklch(...)`. The token layer is the only place a colour is allowed to
- *      be named; everything else asks for `--fermata-*` through a semantic
+ *      be named; everything else asks for `--oscine-*` through a semantic
  *      class or a custom property.
  *   2. A bare Tailwind palette utility — `bg-slate-800`, `text-rose-500`. These
  *      look themeable and are not: `slate` is a raw Tailwind ramp that nothing
@@ -109,7 +109,7 @@ export const noRawColours = {
     messages: {
       literal:
         'CSS colour written by hand. Components render against the token layer — use a Nuxt UI ' +
-        'semantic class (text-highlighted, bg-elevated, border-default) or a --fermata-* custom ' +
+        'semantic class (text-highlighted, bg-elevated, border-default) or a --oscine-* custom ' +
         'property. If this is genuinely not a theme colour, disable this rule on the line and say why.',
       palette:
         'Raw Tailwind palette utility. "{{ name }}" is a ramp nothing remaps, so a theme swap ' +

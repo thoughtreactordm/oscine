@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { FermataError } from '../../../src/shared/errors'
+import { OscineError } from '../../../src/shared/errors'
 import type { ScanProgress } from '../../../src/shared/library'
 import { openDatabase } from '../../../src/main/db'
 import type { MetadataReader, TrackTags } from '../../../src/main/library/metadata'
@@ -136,12 +136,12 @@ describe('addRoot', () => {
     const path = musicFolder('Music', ['a.flac'])
     picked = join(path, 'a.flac')
 
-    await expect(service.addRoot()).rejects.toThrow(FermataError)
+    await expect(service.addRoot()).rejects.toThrow(OscineError)
   })
 
   it('refuses a folder that is not there', async () => {
     picked = join(workDir, 'nowhere')
-    await expect(service.addRoot()).rejects.toThrow(FermataError)
+    await expect(service.addRoot()).rejects.toThrow(OscineError)
   })
 })
 
@@ -152,16 +152,16 @@ describe('addRoot', () => {
  * below slips past it and would index the same files twice.
  */
 describe('addRoot conflict handling', () => {
-  async function expectConflict(path: string): Promise<FermataError> {
+  async function expectConflict(path: string): Promise<OscineError> {
     picked = path
     const error = await service.addRoot().then(
       () => null,
       (err: unknown) => err
     )
 
-    expect(error).toBeInstanceOf(FermataError)
-    expect((error as FermataError).code).toBe('conflict')
-    return error as FermataError
+    expect(error).toBeInstanceOf(OscineError)
+    expect((error as OscineError).code).toBe('conflict')
+    return error as OscineError
   }
 
   it('rejects the identical folder', async () => {
@@ -247,7 +247,7 @@ describe('scanRoot', () => {
   })
 
   it('rejects an unknown root without crashing the caller', async () => {
-    await expect(service.scanRoot(4242)).rejects.toThrow(FermataError)
+    await expect(service.scanRoot(4242)).rejects.toThrow(OscineError)
   })
 })
 
@@ -626,7 +626,7 @@ describe('resolveTrackPath', () => {
   })
 
   it('returns null for an unknown id rather than throwing', async () => {
-    // The `fermata://` handler turns this into a 404.
+    // The `oscine://` handler turns this into a 404.
     expect(await service.resolveTrackPath(4242)).toBeNull()
   })
 })

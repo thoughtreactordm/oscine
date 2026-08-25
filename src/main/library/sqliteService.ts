@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 import { stat } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import {
   MAX_TRACK_ID_PAGE,
   type GetTracksByIdsQuery,
@@ -209,15 +209,15 @@ export class SqliteLibraryService implements LibraryService {
     try {
       const info = await stat(path)
       if (!info.isDirectory()) {
-        throw new FermataError('invalid-request', 'That is not a folder.')
+        throw new OscineError('invalid-request', 'That is not a folder.')
       }
     } catch (error) {
-      if (error instanceof FermataError) throw error
-      throw new FermataError('io-error', 'That folder could not be opened.')
+      if (error instanceof OscineError) throw error
+      throw new OscineError('io-error', 'That folder could not be opened.')
     }
 
     const conflict = this.store.findRootConflict(path)
-    if (conflict) throw new FermataError('conflict', conflictMessage(conflict))
+    if (conflict) throw new OscineError('conflict', conflictMessage(conflict))
 
     // `basename` is empty for a drive root such as `C:\`, where the path itself
     // is the only sensible label.
@@ -436,7 +436,7 @@ export class SqliteLibraryService implements LibraryService {
     const root = this.store.getRoot(rootId)
     if (!root) {
       return Promise.reject(
-        new FermataError('not-found', 'That folder is no longer in your library.')
+        new OscineError('not-found', 'That folder is no longer in your library.')
       )
     }
 

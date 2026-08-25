@@ -20,7 +20,7 @@
  * bytes, not an elapsed total.
  */
 
-export { FERMATA_USER_AGENT } from './userAgent'
+export { OSCINE_USER_AGENT } from './userAgent'
 
 export class ResponseTooLargeError extends Error {
   constructor(readonly maxBytes: number) {

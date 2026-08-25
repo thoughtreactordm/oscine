@@ -66,7 +66,7 @@ describe('computeTheme', () => {
 
   it('carries overrides into the resolved custom properties', () => {
     const state = computeTheme(inputs({ overrides: { 'shape.radius': '0px' } }))
-    expect(state.resolved.cssVars.get('--fermata-shape-radius')).toBe('0px')
+    expect(state.resolved.cssVars.get('--oscine-shape-radius')).toBe('0px')
   })
 })
 
@@ -77,11 +77,11 @@ describe('computeTheme with a reactive seed', () => {
     const plain = computeTheme(inputs())
     const reactive = computeTheme(inputs({ reactiveSeed: seed }))
 
-    expect(reactive.resolved.cssVars.get('--fermata-color-primary-500')).toBe(
+    expect(reactive.resolved.cssVars.get('--oscine-color-primary-500')).toBe(
       rampFromSeed(seed)?.['500']
     )
-    expect(reactive.resolved.cssVars.get('--fermata-color-primary-500')).not.toBe(
-      plain.resolved.cssVars.get('--fermata-color-primary-500')
+    expect(reactive.resolved.cssVars.get('--oscine-color-primary-500')).not.toBe(
+      plain.resolved.cssVars.get('--oscine-color-primary-500')
     )
     expect(reactive.reactiveSeed).toBe(seed)
   })
@@ -122,8 +122,8 @@ describe('computeTheme with a reactive seed', () => {
       inputs({ overrides: { 'color.primary': { mode: 'seed', seed: '#ff0000' } } })
     )
 
-    expect(chosen.resolved.cssVars.get('--fermata-color-primary-500')).toBe(
-      withoutArt.resolved.cssVars.get('--fermata-color-primary-500')
+    expect(chosen.resolved.cssVars.get('--oscine-color-primary-500')).toBe(
+      withoutArt.resolved.cssVars.get('--oscine-color-primary-500')
     )
     expect(chosen.reactiveSeed).toBeNull()
   })
@@ -137,8 +137,8 @@ describe('computeTheme with a reactive seed', () => {
   it('leaves the theme own primary when the seed will not parse', () => {
     const plain = computeTheme(inputs())
     const broken = computeTheme(inputs({ reactiveSeed: 'not a colour' }))
-    expect(broken.resolved.cssVars.get('--fermata-color-primary-500')).toBe(
-      plain.resolved.cssVars.get('--fermata-color-primary-500')
+    expect(broken.resolved.cssVars.get('--oscine-color-primary-500')).toBe(
+      plain.resolved.cssVars.get('--oscine-color-primary-500')
     )
   })
 })

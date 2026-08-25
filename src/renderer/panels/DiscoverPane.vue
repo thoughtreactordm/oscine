@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef, watch } from 'vue'
 import type { ContextMenuItem } from '@nuxt/ui'
-import { discover, FermataError, library } from '@renderer/ipc'
+import { discover, OscineError, library } from '@renderer/ipc'
 import { createFacetActivation } from '@renderer/panels/facetActivation'
 import { collectPagedIds } from '@renderer/panels/pagedIds'
 import { useTrackActivation } from '@renderer/panels/useTrackActivation'
@@ -211,7 +211,7 @@ async function save(recipeId: DiscoverRecipeId): Promise<void> {
     await playlists.viewCreated(playlist)
   } catch (cause) {
     playlists.notice =
-      cause instanceof FermataError ? cause.message : 'That shelf could not be saved.'
+      cause instanceof OscineError ? cause.message : 'That shelf could not be saved.'
   } finally {
     savingId.value = null
   }

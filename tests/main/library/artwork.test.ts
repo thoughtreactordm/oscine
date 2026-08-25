@@ -169,8 +169,8 @@ describe('ArtworkCacheService', () => {
     expect(metrics.concurrency).toBe(2)
 
     const albums = store.listAlbums({ offset: 0, limit: 10 }).albums
-    expect(albums[0].artwork.small).toMatch(new RegExp(`^fermata://artwork/${expectedHash}/small$`))
-    expect(albums[0].artwork.large).toMatch(new RegExp(`^fermata://artwork/${expectedHash}/large$`))
+    expect(albums[0].artwork.small).toMatch(new RegExp(`^oscine://artwork/${expectedHash}/small$`))
+    expect(albums[0].artwork.large).toMatch(new RegExp(`^oscine://artwork/${expectedHash}/large$`))
     expect(JSON.stringify(albums)).not.toContain(dir)
   })
 
@@ -231,8 +231,8 @@ describe('ArtworkCacheService', () => {
 
     expect(albumHash('Album')).toBeNull()
     expect(store.listAlbums({ offset: 0, limit: 10 }).albums[0].artwork).toEqual({
-      small: 'fermata://artwork/missing/small',
-      large: 'fermata://artwork/missing/large'
+      small: 'oscine://artwork/missing/small',
+      large: 'oscine://artwork/missing/large'
     })
   })
 

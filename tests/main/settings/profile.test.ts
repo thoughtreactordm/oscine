@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MIGRATIONS, migrate } from '../../../src/main/db'
 import { SqliteSettingsService } from '../../../src/main/settings'
-import { isFermataError } from '../../../src/shared/errors'
+import { isOscineError } from '../../../src/shared/errors'
 import {
   booleanValue,
   defineSetting,
@@ -200,7 +200,7 @@ describe('readProfile', () => {
     const settings = service(libraryDb(), { importFrom: path })
 
     await expect(settings.readProfile()).rejects.toSatisfy(
-      (error: unknown) => isFermataError(error) && message.test(error.message)
+      (error: unknown) => isOscineError(error) && message.test(error.message)
     )
   })
 
@@ -209,7 +209,7 @@ describe('readProfile', () => {
 
     await expect(settings.readProfile()).rejects.toSatisfy(
       (error: unknown) =>
-        isFermataError(error) && error.code === 'io-error' && !error.message.includes('absent.json')
+        isOscineError(error) && error.code === 'io-error' && !error.message.includes('absent.json')
     )
   })
 })

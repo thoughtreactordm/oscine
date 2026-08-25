@@ -90,7 +90,7 @@ export const noWindowsPathLiterals = {
   }
 }
 
-/** Packaged as a plugin so the flat config can name it `fermata/...`. */
+/** Packaged as a plugin so the flat config can name it `oscine/...`. */
 export default {
   rules: {
     'no-windows-path-literals': noWindowsPathLiterals

@@ -10,7 +10,7 @@ import type { Episode } from '@shared/podcasts'
  * Per-show body: artwork, metadata, virtualized episode list.
  *
  * Playback through the shared AudioEngine / Now Playing transport is the next
- * cut — this slice downloads to disk and serves `fermata://episode/<id>`, which
+ * cut — this slice downloads to disk and serves `oscine://episode/<id>`, which
  * is the seam that transport will use.
  */
 

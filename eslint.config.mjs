@@ -5,7 +5,7 @@ import vue from 'eslint-plugin-vue'
 import vueParser from 'vue-eslint-parser'
 import tseslint from 'typescript-eslint'
 
-import fermata from './tools/eslint/index.mjs'
+import oscine from './tools/eslint/index.mjs'
 
 /**
  * Nuxt UI's auto-imported composables, as globals the renderer may see.
@@ -79,8 +79,8 @@ export default tseslint.config(
   ...vue.configs['flat/recommended'],
 
   {
-    name: 'fermata/base',
-    plugins: { fermata },
+    name: 'oscine/base',
+    plugins: { oscine },
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module'
@@ -106,7 +106,7 @@ export default tseslint.config(
   },
 
   {
-    name: 'fermata/main-and-preload',
+    name: 'oscine/main-and-preload',
     files: ['src/main/**/*.ts', 'src/preload/**/*.ts'],
     languageOptions: {
       globals: globals.node
@@ -114,7 +114,7 @@ export default tseslint.config(
   },
 
   {
-    name: 'fermata/renderer',
+    name: 'oscine/renderer',
     files: ['src/renderer/**/*.{ts,vue}'],
     languageOptions: {
       globals: { ...globals.browser, ...nuxtUiComposables },
@@ -143,7 +143,7 @@ export default tseslint.config(
   },
 
   {
-    name: 'fermata/shared',
+    name: 'oscine/shared',
     files: ['src/shared/**/*.ts'],
     languageOptions: {
       // No globals at all. src/shared is imported by main, preload and the
@@ -156,10 +156,10 @@ export default tseslint.config(
     // The invariant this enforces is about what ships, not about how tests
     // describe it: `tests/main/db/paths.test.ts` is a wall of literal Windows
     // paths, and that is exactly its job.
-    name: 'fermata/path-portability',
+    name: 'oscine/path-portability',
     files: ['src/**/*.{ts,vue}'],
     rules: {
-      'fermata/no-windows-path-literals': 'error'
+      'oscine/no-windows-path-literals': 'error'
     }
   },
 
@@ -170,10 +170,10 @@ export default tseslint.config(
      * supposed to be — the rule would otherwise ban `src/main/net` from doing
      * its job.
      */
-    name: 'fermata/renderer-network',
+    name: 'oscine/renderer-network',
     files: ['src/renderer/**/*.{ts,vue}'],
     rules: {
-      'fermata/no-renderer-network': 'error'
+      'oscine/no-renderer-network': 'error'
     }
   },
 
@@ -189,16 +189,16 @@ export default tseslint.config(
      * for the same reason — it is the catalog, the ramps and the generated
      * Tailwind palettes, which are nothing but colours by definition.
      */
-    name: 'fermata/theme-tokens',
+    name: 'oscine/theme-tokens',
     files: ['src/renderer/**/*.{ts,vue}'],
     ignores: ['src/renderer/theme/**'],
     rules: {
-      'fermata/no-raw-colours': 'error'
+      'oscine/no-raw-colours': 'error'
     }
   },
 
   {
-    name: 'fermata/tests',
+    name: 'oscine/tests',
     files: ['tests/**/*.ts'],
     languageOptions: {
       globals: globals.node
@@ -211,7 +211,7 @@ export default tseslint.config(
   },
 
   {
-    name: 'fermata/tooling',
+    name: 'oscine/tooling',
     files: ['*.config.{ts,js,mjs}', 'scripts/**/*.mjs', 'tools/**/*.mjs'],
     languageOptions: {
       globals: globals.node

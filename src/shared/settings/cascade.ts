@@ -107,7 +107,7 @@ export interface SettingCascade<T> {
  * The type-level guard is `CascadeScopeRef`, and it is the one that should
  * normally fire. This exists for the callers the registry erases — an IPC
  * request naming a key and a scope, both of them strings until something checks.
- * A `RangeError` rather than a `FermataError`: by the time a scope reaches the
+ * A `RangeError` rather than a `OscineError`: by the time a scope reaches the
  * pure layer, main's `assertScope` has already turned a bad request into a
  * polite refusal, so anything arriving here is a bug in this repo.
  */

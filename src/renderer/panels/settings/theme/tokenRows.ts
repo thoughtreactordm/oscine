@@ -95,7 +95,7 @@ export function isOverridden(id: string, overrides: ThemeOverrides): boolean {
  *
  * `keywords` exists for exactly this — an operator hunting for "dark mode
  * background" does not know the token is called Window, and one who knows the
- * custom property is called `--fermata-surface-base` should be able to paste it.
+ * custom property is called `--oscine-surface-base` should be able to paste it.
  */
 function matches(descriptor: TokenDescriptor, needle: string, groupLabel: string): boolean {
   if (needle.length === 0) return true

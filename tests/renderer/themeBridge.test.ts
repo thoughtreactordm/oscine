@@ -36,7 +36,7 @@ describe('the bridge', () => {
     const missing: string[] = []
     for (const role of COLOR_ROLES) {
       for (const step of RAMP_STEPS) {
-        const assignment = `--ui-color-${role.id}-${step}: var(--fermata-color-${role.id}-${step});`
+        const assignment = `--ui-color-${role.id}-${step}: var(--oscine-color-${role.id}-${step});`
         if (!BRIDGE.includes(assignment)) missing.push(assignment)
       }
     }
@@ -63,7 +63,7 @@ describe('the bridge', () => {
     // undefined custom property.
     for (const role of COLOR_ROLES) {
       if (role.id === 'neutral') continue
-      expect(BRIDGE, role.id).toContain(`--ui-${role.id}: var(--fermata-accent-${role.id});`)
+      expect(BRIDGE, role.id).toContain(`--ui-${role.id}: var(--oscine-accent-${role.id});`)
     }
   })
 
@@ -81,7 +81,7 @@ describe('the bridge', () => {
   it('sets the body font on the element, not only through --font-sans', () => {
     // `--default-font-family: --theme(--font-sans, initial)` resolves at build
     // time, so overriding `--font-sans` alone does not move the body font.
-    expect(BRIDGE).toMatch(/body\s*\{[^}]*font-family:\s*var\(--fermata-type-body-family\)/)
+    expect(BRIDGE).toMatch(/body\s*\{[^}]*font-family:\s*var\(--oscine-type-body-family\)/)
   })
 
   it('declares no colour of its own', () => {
@@ -96,10 +96,10 @@ describe('the bridge', () => {
     // does not exist silently resolves to nothing.
     const known = new Set(TOKENS.flatMap((t) => (t.kind === 'ramp' ? [] : [t.cssVar])))
     for (const role of COLOR_ROLES) {
-      for (const step of RAMP_STEPS) known.add(`--fermata-color-${role.id}-${step}`)
+      for (const step of RAMP_STEPS) known.add(`--oscine-color-${role.id}-${step}`)
     }
 
-    const referenced = [...BRIDGE.matchAll(/var\((--fermata-[a-z0-9-]+)\)/g)].map((m) => m[1]!)
+    const referenced = [...BRIDGE.matchAll(/var\((--oscine-[a-z0-9-]+)\)/g)].map((m) => m[1]!)
     const unknown = [...new Set(referenced)].filter((name) => !known.has(name))
     expect(unknown).toEqual([])
   })

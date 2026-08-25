@@ -9,7 +9,7 @@
  * the query are what is under test, not the scanner.
  *
  * The rows are deliberately *not* playable: they point at paths that do not
- * exist, so `fermata://track/<id>` 404s for every one of them. That is the
+ * exist, so `oscine://track/<id>` 404s for every one of them. That is the
  * honest trade. Use a real folder to test playback and this to test scale, and
  * do not confuse a green scroll test here for a working library.
  *

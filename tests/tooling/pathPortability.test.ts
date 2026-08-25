@@ -27,7 +27,7 @@ async function lint(code: string, filePath: string): Promise<string[]> {
   return result.messages.map((message) => message.ruleId ?? '<fatal>')
 }
 
-const RULE = 'fermata/no-windows-path-literals'
+const RULE = 'oscine/no-windows-path-literals'
 const SRC = 'src/main/library/portability-probe.ts'
 
 describe('the Windows-path check is armed for src/', () => {

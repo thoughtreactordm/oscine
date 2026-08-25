@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openDatabase } from '../../../src/main/db'
 import { PlaylistStore } from '../../../src/main/library/playlists/store'
 import { spread } from '../../../src/main/library/playlists/positions'
-import { isFermataError } from '../../../src/shared/errors'
+import { isOscineError } from '../../../src/shared/errors'
 import type { PlaylistInsertion } from '../../../src/shared/playlists'
 
 let dir: string
@@ -458,7 +458,7 @@ describe('error shape', () => {
       store.rename(9999, 'x', tick())
       expect.unreachable('rename of a missing playlist should throw')
     } catch (error) {
-      expect(isFermataError(error)).toBe(true)
+      expect(isOscineError(error)).toBe(true)
     }
   })
 })

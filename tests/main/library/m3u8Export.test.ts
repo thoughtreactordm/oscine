@@ -13,7 +13,7 @@ import {
 } from '../../../src/main/library/playlists/m3u8'
 import { SqlitePlaylistService } from '../../../src/main/library/playlists/service'
 import { PlaylistStore } from '../../../src/main/library/playlists/store'
-import { isFermataError } from '../../../src/shared/errors'
+import { isOscineError } from '../../../src/shared/errors'
 
 /**
  * D12's export, and the reason it is a card of its own: the format is four
@@ -429,7 +429,7 @@ describe('exporting a playlist', () => {
       .exportM3u8({ playlistId: 9999, pathStyle: 'relative' })
       .catch((error: unknown) => error)
 
-    expect(isFermataError(failure) && failure.code).toBe('not-found')
+    expect(isOscineError(failure) && failure.code).toBe('not-found')
     expect(pickExportFile).not.toHaveBeenCalled()
   })
 
@@ -443,7 +443,7 @@ describe('exporting a playlist', () => {
       .exportM3u8({ playlistId, pathStyle: 'relative' })
       .catch((error: unknown) => error)
 
-    expect(isFermataError(failure) && failure.code).toBe('io-error')
-    expect(isFermataError(failure) && failure.message.includes(dir)).toBe(false)
+    expect(isOscineError(failure) && failure.code).toBe('io-error')
+    expect(isOscineError(failure) && failure.message.includes(dir)).toBe(false)
   })
 })

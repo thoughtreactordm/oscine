@@ -6,9 +6,9 @@
  * carry feed URLs, so recommendations always finish with a lookup.
  */
 
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import type { PodcastCatalogHit } from '@shared/podcasts'
-import { FERMATA_USER_AGENT } from '../net/http'
+import { OSCINE_USER_AGENT } from '../net/http'
 
 const ITUNES_TIMEOUT_MS = 15_000
 /** Apple's root "Podcasts" genre — noise for recommendation weighting. */
@@ -33,7 +33,7 @@ export interface ItunesClientDeps {
 export function createItunesClient(deps: ItunesClientDeps = {}): ItunesClient {
   const fetchImpl = deps.fetchImpl ?? fetch
   const country = deps.country ?? DEFAULT_COUNTRY
-  const userAgent = deps.userAgent ?? FERMATA_USER_AGENT
+  const userAgent = deps.userAgent ?? OSCINE_USER_AGENT
 
   async function getJson(url: string): Promise<unknown> {
     let response: Response
@@ -43,15 +43,15 @@ export function createItunesClient(deps: ItunesClientDeps = {}): ItunesClient {
         headers: { accept: 'application/json', 'user-agent': userAgent }
       })
     } catch {
-      throw new FermataError('io-error', 'Could not reach the Apple podcast catalogue.')
+      throw new OscineError('io-error', 'Could not reach the Apple podcast catalogue.')
     }
     if (!response.ok) {
-      throw new FermataError('io-error', `Apple catalogue returned HTTP ${response.status}.`)
+      throw new OscineError('io-error', `Apple catalogue returned HTTP ${response.status}.`)
     }
     try {
       return (await response.json()) as unknown
     } catch {
-      throw new FermataError('io-error', 'Apple catalogue returned invalid JSON.')
+      throw new OscineError('io-error', 'Apple catalogue returned invalid JSON.')
     }
   }
 

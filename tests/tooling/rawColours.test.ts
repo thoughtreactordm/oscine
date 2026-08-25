@@ -26,7 +26,7 @@ async function lint(code: string, filePath: string): Promise<string[]> {
   return result!.messages.map((message) => message.ruleId ?? '<fatal>')
 }
 
-const RULE = 'fermata/no-raw-colours'
+const RULE = 'oscine/no-raw-colours'
 /** Not on disk. ESLint resolves config from a path, not from its contents. */
 const PANEL = 'src/renderer/panels/colour-probe.ts'
 const COMPONENT = 'src/renderer/panels/ColourProbe.vue'
@@ -81,8 +81,8 @@ describe('the check leaves themeable code alone', () => {
     expect(await lint(vue, COMPONENT)).not.toContain(RULE)
   })
 
-  it('accepts a --fermata-* custom property', async () => {
-    expect(await lint(`export const c = 'var(--fermata-surface-base)'`, PANEL)).not.toContain(RULE)
+  it('accepts a --oscine-* custom property', async () => {
+    expect(await lint(`export const c = 'var(--oscine-surface-base)'`, PANEL)).not.toContain(RULE)
   })
 
   it('accepts selectors that merely start with a hash', async () => {
@@ -154,6 +154,6 @@ describe('component style blocks name no colours either', () => {
   it('would notice one if it appeared', () => {
     // A scan that cannot fail is a scan nobody should trust.
     expect(CSS_COLOUR.test('.x { color: #1e293b; }')).toBe(true)
-    expect(CSS_COLOUR.test('.x { color: var(--fermata-text-base); }')).toBe(false)
+    expect(CSS_COLOUR.test('.x { color: var(--oscine-text-base); }')).toBe(false)
   })
 })

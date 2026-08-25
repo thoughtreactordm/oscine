@@ -1,5 +1,5 @@
 import { BrowserWindow } from 'electron'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import { trackUrl } from '@shared/ipc'
 import type { FavoriteService } from '../favorites/service'
 import type { PlayHistoryService } from '../history/service'
@@ -178,7 +178,7 @@ export function registerIpcHandlers(
     const { trackId } = assertRecord(request, 'request')
     const metadata = await library.getTrackAudioMetadata(assertPositiveInt(trackId, 'trackId'))
     if (!metadata) {
-      throw new FermataError('not-found', 'That track is no longer in the library.')
+      throw new OscineError('not-found', 'That track is no longer in the library.')
     }
     return metadata
   })
@@ -187,7 +187,7 @@ export function registerIpcHandlers(
     const { trackId } = assertRecord(request, 'request')
     const detail = await library.getTrackFormatDetail(assertPositiveInt(trackId, 'trackId'))
     if (!detail) {
-      throw new FermataError('not-found', 'That track is no longer in the library.')
+      throw new OscineError('not-found', 'That track is no longer in the library.')
     }
     return detail
   })
@@ -200,7 +200,7 @@ export function registerIpcHandlers(
     // with a clear error rather than as an opaque 404 during playback. The
     // resolved path is deliberately discarded — only the id goes back.
     if ((await library.resolveTrackPath(id)) === null) {
-      throw new FermataError('not-found', 'That track is no longer in the library.')
+      throw new OscineError('not-found', 'That track is no longer in the library.')
     }
     return trackUrl(id)
   })
@@ -426,7 +426,7 @@ export function registerIpcHandlers(
   handle('podcasts.setPlayed', (request) => {
     const { episodeId, played } = assertRecord(request, 'request')
     if (typeof played !== 'boolean') {
-      throw new FermataError('invalid-request', 'played must be a boolean.')
+      throw new OscineError('invalid-request', 'played must be a boolean.')
     }
     return podcasts.setPlayed(assertPositiveInt(episodeId, 'episodeId'), played)
   })

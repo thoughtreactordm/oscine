@@ -111,7 +111,7 @@ export interface LibraryService {
   /**
    * Absolute path for a track id, or `null` if unknown.
    *
-   * Only ever called inside main — by the `fermata://` protocol handler. The
+   * Only ever called inside main — by the `oscine://` protocol handler. The
    * return value never crosses IPC.
    */
   resolveTrackPath(trackId: number): Promise<string | null>

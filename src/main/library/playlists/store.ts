@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import type { TrackGroup } from '@shared/library'
 import type {
   ListPlaylistEntriesQuery,
@@ -310,7 +310,7 @@ export function toPlaylist(row: PlaylistRow): Playlist {
 }
 
 function notFound(): never {
-  throw new FermataError('not-found', 'That playlist no longer exists.')
+  throw new OscineError('not-found', 'That playlist no longer exists.')
 }
 
 /** The interval an insertion resolves to, `null` meaning unbounded. */
@@ -583,7 +583,7 @@ export class PlaylistStore {
     const rebalanced = spread(second.after, second.before, count)
     if (rebalanced !== null) return rebalanced
 
-    throw new FermataError('internal', 'That playlist is too large to reorder any further.')
+    throw new OscineError('internal', 'That playlist is too large to reorder any further.')
   }
 
   /** Turns an insertion anchor into the interval it names. */
@@ -607,7 +607,7 @@ export class PlaylistStore {
     const anchor = this.statements.entryPosition.get(insertion.entryId, playlistId) as
       { position: number } | undefined
     if (anchor === undefined) {
-      throw new FermataError('not-found', 'That playlist row is no longer there.')
+      throw new OscineError('not-found', 'That playlist row is no longer there.')
     }
 
     if (insertion.at === 'before') {

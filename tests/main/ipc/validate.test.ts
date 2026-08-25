@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FermataError } from '@shared/errors'
+import { OscineError } from '@shared/errors'
 import {
   MAX_FAVORITE_IDS_PAGE,
   MAX_FAVORITE_REMOVE_IDS,
@@ -86,7 +86,7 @@ describe('library browse IPC validation', () => {
       { ...base, limit: MAX_FACET_PAGE + 1 },
       { ...base, surprise: true }
     ]) {
-      expect(() => assertListFacetsQuery(query)).toThrow(FermataError)
+      expect(() => assertListFacetsQuery(query)).toThrow(OscineError)
     }
 
     expect(() =>
@@ -96,7 +96,7 @@ describe('library browse IPC validation', () => {
         offset: 0,
         limit: MAX_TRACK_PAGE + 1
       })
-    ).toThrow(FermataError)
+    ).toThrow(OscineError)
   })
 
   it('lets an id page be larger than a row page, but not unbounded', () => {
@@ -110,7 +110,7 @@ describe('library browse IPC validation', () => {
       MAX_TRACK_ID_PAGE
     )
     expect(() => assertListTrackIdsQuery({ ...query, limit: MAX_TRACK_ID_PAGE + 1 })).toThrow(
-      FermataError
+      OscineError
     )
   })
 
@@ -120,10 +120,10 @@ describe('library browse IPC validation', () => {
       MAX_FACET_ID_PAGE
     )
     expect(() => assertListFacetsQuery({ offset: 0, limit: MAX_FACET_PAGE + 1 })).toThrow(
-      FermataError
+      OscineError
     )
     expect(() => assertListFacetIdsQuery({ offset: 0, limit: MAX_FACET_ID_PAGE + 1 })).toThrow(
-      FermataError
+      OscineError
     )
   })
 
@@ -142,7 +142,7 @@ describe('library browse IPC validation', () => {
       { ids: [1], sort: 'title' },
       { ids: Array.from({ length: MAX_TRACK_PAGE + 1 }, (_, index) => index + 1) }
     ]) {
-      expect(() => assertGetTracksByIdsQuery(query)).toThrow(FermataError)
+      expect(() => assertGetTracksByIdsQuery(query)).toThrow(OscineError)
     }
   })
 
@@ -166,7 +166,7 @@ describe('library browse IPC validation', () => {
         ids: Array.from({ length: MAX_ORDERED_TRACK_IDS + 1 }, (_, index) => index + 1)
       }
     ]) {
-      expect(() => assertOrderTrackIdsQuery(query)).toThrow(FermataError)
+      expect(() => assertOrderTrackIdsQuery(query)).toThrow(OscineError)
     }
   })
 
@@ -188,7 +188,7 @@ describe('library browse IPC validation', () => {
       // An unknown field is a caller that thinks it is configuring something.
       { playlistId: 3, pathStyle: 'relative', destination: '/etc/passwd' }
     ]) {
-      expect(() => assertExportPlaylistRequest(request)).toThrow(FermataError)
+      expect(() => assertExportPlaylistRequest(request)).toThrow(OscineError)
     }
   })
 
@@ -219,7 +219,7 @@ describe('favorites IPC validation', () => {
       // different contract. Accepting it silently is how the two stop matching.
       { trackId: 42, favorite: true }
     ]) {
-      expect(() => assertToggleFavoriteRequest(request)).toThrow(FermataError)
+      expect(() => assertToggleFavoriteRequest(request)).toThrow(OscineError)
     }
   })
 
@@ -244,7 +244,7 @@ describe('favorites IPC validation', () => {
       { trackIds: [1], offset: 0 },
       { trackIds: Array.from({ length: MAX_FAVORITE_STATE_IDS + 1 }, (_, index) => index + 1) }
     ]) {
-      expect(() => assertFavoriteStateRequest(request)).toThrow(FermataError)
+      expect(() => assertFavoriteStateRequest(request)).toThrow(OscineError)
     }
   })
 
@@ -262,7 +262,7 @@ describe('favorites IPC validation', () => {
       { offset: 0, limit: 50, sort: 'title' },
       { offset: 0, limit: 50, searchText: 'reich' }
     ]) {
-      expect(() => assertListFavoritesQuery(query)).toThrow(FermataError)
+      expect(() => assertListFavoritesQuery(query)).toThrow(OscineError)
     }
   })
 
@@ -283,7 +283,7 @@ describe('favorites IPC validation', () => {
       { offset: 0, limit: MAX_FAVORITE_IDS_PAGE + 1 },
       { offset: 0, limit: 50, sort: 'title' }
     ]) {
-      expect(() => assertListFavoriteIdsQuery(query)).toThrow(FermataError)
+      expect(() => assertListFavoriteIdsQuery(query)).toThrow(OscineError)
     }
   })
 
@@ -301,7 +301,7 @@ describe('favorites IPC validation', () => {
       { trackIds: [1], favorite: false },
       { trackIds: Array.from({ length: MAX_FAVORITE_REMOVE_IDS + 1 }, (_, index) => index + 1) }
     ]) {
-      expect(() => assertRemoveFavoritesRequest(request)).toThrow(FermataError)
+      expect(() => assertRemoveFavoritesRequest(request)).toThrow(OscineError)
     }
   })
 })
@@ -324,7 +324,7 @@ describe('net scope IPC validation', () => {
       // An unknown field is a caller that thinks it is configuring something.
       { scope: 'tunedeck', force: true }
     ]) {
-      expect(() => assertCancelNetScopeRequest(request)).toThrow(FermataError)
+      expect(() => assertCancelNetScopeRequest(request)).toThrow(OscineError)
     }
   })
 })
@@ -345,7 +345,7 @@ describe('discover save-shelf IPC validation', () => {
       {},
       { recipeId: 'for-you', force: true }
     ]) {
-      expect(() => assertSaveDiscoverShelfRequest(request)).toThrow(FermataError)
+      expect(() => assertSaveDiscoverShelfRequest(request)).toThrow(OscineError)
     }
   })
 })
@@ -369,7 +369,7 @@ describe('artist identity IPC validation', () => {
       artistId: 3,
       mbid: null
     })
-    expect(() => assertSetArtistMbidRequest({ artistId: 3 })).toThrow(FermataError)
+    expect(() => assertSetArtistMbidRequest({ artistId: 3 })).toThrow(OscineError)
   })
 
   /**
@@ -386,7 +386,7 @@ describe('artist identity IPC validation', () => {
       '',
       7
     ]) {
-      expect(() => assertSetArtistMbidRequest({ artistId: 3, mbid })).toThrow(FermataError)
+      expect(() => assertSetArtistMbidRequest({ artistId: 3, mbid })).toThrow(OscineError)
     }
   })
 
@@ -398,7 +398,7 @@ describe('artist identity IPC validation', () => {
       { artistId: '3', mbid: MBID },
       { artistId: 3, mbid: MBID, source: 'manual' }
     ]) {
-      expect(() => assertSetArtistMbidRequest(request)).toThrow(FermataError)
+      expect(() => assertSetArtistMbidRequest(request)).toThrow(OscineError)
     }
   })
 
@@ -406,9 +406,9 @@ describe('artist identity IPC validation', () => {
     expect(assertSearchArtistCandidatesRequest({ artistId: 3 })).toEqual({ artistId: 3 })
     expect(assertClearArtistMbidRequest({ artistId: 3 })).toEqual({ artistId: 3 })
     expect(() => assertSearchArtistCandidatesRequest({ artistId: 3, force: true })).toThrow(
-      FermataError
+      OscineError
     )
-    expect(() => assertClearArtistMbidRequest({})).toThrow(FermataError)
+    expect(() => assertClearArtistMbidRequest({})).toThrow(OscineError)
   })
 })
 
@@ -439,7 +439,7 @@ describe('stats IPC validation', () => {
       { from: 2, to: 1 },
       { from: 1, to: 2, bucket: 'day' }
     ]) {
-      expect(() => assertStatsSummaryQuery({ range, scope: null })).toThrow(FermataError)
+      expect(() => assertStatsSummaryQuery({ range, scope: null })).toThrow(OscineError)
     }
   })
 
@@ -464,7 +464,7 @@ describe('stats IPC validation', () => {
       { trackId: 1.5, by: 'track' },
       { trackId: 7, by: 'track', range: RANGE }
     ]) {
-      expect(() => assertStatsSummaryQuery({ range: RANGE, scope })).toThrow(FermataError)
+      expect(() => assertStatsSummaryQuery({ range: RANGE, scope })).toThrow(OscineError)
     }
   })
 
@@ -489,7 +489,7 @@ describe('stats IPC validation', () => {
       { ...query, limit: MAX_STATS_ROWS + 1 },
       { ...query, bucket: 'day' }
     ]) {
-      expect(() => assertStatsQuery(bad)).toThrow(FermataError)
+      expect(() => assertStatsQuery(bad)).toThrow(OscineError)
     }
   })
 
@@ -508,7 +508,7 @@ describe('stats IPC validation', () => {
     ).not.toThrow()
     expect(() =>
       assertStatsOverTimeQuery({ range: { from, to: from + 3650 * day }, bucket: 'hour' })
-    ).toThrow(FermataError)
+    ).toThrow(OscineError)
 
     // Exactly at the ceiling passes; one bucket past it does not.
     const hour = 3_600_000
@@ -516,14 +516,14 @@ describe('stats IPC validation', () => {
     expect(() => assertStatsOverTimeQuery({ range: edge, bucket: 'hour' })).not.toThrow()
     expect(() =>
       assertStatsOverTimeQuery({ range: { from, to: edge.to + hour }, bucket: 'hour' })
-    ).toThrow(FermataError)
+    ).toThrow(OscineError)
 
     for (const bad of [
       { range: { from, to: from + day } },
       { range: { from, to: from + day }, bucket: 'month' },
       { range: { from, to: from + day }, bucket: 'day', limit: 10 }
     ]) {
-      expect(() => assertStatsOverTimeQuery(bad)).toThrow(FermataError)
+      expect(() => assertStatsOverTimeQuery(bad)).toThrow(OscineError)
     }
   })
 })

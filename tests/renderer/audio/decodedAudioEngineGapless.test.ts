@@ -29,7 +29,7 @@ class FakeSource {
 function source(overrides: Partial<TrackAudioSource> = {}): TrackAudioSource {
   return {
     trackId: 7,
-    url: 'fermata://track/7',
+    url: 'oscine://track/7',
     durationSec: 0.01,
     encodedBytes: 4,
     channels: 1,

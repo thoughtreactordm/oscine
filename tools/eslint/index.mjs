@@ -1,5 +1,5 @@
 /**
- * The `fermata` ESLint plugin: the repo's own rules, in one place.
+ * The `oscine` ESLint plugin: the repo's own rules, in one place.
  *
  * A barrel rather than importing a rule module directly, which is what the flat
  * config did while there was only one. Both rules guard an invariant from

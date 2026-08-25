@@ -62,7 +62,7 @@ describe('showPlaceholderBadge', () => {
 
 describe('coverSrc', () => {
   it('addresses a hash the way Library addresses album art', () => {
-    expect(coverSrc('abc')).toBe('fermata://artwork/abc/small')
+    expect(coverSrc('abc')).toBe('oscine://artwork/abc/small')
   })
 })
 

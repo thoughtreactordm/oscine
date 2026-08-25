@@ -93,7 +93,7 @@ describe('recording a play', () => {
     expect(entry!.track.title).toBe('Track 0')
     // The trail renders artwork like every other list, so the projection has to
     // carry it — this is the assertion that catches `TRACK_PROJECTION` drifting.
-    expect(entry!.track.artwork.small).toContain('fermata://artwork/')
+    expect(entry!.track.artwork.small).toContain('oscine://artwork/')
   })
 
   it('resolves null for a track that is no longer in the library', async () => {

@@ -1,5 +1,5 @@
 import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { isFermataError, type IpcErrorPayload, type IpcResult } from '@shared/errors'
+import { isOscineError, type IpcErrorPayload, type IpcResult } from '@shared/errors'
 import {
   IPC_CHANNELS,
   type IpcChannel,
@@ -44,13 +44,13 @@ function isTrustedSender(event: IpcMainInvokeEvent): boolean {
  * Converts anything thrown by a handler into a payload that is safe to hand the
  * renderer.
  *
- * A `FermataError` was raised deliberately, so its code and message pass
+ * A `OscineError` was raised deliberately, so its code and message pass
  * through. Anything else is unanticipated and could carry an absolute path, a
  * SQL fragment or a stack trace in its message — so the detail is logged here,
  * in main, and the renderer gets a generic error instead.
  */
 function toSafeError(channel: IpcChannel, err: unknown): IpcErrorPayload {
-  if (isFermataError(err)) {
+  if (isOscineError(err)) {
     return { code: err.code, message: err.message }
   }
   console.error(`[ipc] unhandled failure on ${channel}:`, err)

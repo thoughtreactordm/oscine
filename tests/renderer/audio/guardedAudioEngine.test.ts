@@ -166,7 +166,7 @@ class FakeDecodedPath extends FakePath implements DecodedAudioPath {
 function track(trackId: number, overrides: Partial<TrackAudioSource> = {}): TrackAudioSource {
   return {
     trackId,
-    url: `fermata://track/${trackId}`,
+    url: `oscine://track/${trackId}`,
     durationSec: 60,
     encodedBytes: 5 * MIB,
     channels: 2,

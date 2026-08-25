@@ -4,7 +4,7 @@ import type {
   DiscoverItem,
   DiscoverTrackItem
 } from '../../../../src/shared/discover'
-import { isFermataError } from '../../../../src/shared/errors'
+import { isOscineError } from '../../../../src/shared/errors'
 import { DiscoverEngine, compose } from '../../../../src/main/library/discover/compose'
 import {
   expandShelfTrackIds,
@@ -77,8 +77,8 @@ describe('snapshotShelf', () => {
       snapshotShelf(null, 'for-you')
       expect.unreachable()
     } catch (error) {
-      expect(isFermataError(error)).toBe(true)
-      if (isFermataError(error)) {
+      expect(isOscineError(error)).toBe(true)
+      if (isOscineError(error)) {
         expect(error.code).toBe('not-found')
         expect(error.message).toBe('Discover has no shelf to save yet.')
       }
@@ -90,8 +90,8 @@ describe('snapshotShelf', () => {
       snapshotShelf({ dayKey: '2024-06-15', shelves: [] }, 'for-you')
       expect.unreachable()
     } catch (error) {
-      expect(isFermataError(error)).toBe(true)
-      if (isFermataError(error)) expect(error.code).toBe('not-found')
+      expect(isOscineError(error)).toBe(true)
+      if (isOscineError(error)) expect(error.code).toBe('not-found')
     }
   })
 

@@ -923,17 +923,17 @@ onMounted(() => props.source.ensureRange(0, 30))
         :virtualize="{ estimateSize: estimateRowSize, overscan: OVERSCAN }"
         :watch-options="{ deep: false }"
         :style="{
-          '--fermata-table-width': `${columns.totalWidth}px`,
-          '--fermata-row-px': `${metrics.rowPx}px`
+          '--oscine-table-width': `${columns.totalWidth}px`,
+          '--oscine-row-px': `${metrics.rowPx}px`
         }"
         class="h-full min-h-0 select-none overflow-auto overscroll-contain pb-2 outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-primary"
         :ui="{
-          base: 'table-fixed w-[var(--fermata-table-width)] min-w-full',
+          base: 'table-fixed w-[var(--oscine-table-width)] min-w-full',
           thead: 'bg-elevated/75',
           th: 'h-8 px-0 py-0 text-xs font-medium uppercase tracking-wide text-muted',
           tbody: 'divide-y divide-default/60',
-          td: 'h-[var(--fermata-row-px)] overflow-hidden px-2 py-0 text-sm last:pe-4',
-          tr: 'h-[var(--fermata-row-px)] hover:bg-elevated/70',
+          td: 'h-[var(--oscine-row-px)] overflow-hidden px-2 py-0 text-sm last:pe-4',
+          tr: 'h-[var(--oscine-row-px)] hover:bg-elevated/70',
           empty: 'h-full p-0'
         }"
         tabindex="0"
