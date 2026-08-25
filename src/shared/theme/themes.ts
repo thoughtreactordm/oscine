@@ -142,7 +142,7 @@ export const STRUCTURAL_DEFAULTS: Readonly<Record<string, string>> = {
 
   'type.baseSize': '1rem',
   'type.heading.family':
-    '"Roboto Variable", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Cantarell, sans-serif',
+    '"Sora Variable", system-ui, -apple-system, "Segoe UI", "Noto Sans", sans-serif',
   'type.heading.weight': '600',
   'type.heading.style': 'normal',
   'type.list.family':
