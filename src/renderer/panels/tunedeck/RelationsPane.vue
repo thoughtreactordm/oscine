@@ -152,7 +152,7 @@ function rowTitle(row: RelationRow): string {
         : `In your library as “${match.name}”`
     )
   }
-  return parts.join(' — ')
+  return parts.join(' · ')
 }
 </script>
 

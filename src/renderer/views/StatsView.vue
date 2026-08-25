@@ -155,7 +155,7 @@ function reveal(text: string): void {
       variant="subtle"
       icon="i-tabler-alert-triangle"
       title="Could not read your listening history"
-      description="The library did not answer. Nothing has been lost — the log is on disk."
+      description="The library did not answer. Nothing has been lost. The log is on disk."
       class="rounded-none"
       :actions="[{ label: 'Retry', color: 'neutral', onClick: () => listening.load() }]"
     />
@@ -187,7 +187,7 @@ function reveal(text: string): void {
       "
       :description="
         listening.logEmpty
-          ? 'Play something and it will show up here — what you played, how long for, and what it all added up to.'
+          ? 'Play something and it will show up here: what you played, how long for, and what it all added up to.'
           : 'Everything you play is still being recorded. Try a wider window.'
       "
       class="min-h-0 flex-1"

@@ -156,7 +156,7 @@ const placeholder = computed(() => {
       class="w-full"
       placeholder="Font family, or a stack"
       spellcheck="false"
-      :aria-label="`${descriptor.label} — font family`"
+      :aria-label="`${descriptor.label} font family`"
       @update:model-value="draft = String($event)"
       @change="commitDraft"
     />

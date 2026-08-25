@@ -106,7 +106,7 @@ function activate(track: Track, index: number): void {
 }
 
 function rowTitle(track: Track): string {
-  return track.album === null ? track.title : `${track.title} — ${track.album}`
+  return track.album === null ? track.title : `${track.title} · ${track.album}`
 }
 </script>
 

@@ -110,7 +110,7 @@ function activate(row: TrailRow): void {
 
 function rowLabel(row: TrailRow): string {
   const track = row.entry.track
-  return track.artist === null ? track.title : `${track.artist} — ${track.title}`
+  return track.artist === null ? track.title : `${track.artist} · ${track.title}`
 }
 </script>
 

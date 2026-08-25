@@ -161,5 +161,5 @@ export function queueCommandLabel(
 export function queueEntryLabel(entry: QueueEntry): string {
   return entry.track.artist === null
     ? entry.track.title
-    : `${entry.track.artist} — ${entry.track.title}`
+    : `${entry.track.artist} · ${entry.track.title}`
 }

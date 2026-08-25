@@ -240,7 +240,7 @@ watch(
   <UModal
     v-model:open="palette.open"
     title="Search"
-    description="Jump to anything — prefix with > actions, @ artists, # playlists, / settings."
+    description="Jump to anything. Prefix with > for actions, @ for artists, # for playlists, / for settings."
     :ui="{ header: 'sr-only', body: 'p-0 sm:p-0' }"
   >
     <template #body>

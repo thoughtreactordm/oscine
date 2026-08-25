@@ -188,7 +188,7 @@ function indicatorFor(row: UpNextRow): DropSide | null {
       class="flex shrink-0 items-center gap-1.5 rounded-sm bg-elevated px-2 py-1 text-xs text-muted"
     >
       <UIcon name="i-tabler-repeat-once" class="size-3.5 shrink-0 text-primary" />
-      <span>Repeat one is on — nothing here plays until it is off.</span>
+      <span>Repeat one is on. Nothing here plays until it is off.</span>
     </p>
 
     <!--

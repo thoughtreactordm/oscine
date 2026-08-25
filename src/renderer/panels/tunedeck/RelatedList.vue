@@ -124,9 +124,9 @@ async function activate(row: RelatedRow): Promise<void> {
 
 function rowTitle(row: RelatedRow): string {
   if (row.kind === 'track') {
-    return row.track.artist === null ? row.track.title : `${row.track.artist} — ${row.track.title}`
+    return row.track.artist === null ? row.track.title : `${row.track.artist} · ${row.track.title}`
   }
-  if (row.kind === 'album') return `${row.album.title} — ${row.meta}`
+  if (row.kind === 'album') return `${row.album.title} · ${row.meta}`
   return ''
 }
 </script>

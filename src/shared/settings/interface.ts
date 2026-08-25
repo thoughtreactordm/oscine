@@ -127,12 +127,12 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
         { value: 'playNext', label: 'Play all of it next' },
         { value: 'queue', label: 'Add all of it to the queue' },
         { value: 'addToViewedPlaylist', label: 'Add all of it to the open playlist' },
-        { value: 'none', label: 'Nothing — just select the row' }
+        { value: 'none', label: 'Nothing, just select the row' }
       ]
     },
     category: 'interface',
     label: 'Double-clicking an artist or album',
-    help: 'In the Library sidebar, and also what Enter does on the focused row. "All of it" is that row under the current folder and search, in the song list’s sort — and starts from a random track when shuffle is on.',
+    help: 'In the Library sidebar, and also what Enter does on the focused row. "All of it" means that row under the current folder and search, in the song list’s sort. With shuffle on, it starts from a random track.',
     keywords: ['double click', 'enter', 'activate', 'artist', 'album', 'facet', 'sidebar'],
     order: 25
   }),
@@ -198,9 +198,9 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     control: {
       kind: 'select',
       options: [
-        { value: 'auto', label: 'Hours only when needed — 4:05, 1:04:05' },
-        { value: 'minutes', label: 'Always minutes — 4:05, 64:05' },
-        { value: 'hours', label: 'Always hours — 0:04:05, 1:04:05' }
+        { value: 'auto', label: 'Hours only when needed: 4:05, 1:04:05' },
+        { value: 'minutes', label: 'Always minutes: 4:05, 64:05' },
+        { value: 'hours', label: 'Always hours: 0:04:05, 1:04:05' }
       ]
     },
     category: 'interface',
@@ -218,10 +218,10 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     control: {
       kind: 'select',
       options: [
-        { value: 'short', label: 'Day and month — 3 Jun' },
-        { value: 'medium', label: 'With the year — 3 Jun 2026' },
+        { value: 'short', label: 'Day and month: 3 Jun' },
+        { value: 'medium', label: 'With the year: 3 Jun 2026' },
         { value: 'numeric', label: 'Numeric, in your locale' },
-        { value: 'iso', label: 'ISO — 2026-06-03' }
+        { value: 'iso', label: 'ISO: 2026-06-03' }
       ]
     },
     category: 'interface',
@@ -247,8 +247,8 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     control: {
       kind: 'select',
       options: [
-        { value: 'binary', label: 'Binary — MiB, GiB (÷1024)' },
-        { value: 'decimal', label: 'Decimal — MB, GB (÷1000)' }
+        { value: 'binary', label: 'Binary: MiB, GiB (÷1024)' },
+        { value: 'decimal', label: 'Decimal: MB, GB (÷1000)' }
       ]
     },
     category: 'interface',

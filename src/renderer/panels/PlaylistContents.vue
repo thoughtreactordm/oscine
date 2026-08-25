@@ -563,7 +563,7 @@ const removalOpen = computed({
             variant="naked"
             icon="i-tabler-heart"
             title="No favorites yet"
-            description="Click the heart on a track — in the song list, or in Now Playing — and it lands here."
+            description="Click the heart on any track, in the song list or in Now Playing, and it lands here."
             class="h-full"
           />
           <UEmpty

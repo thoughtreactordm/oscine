@@ -108,7 +108,7 @@ function listening(...scopes: readonly StatsScopeBy[]): Component {
 
 /** Said once, on both Listening groups: the threshold, and what it excludes. */
 const LISTENING_HINT =
-  'A play is counted once you have heard half the track or four minutes of it, whichever comes first — paused and seeked-over time does not count. Totals are for as long as you have had Oscine, and follow the tags as they were when each play was recorded.'
+  'A play is counted once you have heard half the track or four minutes of it, whichever comes first. Paused and seeked-over time does not count. Totals are for as long as you have had Oscine, and follow the tags as they were when each play was recorded.'
 
 export const tunedeckRegistry = createTunedeckRegistry([
   // First, because it is the widest question and the one the deck grows into:
@@ -182,7 +182,7 @@ export const tunedeckRegistry = createTunedeckRegistry([
         id: 'artist-favorites',
         title: 'Favorite songs',
         icon: 'i-tabler-heart',
-        hint: 'The songs by this artist you have hearted, newest first. Local — it works with online lookups off. Double-click does whatever it does in the song list; the playing track cuts in and playback resumes where it was.',
+        hint: 'The songs by this artist you have hearted, newest first. Local: it works with online lookups off. Double-click does whatever it does in the song list; the playing track cuts in and playback resumes where it was.',
         badge: () => countArtistFavorites(useArtistFavoritesStore().result),
         component: FavoriteSongsPane
       },
@@ -241,7 +241,7 @@ export const tunedeckRegistry = createTunedeckRegistry([
         id: 'loudness',
         title: 'ReplayGain',
         icon: 'i-tabler-adjustments-alt',
-        hint: 'What is being applied right now, which is not always what is selected — album mode on a track with only a track gain falls back.',
+        hint: 'What is being applied right now, which is not always what is selected. Album mode on a track with only a track gain falls back.',
         component: LoudnessPane
       },
       {
@@ -314,7 +314,7 @@ export const tunedeckRegistry = createTunedeckRegistry([
         id: 'trail',
         title: 'Trail',
         icon: 'i-tabler-history',
-        hint: `Double-click to play a track again — it cuts in, then playback resumes where it was. The last ${PLAY_HISTORY_CAP.toLocaleString()} plays are kept.`,
+        hint: `Double-click to play a track again. It cuts in, then playback resumes where it was. The last ${PLAY_HISTORY_CAP.toLocaleString()} plays are kept.`,
         badge: () => {
           const played = usePlayHistoryStore().entries.length
           return played === 0 ? null : played.toLocaleString()

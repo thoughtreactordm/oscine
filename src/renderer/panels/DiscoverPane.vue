@@ -242,7 +242,7 @@ async function save(recipeId: DiscoverRecipeId): Promise<void> {
         variant="subtle"
         icon="i-tabler-alert-triangle"
         title="Could not read your shelves"
-        description="The library did not answer. Nothing has been lost — the files are still on disk."
+        description="The library did not answer. Nothing has been lost. The files are still on disk."
         :actions="[{ label: 'Retry', color: 'neutral', onClick: () => load() }]"
       />
 
@@ -251,7 +251,7 @@ async function save(recipeId: DiscoverRecipeId): Promise<void> {
         variant="naked"
         icon="i-tabler-vinyl"
         title="Nothing on the shelves yet"
-        description="Add a music folder and the records in it will show up here — arranged from what you own, and nowhere else."
+        description="Add a music folder and the records in it show up here, arranged from what you own and nowhere else."
       />
 
       <div v-else-if="state === 'loading'" role="status" aria-label="Reading your shelves">

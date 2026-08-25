@@ -78,8 +78,8 @@ export const SCROBBLE_ENABLED_KEYS: Readonly<Partial<Record<ScrobbleTargetId, st
  * same sentence.
  */
 export const LASTFM_APP_KEY_HELP =
-  'Optional. Leave both fields empty to use the API key Oscine ships with — that is the ' +
-  'normal setup and nothing needs to be entered here. Fill in both to use your own ' +
+  'Optional. Leave both fields empty to use the API key Oscine ships with. That is the ' +
+  'normal setup, and nothing needs to be entered here. Fill in both to use your own ' +
   'application registered at last.fm/api/account/create, which is the way out if Oscine’s ' +
   'key is ever rate-limited or withdrawn. One field on its own is ignored: a key cannot ' +
   'sign without its secret.'
@@ -102,7 +102,7 @@ export const SCROBBLING_SETTINGS: readonly SettingDescriptor[] = [
     control: { kind: 'toggle' },
     category: 'network',
     label: 'Scrobble to Last.fm',
-    help: 'Send what you play to Last.fm while an account is connected. Turning this off pauses scrobbling, now-playing and the loved push without signing you out — anything already waiting to send stays queued until you turn it back on.',
+    help: 'Send what you play to Last.fm while an account is connected. Turning this off pauses scrobbling, now-playing, and the loved push without signing you out. Anything already waiting to send stays queued until you turn it back on.',
     keywords: ['lastfm', 'last.fm', 'scrobble', 'scrobbling', 'pause', 'enable'],
     order: 80
   }),
@@ -127,7 +127,7 @@ export const SCROBBLING_SETTINGS: readonly SettingDescriptor[] = [
     control: { kind: 'toggle' },
     category: 'network',
     label: 'Love favorited tracks on Last.fm',
-    help: 'Hearting a track in Oscine also loves it on Last.fm, and un-hearting it removes the love. Favorites already in your library are never pushed, and Last.fm’s loved tracks are never read back in — your favorites here stay the authoritative copy.',
+    help: 'Hearting a track in Oscine also loves it on Last.fm, and un-hearting it removes the love. Favorites already in your library are never pushed, and Last.fm’s loved tracks are never read back in. Your favorites here stay the authoritative copy.',
     keywords: ['lastfm', 'last.fm', 'love', 'loved', 'favorite', 'favourite', 'heart', 'scrobble'],
     order: 90
   }),

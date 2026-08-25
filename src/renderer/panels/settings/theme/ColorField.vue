@@ -104,7 +104,7 @@ function onPick(event: Event): void {
       type="color"
       :value="hex"
       :disabled="disabled"
-      :aria-label="`${label} — colour picker`"
+      :aria-label="`${label} colour picker`"
       class="size-7 shrink-0 cursor-pointer rounded border border-default bg-transparent p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
       @input="onPick"
     />
@@ -133,7 +133,7 @@ function onPick(event: Event): void {
     -->
     <UTooltip
       v-else-if="outOfGamut"
-      text="Outside sRGB — the display will show the nearest colour it can."
+      text="Outside sRGB. The display will show the nearest colour it can."
     >
       <UIcon name="i-tabler-color-filter" class="size-4 shrink-0 text-warning" />
     </UTooltip>

@@ -197,7 +197,7 @@ describe('queue command wording', () => {
     queue.enqueue([track(2), track(3)])
     const [withArtist, without] = queue.entries.value
 
-    expect(queueEntryLabel(withArtist!)).toBe('Artist — Song 2')
+    expect(queueEntryLabel(withArtist!)).toBe('Artist · Song 2')
     expect(queueEntryLabel(without!)).toBe('Song 3')
   })
 })

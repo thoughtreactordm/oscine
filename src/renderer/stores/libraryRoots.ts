@@ -90,7 +90,7 @@ export const useLibraryRootsStore = defineStore('libraryRoots', () => {
       // audio, which is a different sentence and not an error.
       notice.value =
         summary.filesSkipped > 0
-          ? `Could not read ${path}. It may be disconnected — nothing was changed.`
+          ? `Could not read ${path}. It may be disconnected, so nothing was changed.`
           : `No audio files found in ${path}.`
     } catch (cause) {
       notice.value =
@@ -151,7 +151,7 @@ export const useLibraryRootsStore = defineStore('libraryRoots', () => {
       // The reassurance last, because it is the thing the operator is actually
       // worried about and the thing they will remember reading.
       message:
-        `${target.path} — its ${tracks} leave the library, along with their play history ` +
+        `${target.path}: its ${tracks} leave the library, along with their play history ` +
         `and any playlist entries pointing at them. Nothing is deleted from disk.`
     }
   })

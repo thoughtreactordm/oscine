@@ -108,7 +108,7 @@ function setStep(step: RampStep, value: string): void {
       type="button"
       :disabled="disabled"
       class="flex min-w-0 flex-1 items-center gap-2 rounded border border-default px-1.5 py-1 transition-colors hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
-      :aria-label="`Edit the ${descriptor.label} ramp — ${summary}`"
+      :aria-label="`Edit the ${descriptor.label} ramp, ${summary}`"
       :title="summary"
     >
       <span class="flex h-5 min-w-0 flex-1 overflow-hidden rounded-sm">
@@ -173,7 +173,7 @@ function setStep(step: RampStep, value: string): void {
           <template v-if="mode === 'seed'">
             <ColorField
               :value="seed"
-              :label="`${descriptor.label} — seed colour`"
+              :label="`${descriptor.label} seed colour`"
               :disabled="disabled"
               @update="setSeed"
             />
@@ -193,7 +193,7 @@ function setStep(step: RampStep, value: string): void {
               size="sm"
               class="w-full"
               placeholder="Choose a palette"
-              :aria-label="`${descriptor.label} — Tailwind palette`"
+              :aria-label="`${descriptor.label} Tailwind palette`"
               @update:model-value="setPalette($event)"
             />
             <p class="text-[11px] text-muted">Tailwind's own eleven steps, exactly as shipped.</p>
@@ -210,7 +210,7 @@ function setStep(step: RampStep, value: string): void {
                 <span class="w-8 shrink-0 text-[11px] tabular-nums text-dimmed">{{ step }}</span>
                 <ColorField
                   :value="steps[step]"
-                  :label="`${descriptor.label} — step ${step}`"
+                  :label="`${descriptor.label} step ${step}`"
                   :disabled="disabled"
                   compact
                   class="min-w-0 flex-1"

@@ -74,7 +74,7 @@ watch(
   <UModal
     :open="model.open"
     :title="heading"
-    description="It appears in the rail. Nothing opens — carry on browsing."
+    description="It appears in the rail. Nothing opens, so keep browsing."
     :ui="{ footer: 'justify-end' }"
     @update:open="(value: boolean) => !value && model.cancel()"
   >

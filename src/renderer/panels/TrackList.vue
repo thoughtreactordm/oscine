@@ -546,8 +546,8 @@ const sortable = computed(() => props.source.sort !== null)
 
 function unsortableTitle(column: TrackColumnSpec): string {
   return sortable.value
-    ? `${columnName(column)} — this column cannot be sorted`
-    : `${columnName(column)} — this list is in its own order`
+    ? `${columnName(column)}: this column cannot be sorted`
+    : `${columnName(column)}: this list is in its own order`
 }
 
 function onTableSelect(event: Event, row: TableRow<TrackTableRow>): void {

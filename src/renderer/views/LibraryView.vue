@@ -224,7 +224,7 @@ async function targetFor(index: number): Promise<QueueTarget> {
 
       <GroupChooser
         :groupable="trackList.sort === 'album'"
-        hint="Albums are grouped when the list is sorted by Album — selecting an artist does that. Sorted by another column, the albums interleave and there are no runs to head."
+        hint="Albums are grouped when the list is sorted by Album, which selecting an artist does. Sorted by another column, the albums interleave and there are no runs to head."
       />
       <ColumnChooser />
     </div>

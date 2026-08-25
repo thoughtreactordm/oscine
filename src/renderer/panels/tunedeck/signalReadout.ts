@@ -244,10 +244,10 @@ export function describeLoudness(decision: NormalizationDecision): LoudnessReado
 }
 
 function loudnessSummary(decision: NormalizationDecision, measured: boolean): string {
-  if (decision.mode === 'off') return 'Not normalized — the file plays at its recorded level.'
+  if (decision.mode === 'off') return 'Not normalized. The file plays at its recorded level.'
 
   const applied = formatGainDb(decision.requestedGainDb) ?? '+0.00 dB'
-  if (!measured) return `No ReplayGain tags — the untagged fallback of ${applied} is applied.`
+  if (!measured) return `No ReplayGain tags, so the untagged fallback of ${applied} is applied.`
   // Named after the field that won rather than after the mode, because album
   // mode on a file with no album gain applies the track gain and saying "album"
   // there would be the exact confusion this pane exists to clear up.
