@@ -73,8 +73,12 @@ export function planUserDataMigration(
 /**
  * Performs the relocation if one is due, and reports what it did.
  *
- * Returns the move that happened, or `null` when none was. Runs before the
- * database is opened; a `null` return is the ordinary case on every launch
+ * Returns the move that happened, or `null` when none was. **Must be called
+ * synchronously before `app.whenReady()`**, not from inside it: Electron creates
+ * the userData directory as it becomes ready, and `planUserDataMigration`
+ * refuses once the destination exists, so a call made after ready always finds
+ * the new directory already there and no-ops — stranding the old library under
+ * the pre-rename name. A `null` return is the ordinary case on every launch
  * after the first under the new name.
  */
 export function migrateUserDataDirectory(): UserDataMigration | null {

@@ -270,6 +270,19 @@ if (!app.requestSingleInstanceLock()) {
   )
   app.quit()
 } else {
+  // The Fermata → Oscine rename moves the userData directory the whole library
+  // lives in, so this has to run before anything resolves a path under it — and,
+  // critically, before `app.whenReady()`. Electron creates the userData
+  // directory as it becomes ready, and `planUserDataMigration` refuses once the
+  // destination exists, so that it can never bury a live library under a stale
+  // copy. Called from inside `whenReady` — as it was — it always found the
+  // freshly-created empty `oscine` directory already there and did nothing,
+  // stranding the real library under the old name. Synchronous, holds the
+  // single-instance lock (the `else` branch), and inert after the first launch
+  // under the new name.
+  const relocated = migrateUserDataDirectory()
+  if (relocated) console.info(`[oscine] migrated userData ${relocated.from} → ${relocated.to}`)
+
   // Must happen before the app is ready, or the scheme is not privileged and
   // fetch() against it fails in ways that look like a CSP problem.
   registerTrackScheme()
@@ -319,13 +332,6 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
-    // Before anything resolves a path under userData: the Fermata → Oscine
-    // rename moves the directory the whole library lives in, and skipping this
-    // would open a fresh empty database beside the operator's real one. Inert
-    // after the first launch under the new name.
-    const relocated = migrateUserDataDirectory()
-    if (relocated) console.info(`[oscine] migrated userData ${relocated.from} → ${relocated.to}`)
-
     const filePath = libraryDatabasePath()
     let db: BetterSqlite3.Database
     let listensMoved: boolean
