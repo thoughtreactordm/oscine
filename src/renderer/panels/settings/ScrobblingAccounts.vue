@@ -245,31 +245,34 @@ async function retry(target: ScrobbleTargetId): Promise<void> {
           class="shrink-0 text-xs"
           @click="cancelConnect(row.status.target)"
         />
-        <UButton
+        <UTooltip
           v-else-if="row.status.connected"
-          size="xs"
-          color="neutral"
-          variant="ghost"
-          icon="i-tabler-plug-connected-x"
-          label="Disconnect"
-          :title="`Forget the saved ${row.label} sign-in. Anything queued stays queued.`"
-          :loading="busy === row.status.target"
-          :disabled="busy !== null || connecting !== null"
-          class="shrink-0 text-xs"
-          @click="disconnect(row.status)"
-        />
-        <UButton
-          v-else
-          size="xs"
-          color="primary"
-          variant="soft"
-          icon="i-tabler-plug-connected"
-          label="Connect"
-          :title="`Sign in to ${row.label} in your browser`"
-          :disabled="busy !== null || connecting !== null"
-          class="shrink-0 text-xs"
-          @click="connect(row.status.target)"
-        />
+          :text="`Forget the saved ${row.label} sign-in. Anything queued stays queued.`"
+        >
+          <UButton
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            icon="i-tabler-plug-connected-x"
+            label="Disconnect"
+            :loading="busy === row.status.target"
+            :disabled="busy !== null || connecting !== null"
+            class="shrink-0 text-xs"
+            @click="disconnect(row.status)"
+          />
+        </UTooltip>
+        <UTooltip v-else :text="`Sign in to ${row.label} in your browser`">
+          <UButton
+            size="xs"
+            color="primary"
+            variant="soft"
+            icon="i-tabler-plug-connected"
+            label="Connect"
+            :disabled="busy !== null || connecting !== null"
+            class="shrink-0 text-xs"
+            @click="connect(row.status.target)"
+          />
+        </UTooltip>
       </div>
 
       <!--
@@ -282,13 +285,14 @@ async function retry(target: ScrobbleTargetId): Promise<void> {
         v-if="row.status.queueDepth > 0 || row.paused || row.status.lastError"
         class="flex flex-wrap items-center gap-x-2 gap-y-1 pl-7"
       >
-        <span
+        <UTooltip
           v-if="row.status.queueDepth > 0"
-          class="text-[11px] text-muted"
-          title="Scrobbles and loved-track updates that have not reached the service yet. They are stored on disk and survive a restart."
+          text="Scrobbles and loved-track updates that have not reached the service yet. They are stored on disk and survive a restart."
         >
-          {{ waitingLabel(row.status.queueDepth) }}
-        </span>
+          <span class="text-[11px] text-muted">
+            {{ waitingLabel(row.status.queueDepth) }}
+          </span>
+        </UTooltip>
 
         <span v-if="row.paused" class="text-[11px] text-dimmed">
           Scrobbling is paused — nothing is being sent.
@@ -304,19 +308,22 @@ async function retry(target: ScrobbleTargetId): Promise<void> {
           Sign in again to send them.
         </span>
 
-        <UButton
+        <UTooltip
           v-if="row.canRetry"
-          size="xs"
-          color="neutral"
-          variant="ghost"
-          icon="i-tabler-refresh"
-          label="Retry now"
-          title="Try to send what is waiting, without waiting for the next attempt"
-          :loading="busy === row.status.target"
-          :disabled="busy !== null"
-          class="-my-1 text-[11px]"
-          @click="retry(row.status.target)"
-        />
+          text="Try to send what is waiting, without waiting for the next attempt"
+        >
+          <UButton
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            icon="i-tabler-refresh"
+            label="Retry now"
+            :loading="busy === row.status.target"
+            :disabled="busy !== null"
+            class="-my-1 text-[11px]"
+            @click="retry(row.status.target)"
+          />
+        </UTooltip>
       </div>
 
       <p v-if="row.status.lastError" class="pl-7 text-[11px] text-warning">

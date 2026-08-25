@@ -70,45 +70,47 @@ function visiblePosition(column: TrackColumnSpec): number {
               @update:model-value="columns.toggleVisible(column.key)"
             />
 
-            <UButton
-              v-if="isSortableColumn(column.key)"
-              color="neutral"
-              :variant="panel.sort === column.key ? 'soft' : 'ghost'"
-              size="xs"
-              :icon="
-                panel.sort === column.key && panel.direction === 'desc'
-                  ? 'i-tabler-sort-descending'
-                  : 'i-tabler-sort-ascending'
-              "
-              :aria-label="`Sort by ${columnName(column)}`"
-              :title="`Sort by ${columnName(column)}`"
-              @click="panel.setSort(column.key)"
-            />
+            <UTooltip v-if="isSortableColumn(column.key)" :text="`Sort by ${columnName(column)}`">
+              <UButton
+                color="neutral"
+                :variant="panel.sort === column.key ? 'soft' : 'ghost'"
+                size="xs"
+                :icon="
+                  panel.sort === column.key && panel.direction === 'desc'
+                    ? 'i-tabler-sort-descending'
+                    : 'i-tabler-sort-ascending'
+                "
+                :aria-label="`Sort by ${columnName(column)}`"
+                @click="panel.setSort(column.key)"
+              />
+            </UTooltip>
             <!-- Keeps the move buttons in one column for rows with no sort. -->
             <span v-else class="size-6 shrink-0" aria-hidden="true" />
 
-            <UButton
-              color="neutral"
-              variant="ghost"
-              size="xs"
-              icon="i-tabler-chevron-up"
-              :disabled="!columns.isVisible(column.key) || visiblePosition(column) <= 0"
-              :aria-label="`Move ${columnName(column)} left`"
-              :title="`Move ${columnName(column)} left`"
-              @click="columns.move(column.key, -1)"
-            />
-            <UButton
-              color="neutral"
-              variant="ghost"
-              size="xs"
-              icon="i-tabler-chevron-down"
-              :disabled="
-                !columns.isVisible(column.key) || visiblePosition(column) >= visibleCount - 1
-              "
-              :aria-label="`Move ${columnName(column)} right`"
-              :title="`Move ${columnName(column)} right`"
-              @click="columns.move(column.key, 1)"
-            />
+            <UTooltip :text="`Move ${columnName(column)} left`">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                icon="i-tabler-chevron-up"
+                :disabled="!columns.isVisible(column.key) || visiblePosition(column) <= 0"
+                :aria-label="`Move ${columnName(column)} left`"
+                @click="columns.move(column.key, -1)"
+              />
+            </UTooltip>
+            <UTooltip :text="`Move ${columnName(column)} right`">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                icon="i-tabler-chevron-down"
+                :disabled="
+                  !columns.isVisible(column.key) || visiblePosition(column) >= visibleCount - 1
+                "
+                :aria-label="`Move ${columnName(column)} right`"
+                @click="columns.move(column.key, 1)"
+              />
+            </UTooltip>
           </li>
         </ul>
 

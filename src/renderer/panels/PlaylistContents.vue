@@ -487,16 +487,14 @@ const removalOpen = computed({
         is a view — so the wording is about what is on screen, not about the
         playlist having changed.
       -->
-      <UBadge
+      <UTooltip
         v-if="albumMajor && !favoritesViewed"
-        color="neutral"
-        variant="subtle"
-        size="sm"
-        icon="i-tabler-arrows-sort"
-        title="Turn album grouping off to reorder this playlist by hand."
+        text="Turn album grouping off to reorder this playlist by hand."
       >
-        By album
-      </UBadge>
+        <UBadge color="neutral" variant="subtle" size="sm" icon="i-tabler-arrows-sort">
+          By album
+        </UBadge>
+      </UTooltip>
 
       <!--
         D18's accepted cost, in the one place an operator meets it. Stated rather
@@ -504,16 +502,14 @@ const removalOpen = computed({
         no authored position here to drag against, and there is no setting that
         would bring one back.
       -->
-      <UBadge
+      <UTooltip
         v-if="favoritesViewed"
-        color="neutral"
-        variant="subtle"
-        size="sm"
-        icon="i-tabler-clock"
-        title="My Favorites is ordered by when you hearted each track, so its rows cannot be dragged into another order."
+        text="My Favorites is ordered by when you hearted each track, so its rows cannot be dragged into another order."
       >
-        Newest first
-      </UBadge>
+        <UBadge color="neutral" variant="subtle" size="sm" icon="i-tabler-clock">
+          Newest first
+        </UBadge>
+      </UTooltip>
 
       <!--
         Always groupable in a playlist: turning it on re-sorts the pane, rather

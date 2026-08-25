@@ -204,34 +204,38 @@ const storedCount = computed(() => Object.keys(props.modelValue).length)
           icon="i-tabler-search"
           size="sm"
           class="min-w-0 flex-1"
-          placeholder="Search tokens — name, description or keyword"
+          placeholder="Search tokens by name, description, or keyword"
           aria-label="Search theme tokens"
           spellcheck="false"
         />
 
-        <UButton
-          :color="overriddenOnly ? 'primary' : 'neutral'"
-          :variant="overriddenOnly ? 'soft' : 'ghost'"
-          size="xs"
-          icon="i-tabler-filter"
-          :label="`Yours (${catalog.overridden})`"
-          :aria-pressed="overriddenOnly"
-          title="Show only the tokens you have overridden"
-          class="shrink-0 text-xs"
-          @click="overriddenOnly = !overriddenOnly"
-        />
+        <UTooltip text="Show only the tokens you have overridden">
+          <UButton
+            :color="overriddenOnly ? 'primary' : 'neutral'"
+            :variant="overriddenOnly ? 'soft' : 'ghost'"
+            size="xs"
+            icon="i-tabler-filter"
+            :label="`Yours (${catalog.overridden})`"
+            :aria-pressed="overriddenOnly"
+            class="shrink-0 text-xs"
+            @click="overriddenOnly = !overriddenOnly"
+          />
+        </UTooltip>
 
-        <UButton
+        <UTooltip
           v-if="storedCount > 0"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          icon="i-tabler-rotate-2"
-          :label="`Revert all (${storedCount})`"
-          title="Drop every override and go back to the theme as it ships"
-          class="shrink-0 text-xs"
-          @click="revertEverything"
-        />
+          text="Drop every override and go back to the theme as it ships"
+        >
+          <UButton
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            icon="i-tabler-rotate-2"
+            :label="`Revert all (${storedCount})`"
+            class="shrink-0 text-xs"
+            @click="revertEverything"
+          />
+        </UTooltip>
       </div>
 
       <p class="text-[11px] text-dimmed">
@@ -258,7 +262,7 @@ const storedCount = computed(() => Object.keys(props.modelValue).length)
     >
       <div v-if="catalog.rows.length === 0" class="px-4 py-10 text-center text-xs text-dimmed">
         <template v-if="overriddenOnly && query.trim().length === 0">
-          Nothing is overridden. Every token is the theme's own — which is what a theme you have not
+          Nothing is overridden. Every token is the theme's own, which is what a theme you have not
           edited looks like.
         </template>
         <template v-else>

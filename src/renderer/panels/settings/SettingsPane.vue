@@ -233,17 +233,20 @@ watch(
         the pair that makes an immediate destructive action legible rather than a
         surprise.
       -->
-      <UButton
+      <UTooltip
         v-if="sectionChanged > 0"
-        size="xs"
-        color="neutral"
-        variant="ghost"
-        icon="i-tabler-arrow-back-up"
-        :label="`Revert section (${sectionChanged})`"
-        :title="`Revert every ${section?.label} setting to the built-in default`"
-        class="shrink-0 text-xs"
-        @click="revertSection"
-      />
+        :text="`Revert every ${section?.label} setting to the built-in default`"
+      >
+        <UButton
+          size="xs"
+          color="neutral"
+          variant="ghost"
+          icon="i-tabler-arrow-back-up"
+          :label="`Revert section (${sectionChanged})`"
+          class="shrink-0 text-xs"
+          @click="revertSection"
+        />
+      </UTooltip>
 
       <!--
         Hidden while a query or the changed filter is active because both already

@@ -58,16 +58,17 @@ async function rebuild(): Promise<void> {
 </script>
 
 <template>
-  <UButton
-    size="xs"
-    color="neutral"
-    variant="ghost"
-    icon="i-tabler-refresh"
-    label="Rebuild play counts"
-    title="Recompute every track’s play count and last-played date from the listening log"
-    :loading="busy"
-    :disabled="busy"
-    class="shrink-0 text-xs"
-    @click="rebuild"
-  />
+  <UTooltip text="Recompute every track’s play count and last-played date from the listening log">
+    <UButton
+      size="xs"
+      color="neutral"
+      variant="ghost"
+      icon="i-tabler-refresh"
+      label="Rebuild play counts"
+      :loading="busy"
+      :disabled="busy"
+      class="shrink-0 text-xs"
+      @click="rebuild"
+    />
+  </UTooltip>
 </template>
