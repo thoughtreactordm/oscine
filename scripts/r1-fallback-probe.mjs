@@ -60,7 +60,7 @@ try {
 
   // Add through the same picker/IPC/scan path as a user. The one-call dialog
   // stub is restored even if addRoot fails; no database shortcut is involved.
-  const rootsResult = await renderer.evaluate('return await window.fermata.library.listRoots()')
+  const rootsResult = await renderer.evaluate('return await window.oscine.library.listRoots()')
   if (!rootsResult.ok) throw new Error(rootsResult.error.message)
   let fixtureRoot = rootsResult.value.find((root) => resolvePath(root.path) === fixtureDir)
   if (!fixtureRoot) {
@@ -74,7 +74,7 @@ try {
          globalThis.__r1ProbeRestoreDialog = () => { dialog.showOpenDialog = original }
          return true`
       )
-      .then(() => renderer.evaluate('return await window.fermata.library.addRoot()'))
+      .then(() => renderer.evaluate('return await window.oscine.library.addRoot()'))
       .finally(() =>
         main.evaluate(
           'globalThis.__r1ProbeRestoreDialog?.(); delete globalThis.__r1ProbeRestoreDialog; return true'
@@ -85,7 +85,7 @@ try {
   }
   if (!fixtureRoot) throw new Error(`Could not add fixture root ${fixtureDir}`)
   const scanResult = await renderer.evaluate(
-    `return await window.fermata.library.scanRoot(${fixtureRoot.id})`
+    `return await window.oscine.library.scanRoot(${fixtureRoot.id})`
   )
   if (!scanResult.ok) throw new Error(scanResult.error.message)
 
@@ -93,7 +93,7 @@ try {
     let offset = 0
     let index = 0
     while (true) {
-      const result = await window.fermata.library.listTracks({
+      const result = await window.oscine.library.listTracks({
         sort: 'durationSec', direction: 'desc', offset, limit: 1000
       })
       if (!result.ok) throw new Error(result.error.message)

@@ -61,20 +61,25 @@ if (values.help) {
 /**
  * Where Electron keeps `userData` for this app.
  *
- * `fermata` in development, where the name comes from package.json; `Fermata`
- * once packaged, where electron-builder's productName wins. Both are checked
- * rather than guessed at.
+ * `oscine` in development, where the name comes from package.json; `Oscine`
+ * once packaged, where electron-builder's productName wins. The pre-rename
+ * `fermata`/`Fermata` dirs are checked last, so the script still finds a dev
+ * profile that has not yet been migrated by a post-rename launch. All are
+ * checked rather than guessed at.
  */
 function defaultDatabasePath() {
   const roots = []
   if (platform() === 'win32') {
     const appData = process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming')
+    roots.push(join(appData, 'oscine'), join(appData, 'Oscine'))
     roots.push(join(appData, 'fermata'), join(appData, 'Fermata'))
   } else if (platform() === 'darwin') {
     const base = join(homedir(), 'Library', 'Application Support')
+    roots.push(join(base, 'oscine'), join(base, 'Oscine'))
     roots.push(join(base, 'fermata'), join(base, 'Fermata'))
   } else {
     const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config')
+    roots.push(join(base, 'oscine'), join(base, 'Oscine'))
     roots.push(join(base, 'fermata'), join(base, 'Fermata'))
   }
 

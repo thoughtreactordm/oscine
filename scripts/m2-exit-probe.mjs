@@ -417,7 +417,7 @@ async function addAndScanFixture() {
     return true
   `)
   const added = await renderer
-    .evaluate('return await window.fermata.library.addRoot()')
+    .evaluate('return await window.oscine.library.addRoot()')
     .finally(() =>
       main.evaluate(
         'globalThis.__m2RestoreDialog?.(); delete globalThis.__m2RestoreDialog; return true'
@@ -425,7 +425,7 @@ async function addAndScanFixture() {
     )
   requireCondition(added.ok, added.error?.message ?? 'Could not add the M2 fixture root.')
   const scanned = await renderer.evaluate(
-    `return await window.fermata.library.scanRoot(${added.value.id})`
+    `return await window.oscine.library.scanRoot(${added.value.id})`
   )
   requireCondition(scanned.ok, scanned.error?.message ?? 'Could not scan the M2 fixture root.')
   return { root: added.value, scan: scanned.value }
@@ -433,7 +433,7 @@ async function addAndScanFixture() {
 
 async function census() {
   const result = await renderer.evaluate(`
-    const result = await window.fermata.library.listTracks({
+    const result = await window.oscine.library.listTracks({
       sort: 'title', direction: 'asc', offset: 0, limit: 1000
     })
     if (!result.ok) throw new Error(result.error.message)
@@ -705,7 +705,7 @@ async function waitForReplayGain(predicate, description, timeoutMs = 45_000) {
   return renderer.evaluate(`
     const started = performance.now()
     while (performance.now() - started < ${timeoutMs}) {
-      const result = await window.fermata.library.getReplayGainJob()
+      const result = await window.oscine.library.getReplayGainJob()
       if (!result.ok) throw new Error(result.error.message)
       const job = result.value
       if (job && (${predicate})) return job
@@ -957,13 +957,13 @@ async function runCases() {
   const resourcesBefore = await main.evaluate('return process.getActiveResourcesInfo()')
   await renderer.evaluate(`
     window.__m2ReplayGainProgress = []
-    window.__m2ReplayGainOff = window.fermata.library.onReplayGainProgress((progress) => {
+    window.__m2ReplayGainOff = window.oscine.library.onReplayGainProgress((progress) => {
       window.__m2ReplayGainProgress.push(progress)
     })
     return true
   `)
   const startedJobResult = await renderer.evaluate(
-    'return await window.fermata.library.startReplayGain()'
+    'return await window.oscine.library.startReplayGain()'
   )
   requireCondition(
     startedJobResult.ok,
@@ -976,7 +976,7 @@ async function runCases() {
   )
   const resourcesDuring = await main.evaluate('return process.getActiveResourcesInfo()')
   const cancelledResult = await renderer.evaluate(
-    `return await window.fermata.library.cancelReplayGain(${startedJobResult.value.jobId})`
+    `return await window.oscine.library.cancelReplayGain(${startedJobResult.value.jobId})`
   )
   requireCondition(
     cancelledResult.ok,
@@ -984,7 +984,7 @@ async function runCases() {
   )
   const cancelled = cancelledResult.value
   const resumedResult = await renderer.evaluate(
-    `return await window.fermata.library.resumeReplayGain(${startedJobResult.value.jobId})`
+    `return await window.oscine.library.resumeReplayGain(${startedJobResult.value.jobId})`
   )
   requireCondition(resumedResult.ok, resumedResult.error?.message ?? 'ReplayGain did not resume.')
   const completed = await waitForReplayGain(

@@ -139,7 +139,7 @@ record('environment', {
 // ---------------------------------------------------------------------------
 
 const rootsNow = async () =>
-  (await renderer.evaluate('return await window.fermata.library.listRoots()')).value
+  (await renderer.evaluate('return await window.oscine.library.listRoots()')).value
 
 // `addRoot` resolves and normalises what the dialog hands back, so compare on the
 // resolved form rather than on the string we passed in.
@@ -156,7 +156,7 @@ if (!fixtureRoot) {
        globalThis.__probeRestoreDialog = () => { dialog.showOpenDialog = original }
        return 'stubbed'`
     )
-    .then(() => renderer.evaluate('return await window.fermata.library.addRoot()'))
+    .then(() => renderer.evaluate('return await window.oscine.library.addRoot()'))
     .finally(() =>
       main.evaluate(
         'if (globalThis.__probeRestoreDialog) { globalThis.__probeRestoreDialog(); delete globalThis.__probeRestoreDialog }\nreturn true'
@@ -192,9 +192,9 @@ record('step 1 — add root', {
 
 const scan = await renderer.evaluate(`
   const events = []
-  const off = window.fermata.library.onScanProgress((p) => events.push(JSON.parse(JSON.stringify(p))))
+  const off = window.oscine.library.onScanProgress((p) => events.push(JSON.parse(JSON.stringify(p))))
   const started = performance.now()
-  const summary = await window.fermata.library.scanRoot(${fixtureRoot.id})
+  const summary = await window.oscine.library.scanRoot(${fixtureRoot.id})
   await new Promise((r) => setTimeout(r, 500))
   if (typeof off === 'function') off()
   return { summary, elapsedMs: Math.round(performance.now() - started), events }
@@ -228,7 +228,7 @@ const census = await renderer.evaluate(`
   const byRoot = {}, fixture = []
   let offset = 0, total = Infinity
   while (offset < total) {
-    const { value } = await window.fermata.library.listTracks({
+    const { value } = await window.oscine.library.listTracks({
       sort: 'durationSec', direction: 'desc', offset, limit: 1000
     })
     total = value.total
@@ -238,7 +238,7 @@ const census = await renderer.evaluate(`
     })
     offset += 1000
   }
-  const { value: longest } = await window.fermata.library.listTracks({
+  const { value: longest } = await window.oscine.library.listTracks({
     sort: 'durationSec', direction: 'desc', offset: 0, limit: 1
   })
   return { total, byRoot, fixture, longest: longest.tracks[0] }
@@ -260,14 +260,14 @@ const sorts = await renderer.evaluate(`
   for (const sort of ['trackNo', 'title', 'artist', 'album', 'durationSec']) {
     for (const direction of ['asc', 'desc']) {
       const started = performance.now()
-      const r = await window.fermata.library.listTracks({ sort, direction, offset: 0, limit: 100 })
+      const r = await window.oscine.library.listTracks({ sort, direction, offset: 0, limit: 100 })
       out.push({ sort, direction, ms: +(performance.now() - started).toFixed(1),
                  ok: r.ok, rows: r.value.tracks.length, total: r.value.total })
     }
   }
   const deep = Math.max(0, ${census.total} - 100)
   const started = performance.now()
-  const r = await window.fermata.library.listTracks({ sort: 'artist', direction: 'asc', offset: deep, limit: 100 })
+  const r = await window.oscine.library.listTracks({ sort: 'artist', direction: 'asc', offset: deep, limit: 100 })
   out.push({ sort: 'artist', direction: 'asc @ ' + deep, ms: +(performance.now() - started).toFixed(1),
              ok: r.ok, rows: r.value.tracks.length, total: r.value.total })
   return out
