@@ -18,7 +18,7 @@ import {
 /**
  * The stats engine: one query shape, four dimensions, two totals.
  *
- * Every statistic Fermata reports is the same sentence — *filter `listens` by a
+ * Every statistic Oscine reports is the same sentence — *filter `listens` by a
  * time range, group by a dimension, order by count or by summed `ms_listened`*
  * — so it is written once here and parametrised, rather than four times in four
  * channels that would agree on the day they were written and not afterwards.

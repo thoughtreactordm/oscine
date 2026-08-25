@@ -292,7 +292,7 @@ describe('exporting a playlist', () => {
   }
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'fermata-m3u8-'))
+    dir = mkdtempSync(join(tmpdir(), 'oscine-m3u8-'))
     db = openDatabase(join(dir, 'library.db')).db
     store = new PlaylistStore(db)
     // A real directory, so the export writes beside files that could exist.

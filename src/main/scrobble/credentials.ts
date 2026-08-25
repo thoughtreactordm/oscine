@@ -4,7 +4,7 @@
  * The rule is that the secret is sealed by Electron's `safeStorage` and is read
  * back only in main, only by the target that owns it. It is not a settings row,
  * it is not in `library.db`, it is not in D11's bundle, and it never crosses
- * IPC. This is the first use of `safeStorage` in Fermata, so this file is the
+ * IPC. This is the first use of `safeStorage` in Oscine, so this file is the
  * pattern rather than one instance of it.
  *
  * ## Why the username is sealed too
@@ -18,7 +18,7 @@
  * ## When there is no keyring
  *
  * `safeStorage.isEncryptionAvailable()` is false on a Linux box with no keyring
- * — a bare window manager, a container, a live session. Fermata refuses to
+ * — a bare window manager, a container, a live session. Oscine refuses to
  * connect and says why. The alternative is writing a session key in plaintext
  * into a file whose whole reason for existing is that it is not plaintext, and
  * an operator who was told "your credentials are stored securely" would have no
@@ -95,7 +95,7 @@ export interface CredentialFileIo {
 export class CredentialSealingUnavailableError extends Error {
   constructor() {
     super(
-      'This system has no secure credential store available, so Fermata will not save a ' +
+      'This system has no secure credential store available, so Oscine will not save a ' +
         'sign-in. On Linux, a keyring being installed is not enough on its own: it also has ' +
         'to have been created and unlocked. The usual cause is a login keyring that no login ' +
         'ever unlocks — check that ~/.local/share/keyrings holds one, and that your display ' +

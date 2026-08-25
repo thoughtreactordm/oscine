@@ -30,7 +30,7 @@
  *
  * `lastfm.apiKey` / `lastfm.apiSecret` (empty by default) replace this pair.
  * That is the escape hatch for the day Last.fm rate-limits or withdraws
- * Fermata's registration, and it is the reason D19 does not have to be reopened
+ * Oscine's registration, and it is the reason D19 does not have to be reopened
  * on that day.
  */
 
@@ -38,7 +38,7 @@ import { LASTFM_API_KEY, LASTFM_API_SECRET } from '@shared/settings'
 import type { SettingsService } from '../../settings'
 
 /**
- * The registered application's key. Identifies Fermata; scrobbles for nobody.
+ * The registered application's key. Identifies Oscine; scrobbles for nobody.
  *
  * Annotated `: string` rather than left to inference, and not as a style
  * preference: without it TypeScript narrows this to its own literal type and the
@@ -100,7 +100,7 @@ export function resolveLastfmAppKey(settings: AppKeySettingsSource): LastfmAppKe
  * What to tell an operator who has no usable pair.
  *
  * Two different situations, and telling them apart matters: a build that shipped
- * without a key is Fermata's problem and the operator's workaround, while a
+ * without a key is Oscine's problem and the operator's workaround, while a
  * half-filled override is a field they can see and fix.
  */
 export function missingAppKeyMessage(settings: AppKeySettingsSource): string {
@@ -108,7 +108,7 @@ export function missingAppKeyMessage(settings: AppKeySettingsSource): string {
   const overrideSecret = settings.get<string>(LASTFM_API_SECRET).trim()
 
   if (overrideKey !== '' || overrideSecret !== '') {
-    return 'Last.fm needs both an API key and its shared secret. Fill in the other field in Settings › Network, or clear both to use the key Fermata ships with.'
+    return 'Last.fm needs both an API key and its shared secret. Fill in the other field in Settings › Network, or clear both to use the key Oscine ships with.'
   }
-  return 'This build of Fermata has no Last.fm application key, so it cannot connect. Register an application at last.fm/api/account/create and paste its key and shared secret into Settings › Network.'
+  return 'This build of Oscine has no Last.fm application key, so it cannot connect. Register an application at last.fm/api/account/create and paste its key and shared secret into Settings › Network.'
 }

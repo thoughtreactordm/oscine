@@ -231,7 +231,7 @@ function reopen(
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-artist-image-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-artist-image-'))
   file = join(dir, 'library.db')
   requests = []
 })

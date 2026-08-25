@@ -11,7 +11,7 @@ let dir: string
 let file: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-genres-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-genres-'))
   file = join(dir, 'library.db')
 })
 

@@ -62,7 +62,7 @@ function service(): SqliteFavoriteService {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-favorites-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-favorites-'))
   file = join(dir, 'library.db')
   db = openDatabase(file).db
   nextPath = 0

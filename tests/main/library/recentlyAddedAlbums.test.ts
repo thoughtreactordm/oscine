@@ -18,7 +18,7 @@ import type { TrackTags } from '../../../src/main/library/metadata'
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-recent-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-recent-'))
 })
 
 afterEach(() => {

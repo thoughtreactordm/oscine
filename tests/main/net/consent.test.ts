@@ -10,7 +10,7 @@ function settingsReading(values: Record<string, unknown>): ConsentSettingsSource
 describe('the network consent key', () => {
   /**
    * The single most important assertion in W7-6. Everything else is a way of
-   * getting to it: with nothing configured, Fermata does not phone anyone.
+   * getting to it: with nothing configured, Oscine does not phone anyone.
    */
   it('defaults to off', () => {
     expect(settingDefault(NETWORK_EXTERNAL_LOOKUPS_KEY)).toBe(false)

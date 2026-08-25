@@ -304,9 +304,9 @@ export function buildReplayGainRows(
     rows.push({
       key: 'rgSource',
       label: 'Source',
-      // D7: Fermata never writes tags, so a computed value lives in the
+      // D7: Oscine never writes tags, so a computed value lives in the
       // database and the file still says nothing. Worth distinguishing.
-      value: track.rgSource === 'tag' ? 'File tags' : 'Computed by Fermata'
+      value: track.rgSource === 'tag' ? 'File tags' : 'Computed by Oscine'
     })
   }
 

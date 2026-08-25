@@ -298,7 +298,7 @@ export function readScrobbleResponse(
         ok: false,
         failure: {
           kind: 'rate-limited',
-          message: 'Last.fm’s daily scrobble limit has been reached. Fermata will try again later.'
+          message: 'Last.fm’s daily scrobble limit has been reached. Oscine will try again later.'
         }
       }
     }

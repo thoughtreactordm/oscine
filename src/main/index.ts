@@ -84,7 +84,7 @@ async function pickMusicFolder(): Promise<string | null> {
 }
 
 /**
- * D12's export dialog, and the only file Fermata writes outside its own data
+ * D12's export dialog, and the only file Oscine writes outside its own data
  * directory.
  *
  * The extension is a filter rather than something enforced here: GTK will hand
@@ -123,7 +123,7 @@ async function pickSettingsExportFile(suggestedName: string): Promise<string | n
     title: 'Export settings',
     buttonLabel: 'Export',
     defaultPath: suggestedName,
-    filters: [{ name: 'Fermata settings', extensions: ['json'] }],
+    filters: [{ name: 'Oscine settings', extensions: ['json'] }],
     properties: ['createDirectory', 'showOverwriteConfirmation', 'dontAddToRecent']
   }
 
@@ -140,7 +140,7 @@ async function pickSettingsImportFile(): Promise<string | null> {
   const options: Electron.OpenDialogOptions = {
     title: 'Import settings',
     buttonLabel: 'Open',
-    filters: [{ name: 'Fermata settings', extensions: ['json'] }],
+    filters: [{ name: 'Oscine settings', extensions: ['json'] }],
     properties: ['openFile', 'dontAddToRecent']
   }
 
@@ -265,8 +265,8 @@ if (!app.requestSingleInstanceLock()) {
   // is indistinguishable from a crash: `npm run dev` builds, prints "DevTools
   // listening", then vanishes. The running instance is usually a forgotten one.
   process.stderr.write(
-    '[fermata] another instance already holds the single-instance lock; exiting.\n' +
-      '[fermata] close the running Fermata (or its dev instance) and start again.\n'
+    '[oscine] another instance already holds the single-instance lock; exiting.\n' +
+      '[oscine] close the running Oscine (or its dev instance) and start again.\n'
   )
   app.quit()
 } else {
@@ -324,7 +324,7 @@ if (!app.requestSingleInstanceLock()) {
     // would open a fresh empty database beside the operator's real one. Inert
     // after the first launch under the new name.
     const relocated = migrateUserDataDirectory()
-    if (relocated) console.info(`[fermata] migrated userData ${relocated.from} → ${relocated.to}`)
+    if (relocated) console.info(`[oscine] migrated userData ${relocated.from} → ${relocated.to}`)
 
     const filePath = libraryDatabasePath()
     let db: BetterSqlite3.Database
@@ -346,7 +346,7 @@ if (!app.requestSingleInstanceLock()) {
       // Without a library there is no application, so fail visibly rather than
       // opening a window that cannot answer a single query.
       dialog.showErrorBox(
-        'Fermata could not open its library',
+        'Oscine could not open its library',
         `${filePath}\n\n${error instanceof Error ? error.message : String(error)}`
       )
       app.quit()
@@ -396,7 +396,7 @@ if (!app.requestSingleInstanceLock()) {
     //
     // `safeStorage` is handed in rather than imported by the store, so the store
     // is testable without a keyring. It is also the first use of `safeStorage`
-    // anywhere in Fermata: `scrobble/credentials.ts` is the pattern.
+    // anywhere in Oscine: `scrobble/credentials.ts` is the pattern.
     //
     const scrobbleCredentials = createScrobbleCredentialStore({
       sealer: safeStorage,
@@ -719,7 +719,7 @@ if (!app.requestSingleInstanceLock()) {
     })
   })
 
-  // D10 scopes Fermata to Windows and Linux, where closing the last window
+  // D10 scopes Oscine to Windows and Linux, where closing the last window
   // means quitting.
   app.on('window-all-closed', () => {
     app.quit()

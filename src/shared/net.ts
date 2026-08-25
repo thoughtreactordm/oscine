@@ -1,5 +1,5 @@
 /**
- * The vocabulary of Fermata's outbound requests, shared by both processes.
+ * The vocabulary of Oscine's outbound requests, shared by both processes.
  *
  * Main does the fetching (**D14**); the renderer only ever sees what came back.
  * What crosses the boundary is this file's `NetResult` — a value, never an

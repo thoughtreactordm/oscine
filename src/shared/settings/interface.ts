@@ -266,7 +266,7 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     control: { kind: 'toggle' },
     category: 'interface',
     label: 'Reopen last session on launch',
-    help: 'Reopen the playlist and podcast tabs that were open when Fermata last closed.',
+    help: 'Reopen the playlist and podcast tabs that were open when Oscine last closed.',
     keywords: ['session', 'restore', 'tabs', 'startup', 'launch', 'reopen'],
     order: 80
   }),

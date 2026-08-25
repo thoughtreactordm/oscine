@@ -1,5 +1,5 @@
 /**
- * The settings registry: one assembled list of every key Fermata knows about,
+ * The settings registry: one assembled list of every key Oscine knows about,
  * and the pure functions that turn a store's contents into usable values.
  *
  * This is a cross-process contract, which is why it sits in `src/shared`

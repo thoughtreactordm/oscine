@@ -72,7 +72,7 @@ class FakeProcessor implements ArtworkImageProcessor {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-artwork-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-artwork-'))
   cacheDir = join(dir, 'cache')
   db = openDatabase(join(dir, 'library.db')).db
   store = new LibraryStore(db)

@@ -118,7 +118,7 @@ function worker(targets: readonly ScrobbleTarget[]): ScrobbleDrainWorker {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-favorite-love-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-favorite-love-'))
   db = openDatabase(join(dir, 'library.db')).db
   nextPath = 0
 })

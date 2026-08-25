@@ -344,7 +344,7 @@ describe('related queries', () => {
   let seedTrackId: number
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), 'fermata-related-'))
+    dir = mkdtempSync(join(tmpdir(), 'oscine-related-'))
     opened = openDatabase(join(dir, 'library.db'))
     const { db } = opened
 

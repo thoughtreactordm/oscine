@@ -38,7 +38,7 @@ let albumIds: number[]
 let artistIds: number[]
 
 beforeAll(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-track-ids-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-track-ids-'))
   opened = openDatabase(join(dir, 'library.db'))
   const { db } = opened
 
@@ -363,7 +363,7 @@ describe('albums sharing a title', () => {
   let sharedService: SqliteLibraryService
 
   beforeAll(() => {
-    sharedDir = mkdtempSync(join(tmpdir(), 'fermata-same-title-'))
+    sharedDir = mkdtempSync(join(tmpdir(), 'oscine-same-title-'))
     sharedOpened = openDatabase(join(sharedDir, 'library.db'))
     const { db } = sharedOpened
     const rootId = Number(

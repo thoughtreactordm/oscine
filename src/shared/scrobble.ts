@@ -64,7 +64,7 @@ export interface ScrobblePayload {
   /**
    * Track length in **seconds**, or `null` when the library does not know it.
    *
-   * Seconds rather than the milliseconds the rest of Fermata counts in, because
+   * Seconds rather than the milliseconds the rest of Oscine counts in, because
    * this is a wire field and every target defines it in seconds. Converting at
    * the boundary once is cheaper than a unit that means two things.
    *

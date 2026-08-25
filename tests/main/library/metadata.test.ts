@@ -14,7 +14,7 @@ import {
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-meta-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-meta-'))
 })
 
 afterEach(() => {

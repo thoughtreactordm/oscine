@@ -15,7 +15,7 @@
  * They are also cached as a *pair*: the service stores what came out of
  * `resolveEntity`, so the steady state after the first lookup is zero requests
  * rather than one. Splitting the cache per hop would have saved nothing, because
- * nothing else in Fermata asks either question on its own.
+ * nothing else in Oscine asks either question on its own.
  *
  * ## Why `haswbstatement` rather than a search
  *

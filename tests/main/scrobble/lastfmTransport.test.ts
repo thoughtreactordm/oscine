@@ -1,6 +1,6 @@
 /**
  * The transport: what it puts on the wire, and how Last.fm's numbered errors
- * become failures the rest of Fermata already knows how to render.
+ * become failures the rest of Oscine already knows how to render.
  *
  * The `NetClient` is injected, so nothing here opens a socket and nothing here
  * is testing W7's client a second time. What it *is* testing is the two things
@@ -70,7 +70,7 @@ describe('createLastfmTransport', () => {
     // Without this the 403 that carries error 14 arrives as a bare `rejected`
     // and the auth flow cannot tell "not approved yet" from "bad key".
     expect(client.seen[0].acceptStatuses).toContain(403)
-    // And not 404: a missing endpoint is a Fermata bug, not a message.
+    // And not 404: a missing endpoint is a Oscine bug, not a message.
     expect(client.seen[0].acceptStatuses).not.toContain(404)
   })
 

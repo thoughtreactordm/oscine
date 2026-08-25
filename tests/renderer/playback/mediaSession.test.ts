@@ -194,7 +194,7 @@ describe('toMediaMetadata', () => {
   })
 
   it('advertises no artwork rather than the placeholder', () => {
-    // A flat grey square is right inside Fermata and wrong in a shell widget,
+    // A flat grey square is right inside Oscine and wrong in a shell widget,
     // which falls back to the application icon when given nothing.
     expect(toMediaMetadata(track()).artwork).toEqual([])
   })
@@ -289,7 +289,7 @@ describe('media session surface', () => {
     expect(h.outstanding()).toBe(1)
   })
 
-  it('re-addresses artwork, because Chromium refuses the fermata scheme', async () => {
+  it('re-addresses artwork, because Chromium refuses the oscine scheme', async () => {
     const h = surfaceHarness()
     h.surface.setMetadata(withArt('So What', ['oscine://artwork/a/large']))
     await h.settleAll()

@@ -190,7 +190,7 @@ export function observePosition(
  * Last.fm's rule, adopted wholesale rather than re-derived: longer than thirty
  * seconds, **and** half its duration or four minutes, whichever comes first.
  * Twenty years of tuning against real listening is not worth relitigating, and
- * matching it verbatim is what keeps Fermata's numbers and the operator's
+ * matching it verbatim is what keeps Oscine's numbers and the operator's
  * Last.fm profile from disagreeing and then needing explaining.
  *
  * An unknown duration falls back to the four-minute cap alone. That is not a

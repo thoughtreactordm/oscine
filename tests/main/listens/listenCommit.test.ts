@@ -132,7 +132,7 @@ function service(): SqliteListenService {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-listens-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-listens-'))
   file = join(dir, 'library.db')
   db = openDatabase(file).db
   nextPath = 0

@@ -24,7 +24,7 @@ let outbox: ScrobbleOutbox
 let clock: number
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-drain-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-drain-'))
   db = openDatabase(join(dir, 'library.db')).db
   outbox = new ScrobbleOutbox(db)
   clock = 1_700_000_000_000

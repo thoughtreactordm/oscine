@@ -27,7 +27,7 @@ import { NETWORK_EXTERNAL_LOOKUPS_KEY } from '@shared/settings'
 import type { SettingsService } from '../settings'
 
 export interface NetworkConsent {
-  /** Whether Fermata may contact a service of its own choosing, right now. */
+  /** Whether Oscine may contact a service of its own choosing, right now. */
   granted(): boolean
 }
 
@@ -61,7 +61,7 @@ export const CONSENT_DENIED: NetworkConsent = { granted: () => false }
  *
  * The argument, in full, lives in D19 and at the construction site in
  * `scrobble/lastfm/transport.ts`. In short: this gate covers the lookups
- * *Fermata* decides to make. A scrobble goes to a service the operator signed
+ * *Oscine* decides to make. A scrobble goes to a service the operator signed
  * into, by typing their own password on that service's own login page, having
  * been told what it was for — which is stronger and more specific consent than
  * the checkbox this gate reads, not weaker. Until that sign-in completes there

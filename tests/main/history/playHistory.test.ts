@@ -40,7 +40,7 @@ function seedTracks(target: Database.Database, count: number): number[] {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-history-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-history-'))
   file = join(dir, 'library.db')
   db = open()
 })

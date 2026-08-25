@@ -214,7 +214,7 @@ watch(
         <span v-else-if="catalog.changedOnly" class="shrink-0 text-[11px] text-dimmed">
           {{ catalog.rows.length }}
           {{ catalog.rows.length === 1 ? 'setting differs' : 'settings differ' }}
-          from what Fermata ships with
+          from what Oscine ships with
         </span>
       </div>
 
@@ -295,7 +295,7 @@ watch(
           working install looks like, not a filter that has gone wrong.
         -->
         <template v-else-if="catalog.changedOnly">
-          Every setting is at the value Fermata ships with.
+          Every setting is at the value Oscine ships with.
         </template>
         <template v-else>This section has no settings yet.</template>
       </div>

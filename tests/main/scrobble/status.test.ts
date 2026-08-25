@@ -31,7 +31,7 @@ let db: Database.Database
 let outbox: ScrobbleOutbox
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-scrobble-status-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-scrobble-status-'))
   db = openDatabase(join(dir, 'library.db')).db
   outbox = new ScrobbleOutbox(db)
 })

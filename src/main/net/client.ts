@@ -1,5 +1,5 @@
 /**
- * The only place in Fermata that opens a socket on Fermata's own initiative.
+ * The only place in Oscine that opens a socket on Oscine's own initiative.
  *
  * Four things wrap every request, in this order, and the order is the design:
  *
@@ -104,7 +104,7 @@ export interface NetGetRequest {
  * A form POST, which is every rule above with a body attached.
  *
  * `form` rather than a free `body` and a `content-type`: the only thing in
- * Fermata that posts is D19's Last.fm client, Last.fm takes
+ * Oscine that posts is D19's Last.fm client, Last.fm takes
  * `application/x-www-form-urlencoded` and nothing else, and a general body
  * parameter would be a second thing to get right for a case that does not exist.
  * Widen it when a caller needs JSON — W11-8's ListenBrainz will — rather than in
@@ -172,7 +172,7 @@ export interface NetClientOptions {
 
 /**
  * 500ms then 1s. No jitter: jitter exists to decorrelate a fleet, and there is
- * exactly one Fermata behind a limiter that already serialises per host.
+ * exactly one Oscine behind a limiter that already serialises per host.
  */
 function defaultBackoff(attempt: number): number {
   return 500 * 2 ** (attempt - 1)

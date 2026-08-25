@@ -4,9 +4,9 @@
  *
  * ## The escape hatch
  *
- * Two keys, both empty by default, both meaning "use the pair Fermata ships
+ * Two keys, both empty by default, both meaning "use the pair Oscine ships
  * with". They exist because a shipped API key is a single point of failure that
- * belongs to somebody else: if Last.fm ever revokes or rate-limits Fermata's,
+ * belongs to somebody else: if Last.fm ever revokes or rate-limits Oscine's,
  * every install breaks at once, and without these an operator's only recourse is
  * to wait for a release. With them it is a paste.
  *
@@ -14,7 +14,7 @@
  *
  * This is the distinction D19 turns on, and putting the two credentials in
  * different places is how the code states it. The app key says *which
- * application is asking*; it identifies Fermata, ships in the bundle, is
+ * application is asking*; it identifies Oscine, ships in the bundle, is
  * extractable from the asar, and on its own can scrobble for nobody. It is a
  * configuration value and it lives here, in the settings table, with the rest of
  * them.
@@ -78,9 +78,9 @@ export const SCROBBLE_ENABLED_KEYS: Readonly<Partial<Record<ScrobbleTargetId, st
  * same sentence.
  */
 export const LASTFM_APP_KEY_HELP =
-  'Optional. Leave both fields empty to use the API key Fermata ships with — that is the ' +
+  'Optional. Leave both fields empty to use the API key Oscine ships with — that is the ' +
   'normal setup and nothing needs to be entered here. Fill in both to use your own ' +
-  'application registered at last.fm/api/account/create, which is the way out if Fermata’s ' +
+  'application registered at last.fm/api/account/create, which is the way out if Oscine’s ' +
   'key is ever rate-limited or withdrawn. One field on its own is ignored: a key cannot ' +
   'sign without its secret.'
 
@@ -109,7 +109,7 @@ export const SCROBBLING_SETTINGS: readonly SettingDescriptor[] = [
   // Portable, where the two below are not, and the difference is the same one
   // this file is about: a key pasted on one machine is usually registered for a
   // reason local to it, while "push my hearts to Last.fm" is a preference about
-  // how the operator likes Fermata to behave and travels with them. It carries
+  // how the operator likes Oscine to behave and travels with them. It carries
   // nothing that identifies an account — with no session key on the second
   // machine it does nothing at all until one is connected there too.
   defineSetting<boolean>({
@@ -127,7 +127,7 @@ export const SCROBBLING_SETTINGS: readonly SettingDescriptor[] = [
     control: { kind: 'toggle' },
     category: 'network',
     label: 'Love favorited tracks on Last.fm',
-    help: 'Hearting a track in Fermata also loves it on Last.fm, and un-hearting it removes the love. Favorites already in your library are never pushed, and Last.fm’s loved tracks are never read back in — your favorites here stay the authoritative copy.',
+    help: 'Hearting a track in Oscine also loves it on Last.fm, and un-hearting it removes the love. Favorites already in your library are never pushed, and Last.fm’s loved tracks are never read back in — your favorites here stay the authoritative copy.',
     keywords: ['lastfm', 'last.fm', 'love', 'loved', 'favorite', 'favourite', 'heart', 'scrobble'],
     order: 90
   }),
@@ -139,7 +139,7 @@ export const SCROBBLING_SETTINGS: readonly SettingDescriptor[] = [
     // `allowEmpty`, because empty is not an unfilled field here — it is the
     // value that means "ship's key", and it is what almost every install has.
     validate: stringValue({ maxLength: 128, allowEmpty: true }),
-    control: { kind: 'text', placeholder: 'Uses Fermata’s key when empty' },
+    control: { kind: 'text', placeholder: 'Uses Oscine’s key when empty' },
     category: 'network',
     label: 'Last.fm API key',
     help: LASTFM_APP_KEY_HELP,
@@ -153,7 +153,7 @@ export const SCROBBLING_SETTINGS: readonly SettingDescriptor[] = [
     portable: false,
     default: '',
     validate: stringValue({ maxLength: 128, allowEmpty: true }),
-    control: { kind: 'text', placeholder: 'Uses Fermata’s secret when empty' },
+    control: { kind: 'text', placeholder: 'Uses Oscine’s secret when empty' },
     category: 'network',
     label: 'Last.fm shared secret',
     help: LASTFM_APP_KEY_HELP,

@@ -24,7 +24,7 @@ let store: LibraryStore
 let rootId: number
 
 beforeEach(() => {
-  workDir = mkdtempSync(join(tmpdir(), 'fermata-scan-'))
+  workDir = mkdtempSync(join(tmpdir(), 'oscine-scan-'))
   musicDir = join(workDir, 'Music')
   mkdirSync(musicDir)
 

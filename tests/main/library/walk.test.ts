@@ -12,7 +12,7 @@ import {
 let root: string
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'fermata-walk-'))
+  root = mkdtempSync(join(tmpdir(), 'oscine-walk-'))
 })
 
 afterEach(() => {
@@ -190,7 +190,7 @@ describe('walkAudioFiles and symlinks', () => {
   }
 
   it('follows a linked directory', async ({ skip }) => {
-    const real = mkdtempSync(join(tmpdir(), 'fermata-walk-target-'))
+    const real = mkdtempSync(join(tmpdir(), 'oscine-walk-target-'))
     try {
       writeFileSync(join(real, 'linked.flac'), 'x')
       touch('Artist/direct.mp3')

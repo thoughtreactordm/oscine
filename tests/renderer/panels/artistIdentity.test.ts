@@ -209,7 +209,7 @@ describe('describeIdentity', () => {
   it('reports a rejected call as ours rather than as the service’s', () => {
     const wording = describeIdentity(resolution(), { failed: true })
 
-    expect(wording.detail).toBe('Fermata could not look this up.')
+    expect(wording.detail).toBe('Oscine could not look this up.')
     expect(wording.tone).toBe('problem')
   })
 })

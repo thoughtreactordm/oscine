@@ -63,7 +63,7 @@ function everyCounter(): Array<{ id: number; play_count: number; last_played_at:
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-counters-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-counters-'))
   file = join(dir, 'library.db')
   db = openDatabase(file).db
   nextPath = 0

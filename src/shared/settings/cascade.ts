@@ -1,7 +1,7 @@
 /**
  * Cascade resolution: `descriptor.default` → `global` row → entity override row.
  *
- * One resolution path for every "this playlist plays differently" case. Fermata
+ * One resolution path for every "this playlist plays differently" case. Oscine
  * used to carry one by hand — `playlists.crossfade_ms`, with its own column and
  * its own IPC channel — and the cost of that shape is not the column, it is that
  * every future per-entity value would reinvent the "is this inherited or set

@@ -115,7 +115,7 @@ export const MAX_FAVORITE_IDS_PAGE = MAX_TRACK_ID_PAGE
  * times out, and a pane of local rows would have sat behind it. This surface
  * touches two local tables and answers in a millisecond whatever the network is
  * doing, which is **D14**'s third rule kept by construction rather than by
- * remembering to. An artist Fermata cannot resolve still has favorites.
+ * remembering to. An artist Oscine cannot resolve still has favorites.
  */
 export interface ArtistFavoritesQuery {
   readonly trackId: number

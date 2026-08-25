@@ -93,7 +93,7 @@ function listen(seed: Seed): number {
 const ALL: StatsRange = { from: 0, to: 10_000_000 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-stats-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-stats-'))
   db = openDatabase(join(dir, 'library.db')).db
   store = new StatsStore(db)
   nextPath = 0

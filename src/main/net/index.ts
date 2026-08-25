@@ -1,5 +1,5 @@
 /**
- * Fermata's outbound network layer, assembled.
+ * Oscine's outbound network layer, assembled.
  *
  * One client, one scope registry and one limiter per process. The limiter in
  * particular must be a singleton or it is not a limiter: two instances spacing

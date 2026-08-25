@@ -76,7 +76,7 @@ export function describeIdentity(
   if (failed) {
     return {
       headline: resolution?.name ?? 'Unknown artist',
-      detail: 'Fermata could not look this up.',
+      detail: 'Oscine could not look this up.',
       tone: 'problem',
       correctable: false,
       retryable: true

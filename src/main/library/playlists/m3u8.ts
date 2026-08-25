@@ -77,7 +77,7 @@ export function renderM3u8(tracks: readonly M3uTrack[], options: RenderM3u8Optio
  * Whole seconds, which is what `#EXTINF` has always meant.
  *
  * Rounded rather than truncated, so a 249.6-second track does not read as a
- * second short of itself next to the same number in Fermata's own list.
+ * second short of itself next to the same number in Oscine's own list.
  */
 function durationField(durationSec: number | null): number {
   if (durationSec === null || !Number.isFinite(durationSec)) return UNKNOWN_DURATION

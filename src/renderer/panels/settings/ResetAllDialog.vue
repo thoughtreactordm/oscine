@@ -47,7 +47,7 @@ async function confirm(): Promise<void> {
   <UModal
     v-model:open="open"
     title="Reset all settings?"
-    description="Every setting goes back to the value Fermata ships with."
+    description="Every setting goes back to the value Oscine ships with."
     :ui="{ footer: 'justify-end' }"
   >
     <template #body>
@@ -59,7 +59,7 @@ async function confirm(): Promise<void> {
           copy of what the values were.
         </p>
         <p class="text-xs text-dimmed">
-          Settings belonging to a version of Fermata this build does not know about are left alone.
+          Settings belonging to a version of Oscine this build does not know about are left alone.
         </p>
       </div>
     </template>

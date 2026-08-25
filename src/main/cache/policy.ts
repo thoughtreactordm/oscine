@@ -145,7 +145,7 @@ export const DEFAULT_CACHE_TTLS: Readonly<Record<CacheEntity, EntityTtl>> = {
    *
    * A P18 claim is one of the most stable things Wikidata holds — an artist's
    * photograph changes when somebody uploads a better one, which is a matter of
-   * years — and the refresh is the most expensive lookup Fermata makes: three
+   * years — and the refresh is the most expensive lookup Oscine makes: three
    * requests and a decode, against one request for prose. Matching the
    * biography's fourteen days would triple the traffic for a picture that is
    * almost never different.

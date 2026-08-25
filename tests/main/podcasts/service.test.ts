@@ -28,7 +28,7 @@ let podcastsRoot: string
 let artworkDir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-podcasts-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-podcasts-'))
   dbPath = join(dir, 'library.db')
   podcastsRoot = join(dir, 'podcasts')
   artworkDir = join(dir, 'artwork')

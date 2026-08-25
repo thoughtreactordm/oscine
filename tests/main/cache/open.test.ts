@@ -9,7 +9,7 @@ import { openCacheService } from '../../../src/main/cache/service'
 const dirs: string[] = []
 
 function cachePath(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'fermata-cache-'))
+  const dir = mkdtempSync(join(tmpdir(), 'oscine-cache-'))
   dirs.push(dir)
   return join(dir, 'cache.db')
 }
@@ -149,7 +149,7 @@ describe('openCacheService', () => {
   it('degrades to a cache that remembers nothing when the path is unusable', () => {
     // A directory where the file should be: `openCacheDatabase` cannot rebuild
     // its way out of that, and the app still has to start.
-    const dir = mkdtempSync(join(tmpdir(), 'fermata-cache-'))
+    const dir = mkdtempSync(join(tmpdir(), 'oscine-cache-'))
     dirs.push(dir)
     const warn = vi.fn()
 

@@ -46,7 +46,7 @@ function tags(overrides: Partial<TrackTags> = {}): TrackTags {
 const readAnything: MetadataReader = async () => tags()
 
 beforeEach(() => {
-  workDir = mkdtempSync(join(tmpdir(), 'fermata-svc-'))
+  workDir = mkdtempSync(join(tmpdir(), 'oscine-svc-'))
   db = openDatabase(join(workDir, 'library.db')).db
   picked = null
   progress = []

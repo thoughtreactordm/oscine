@@ -38,7 +38,7 @@ describe('getRelated at the scale target', () => {
   let seedTrackId: number
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), 'fermata-related-scale-'))
+    dir = mkdtempSync(join(tmpdir(), 'oscine-related-scale-'))
     opened = openDatabase(join(dir, 'library.db'))
     const { db } = opened
 

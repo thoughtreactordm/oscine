@@ -1,7 +1,7 @@
 /**
  * The statistics surface — **D17**.
  *
- * Everything Fermata reports about listening is a query over the `listens` log
+ * Everything Oscine reports about listening is a query over the `listens` log
  * (migration 014). It opens with the one operation that is not a query — the
  * rebuild of the two counter columns that cache the log — and continues with
  * the three that are: `stats.query`, `stats.summary` and `stats.overTime`.

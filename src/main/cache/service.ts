@@ -224,7 +224,7 @@ export function createCacheService({
  * requests, nothing else — is what "deleting `cache.db` loses nothing but speed"
  * means when stated as code rather than as prose. It is also what lets
  * `openCacheService` refuse to fail: a machine whose data directory is read-only
- * gets a Fermata that works.
+ * gets a Oscine that works.
  */
 export function createNullCacheService(): CacheService {
   return {

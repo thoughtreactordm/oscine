@@ -140,7 +140,7 @@ import type {
  * cloning unambiguously and keeps the call sites uniform.
  */
 export interface IpcContract {
-  /** Controls for Fermata's frameless application window. */
+  /** Controls for Oscine's frameless application window. */
   'window.minimize': { request: null; response: null }
   'window.toggleMaximize': { request: null; response: boolean }
   'window.isMaximized': { request: null; response: boolean }
@@ -747,7 +747,7 @@ export interface IpcContract {
   /**
    * Forget a target's credential. Idempotent.
    *
-   * Deletes Fermata's copy of the session key, which is all Fermata can do:
+   * Deletes Oscine's copy of the session key, which is all Oscine can do:
    * revoking it belongs to the operator, on their account's applications page,
    * and an app that claimed to have revoked something it merely forgot would be
    * lying about the more important half.
@@ -1092,7 +1092,7 @@ export function episodeUrl(episodeId: number): string {
   return `${TRACK_SCHEME}://episode/${episodeId}`
 }
 
-/** The `fermata:` hostname that proxies remote catalogue thumbnails. */
+/** The `oscine:` hostname that proxies remote catalogue thumbnails. */
 export const CATALOG_ARTWORK_HOST = 'catalog-artwork'
 
 /**

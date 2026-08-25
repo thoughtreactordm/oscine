@@ -258,7 +258,7 @@ export function plainBrowseFilters(filters: LibraryBrowseFilters): LibraryBrowse
  * The ids are sorted, so the same three artists reached by clicking down the
  * pane and by clicking up it produce one key rather than two. That matters
  * beyond tidiness: the renderer's play order is identified by this string, and
- * two identities for one list would make Fermata believe the queue had changed
+ * two identities for one list would make Oscine believe the queue had changed
  * underneath a playing track.
  *
  * Lives here rather than in either caller because the track window compares

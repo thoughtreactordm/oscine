@@ -42,7 +42,7 @@ export interface SelectionModifiers {
 }
 
 /**
- * `metaKey` counts as `ctrlKey`. Fermata targets Windows and Linux, where the
+ * `metaKey` counts as `ctrlKey`. Oscine targets Windows and Linux, where the
  * distinction does not arise, and accepting both costs one comparison rather
  * than a platform branch this file would otherwise have to grow later.
  */

@@ -118,7 +118,7 @@ function shelfIcon(kind: string): string {
           <div class="min-w-0">
             <h2 class="text-2xl font-semibold tracking-tight text-highlighted">Discover</h2>
             <p class="mt-1 text-sm text-muted">
-              Episodes download into Fermata — nothing streams while you listen.
+              Episodes download into Oscine — nothing streams while you listen.
             </p>
           </div>
 

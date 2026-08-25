@@ -84,7 +84,7 @@ async function waitFor(
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-rg-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-rg-'))
   mkdirSync(dir, { recursive: true })
   databasePath = join(dir, 'library.db')
   db = openDatabase(databasePath).db

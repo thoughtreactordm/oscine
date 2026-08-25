@@ -168,7 +168,7 @@ export const TRACK_COLUMNS: readonly TrackColumnSpec[] = [
     defaultVisible: false
   },
   // Off by default like every column added after W4-1, and for a stronger reason
-  // than the rest: on a library that has never been listened to in Fermata these
+  // than the rest: on a library that has never been listened to in Oscine these
   // two are a column of zeros and a column of dashes. They are worth having the
   // moment there is a log behind them, and worth not imposing before then.
   {

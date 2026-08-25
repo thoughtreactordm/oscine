@@ -38,7 +38,7 @@ let root: string
 
 beforeEach(() => {
   vi.useFakeTimers()
-  root = mkdtempSync(join(tmpdir(), 'fermata-watch-'))
+  root = mkdtempSync(join(tmpdir(), 'oscine-watch-'))
 })
 
 afterEach(() => {

@@ -6,7 +6,7 @@ import type { Migration } from '../migrate'
  * `play_history` (migration 009) is the transport's short-term memory: capped at
  * 500, skips included, read whole in one request. This is the other record. One
  * row per play that crossed the listened threshold, uncapped, append-only, and
- * every statistic Fermata reports is a query over it. `tracks.play_count` and
+ * every statistic Oscine reports is a query over it. `tracks.play_count` and
  * `tracks.last_played_at` become caches of this table rather than counters in
  * their own right — regenerable, which is the property that makes them safe to
  * be wrong.
@@ -77,7 +77,7 @@ import type { Migration } from '../migrate'
  * least, and the alternative is a sentinel string that then leaks into every
  * `GROUP BY` in the app. It also means the *writer* has to tolerate the
  * constraint; a real same-millisecond collision needs two transports committing
- * at once, which Fermata does not have, but "cannot happen" and "throws if it
+ * at once, which Oscine does not have, but "cannot happen" and "throws if it
  * does" are different promises.
  *
  * **No indexes on `artist_name`, `album_title` or `title`.** Deliberately

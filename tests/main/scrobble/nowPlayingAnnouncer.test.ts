@@ -114,7 +114,7 @@ describe('the transport-commit moment', () => {
   let db: Database.Database
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'fermata-nowplaying-'))
+    dir = mkdtempSync(join(tmpdir(), 'oscine-nowplaying-'))
     db = openDatabase(join(dir, 'library.db')).db
     db.prepare('INSERT INTO roots (label, path, added_at) VALUES (?, ?, ?)').run('M', '/m', 0)
     db.prepare('INSERT INTO artists (name) VALUES (?)').run('Talk Talk')

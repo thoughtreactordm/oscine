@@ -101,8 +101,8 @@ describe('resolveTheme', () => {
     const strict = resolve(HIGH_CONTRAST_THEME_ID, 'light').tokens
     expect(strict.get('text.highlighted')).toBe(strict.get('color.neutral-950'))
     // ...where the shared mapping would have put it at 900.
-    const fermata = resolve(DEFAULT_THEME_ID, 'light').tokens
-    expect(fermata.get('text.highlighted')).toBe(fermata.get('color.neutral-900'))
+    const oscine = resolve(DEFAULT_THEME_ID, 'light').tokens
+    expect(oscine.get('text.highlighted')).toBe(oscine.get('color.neutral-900'))
   })
 
   it('keeps the five light text weights on five distinct steps', () => {

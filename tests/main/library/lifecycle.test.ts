@@ -81,7 +81,7 @@ let db: ReturnType<typeof openDatabase>['db']
 let service: SqliteLibraryService
 
 beforeEach(() => {
-  workDir = mkdtempSync(join(tmpdir(), 'fermata-lifecycle-'))
+  workDir = mkdtempSync(join(tmpdir(), 'oscine-lifecycle-'))
   root = join(workDir, 'Music')
   mkdirSync(root)
   db = openDatabase(join(workDir, 'library.db')).db

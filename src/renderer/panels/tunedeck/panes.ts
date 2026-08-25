@@ -108,7 +108,7 @@ function listening(...scopes: readonly StatsScopeBy[]): Component {
 
 /** Said once, on both Listening groups: the threshold, and what it excludes. */
 const LISTENING_HINT =
-  'A play is counted once you have heard half the track or four minutes of it, whichever comes first — paused and seeked-over time does not count. Totals are for as long as you have had Fermata, and follow the tags as they were when each play was recorded.'
+  'A play is counted once you have heard half the track or four minutes of it, whichever comes first — paused and seeked-over time does not count. Totals are for as long as you have had Oscine, and follow the tags as they were when each play was recorded.'
 
 export const tunedeckRegistry = createTunedeckRegistry([
   // First, because it is the widest question and the one the deck grows into:
@@ -292,7 +292,7 @@ export const tunedeckRegistry = createTunedeckRegistry([
         id: 'up-next',
         title: 'Up next',
         icon: 'i-tabler-playlist',
-        hint: 'The queue empties when Fermata quits. Drag a row to reorder it; double-click to jump to it.',
+        hint: 'The queue empties when Oscine quits. Drag a row to reorder it; double-click to jump to it.',
         badge: () => {
           const queued = usePlaybackStore().queuedCount
           return queued === 0 ? null : queued.toLocaleString()

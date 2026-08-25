@@ -5,7 +5,7 @@
  * ## The flow, and the one thing it is not
  *
  * 1. `auth.getToken` returns a request token that identifies nobody.
- * 2. Fermata opens the **system browser** at `last.fm/api/auth/`.
+ * 2. Oscine opens the **system browser** at `last.fm/api/auth/`.
  * 3. The operator signs in and grants access, in their browser, to Last.fm.
  * 4. `auth.getSession` exchanges the now-authorized token for a session key
  *    bound to that account, which never expires.
@@ -13,9 +13,9 @@
  * Step 2 is a `shell.openExternal`, never a `BrowserWindow`, and that is a
  * security property rather than a convenience. An in-app window rendering
  * somebody's login form is structurally indistinguishable from a phishing page:
- * the operator is typing the password to an account Fermata does not own, and
+ * the operator is typing the password to an account Oscine does not own, and
  * they are entitled to their own URL bar, their own padlock, their own password
- * manager and their own saved session. A window Fermata controls offers none of
+ * manager and their own saved session. A window Oscine controls offers none of
  * those and could, in principle, read the form. The fact that this one does not
  * is exactly the assurance the operator has no way to check — so the flow does
  * not ask them to take it on trust.
@@ -42,7 +42,7 @@
  * table, not in D11's bundle, and there is no code path from it to IPC: the
  * renderer's entire view of it is `ScrobbleConnection`, a username and a
  * boolean. `disconnect()` deletes it, which is the whole of signing out — the
- * key is not revoked at Last.fm, because Fermata cannot revoke it and the
+ * key is not revoked at Last.fm, because Oscine cannot revoke it and the
  * operator can, from their account's applications page.
  */
 
@@ -103,7 +103,7 @@ const CAPABILITIES: ScrobbleTargetCapabilities = {
   batchLimit: LASTFM_BATCH_LIMIT,
   supportsLove: true,
   // Last.fm accepts a scrobble with no duration; it simply cannot apply its own
-  // half-way rule to one. Fermata has already applied its own by the time a row
+  // half-way rule to one. Oscine has already applied its own by the time a row
   // is enqueued, so a missing duration is a slightly poorer scrobble rather than
   // an unsendable one.
   requiresDuration: false
@@ -305,7 +305,7 @@ export function createLastfmTarget({
         } catch {
           return netFailed({
             kind: 'rejected',
-            message: 'Fermata could not open your browser to sign in to Last.fm.'
+            message: 'Oscine could not open your browser to sign in to Last.fm.'
           })
         }
 
@@ -344,7 +344,7 @@ export function createLastfmTarget({
                 message:
                   err instanceof CredentialSealingUnavailableError
                     ? err.message
-                    : 'Fermata could not save the Last.fm sign-in.'
+                    : 'Oscine could not save the Last.fm sign-in.'
               })
             }
             cached = credential
@@ -459,8 +459,8 @@ export function createLastfmTarget({
     /**
      * Withdraw one. The same two parameters and the same handling — see `love`.
      *
-     * Never collapsed into a no-op for a track Fermata does not believe is loved
-     * there. Fermata does not know what is loved there: D18 makes
+     * Never collapsed into a no-op for a track Oscine does not believe is loved
+     * there. Oscine does not know what is loved there: D18 makes
      * `track_favorites` authoritative *locally* and reads nothing back, so the
      * only honest thing to do with an un-heart is to send it. `track.unlove` for
      * a track that was never loved is a successful no-op at Last.fm's end, which

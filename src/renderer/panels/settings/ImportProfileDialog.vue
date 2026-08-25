@@ -16,7 +16,7 @@ import type { SettingsImportMode, SettingsProfileFile } from '@shared/settings'
  *
  * The card is explicit that the preview is doing real work: applying is one
  * action, and reset undoes it only in the crude sense of putting everything back
- * to what Fermata ships with — which is not what the operator had before. So
+ * to what Oscine ships with — which is not what the operator had before. So
  * nothing is written until this dialog is confirmed, and what it lists is
  * computed by the same function main will run when it is.
  *

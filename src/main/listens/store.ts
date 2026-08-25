@@ -90,7 +90,7 @@ export class ListenStore {
       // foreign-key error thrown over a track that was audible a second ago.
       //
       // `OR IGNORE` for the identity index. A real collision needs two
-      // transports committing in the same millisecond, which Fermata does not
+      // transports committing in the same millisecond, which Oscine does not
       // have — but 014's note is explicit that the writer has to tolerate the
       // constraint, because "cannot happen" and "throws if it does" are
       // different promises.
@@ -184,10 +184,10 @@ export class ListenStore {
    * ## Where the two records are allowed to disagree
    *
    * A listen with no artist name gets its `listens` row and no queue row. That
-   * is the single written exception to Fermata's stats and the operator's
+   * is the single written exception to Oscine's stats and the operator's
    * profile agreeing, and it exists because every scrobbling service rejects a
    * submission with no artist — so the alternatives are a queue row that can
-   * never drain, or dropping a listen that Fermata's own charts have no problem
+   * never drain, or dropping a listen that Oscine's own charts have no problem
    * counting. Divergence by a stated rule beats divergence by an accident.
    *
    * ## Why the rejection is checked rather than caught
@@ -214,7 +214,7 @@ export class ListenStore {
       title: row.title,
       albumTitle: row.album_title,
       albumArtistName: row.album_artist_name,
-      // Both of these cross from Fermata's milliseconds into the wire's
+      // Both of these cross from Oscine's milliseconds into the wire's
       // seconds, and this is the only place either conversion happens. A
       // millisecond value accepted as seconds dates the scrobble to the year
       // 56000, which is the kind of wrong that reaches somebody's public

@@ -93,7 +93,7 @@ function libraryDb(): Database.Database {
 }
 
 function tempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'fermata-profile-'))
+  const dir = mkdtempSync(join(tmpdir(), 'oscine-profile-'))
   tempDirs.push(dir)
   return dir
 }

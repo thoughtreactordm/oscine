@@ -26,7 +26,7 @@ function insertId(result: { lastInsertRowid: number | bigint }): number {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-browse-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-browse-'))
   opened = openDatabase(join(dir, 'library.db'))
   const { db } = opened
 

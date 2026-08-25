@@ -1,6 +1,6 @@
 /**
  * The theme token layer — W8-12, which by decision also carries the token layer
- * W4 was nominally to own. See the wiki page `fermata-theme-token-layer`.
+ * W4 was nominally to own. See the wiki page `oscine-theme-token-layer`.
  *
  * Everything here is pure and `@shared`-only so it tests under plain Node, the
  * rule `listViewport` and the settings kernel already follow. Application —

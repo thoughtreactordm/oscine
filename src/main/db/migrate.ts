@@ -62,7 +62,7 @@ export interface MigrationResult {
  * Thrown when the database is newer than the code that opened it.
  *
  * D11 gives each machine its own database, but the same machine can be rolled
- * back to an older Fermata build. Continuing against a schema we do not
+ * back to an older Oscine build. Continuing against a schema we do not
  * understand would write rows the newer build cannot read, so this refuses.
  */
 export class SchemaTooNewError extends Error {

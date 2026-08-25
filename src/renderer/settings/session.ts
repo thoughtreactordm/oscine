@@ -9,7 +9,7 @@ import type { SettingsReader } from './reader'
  * build. The strip goes on recording what is open through the same watcher it
  * always used, so a launch with the gate shut opens empty and then records
  * "empty" — and turning the setting back on restores what was genuinely open
- * when Fermata last closed, which after such a run may be nothing.
+ * when Oscine last closed, which after such a run may be nothing.
  *
  * That is the honest behaviour rather than a shortcoming: the alternative,
  * suppressing the write too, would restore a session from before the setting was

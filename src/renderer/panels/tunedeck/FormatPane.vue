@@ -9,7 +9,7 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 /**
  * What the file is (W7-3).
  *
- * Fermata's pitch is format-first and until this readout there was nowhere in
+ * Oscine's pitch is format-first and until this readout there was nowhere in
  * the app that said so. It was the first of `SignalPane`'s three blocks; it is
  * now the first of the Track tab's three groups, and the split is what lets the
  * other two collapse out of the way when what you came for is the bit depth.

@@ -12,7 +12,7 @@
  *
  * So it hangs off the same event as the trail row: `PlayHistoryService.record`,
  * which fires once per transport commit. That is the definition of "now" the
- * rest of Fermata already uses, and reusing it means the two cannot drift into
+ * rest of Oscine already uses, and reusing it means the two cannot drift into
  * disagreeing about when a track started.
  *
  * It follows from that event, rather than from a threshold, that repeat-one

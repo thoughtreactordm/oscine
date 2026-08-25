@@ -10,11 +10,11 @@ export async function measureLibraryQuery<T>(name: string, query: () => Promise<
   try {
     return await query()
   } finally {
-    performance.measure(`fermata:library:${name}`, {
+    performance.measure(`oscine:library:${name}`, {
       start: started,
       end: performance.now()
     })
-    const entries = performance.getEntriesByName(`fermata:library:${name}`)
-    if (entries.length > 100) performance.clearMeasures(`fermata:library:${name}`)
+    const entries = performance.getEntriesByName(`oscine:library:${name}`)
+    if (entries.length > 100) performance.clearMeasures(`oscine:library:${name}`)
   }
 }

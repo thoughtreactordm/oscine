@@ -17,7 +17,7 @@ import type { PlaybackStatus } from '../audio/AudioEngine'
  * **Why an anchor.** Chromium populates its media session from
  * `HTMLMediaElement` players. `DecodedAudioEngine` — the D2 path, which is to
  * say the normal path — schedules `AudioBufferSourceNode`s, so as far as
- * Chromium is concerned Fermata plays nothing: handlers register and never
+ * Chromium is concerned Oscine plays nothing: handlers register and never
  * fire, no SMTC card appears, no MPRIS bus name is published. A silent looping
  * `<audio>` element playing in lockstep with the engine is the standard fix.
  * See `browserMediaSession.ts` for the three non-obvious constraints on it.
@@ -32,7 +32,7 @@ import type { PlaybackStatus } from '../audio/AudioEngine'
  * are testable under plain Node with no `navigator` and no `Audio`.
  */
 
-/** The subset of Media Session actions Fermata honours. */
+/** The subset of Media Session actions Oscine honours. */
 export const MEDIA_SESSION_ACTIONS = [
   'play',
   'pause',
@@ -329,7 +329,7 @@ export function toPlaybackState(
  * how the scheme is privileged. See `browserMediaSession.ts`.
  *
  * The placeholder route is deliberately *not* advertised. It is a real image,
- * which is the right answer inside Fermata, but handing the OS a flat grey
+ * which is the right answer inside Oscine, but handing the OS a flat grey
  * square is worse than handing it nothing — with no artwork the shell falls
  * back to the application icon, which is more informative.
  */

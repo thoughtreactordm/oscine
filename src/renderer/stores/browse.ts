@@ -150,7 +150,7 @@ export const useBrowseStore = defineStore('browse', () => {
     currentFilters,
     (filters) => {
       trackList.setFilters({ ...filters })
-      performance.mark('fermata:library:browse-change')
+      performance.mark('oscine:library:browse-change')
     },
     { immediate: true }
   )

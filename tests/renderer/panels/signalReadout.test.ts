@@ -252,7 +252,7 @@ describe('loudness', () => {
     const rows = buildReplayGainRows(subject, readout.applied)
     expect(rowValue(rows, 'rgTrack')).toBe('−7.10 dB')
     expect(rows.find((row) => row.key === 'rgTrack')?.note).toBeUndefined()
-    expect(rowValue(rows, 'rgSource')).toBe('Computed by Fermata')
+    expect(rowValue(rows, 'rgSource')).toBe('Computed by Oscine')
   })
 })
 

@@ -28,7 +28,7 @@ export function createBrowserStreamingPlatform(
 ): StreamingPlatform {
   const element = new Audio()
   element.preload = 'metadata'
-  // The renderer origin and fermata: are distinct in development. The custom
+  // The renderer origin and oscine: are distinct in development. The custom
   // protocol is CORS-enabled, so request an origin-clean media source.
   element.crossOrigin = 'anonymous'
 

@@ -113,7 +113,7 @@ const connected = (id: ScrobbleTargetId = 'lastfm'): ReturnType<typeof createStu
   createStubScrobbleTarget({ id, connected: true })
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-listen-scrobble-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-listen-scrobble-'))
   db = openDatabase(join(dir, 'library.db')).db
   nextPath = 0
 })
@@ -221,9 +221,9 @@ describe('the listen commit enqueues', () => {
       msListened: 200_000
     })
 
-    // The one written exception to Fermata's stats and the operator's profile
+    // The one written exception to Oscine's stats and the operator's profile
     // agreeing: every service rejects a submission with no artist, so the row
-    // would never drain — while Fermata's own charts count the listen happily.
+    // would never drain — while Oscine's own charts count the listen happily.
     expect(commit).not.toBeNull()
     expect(listenCount()).toBe(1)
     expect(queue()).toEqual([])

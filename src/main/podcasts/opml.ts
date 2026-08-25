@@ -4,7 +4,7 @@
  * OPML subscription list import.
  *
  * Only outline nodes with a `xmlUrl` (or `xmlurl`) are subscriptions. Nested
- * folders are walked; folder titles are ignored — Fermata's subscription list
+ * folders are walked; folder titles are ignored — Oscine's subscription list
  * is flat for this slice.
  */
 

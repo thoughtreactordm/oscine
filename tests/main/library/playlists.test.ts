@@ -16,7 +16,7 @@ let rootId: number
 let now = 1_700_000_000_000
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-playlists-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-playlists-'))
   db = openDatabase(join(dir, 'library.db')).db
   store = new PlaylistStore(db)
   rootId = Number(

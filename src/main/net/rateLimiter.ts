@@ -1,5 +1,5 @@
 /**
- * A per-host floor on how often Fermata may open a socket.
+ * A per-host floor on how often Oscine may open a socket.
  *
  * MusicBrainz permits roughly one request per second (**R5**, secondary). A
  * shuffle-heavy session walking twenty artists must therefore not become twenty

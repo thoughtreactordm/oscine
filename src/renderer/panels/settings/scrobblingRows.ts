@@ -56,7 +56,7 @@ export interface ScrobblingRow {
  * "3 scrobbles waiting to send".
  *
  * Loves and unloves ride the same outbox and are counted here too, which the
- * wording rounds off deliberately: the operator's question is how much Fermata
+ * wording rounds off deliberately: the operator's question is how much Oscine
  * still owes the service, and "3 scrobbles and loved-track updates" answers it
  * worse. The tooltip in the component says the exact thing.
  */
@@ -77,8 +77,8 @@ export function disconnectSummary(label: string, queueDepth: number): string {
       ? `${queueDepth} ${queueDepth === 1 ? 'scrobble stays' : 'scrobbles stay'} queued and will send if you sign back in. `
       : ''
   return (
-    `Fermata has forgotten the saved sign-in. ${kept}` +
-    `To withdraw Fermata’s access entirely, remove it on ${label}.`
+    `Oscine has forgotten the saved sign-in. ${kept}` +
+    `To withdraw Oscine’s access entirely, remove it on ${label}.`
   )
 }
 

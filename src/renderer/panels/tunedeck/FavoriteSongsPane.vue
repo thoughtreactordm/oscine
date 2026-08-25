@@ -17,7 +17,7 @@ import { usePlaybackStore } from '@renderer/stores/playback'
  * cable pulled as with it plugged in. That is **D14**'s third rule, and it is
  * why the pane reads `useArtistFavoritesStore` — which is seeded by *track* —
  * rather than the artist id `artistIdentity` resolves. See the store's note: an
- * artist Fermata cannot resolve still has favorites, and waiting for the call
+ * artist Oscine cannot resolve still has favorites, and waiting for the call
  * that could resolve one is waiting on a socket.
  *
  * ## Not a `RelatedList`

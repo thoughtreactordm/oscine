@@ -1,5 +1,5 @@
 /**
- * The one socket scrobbling opens, and the one exemption in Fermata's consent
+ * The one socket scrobbling opens, and the one exemption in Oscine's consent
  * gate — **D19**.
  *
  * ## The gate a reader will look for here, and why it is absent
@@ -10,7 +10,7 @@
  * not an oversight — it is the position D19 argues, stated at the line that
  * implements it.
  *
- * D14's toggle governs the lookups *Fermata* decides to make: it sends the
+ * D14's toggle governs the lookups *Oscine* decides to make: it sends the
  * playing artist's name to MusicBrainz because it wants a biography, on its own
  * initiative, without being asked. Scrobbling is the opposite in every respect
  * that matters. Nothing outbound happens until the operator has signed into
@@ -59,7 +59,7 @@ export const LASTFM_API_ROOT = 'https://ws.audioscrobbler.com/2.0/'
  * day on. `401` is included for the same envelope; it costs nothing to read.
  *
  * `404` is deliberately absent: a 404 from this endpoint means the API root
- * moved, which is a Fermata bug rather than a message for the operator.
+ * moved, which is a Oscine bug rather than a message for the operator.
  */
 const LASTFM_ERROR_STATUSES = [400, 401, 403] as const
 
@@ -113,7 +113,7 @@ interface LastfmErrorBody {
 }
 
 /**
- * Last.fm's numbered errors, mapped onto the vocabulary the rest of Fermata
+ * Last.fm's numbered errors, mapped onto the vocabulary the rest of Oscine
  * already speaks.
  *
  * The mapping is the error taxonomy W11-4's drain worker acts on, and it lives

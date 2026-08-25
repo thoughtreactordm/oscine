@@ -11,7 +11,7 @@ import { DAY_MS } from '../../../../src/main/library/discover/constants'
 export const NOW = Date.UTC(2024, 5, 15, 12, 0, 0)
 
 export function openTempDb(): { db: Database.Database; close: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'fermata-discover-'))
+  const dir = mkdtempSync(join(tmpdir(), 'oscine-discover-'))
   const opened = openDatabase(join(dir, 'library.db'))
   return {
     db: opened.db,

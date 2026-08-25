@@ -31,7 +31,7 @@ describe('compose at the scale target', () => {
   let opened: ReturnType<typeof openDatabase>
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), 'fermata-discover-scale-'))
+    dir = mkdtempSync(join(tmpdir(), 'oscine-discover-scale-'))
     opened = openDatabase(join(dir, 'library.db'))
     const { db } = opened
 

@@ -36,7 +36,7 @@ describe('LibraryStore.removeRoot', () => {
   let keptTrackId: number
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'fermata-remove-root-'))
+    dir = mkdtempSync(join(tmpdir(), 'oscine-remove-root-'))
     opened = openDatabase(join(dir, 'library.db'))
     const { db } = opened
 

@@ -167,7 +167,7 @@ async function disconnect(status: ScrobbleTargetStatus): Promise<void> {
     toast.add({
       title: `Signed out of ${label}`,
       // Three sentences, and each is something the operator cannot find out any
-      // other way: what was deleted, what was kept, and the half Fermata cannot
+      // other way: what was deleted, what was kept, and the half Oscine cannot
       // do for them. An app that said only "disconnected" would leave them
       // believing it had revoked the grant, which is the more important half and
       // the one that is still sitting on their account's applications page.
@@ -220,7 +220,7 @@ async function retry(target: ScrobbleTargetId): Promise<void> {
           <span class="truncate text-sm font-medium text-highlighted">{{ row.label }}</span>
           <span class="truncate text-[11px] text-muted">
             <template v-if="connecting === row.status.target">
-              Waiting for you to approve Fermata in your browser…
+              Waiting for you to approve Oscine in your browser…
             </template>
             <template v-else-if="row.status.connected">
               Connected as {{ row.status.username }}

@@ -15,7 +15,7 @@ describe('listTracks at the scale target', () => {
   let service: SqliteLibraryService
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), 'fermata-scale-'))
+    dir = mkdtempSync(join(tmpdir(), 'oscine-scale-'))
     opened = openDatabase(join(dir, 'library.db'))
     const { db } = opened
 

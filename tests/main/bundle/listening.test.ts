@@ -30,7 +30,7 @@ interface Machine {
 const machines: Machine[] = []
 
 function machine(): Machine {
-  const dir = mkdtempSync(join(tmpdir(), 'fermata-test-'))
+  const dir = mkdtempSync(join(tmpdir(), 'oscine-test-'))
   const db = openDatabase(join(dir, 'library.db')).db
   const created = { dir, db, listens: new ListenStore(db) }
   machines.push(created)

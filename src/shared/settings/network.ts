@@ -1,7 +1,7 @@
 /**
  * Network keys — **D14**'s consent gate, and nothing else.
  *
- * One key, defaulting to off, and every outbound request Fermata makes on its
+ * One key, defaulting to off, and every outbound request Oscine makes on its
  * own initiative reads it before opening a socket. That the default is `false`
  * rather than `true` is the whole decision: an operator who never opens this
  * category never contacts anyone, and no code path anywhere has to remember to
@@ -24,10 +24,10 @@
  * Hosts the operator named. A podcast feed pasted into the subscribe box, and
  * the episode audio that feed points at, are requests the operator asked for by
  * asking for them; gating those behind this toggle would read as broken rather
- * than as careful. This key gates the lookups *Fermata* decides to make —
+ * than as careful. This key gates the lookups *Oscine* decides to make —
  * currently MusicBrainz and Wikipedia for artist information, and W9-5 will
  * bring Apple's podcast catalogue under it too, since browsing a catalogue is
- * Fermata's idea of what to fetch rather than the operator's.
+ * Oscine's idea of what to fetch rather than the operator's.
  */
 
 import { booleanValue, defineSetting, type SettingDescriptor } from './kernel'
@@ -45,7 +45,7 @@ export const NETWORK_SETTINGS: readonly SettingDescriptor[] = [
     category: 'network',
     label: 'Look up artist information online',
     help:
-      'Off by default. When on, Fermata sends the playing artist’s name to MusicBrainz and ' +
+      'Off by default. When on, Oscine sends the playing artist’s name to MusicBrainz and ' +
       'Wikipedia to fill in biographies, relations and links, and caches the replies beside ' +
       'your library. Your library, your plays and your files are never sent.',
     keywords: [

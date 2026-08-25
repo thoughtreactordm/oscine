@@ -131,7 +131,7 @@ async function serveLocalFile(request: Request, absolutePath: string): Promise<R
     headers: upstreamHeaders
   })
 
-  // The renderer and fermata: have different origins in development.
+  // The renderer and oscine: have different origins in development.
   // Explicit CORS response headers keep MediaElementAudioSourceNode origin
   // clean, so the graph is audible rather than silently producing zeros.
   const headers = new Headers(upstream.headers)

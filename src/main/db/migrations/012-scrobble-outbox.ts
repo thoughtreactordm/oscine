@@ -41,7 +41,7 @@ import type { Migration } from '../migrate'
  *
  * Because every target rejects a scrobble missing either, so a row without them
  * is a row that can never drain. A track with no artist tag is therefore never
- * enqueued — it still gets its `listens` row, because Fermata's own statistics
+ * enqueued — it still gets its `listens` row, because Oscine's own statistics
  * have no such requirement, and where the two records legitimately diverge it
  * should be by a written rule rather than by a constraint failure at 2am.
  *
@@ -51,7 +51,7 @@ import type { Migration } from '../migrate'
  * both define it that way, and a millisecond value silently accepted as seconds
  * dates the scrobble to the year 56000. `next_attempt_at` is UTC **milliseconds**
  * because it is internal scheduling compared against `Date.now()`, like every
- * other timestamp Fermata stores. Both carry their unit in a comment here, since
+ * other timestamp Oscine stores. Both carry their unit in a comment here, since
  * a table with two time bases and one convention would be a table nobody can
  * read safely.
  *

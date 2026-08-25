@@ -24,7 +24,7 @@ const emit = defineEmits<{ subscribe: [hit: PodcastCatalogHit] }>()
 const subtitle = computed(() => props.hit.author ?? 'Unknown author')
 
 // Apple's CDN address is never handed to the browser directly — main fetches it
-// and serves the bytes back over `fermata:`. Off-allowlist hits resolve to null
+// and serves the bytes back over `oscine:`. Off-allowlist hits resolve to null
 // and fall through to the placeholder icon.
 const artworkSrc = computed(() => catalogArtworkUrl(props.hit.artworkUrl))
 </script>

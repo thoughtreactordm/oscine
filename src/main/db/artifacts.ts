@@ -1,5 +1,5 @@
 /**
- * Everything Fermata writes into `userData`, and which half of D11 it is on.
+ * Everything Oscine writes into `userData`, and which half of D11 it is on.
  *
  * D11's export bundle carries statements *about tracks* — playlists, ratings,
  * play counts, and since W10-13 the listens log and favorites. It has never
@@ -10,7 +10,7 @@
  *
  * The reason it is a list rather than a comment in the exporter is D14's
  * `cache.db`. A derived, disposable database sitting in the same directory as
- * the library is exactly the file a future "back up my Fermata data" feature
+ * the library is exactly the file a future "back up my Oscine data" feature
  * picks up by globbing `*.db` — and the failure would be silent, shipping an
  * operator's browsing history to another machine inside something advertised as
  * a playlist bundle. Every artifact declares its side once, here, and
@@ -31,7 +31,7 @@ export type ArtifactKind =
    */
   | 'authored'
   /**
-   * Reconstructible from something else Fermata already has: the files on disk,
+   * Reconstructible from something else Oscine already has: the files on disk,
    * or a request that can be made again. Deleting it costs time, never data,
    * and it is never exported.
    */

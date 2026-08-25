@@ -26,7 +26,7 @@ let file: string
 let db: Database.Database
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-test-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-test-'))
   file = join(dir, 'library.db')
   db = openDatabase(file).db
 })

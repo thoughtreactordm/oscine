@@ -16,7 +16,7 @@ export const LIBRARY_SETTINGS: readonly SettingDescriptor[] = [
     control: { kind: 'toggle' },
     category: 'library',
     label: 'Watch folders for changes',
-    help: 'Pick up files added or removed outside Fermata without a rescan.',
+    help: 'Pick up files added or removed outside Oscine without a rescan.',
     keywords: ['watch', 'monitor', 'filesystem', 'rescan'],
     order: 10
   }),

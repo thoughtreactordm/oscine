@@ -113,7 +113,7 @@ function trackFavoriteRows(): unknown[] {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-quick-favorites-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-quick-favorites-'))
   file = join(dir, 'library.db')
   db = openDatabase(file).db
   nextName = 0

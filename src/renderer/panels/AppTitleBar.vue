@@ -149,11 +149,11 @@ async function toggleMaximize(): Promise<void> {
     class="app-drag-region flex h-full min-w-0 items-center border-b border-default bg-elevated/70 text-sm select-none"
     aria-label="Application toolbar"
   >
-    <div class="flex h-full shrink-0 items-center gap-2 px-3" aria-label="Fermata">
+    <div class="flex h-full shrink-0 items-center gap-2 px-3" aria-label="Oscine">
       <span class="flex size-5 items-center justify-center rounded bg-primary text-inverted">
         <UIcon name="i-tabler-wave-sine" class="size-3.5" />
       </span>
-      <span class="text-xs font-semibold tracking-wide text-highlighted">Fermata</span>
+      <span class="text-xs font-semibold tracking-wide text-highlighted">Oscine</span>
     </div>
 
     <nav class="app-no-drag flex h-full items-center" aria-label="Application menu">

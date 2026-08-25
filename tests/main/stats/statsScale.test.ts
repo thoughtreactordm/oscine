@@ -321,7 +321,7 @@ const BUDGET_MS = 250
 const NARROW_BUDGET_MS = 25
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), 'fermata-stats-scale-'))
+  dir = mkdtempSync(join(tmpdir(), 'oscine-stats-scale-'))
   db = openDatabase(join(dir, 'library.db')).db
   store = new StatsStore(db)
   log = generate()

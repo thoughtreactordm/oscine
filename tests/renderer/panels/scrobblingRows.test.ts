@@ -109,7 +109,7 @@ describe('the row', () => {
 })
 
 describe('what disconnect says it did', () => {
-  it('promises the queue survives, and names what Fermata cannot do', () => {
+  it('promises the queue survives, and names what Oscine cannot do', () => {
     const summary = disconnectSummary('Last.fm', 3)
     expect(summary).toContain('forgotten the saved sign-in')
     expect(summary).toContain('3 scrobbles stay queued')
