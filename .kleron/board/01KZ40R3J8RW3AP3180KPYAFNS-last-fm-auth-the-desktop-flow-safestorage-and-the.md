@@ -32,7 +32,7 @@ Spec: wiki `fermata-listening-and-scrobbling` → D19 and → Scrobbling → "La
 - The **app key and shared secret** ship in the bundle, extractable from the asar, and that is accepted (D19). They identify the application and can scrobble for nobody on their own.
 - `lastfm.apiKey` / `lastfm.apiSecret` are durable settings, empty by default, meaning "use the shipped pair". An operator who pastes their own overrides both — the escape hatch if the shipped key is ever revoked or rate-limited.
 
-**Register the Fermata API account** as part of this card and record where the credentials came from. That is a real-world step, not a code step, and it will block the card if it is discovered late.
+**Register the Oscine API account** as part of this card and record where the credentials came from. That is a real-world step, not a code step, and it will block the card if it is discovered late.
 
 **Scrobbling sits outside D14's consent gate (W7-6), deliberately** — see D19. Do not wire it to the gate; do leave a comment at the point where a reader would expect the gate and find it absent.
 

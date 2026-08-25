@@ -1,5 +1,5 @@
 ---
-title: Fermata theme token layer
+title: Oscine theme token layer
 created: '2026-08-01T18:02:09.028Z'
 updated: '2026-08-01T18:02:09.028Z'
 ---
@@ -80,7 +80,7 @@ Sharable theme files remain out of scope, so that half of D9 stands unfired.
 | T7 | **WCAG 2.1 AA, warn only.** 4.5:1 body / 3:1 large, warned inline on the offending row, never blocking | APCA is more accurate for a dark-first player but unfamiliar. Refusing the write would make contrast an invariant at the cost of a deliberately low-contrast theme being unauthorable. |
 | T8 | **One card.** W8-12 absorbs the token layer | A separate W4 card would keep W8-12 an independent proof of "zero component changes"; accepted cost is that W8-12 now tests something it authored. |
 | T9 | New **`theme` settings category**; `interface.theme` migrates to `theme.mode` | A ~40-token surface buried in Interface is unfindable. Costs a store-level key rename — the kernel's `version`/`upgrade` machinery upgrades *values*, not key names — plus a legacy absorb modelled on `src/renderer/settings/legacyViewKeys.ts`. W8-6's recorded evidence citing `interface.theme` goes stale. |
-| T10 | **Three built-ins**: Fermata (amber/taupe), Nocturne (off-palette, hue 197), High Contrast | Two would leave the "any hue" claim untested until someone authors a theme, which is the failure mode where the architecture quietly does not work. |
+| T10 | **Three built-ins**: Oscine (amber/taupe), Nocturne (off-palette, hue 197), High Contrast | Two would leave the "any hue" claim untested until someone authors a theme, which is the failure mode where the architecture quietly does not work. |
 | T11 | Three **font roles** — Heading, List item, General text — each with family, weight and italic. Curated cross-platform stacks plus a free-text escape hatch | Enumerating installed system fonts is the best experience but adds a platform-specific main-process surface and stores a value that means nothing on the other machine, fighting W8-13's export. |
 | T12 | **OS reduced-motion clamps duration tokens at the token layer, always** | A three-state operator setting gives more control; clamping means an accessibility preference cannot be defeated by authoring a theme. |
 | T13 | **Ownership is split three ways rather than taken.** VueUse owns the `.dark` class and the system query; `interface.theme` owns persistence; the token layer owns which colours a mode resolves to. The two preference stores sync both ways, each guarded by an equality check | Taking ownership of the class broke `UColorModeSwitch`, which already worked. `useColorMode()` from `@vueuse/core` is the *same* store Nuxt UI's stub wraps — same `vueuse-color-scheme` key — so reading it is reading what the switch wrote. The pre-paint replay falls out for free: `installTheme` reads that key by name before `createApp`, because the composable needs an app context that does not exist yet. |
@@ -107,7 +107,7 @@ true rather than asserted.
 - **Tailwind v4 exposes the shape, type and motion variables** the same way: `--radius-*`
   (`theme.css:397–404`), `--text-*` (`347+`), `--font-sans` / `-serif` / `-mono`, `--spacing`,
   `--default-transition-duration`. `rounded-lg` compiles to `var(--radius-lg)`, so redefining these
-  from Fermata tokens themes the existing utility classes with no component edit.
+  from Oscine tokens themes the existing utility classes with no component edit.
 - **Known wrinkle:** `--default-font-family: --theme(--font-sans, initial)` resolves at *build* time.
   The body font must be set explicitly from the token in the bridge rather than relying on overriding
   `--font-sans` alone.
@@ -115,7 +115,7 @@ true rather than asserted.
 ## Architecture
 
 `--fermata-*` is the public token layer and the only thing a theme or an override writes. A bridge
-stylesheet assigns Tailwind's and Nuxt UI's variables *from* Fermata tokens. Effective values are
+stylesheet assigns Tailwind's and Nuxt UI's variables *from* Oscine tokens. Effective values are
 composed in JS — built-in theme, then operator overrides — and written to a single `<style>` element on
 `:root`. No component reads `--ui-*`, and no component names a colour.
 
@@ -167,7 +167,7 @@ Per the card, if this work requires a component edit to function, the token laye
 | 2c. High Contrast theme | landed, `aa6a16a` |
 | 3. Window background from the resolved token | landed, `ecaff26` |
 | 4. The `theme` category and the `interface.theme` migration | landed, `85125bd` |
-| 6. `fermata/no-raw-colours` | landed, `8ee5666` |
+| 6. `oscine/no-raw-colours` | landed, `8ee5666` |
 | 5. The token editor | landed, `a29af3f` |
 | **7. Card update, and a Windows run** | **card updated; the Windows run is the remaining work** |
 
@@ -214,7 +214,7 @@ Second instance, throwaway user-data directory, port 9333, per the recipe below.
 |---|---|
 | The stated gap is filled | The `theme.overrides` row draws the control; "No control registered" is nowhere on the surface |
 | Zero component changes | A `surface.base` override repainted `--ui-bg` and the body background; a seeded `color.primary` ramp drove `--ui-primary` |
-| T5a opens on the mode last used | The Fermata primary opened on **Tailwind amber**, read back by `describeRamp`, with Advanced already on |
+| T5a opens on the mode last used | The Oscine primary opened on **Tailwind amber**, read back by `describeRamp`, with Advanced already on |
 | A seed derives eleven steps | `oklch(62% 0.21 265)` produced 50…950 at hue 264.85, stored normalised as `oklch(61.73% 0.2059 264.85)` |
 | Live preview, no apply button | Every write repainted within a tick; nothing was pressed |
 | Overrides survive a theme swap | All three built-ins swapped with four overrides in place; the neutral ramp changed per theme, the overrides did not |
@@ -308,7 +308,7 @@ building one, something upstream is wrong.
 - **Every list is virtualized from its first commit** (CLAUDE.md). If a group
   can exceed a screen — the ramp editor's 11 steps × 7 roles can — use
   `visibleRange` from `listViewport.ts`, as `SettingsPane` does.
-- **Zero hardcoded colours**, which `fermata/no-raw-colours` now enforces. A
+- **Zero hardcoded colours**, which `oscine/no-raw-colours` now enforces. A
   swatch takes its colour from a token value at runtime, not from a class.
 
 ## How to verify it

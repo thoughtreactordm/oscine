@@ -17,11 +17,11 @@ updated: '2026-08-04T15:06:58.839Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → The listen event → "What else the commit does".
 
-Fills the seam W10-4 deliberately left open. Small card, two connections, and the correctness of both is what makes Fermata's stats and the operator's Last.fm profile agree.
+Fills the seam W10-4 deliberately left open. Small card, two connections, and the correctness of both is what makes Oscine's stats and the operator's Last.fm profile agree.
 
 **1. Enqueue on listen commit.** In the *same transaction* as the `listens` insert, write one `scrobble_queue` row per connected target. Same transaction, not after it: a listen that recorded but did not enqueue is a scrobble silently lost, and a rollback must take both.
 
-**A track with no artist name is never enqueued** — Last.fm rejects a scrobble missing artist or title. It still gets its `listens` row, because Fermata's own stats have no such requirement, and silently dropping it would put the two records permanently out of step for no reason the operator could see. Where the two legitimately diverge, it should be by a written rule.
+**A track with no artist name is never enqueued** — Last.fm rejects a scrobble missing artist or title. It still gets its `listens` row, because Oscine's own stats have no such requirement, and silently dropping it would put the two records permanently out of step for no reason the operator could see. Where the two legitimately diverge, it should be by a written rule.
 
 **2. Now-playing at transport-commit.** `nowPlaying` fires when the transport commits to a track — the same moment `play_history` gets its row — not at departure. Fire-and-forget, no queue, no retry.
 

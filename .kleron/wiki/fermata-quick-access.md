@@ -1,11 +1,11 @@
 ---
-title: Fermata — Quick Access (Command Palette & Quick Menu)
+title: Oscine — Quick Access (Command Palette & Quick Menu)
 created: '2026-08-24T17:38:20.208Z'
 updated: '2026-08-24T17:38:20.208Z'
 ---
 Status: **specified, unbuilt** · Owns **D21–D27** · New workstream **W13 Quick Access** · Migration **016** · Delivers the `tracks.indexed_at` column W12 recorded-debt #1 sketched
 
-# Fermata — Quick Access
+# Oscine — Quick Access
 
 ## Why this document exists
 

@@ -1,11 +1,11 @@
 ---
-title: Fermata — Design Document
+title: Oscine — Design Document
 created: '2026-07-26T04:53:06.799Z'
 updated: '2026-07-26T04:53:06.799Z'
 ---
-# Fermata — Design Document
+# Oscine — Design Document
 
-Status: **approved, v1 scope frozen** · Owner: Michael · Repo: `C:\Users\Michael\Projects\fermata`
+Status: **approved, v1 scope frozen** · Owner: Michael · Repo: `C:\Users\Michael\Projects\oscine`
 
 ## 1. What this is
 
@@ -97,7 +97,7 @@ Every layer touched, none finished. Integration risk surfaces immediately; the s
 
 ### D14 — External metadata: **opt-in, drawer-scoped, main-process only**
 
-The Tunedeck's artist nexus is the first outbound network request Fermata makes. Three rules bound it. Nothing is fetched until the operator opens the deck and accepts a one-time prompt naming the services. Fetching happens in the main process only — the renderer never opens a socket, for the same reason it never opens a file. And the deck is fully functional with networking declined: every local pane works, so offline is a tested state rather than an error path.
+The Tunedeck's artist nexus is the first outbound network request Oscine makes. Three rules bound it. Nothing is fetched until the operator opens the deck and accepts a one-time prompt naming the services. Fetching happens in the main process only — the renderer never opens a socket, for the same reason it never opens a file. And the deck is fully functional with networking declined: every local pane works, so offline is a tested state rather than an error path.
 
 Sources are MusicBrainz (artist identity, artist-to-artist relations, outbound link relations including Bandcamp) and Wikidata → Wikipedia (biography, images). Both are keyless, so no secret ships in the bundle. Resolved MBIDs land on the `artists` row via a migration; everything else lands in a `cache.db` beside the library — separate from it, carrying per-entity TTLs and negative entries, and excluded from D11's export bundle because it is derived data that is deletable without loss.
 
@@ -107,7 +107,7 @@ Sources are MusicBrainz (artist identity, artist-to-artist relations, outbound l
 
 **This does not reopen D1.** No audio ever arrives over the network. The library is still folders on disk.
 
-**Podcast Discover sits inside D14's second rule and outside its first.** Every catalogue request — search, charts, lookup — issues from main, and Discover's thumbnails are proxied through the `fermata:` protocol rather than loaded from Apple's CDN, so the renderer opens no socket and no remote origin appears in `img-src`. But they are not behind a consent prompt: opening the Discover tab reaches Apple before the operator has agreed to anything. That is recorded debt against W7-6, which owns the prompt for every outbound source; podcasts are simply the first surface that shipped ahead of it. Subscribing to a feed and refreshing it are a different case — the operator named that host by pasting its URL — but a catalogue browsed on tab open is not.
+**Podcast Discover sits inside D14's second rule and outside its first.** Every catalogue request — search, charts, lookup — issues from main, and Discover's thumbnails are proxied through the `oscine:` protocol rather than loaded from Apple's CDN, so the renderer opens no socket and no remote origin appears in `img-src`. But they are not behind a consent prompt: opening the Discover tab reaches Apple before the operator has agreed to anything. That is recorded debt against W7-6, which owns the prompt for every outbound source; podcasts are simply the first surface that shipped ahead of it. Subscribing to a feed and refreshing it are a different case — the operator named that host by pasting its URL — but a catalogue browsed on tab open is not.
 
 ### D15 — Tunedeck: **panel island hosted in a drawer**
 
@@ -119,7 +119,7 @@ An extended control and information surface opened from NowPlaying: up-next queu
 
 Podcasts are subscriptions to remote feeds; the library is folders on disk. Rather than bend either into the other, podcasts are a parallel domain — their own tables, their own IPC surface, their own view — and an episode is never a row in `tracks`. It does not appear in a Library facet, is not in an FTS index built for music, and does not inherit an album's ReplayGain.
 
-They share exactly two things with the library, in both cases because sharing is safer than duplicating: the `fermata:` protocol that serves bytes to the renderer, where episodes get their own hostname and their own id space, and the artwork thumbnail cache with its single worker.
+They share exactly two things with the library, in both cases because sharing is safer than duplicating: the `oscine:` protocol that serves bytes to the renderer, where episodes get their own hostname and their own id space, and the artwork thumbnail cache with its single worker.
 
 Episodes are downloaded to a machine-local podcasts directory and played from disk — never streamed. That is what keeps D1's "no audio ever arrives over the network" true rather than narrowly true: the decode path, R1's memory guard and the gapless machinery all see an ordinary local file, and a dropped connection cannot become a dropout. `rel_path` is relative to the podcasts directory under the same rule that governs `tracks`.
 
@@ -127,13 +127,13 @@ Episodes are downloaded to a machine-local podcasts directory and played from di
 
 *Accepted cost*: disk. `keep_last` bounds it per show; there is no global cap yet.
 
-*Revisit when*: an operator wants podcasts inside a unified search, or the podcasts directory becomes the largest thing Fermata writes.
+*Revisit when*: an operator wants podcasts inside a unified search, or the podcasts directory becomes the largest thing Oscine writes.
 
 ### D17 — Listening record: **an uncapped, snapshot-carrying listens log**
 
-A play worth counting and a play worth remembering are different events, and Fermata records both rather than compromising on one definition.
+A play worth counting and a play worth remembering are different events, and Oscine records both rather than compromising on one definition.
 
-`play_history` stays exactly as it is: capped at 500, skips included, the transport's short-term memory, excluded from D11. A new `listens` table is the long-term one — uncapped, append-only, one row per play that crossed the listened threshold, carrying the accumulated audible milliseconds. Every statistic Fermata reports is a query over it, across any time range, and `tracks.play_count` and `tracks.last_played_at` become maintained caches of it rather than counters in their own right, regenerable at any time from the log.
+`play_history` stays exactly as it is: capped at 500, skips included, the transport's short-term memory, excluded from D11. A new `listens` table is the long-term one — uncapped, append-only, one row per play that crossed the listened threshold, carrying the accumulated audible milliseconds. Every statistic Oscine reports is a query over it, across any time range, and `tracks.play_count` and `tracks.last_played_at` become maintained caches of it rather than counters in their own right, regenerable at any time from the log.
 
 Each row **snapshots** what it played — title, artist, album, album artist, duration, and its normalized genres in a child table — and holds `track_id` as a nullable `ON DELETE SET NULL` reference rather than a cascading one. This is the load-bearing detail. Migration 009's own note records that "a file *moved* between roots or folders reads as a delete plus an insert," and it accepts losing a trail row to that because a trail row is worth 500 rows of session history. It is not an acceptable price for years of listening: reorganising a folder would silently destroy the thing that cannot be rebuilt, and the operator would find out a year later. The snapshot also makes the log honest about the past — it reports the artist as it was tagged when you listened, not as you have since corrected it.
 
@@ -161,9 +161,9 @@ Favorites are local and authoritative. Last.fm's loved tracks are never read in,
 
 ### D19 — Scrobbling: **shipped app key, per-user session, provider-abstracted**
 
-Fermata registers its own Last.fm API account and the `api_key` and shared secret ship in the bundle, extractable from the asar. A durable setting lets an operator paste their own pair to override.
+Oscine registers its own Last.fm API account and the `api_key` and shared secret ship in the bundle, extractable from the asar. A durable setting lets an operator paste their own pair to override.
 
-**This does not reopen D14, and D14 was not wrong.** D14 was scoping keyless read-only *metadata* sources for the artist nexus, where an API key buys nothing MusicBrainz and Wikidata give away. A scrobble is a per-user authenticated *write*, and the two credentials do different jobs: the app key says which application is asking and can scrobble for nobody on its own. The user is identified by a **session key** obtained once per install through Last.fm's desktop flow — `auth.getToken`, then the system browser at `last.fm/api/auth/`, where the operator signs into their own account, then `auth.getSession`. It never expires, is per-install, lives in Electron's `safeStorage`, and never enters the settings table, the D11 bundle, or IPC after it is written. An extracted app key buys an attacker a scrobbler that calls itself Fermata. It buys them no account.
+**This does not reopen D14, and D14 was not wrong.** D14 was scoping keyless read-only *metadata* sources for the artist nexus, where an API key buys nothing MusicBrainz and Wikidata give away. A scrobble is a per-user authenticated *write*, and the two credentials do different jobs: the app key says which application is asking and can scrobble for nobody on its own. The user is identified by a **session key** obtained once per install through Last.fm's desktop flow — `auth.getToken`, then the system browser at `last.fm/api/auth/`, where the operator signs into their own account, then `auth.getSession`. It never expires, is per-install, lives in Electron's `safeStorage`, and never enters the settings table, the D11 bundle, or IPC after it is written. An extracted app key buys an attacker a scrobbler that calls itself Oscine. It buys them no account.
 
 **Scrobbling sits outside D14's consent gate (W7-6), deliberately.** Completing a sign-in where you type your own password into your own account's login page is stronger and more specific consent than a checkbox naming a service, and until it completes nothing outbound happens at all. This is the opposite of the Podcast Discover debt, where a tab open reaches Apple before the operator agreed to anything. Stated so it reads as a position rather than an oversight.
 
@@ -454,7 +454,7 @@ The reading **not** taken was "re-enter the scope this track played from, at the
 ## 7. Repo structure
 
 ```
-fermata/
+oscine/
 ├─ docs/                      # mirror of this document
 ├─ electron.vite.config.ts
 ├─ electron-builder.yml

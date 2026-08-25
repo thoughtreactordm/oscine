@@ -1,5 +1,5 @@
 ---
-title: Fermata — Listening & Scrobbling
+title: Oscine — Listening & Scrobbling
 status: 'specified, unbuilt'
 owns: 'D17, D18, D19 · W10, W11 · migrations 012–015'
 supersedes: nothing
@@ -8,7 +8,7 @@ created: '2026-08-03T14:29:21.109Z'
 updated: '2026-08-03T14:29:21.109Z'
 ---
 
-# Fermata — Listening & Scrobbling
+# Oscine — Listening & Scrobbling
 
 ## Why this document exists
 
@@ -69,13 +69,13 @@ These three land in `fermata-design` §2 verbatim.
 ### D17 — Listening record: **an uncapped, snapshot-carrying listens log**
 
 A play worth counting and a play worth remembering are different events, and
-Fermata records both rather than compromising on one definition.
+Oscine records both rather than compromising on one definition.
 
 `play_history` stays exactly as it is: capped at 500, skips included, the
 transport's short-term memory, excluded from D11. A new **`listens`** table is
 the long-term one — uncapped, append-only, one row per play that crossed the
 listened threshold, carrying the accumulated audible milliseconds. Every
-statistic Fermata reports is a query over it, across any time range, and
+statistic Oscine reports is a query over it, across any time range, and
 `tracks.play_count` and `tracks.last_played_at` become maintained caches of it
 rather than counters in their own right, regenerable at any time from the log.
 
@@ -142,7 +142,7 @@ rather than a special case with a hardcoded name.
 
 ### D19 — Scrobbling: **shipped app key, per-user session, provider-abstracted**
 
-Fermata registers its own Last.fm API account and the `api_key` and shared secret
+Oscine registers its own Last.fm API account and the `api_key` and shared secret
 ship in the bundle, extractable from the asar. A durable setting lets an operator
 paste their own pair to override.
 
@@ -151,11 +151,11 @@ jobs: the app key says *which application is asking*, and it can scrobble for
 nobody on its own. The user is identified by a **session key** obtained once per
 install through Last.fm's desktop flow — `auth.getToken`, then the system browser
 at `last.fm/api/auth/`, where the operator signs into their own account and
-grants Fermata access, then `auth.getSession`. The session key never expires, is
+grants Oscine access, then `auth.getSession`. The session key never expires, is
 per-install, and is the credential actually worth protecting; it lives in
 Electron's `safeStorage` and never in the settings table, never in the D11
 bundle, and never crosses IPC after it is written. An extracted app key buys an
-attacker the ability to write a scrobbler that calls itself Fermata. It buys them
+attacker the ability to write a scrobbler that calls itself Oscine. It buys them
 no account.
 
 **Scrobbling sits outside D14's consent gate (W7-6), deliberately.** Completing a
@@ -402,7 +402,7 @@ what W11-7's status pane displays.
 
 `artist_name` and `title` are `NOT NULL` because Last.fm rejects a scrobble
 missing either. A track with no artist tag is **never enqueued**; it still gets a
-`listens` row, because Fermata's own stats have no such requirement and silently
+`listens` row, because Oscine's own stats have no such requirement and silently
 dropping it would put the two records permanently out of step for no reason the
 operator could see.
 
@@ -411,7 +411,7 @@ operator could see.
 ## The listen event
 
 One rule, one moment, one row — feeding the log and the outbox from the same
-commit, so that Fermata's numbers and the operator's Last.fm profile cannot
+commit, so that Oscine's numbers and the operator's Last.fm profile cannot
 disagree and then need explaining.
 
 **The threshold** is Last.fm's, adopted wholesale: the track is longer than 30

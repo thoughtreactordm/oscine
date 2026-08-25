@@ -21,7 +21,7 @@ Replace the skeletons. The Placeholder badge comes off when `discover.shelves` i
 
 **Do not compute recipes in the renderer.** Fetch `discover.shelves`, render what comes back. Dynamic titles replace the placeholder `h3`; hints stay the static recipe lines. Per-shelf horizontal scroller stays; ten cards are not virtualized (the cap is the reason).
 
-Token layer only. Panels remain islands — no import of the dashboard, the Tunedeck, or Library facets. Artwork through the existing `fermata:` thumbnail path. No artwork is the same token-coloured vinyl the placeholder already draws.
+Token layer only. Panels remain islands — no import of the dashboard, the Tunedeck, or Library facets. Artwork through the existing `oscine:` thumbnail path. No artwork is the same token-coloured vinyl the placeholder already draws.
 
 Cold start: do not render empty-headed `for-you` / `revisit` / `artists` skeletons. Omit, as compose already omitted.
 

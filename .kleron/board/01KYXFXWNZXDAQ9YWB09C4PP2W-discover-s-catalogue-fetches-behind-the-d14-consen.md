@@ -31,6 +31,6 @@ updated: '2026-08-01T01:44:58.300Z'
 
 ## Notes
 
-The second and third of D14's rules already hold: every request issues from main, and the renderer opens no socket — catalogue thumbnails go through `fermata://catalog-artwork/` rather than Apple's CDN, so `img-src` carries no remote origin. It is only the consent rule that is outstanding.
+The second and third of D14's rules already hold: every request issues from main, and the renderer opens no socket — catalogue thumbnails go through `oscine://catalog-artwork/` rather than Apple's CDN, so `img-src` carries no remote origin. It is only the consent rule that is outstanding.
 
 Blocked on W7-6, which owns the prompt and the setting. Recorded rather than built at the time so that podcasts do not grow a second, parallel consent mechanism that W7-6 then has to absorb.

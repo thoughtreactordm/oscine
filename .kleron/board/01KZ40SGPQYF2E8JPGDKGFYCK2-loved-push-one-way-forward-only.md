@@ -18,7 +18,7 @@ updated: '2026-08-04T15:06:58.855Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → Favorites → "Loved sync is one-way and forward-only".
 
-Hearting a track in Fermata also loves it on Last.fm. The direction and the boundaries are the whole card.
+Hearting a track in Oscine also loves it on Last.fm. The direction and the boundaries are the whole card.
 
 **In scope:**
 - Favoriting enqueues a `kind = 'love'` row; un-favoriting enqueues `kind = 'unlove'`. Through the same outbox as scrobbles, so it inherits persistence, backoff and ordering for free rather than growing a second retry path.
@@ -27,7 +27,7 @@ Hearting a track in Fermata also loves it on Last.fm. The direction and the boun
 
 **Explicitly out of scope, and each for a reason:**
 - **Nothing retroactive.** Connecting an account pushes none of the favorites that already exist. A retroactive bulk push would be thousands of writes to someone else's account on the strength of a single click. An operator who wants it can ask for it explicitly later, and that would be its own card with its own confirmation.
-- **Nothing is read in.** Last.fm's loved tracks never become Fermata favorites. `track_favorites` is authoritative and local (D18); a two-way sync needs a conflict rule, and there is no right one for "loved there, un-hearted here".
+- **Nothing is read in.** Last.fm's loved tracks never become Oscine favorites. `track_favorites` is authoritative and local (D18); a two-way sync needs a conflict rule, and there is no right one for "loved there, un-hearted here".
 
 **Ordering matters within the outbox.** Heart, un-heart, heart again in quick succession must not arrive as un-heart last. Ordering by `timestamp` ascending handles it as long as love and unlove rows for the same track are never reordered relative to each other or coalesced by a well-meaning optimisation. If you do collapse redundant pairs, collapse to the *final* state and test the three-flip case.
 

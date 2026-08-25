@@ -1,11 +1,11 @@
 ---
-title: Fermata — Discover 1.0
+title: Oscine — Discover 1.0
 created: '2026-08-22T16:33:05.332Z'
 updated: '2026-08-22T16:33:05.332Z'
 ---
 Status: **specified, unbuilt** · Owns **D20** · D20, the D18 note, and the §8/§9 rows are already in `fermata-design` · No migration in 1.0
 
-# Fermata — Discover 1.0
+# Oscine — Discover 1.0
 
 ## Why this document exists
 
@@ -375,7 +375,7 @@ Dynamic titles replace the placeholder `h3` text. Hints stay the static recipe l
 
 Cold start (zero `listens` rows, some tracks): render `unplayed` only, plus any recipe that does not need a seed (`forgotten-favorites` if hearts exist). Do not render empty skeletons for `for-you` / `revisit` / `artists`.
 
-Artwork: `fermata:` thumbnail URLs the way Library already addresses album art. No remote origin.
+Artwork: `oscine:` thumbnail URLs the way Library already addresses album art. No remote origin.
 
 ---
 

@@ -28,7 +28,7 @@ The Quick Menu drawer on the Now Playing screen.
 
 Each list is short and capped; ordering is recency / `favorited_at` only — **no recipes, no ranking** (product rule 8). Selecting an item reuses the existing navigation/activation path and closes the drawer.
 
-**Islands (product rule 9).** Do NOT import the Discover pane, the Listening dashboard, the Tunedeck, or Library facets. Token layer only; artwork through the existing `fermata:` thumbnail path.
+**Islands (product rule 9).** Do NOT import the Discover pane, the Listening dashboard, the Tunedeck, or Library facets. Token layer only; artwork through the existing `oscine:` thumbnail path.
 
 **Tests** (`tests/renderer/`): the drawer opens from the left on the Now Playing screen; the three lists populate from their channels; opening again after a favorite toggle / a new import reflects the change; selecting an item navigates/plays and closes the drawer.
 

@@ -17,7 +17,7 @@ Spec: wiki `fermata-listening-and-scrobbling` → The listen event.
 
 A renderer-side accumulator beside the playback controller — where the position already is — that answers two questions about the track currently playing: how much of it was *actually audible*, and has that crossed the listened threshold.
 
-**The threshold is Last.fm's, adopted wholesale:** the track is longer than 30 seconds, **and** accumulated audible time has reached either half its duration or four minutes, whichever comes first. Do not re-derive it; twenty years of tuning against real listening is not worth relitigating, and adopting it verbatim is what keeps Fermata's numbers and the operator's Last.fm profile from disagreeing and then needing explaining.
+**The threshold is Last.fm's, adopted wholesale:** the track is longer than 30 seconds, **and** accumulated audible time has reached either half its duration or four minutes, whichever comes first. Do not re-derive it; twenty years of tuning against real listening is not worth relitigating, and adopting it verbatim is what keeps Oscine's numbers and the operator's Last.fm profile from disagreeing and then needing explaining.
 
 **Accumulated audible time**, precisely:
 - Paused time does not count.

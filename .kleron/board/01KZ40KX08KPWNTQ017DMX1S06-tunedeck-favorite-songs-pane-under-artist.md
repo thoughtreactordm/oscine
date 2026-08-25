@@ -20,7 +20,7 @@ Spec: wiki `fermata-listening-and-scrobbling` → Favorites → "In the Tunedeck
 
 A "Favorite Songs" pane under the Tunedeck's Artist tab, listing the playing artist's favorited tracks, ordered by `favorited_at` descending.
 
-**It is a local pane and must work with networking declined**, which is D14's third rule and the property M7's exit criterion tests. It reads `track_favorites` joined to `tracks` by `artist_id` and touches nothing remote. Do not make it a child of the artist-nexus panes or gate it on MBID resolution — an artist Fermata cannot resolve remotely still has favorites.
+**It is a local pane and must work with networking declined**, which is D14's third rule and the property M7's exit criterion tests. It reads `track_favorites` joined to `tracks` by `artist_id` and touches nothing remote. Do not make it a child of the artist-nexus panes or gate it on MBID resolution — an artist Oscine cannot resolve remotely still has favorites.
 
 Follow the existing deck panes for shape: same island rules (`src/renderer/panels/tunedeck/`), same virtualization, same behaviour when the deck has no track — W7's recent work made the deck stand down when there is nothing playing and name what it is describing, and this pane inherits both.
 

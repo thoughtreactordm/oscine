@@ -17,7 +17,7 @@ updated: '2026-08-04T15:06:58.938Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → The stats engine.
 
-Every statistic Fermata reports is **one shape**: filter `listens` by a time range, group by a dimension, order by count or by summed `ms_listened`. Build that once.
+Every statistic Oscine reports is **one shape**: filter `listens` by a time range, group by a dimension, order by count or by summed `ms_listened`. Build that once.
 
 **Four dimensions** — `track`, `album`, `artist`, `genre`. The first three group on the **snapshot columns** on `listens`; genre groups through `listen_genres.genre_key`.
 
