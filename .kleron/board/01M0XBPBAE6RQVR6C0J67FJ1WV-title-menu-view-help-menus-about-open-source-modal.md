@@ -1,7 +1,7 @@
 ---
 taskId: 01M0XBPBAE6RQVR6C0J67FJ1WV
 title: 'Title menu: View + Help menus, About + Open Source modals (G7)'
-status: in-review
+status: done
 labels:
   - ui
   - chrome
@@ -9,9 +9,9 @@ workstream: W14
 workstreamId: W14-11
 workstreamDependsOn:
   - W4
-order: 1
+order: 5
 created: '2026-08-25T21:02:20.493Z'
-updated: '2026-08-25T23:13:48.740Z'
+updated: '2026-08-26T18:50:16.255Z'
 ---
 Per wiki `1-0-polish-and-qol` **G7** (settled). Expand the native title menu beyond Library/Playback with top-level **View** and **Help**.
 
