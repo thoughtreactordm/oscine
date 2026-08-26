@@ -62,6 +62,8 @@ const FEED_TIMEOUT_MS = 30_000
 const DOWNLOAD_CONNECT_TIMEOUT_MS = 60_000
 /** A host that sends nothing for this long has gone away. */
 const DOWNLOAD_STALL_TIMEOUT_MS = 60_000
+/** Floor between download-progress events, so a fast transfer cannot flood the renderer. */
+const PROGRESS_THROTTLE_MS = 150
 /** Feeds with thousands of episodes reach a few MB; nothing legitimate is near this. */
 const MAX_FEED_BYTES = 16 * 1024 * 1024
 const MAX_ARTWORK_BYTES = 12 * 1024 * 1024
@@ -78,6 +80,8 @@ export interface PodcastService {
   listEpisodes(query: ListEpisodesQuery): Promise<ListEpisodesResult>
   listRecent(query: ListRecentEpisodesQuery): Promise<ListRecentEpisodesResult>
   downloadEpisode(episodeId: number): Promise<Episode>
+  /** Aborts a download in progress; the episode returns to remote (idle). */
+  cancelDownload(episodeId: number): Promise<Episode>
   /** Deletes the local file; the episode stays in the feed list as remote. */
   deleteDownload(episodeId: number): Promise<Episode>
   /** Deletes every local file for a show; the subscription stays. */
@@ -124,6 +128,8 @@ export class SqlitePodcastService implements PodcastService {
   private readonly now: () => number
   private readonly downloading = new Set<number>()
   private readonly downloadJobs = new Map<number, Promise<Episode>>()
+  /** User-driven cancels for in-flight downloads, keyed by episode id. */
+  private readonly downloadAborts = new Map<number, () => void>()
   private recommendCache: { at: number; result: PodcastRecommendResult } | null = null
   private readonly categoryCache = new Map<string, { at: number; hits: PodcastCatalogHit[] }>()
 
@@ -256,9 +262,29 @@ export class SqlitePodcastService implements PodcastService {
     const job = this.runDownload(episodeId).finally(() => {
       this.downloadJobs.delete(episodeId)
       this.downloading.delete(episodeId)
+      this.downloadAborts.delete(episodeId)
     })
     this.downloadJobs.set(episodeId, job)
     return job
+  }
+
+  /**
+   * Abort a download that is currently running. The in-flight fetch is aborted,
+   * `runDownload` unwinds through its cancel path (partial file removed, no
+   * failure recorded), and the episode is left as `remote` so the action button
+   * returns to Download. A no-op with the current row when nothing is in flight.
+   */
+  async cancelDownload(episodeId: number): Promise<Episode> {
+    const cancel = this.downloadAborts.get(episodeId)
+    if (cancel) {
+      cancel()
+      // Let the running job settle so the store and `downloading` set are
+      // consistent before we read the episode back.
+      await this.downloadJobs.get(episodeId)?.catch(() => undefined)
+    }
+    const episode = this.store.getEpisode(episodeId, this.downloading)
+    if (!episode) throw new OscineError('not-found', 'That episode is gone.')
+    return episode
   }
 
   async deleteDownload(episodeId: number): Promise<Episode> {
@@ -583,6 +609,18 @@ export class SqlitePodcastService implements PodcastService {
     })
 
     const guard = createStallGuard(DOWNLOAD_CONNECT_TIMEOUT_MS)
+    // A user cancel unwinds the transfer two ways, because a `fetch` abort alone
+    // is not reliably honoured across runtimes: it aborts the guard's controller
+    // (the signal `fetch` is wired to, which covers the pre-body window) AND
+    // destroys the body stream `pipeline` is draining (which rejects it at once
+    // once bytes are flowing). `cancelledByUser` distinguishes this from a stall.
+    let cancelledByUser = false
+    let activeBody: Readable | null = null
+    this.downloadAborts.set(episodeId, () => {
+      cancelledByUser = true
+      guard.abort()
+      activeBody?.destroy(new OscineError('cancelled', 'Download cancelled.'))
+    })
     try {
       await mkdir(dirname(absPath), { recursive: true })
       const response = await this.fetchImpl(enclosure.enclosureUrl, {
@@ -601,6 +639,16 @@ export class SqlitePodcastService implements PodcastService {
       let received = 0
 
       const nodeBody = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream)
+      activeBody = nodeBody
+      // A user cancel between here and the first chunk still needs to bite.
+      if (cancelledByUser) nodeBody.destroy(new OscineError('cancelled', 'Download cancelled.'))
+      // Coalesce progress to a steady cadence. A fast multi-MB episode arrives in
+      // hundreds of chunks a second; emitting one IPC event per chunk floods the
+      // renderer (every event re-renders the episode list) and starves it of the
+      // frames it needs to service a Cancel click — so the download becomes
+      // effectively uncancellable until it finishes. The terminal ready/failed/
+      // remote events below are always sent, so the final state is never dropped.
+      let lastEmit = 0
       nodeBody.on('data', (chunk: Buffer) => {
         guard.keepAlive(DOWNLOAD_STALL_TIMEOUT_MS)
         received += chunk.length
@@ -608,6 +656,9 @@ export class SqlitePodcastService implements PodcastService {
           nodeBody.destroy(new OscineError('io-error', 'That episode is too large to download.'))
           return
         }
+        const at = this.now()
+        if (at - lastEmit < PROGRESS_THROTTLE_MS) return
+        lastEmit = at
         this.onDownloadProgress({
           episodeId,
           podcastId: enclosure.podcastId,
@@ -631,6 +682,21 @@ export class SqlitePodcastService implements PodcastService {
       guard.release()
       this.downloading.delete(episodeId)
       await unlink(absPath).catch(() => undefined)
+      if (cancelledByUser) {
+        // A user cancel is not a failure: clear the partial row back to remote
+        // and resolve with the idle episode so the caller's Download click ends
+        // quietly rather than surfacing an error toast.
+        this.store.clearDownload(episodeId)
+        this.onDownloadProgress({
+          episodeId,
+          podcastId: enclosure.podcastId,
+          status: 'remote',
+          fraction: null
+        })
+        const remote = this.store.getEpisode(episodeId, this.downloading)
+        if (!remote) throw new OscineError('not-found', 'That episode is gone.')
+        return remote
+      }
       const message =
         error instanceof TransferStalledError || guard.signal.aborted
           ? 'The download stopped responding.'

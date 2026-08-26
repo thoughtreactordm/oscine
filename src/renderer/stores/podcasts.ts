@@ -345,6 +345,18 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     }
   }
 
+  async function cancelDownload(episodeId: number): Promise<void> {
+    notice.value = null
+    try {
+      const episode = await podcastsApi.cancelDownload(episodeId)
+      patchEpisode(episode)
+      await refreshRecent()
+      list.value = await podcastsApi.list()
+    } catch (error) {
+      notice.value = error instanceof OscineError ? error.message : 'Could not cancel download.'
+    }
+  }
+
   /**
    * Download a show's most recent episode — the palette's "download latest"
    * action (D22). It reuses the ordinary episode listing, which main orders
@@ -541,6 +553,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     refreshPodcast,
     refreshAll,
     downloadEpisode,
+    cancelDownload,
     downloadLatest,
     deleteDownload,
     clearDownloads,

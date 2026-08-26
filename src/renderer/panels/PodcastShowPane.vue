@@ -83,11 +83,26 @@ onUnmounted(() => {
   rowEls.clear()
 })
 
-function statusLabel(episode: Episode): string {
+/**
+ * Downloading is true when either the row's own status or the last progress
+ * event says so — the event lands before the row is re-fetched, so the button
+ * flips to Cancel the instant the download starts.
+ */
+function isDownloading(episode: Episode): boolean {
   const progress = podcasts.downloadProgress.get(episode.id)
-  if (episode.downloadStatus === 'downloading' || progress?.status === 'downloading') {
-    if (progress?.fraction != null) return `${Math.round(progress.fraction * 100)}%`
-    return 'Downloading…'
+  return episode.downloadStatus === 'downloading' || progress?.status === 'downloading'
+}
+
+/** Whole-percent download progress, or null when the host omitted a length. */
+function downloadPercent(episode: Episode): number | null {
+  const progress = podcasts.downloadProgress.get(episode.id)
+  return progress?.fraction != null ? Math.round(progress.fraction * 100) : null
+}
+
+function statusLabel(episode: Episode): string {
+  if (isDownloading(episode)) {
+    const percent = downloadPercent(episode)
+    return percent != null ? `${percent}%` : 'Downloading…'
   }
   if (episode.downloadStatus === 'ready') return 'Downloaded'
   if (episode.downloadStatus === 'failed') return 'Failed'
@@ -218,25 +233,41 @@ function statusLabel(episode: Episode): string {
               :aria-label="`Remove download of ${episode.title}`"
               @click="podcasts.deleteDownload(episode.id)"
             />
+            <!--
+              One action button that cycles by download state (P1):
+              Download (idle / failed) → Cancel with progress (downloading) → Play (ready).
+              Removal stays its own trash affordance above; it is not a state here.
+            -->
+            <UButton
+              v-if="episode.downloadStatus === 'ready'"
+              size="xs"
+              color="primary"
+              variant="soft"
+              icon="i-tabler-player-play-filled"
+              :aria-label="`Play ${episode.title}`"
+              @click="podcasts.playEpisode(episode.id)"
+            />
+            <UButton
+              v-else-if="isDownloading(episode)"
+              size="xs"
+              color="neutral"
+              variant="soft"
+              icon="i-tabler-x"
+              :aria-label="`Cancel download of ${episode.title}`"
+              @click="podcasts.cancelDownload(episode.id)"
+            >
+              <span v-if="downloadPercent(episode) !== null" class="text-xs tabular-nums">
+                {{ downloadPercent(episode) }}%
+              </span>
+            </UButton>
             <UButton
               v-else
               size="xs"
               color="primary"
               variant="soft"
               icon="i-tabler-download"
-              :loading="episode.downloadStatus === 'downloading'"
-              :disabled="episode.downloadStatus === 'downloading'"
               :aria-label="`Download ${episode.title}`"
               @click="podcasts.downloadEpisode(episode.id)"
-            />
-            <UButton
-              size="xs"
-              color="primary"
-              variant="soft"
-              icon="i-tabler-player-play-filled"
-              :loading="episode.downloadStatus === 'downloading'"
-              :aria-label="`Play ${episode.title}`"
-              @click="podcasts.playEpisode(episode.id)"
             />
           </div>
         </div>
