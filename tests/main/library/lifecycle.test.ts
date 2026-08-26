@@ -314,12 +314,21 @@ describe('live watcher reconciliation', () => {
 
     const cover = touch('Album/Folder.JPG', 'cover')
     adapter.entries.get(join(root, 'Album'))!.event('Folder.JPG')
-    await eventually(async () => expect(artworkHash()).not.toBeNull())
-    expect(artworkAtDone.at(-1)).not.toBeNull()
+    // artworkHash() reads the DB directly; artworkAtDone is captured in the
+    // onProgress(done) callback. These are two independent observations of the
+    // same reconciliation, so the DB write can land a poll before the callback
+    // fires — assert both inside eventually rather than sampling the callback
+    // once, or a slow runner reads the stale previous value.
+    await eventually(async () => {
+      expect(artworkHash()).not.toBeNull()
+      expect(artworkAtDone.at(-1)).not.toBeNull()
+    })
 
     unlinkSync(cover)
     adapter.entries.get(join(root, 'Album'))!.event('Folder.JPG')
-    await eventually(async () => expect(artworkHash()).toBeNull())
-    expect(artworkAtDone.at(-1)).toBeNull()
+    await eventually(async () => {
+      expect(artworkHash()).toBeNull()
+      expect(artworkAtDone.at(-1)).toBeNull()
+    })
   })
 })
