@@ -600,6 +600,8 @@ export interface IpcContract {
   'podcasts.listEpisodes': { request: ListEpisodesQuery; response: ListEpisodesResult }
   'podcasts.listRecent': { request: ListRecentEpisodesQuery; response: ListRecentEpisodesResult }
   'podcasts.downloadEpisode': { request: { episodeId: number }; response: Episode }
+  /** Aborts a download in progress; the episode returns to remote (idle). */
+  'podcasts.cancelDownload': { request: { episodeId: number }; response: Episode }
   /** Removes the local file; the episode remains listed as remote. */
   'podcasts.deleteDownload': { request: { episodeId: number }; response: Episode }
   /** Removes every local file for a show; the subscription remains. */
@@ -1031,6 +1033,7 @@ export const IPC_CHANNELS = [
   'podcasts.listEpisodes',
   'podcasts.listRecent',
   'podcasts.downloadEpisode',
+  'podcasts.cancelDownload',
   'podcasts.deleteDownload',
   'podcasts.clearDownloads',
   'podcasts.setPlayed',

@@ -219,6 +219,7 @@ export const podcasts = {
   listEpisodes: (query: ListEpisodesQuery) => unwrap(window.oscine.podcasts.listEpisodes(query)),
   listRecent: (query: ListRecentEpisodesQuery) => unwrap(window.oscine.podcasts.listRecent(query)),
   downloadEpisode: (episodeId: number) => unwrap(window.oscine.podcasts.downloadEpisode(episodeId)),
+  cancelDownload: (episodeId: number) => unwrap(window.oscine.podcasts.cancelDownload(episodeId)),
   deleteDownload: (episodeId: number) => unwrap(window.oscine.podcasts.deleteDownload(episodeId)),
   clearDownloads: (podcastId: number) => unwrap(window.oscine.podcasts.clearDownloads(podcastId)),
   setPlayed: (episodeId: number, played: boolean) =>

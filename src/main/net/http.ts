@@ -91,6 +91,12 @@ export interface StallGuard {
   keepAlive(idleMs: number): void
   /** Stop the countdown once the transfer has finished, successfully or not. */
   release(): void
+  /**
+   * Abort the transfer now — e.g. a user cancel. Aborts the same controller
+   * `signal` comes from, so the wired `fetch` unwinds directly; no separate
+   * `AbortSignal.any` composite (those can be GC'd mid-transfer) is involved.
+   */
+  abort(reason?: unknown): void
 }
 
 /**
@@ -121,6 +127,11 @@ export function createStallGuard(firstByteMs: number): StallGuard {
     release(): void {
       if (timer) clearTimeout(timer)
       timer = null
+    },
+    abort(reason?: unknown): void {
+      if (timer) clearTimeout(timer)
+      timer = null
+      controller.abort(reason)
     }
   }
 }
