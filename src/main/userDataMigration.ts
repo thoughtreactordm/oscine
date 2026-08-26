@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { existsSync, renameSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename } from 'node:path'
 
 /**
  * The one-time relocation of the userData directory across the Fermata → Oscine
@@ -59,11 +59,16 @@ export function planUserDataMigration(
   currentUserData: string,
   probe: UserDataMigrationProbe
 ): UserDataMigration | null {
-  const legacyName = LEGACY_FOLDER_FOR[basename(currentUserData)]
+  const currentName = basename(currentUserData)
+  const legacyName = LEGACY_FOLDER_FOR[currentName]
   if (legacyName === undefined) return null
 
   const to = currentUserData
-  const from = join(dirname(currentUserData), legacyName)
+  // Swap the final segment in place rather than rejoining with `path.join`, whose
+  // separator is the *host* platform's: reconstructing a Linux userData path on a
+  // Windows runner would splice in a backslash and never match the real directory.
+  // Slicing off the basename keeps whatever separator the input already used.
+  const from = currentUserData.slice(0, currentUserData.length - currentName.length) + legacyName
   if (from === to) return null
   if (!probe.exists(from)) return null
   if (probe.exists(to)) return null

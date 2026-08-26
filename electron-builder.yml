@@ -3,6 +3,15 @@ productName: Oscine
 directories:
   output: release
   buildResources: build
+
+# Where `electron-builder --publish` uploads the packaged artifacts. The CI
+# release job builds each platform on its own runner and points both at the same
+# tagged GitHub release; there is no inferable `repository` field in package.json,
+# so the target is spelled out here rather than guessed from the git remote.
+publish:
+  provider: github
+  owner: thoughtreactordm
+  repo: oscine
 # electron-builder always adds the production `dependencies` closure on top of
 # whatever is listed here, so the only packages in node_modules are the three
 # native ones plus music-metadata. Everything the renderer uses — Vue, Nuxt UI

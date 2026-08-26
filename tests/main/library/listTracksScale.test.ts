@@ -60,7 +60,9 @@ describe('listTracks at the scale target', () => {
       pickFolder: async () => null,
       onProgress: () => {}
     })
-  }, 15_000)
+    // Building the 100k-row fixture is filesystem-bound and the Windows CI runner
+    // is slow enough to blow a 15s hook budget; give the seed room on both.
+  }, 60_000)
 
   afterAll(() => {
     opened.db.close()
