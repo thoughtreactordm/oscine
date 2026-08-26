@@ -75,12 +75,16 @@ async function waitFor(
   job: ReplayGainJobService,
   predicate: (state: Awaited<ReturnType<ReplayGainJobService['get']>>) => boolean
 ): Promise<NonNullable<Awaited<ReturnType<ReplayGainJobService['get']>>>> {
-  for (let attempt = 0; attempt < 200; attempt++) {
+  // Wall-clock deadline, not a poll count: a count-based cap silently assumes
+  // each poll is ~fast, so on a loaded CI runner the job can still be running
+  // when the attempts run out. Bound by elapsed time instead.
+  const deadline = Date.now() + 5_000
+  for (;;) {
     const state = await job.get()
     if (state && predicate(state)) return state
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for ReplayGain job.')
     await new Promise((resolve) => setTimeout(resolve, 2))
   }
-  throw new Error('Timed out waiting for ReplayGain job.')
 }
 
 beforeEach(() => {

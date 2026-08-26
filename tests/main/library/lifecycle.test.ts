@@ -101,7 +101,10 @@ function touch(relPath: string, contents = 'x'): string {
 }
 
 async function eventually(assertion: () => Promise<void>): Promise<void> {
-  const deadline = Date.now() + 1_000
+  // Generous wall-clock budget: the reconciliation this polls for is fast
+  // locally but competes for a slow, shared CI runner on Windows, where a tight
+  // 1s deadline is the difference between a green run and a phantom failure.
+  const deadline = Date.now() + 5_000
   for (;;) {
     try {
       await assertion()
