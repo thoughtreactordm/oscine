@@ -92,9 +92,23 @@ onBeforeUnmount(() => {
       </span>
     </header>
 
+    <!--
+      A fixed BODY_PX window, not a flex child. This section is an auto-height
+      grid item, so `flex-1` here would let the body grow to its full content
+      height (fifty rows, ~2000px) — the `height` would never bite, the box
+      would stand as tall as its list, and `clientHeight` would report the whole
+      thing, so `visibleRange` drew every row and nothing ever scrolled inside.
+      Pinning the height restores the 288px window and its virtualization.
+
+      No `overscroll-contain`, unlike the panels that fill their own pane. This
+      window is embedded in the scrolling Stats page, so containment would trap
+      the wheel: a list at its boundary — or too short to scroll — would swallow
+      the event instead of letting the page move beneath it (B1). Native chaining
+      scrolls the rows first, then the page.
+    -->
     <div
       ref="viewport"
-      class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      class="overflow-y-auto"
       :style="{ height: `${BODY_PX}px` }"
       @scroll.passive="onScroll"
     >
