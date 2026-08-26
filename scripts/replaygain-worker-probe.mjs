@@ -38,6 +38,27 @@ const fixture = join(dir, 'reference.wav')
 writeFileSync(fixture, wavFixture())
 
 const worker = new Worker(join(process.cwd(), 'out', 'main', 'replayGainWorker.js'))
+
+/**
+ * Best-effort removal of the temp fixture.
+ *
+ * The worker is never `terminate()`d — its native audio binding poisons the
+ * process exit code during worker_threads teardown on Windows (see the explicit
+ * `process.exit` below) — so on Windows it can still hold the fixture open when
+ * this runs, and `rmSync` throws `EBUSY`/`EPERM`, which `force` does not
+ * suppress. The dir is in the OS temp area on an ephemeral runner, so leaving it
+ * costs nothing; failing the probe over a temp-file unlink would fail a build
+ * whose actual validation already passed, which is exactly the symptom this
+ * guard removes.
+ */
+function cleanup() {
+  try {
+    rmSync(dir, { recursive: true, force: true })
+  } catch {
+    // Intentionally swallowed — see the doc comment.
+  }
+}
+
 try {
   const message = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('ReplayGain worker timed out.')), 15_000)
@@ -66,12 +87,12 @@ try {
       `${trackGainDb.toFixed(2)} dB, peak ${trackPeak.toFixed(4)}`
   )
 } catch (error) {
-  rmSync(dir, { recursive: true, force: true })
+  cleanup()
   console.error(error instanceof Error ? error.stack : error)
   process.exit(1)
 }
 
-rmSync(dir, { recursive: true, force: true })
+cleanup()
 // node-web-audio-api's native binding intermittently poisons the process exit
 // code during worker_threads teardown on Windows: the probe prints "passed" and
 // then exits 1 with no JS error. Validation is complete and already reported, so
