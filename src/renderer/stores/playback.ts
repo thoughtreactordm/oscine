@@ -1,10 +1,17 @@
+import { watch } from 'vue'
 import { defineStore } from 'pinia'
+import {
+  EMPTY_QUEUE_SESSION,
+  QUEUE_SESSION_KEY,
+  RESTORE_QUEUE_KEY,
+  type QueueSession
+} from '@shared/settings'
 import { createAudioEngineFactory } from '@renderer/audio'
 import { favorites, library, listens, playlists } from '@renderer/ipc'
 import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMediaSession'
 import { createPlaybackController } from '@renderer/playback/controller'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
-import { useSettings } from '@renderer/settings'
+import { restoredQueueSession, useSettings } from '@renderer/settings'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 
 /**
@@ -34,6 +41,10 @@ export const usePlaybackStore = defineStore('playback', () => {
   // dependency is visible at the wiring, and one-directional: the trail store
   // knows nothing about playback.
   const playHistory = usePlayHistoryStore()
+
+  // The unified settings surface, captured so this store can gate and persist
+  // the queue snapshot as well as hand it to the controller.
+  const settings = useSettings()
 
   /**
    * The listen writes that have not landed yet — normally none, at most one.
@@ -80,7 +91,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     // Both scopes, live. Shuffle and repeat survive a restart and the shuffle
     // sequence does not; the global crossfade is durable and reaches the
     // scheduler at the next boundary rather than at the next launch.
-    settings: useSettings(),
+    settings,
     ...(mediaSessionPlatform
       ? {
           createMediaSession: ({ state, transport }) =>
@@ -106,6 +117,10 @@ export const usePlaybackStore = defineStore('playback', () => {
    */
   listens.onFlushRequested(() => {
     controller.flushListen()
+    // The quit is also the last chance to capture where the current track had
+    // reached: the watcher below records the queue and position on every track
+    // and order change, but not on the elapsed time, which only this catches.
+    void persistQueue()
     void Promise.all([...inFlightWrites])
       .then(() => listens.flushed())
       .catch(() => {
@@ -113,6 +128,50 @@ export const usePlaybackStore = defineStore('playback', () => {
         // failure here and nowhere left to show it.
       })
   })
+
+  /**
+   * Write the current queue snapshot, gated by `view.restoreQueue` (G2, W14-6).
+   *
+   * The gate is on the *write* as well as the read — unlike tab-restore, which
+   * always records. A queue snapshot names the tracks the operator was playing,
+   * and keeping that while they have opted out is the wrong default; see
+   * `restoredQueueSession`. An idle transport snapshots to the empty session,
+   * which is what stops a quit-while-stopped from resurrecting a queue.
+   */
+  const persistQueue = async (): Promise<void> => {
+    if (!settings.get<boolean>(RESTORE_QUEUE_KEY)) return
+    const snapshot = await controller.snapshotSession()
+    void settings.set<QueueSession>(QUEUE_SESSION_KEY, snapshot)
+  }
+
+  // Restore last session's queue, paused. `restoredQueueSession` returns the
+  // empty session when the gate is shut, and the controller no-ops on that, so
+  // this needs no gate of its own. Fire-and-forget: it fetches the current track
+  // over IPC, and nothing about constructing the store may wait on that.
+  void controller.hydrateSession(restoredQueueSession(settings))
+
+  // Persist whenever the queue's identity changes — a new track, a move through
+  // the order, a shuffle toggle that re-pins it. Not on elapsed time, which
+  // would write on every timeupdate; the quit flush above covers that instead.
+  watch(
+    [
+      () => controller.nowPlaying.value,
+      () => controller.orderIndex.value,
+      () => controller.shuffleEnabled.value
+    ],
+    () => void persistQueue()
+  )
+
+  // Turning the gate off clears the stored queue immediately rather than leaving
+  // last session's tracks on disk; turning it on captures the current one so it
+  // is there to restore even if nothing changes before the next quit.
+  watch(
+    () => settings.get<boolean>(RESTORE_QUEUE_KEY),
+    (on) => {
+      if (on) void persistQueue()
+      else void settings.set<QueueSession>(QUEUE_SESSION_KEY, { ...EMPTY_QUEUE_SESSION })
+    }
+  )
 
   return controller
 })

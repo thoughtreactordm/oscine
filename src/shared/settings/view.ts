@@ -16,6 +16,7 @@
  * *is* on the way out of storage, reconcile what it *means* at the point of use.
  */
 
+import type { LibraryBrowseFilters, SortDirection, TrackSortColumn } from '../library'
 import {
   acceptValue,
   booleanValue,
@@ -76,6 +77,63 @@ export interface StoredColumnLayout {
   order: string[]
   hidden: string[]
   widths: Record<string, number>
+}
+
+/**
+ * What was playing, as the intent that produced it rather than the rows it
+ * produced.
+ *
+ * One variant per play entry point on the controller — a library sort, a
+ * playlist, My Favorites, a fixed list of episodes — because that is what
+ * regenerates the queue on the far side. Storing the 5000-row session tier would
+ * be storing a derivation; storing the intent lets the controller's own
+ * `fillSession` rebuild it from the same three facts it was built from the first
+ * time. The `list` variant carries the sort, direction and folder/search filters
+ * verbatim so the restored order is the one the operator was actually traversing.
+ */
+export type QueueIntent =
+  | {
+      kind: 'list'
+      sort: TrackSortColumn
+      direction: SortDirection
+      filters?: LibraryBrowseFilters
+    }
+  | { kind: 'playlist'; playlistId: number }
+  | { kind: 'favorites' }
+  | { kind: 'tracks'; trackIds: number[] }
+
+/**
+ * The last queue, enough of it to reload paused where the operator left off.
+ *
+ * `baseIndex` is against the *base* (un-shuffled) order, so a session saved
+ * under shuffle restores the same current track pinned to the top and reshuffles
+ * the rest — the shuffle sequence is not itself persisted, which matches how the
+ * controller already treats it. `trackId` is both what to show before the first
+ * play and how to tell that the current track has since left the library, in
+ * which case the whole session is dropped rather than resumed onto the wrong row.
+ *
+ * `intent: null` is the empty session — nothing was playing, or the gate is
+ * shut — and is the default. Written whenever playback stops, so a shut-down on
+ * an idle transport does not resurrect a queue on next launch.
+ */
+export interface QueueSession {
+  intent: QueueIntent | null
+  /** Index into the base order of the track that was current. */
+  baseIndex: number
+  /** Id of the track that was current, or null for the empty session. */
+  trackId: number | null
+  /** Milliseconds into the current track. */
+  elapsedMs: number
+}
+
+export const QUEUE_SESSION_KEY = 'view.queueSession'
+
+/** The empty session, shared by the default and every repair path. */
+export const EMPTY_QUEUE_SESSION: QueueSession = {
+  intent: null,
+  baseIndex: 0,
+  trackId: null,
+  elapsedMs: 0
 }
 
 // --- validators --------------------------------------------------------------
@@ -186,6 +244,86 @@ function columnLayoutValue(): SettingValidator<StoredColumnLayout | null> {
       hidden: stringList(source.hidden),
       widths
     })
+  }
+}
+
+/**
+ * A play intent, or null for anything this build cannot vouch for.
+ *
+ * Shape only, per the note at the top of this file: whether `'title'` still
+ * names a sort or `42` still names a playlist is a question for the point of
+ * use, and the controller answers it by simply failing to resolve a row — a
+ * restored order that materializes nothing is an empty queue, not a crash. What
+ * this rejects is a blob that could not have come from any variant, so a
+ * hand-edited or cross-branch value degrades to "no queue" rather than to a
+ * half-built one.
+ */
+function sanitizeIntent(raw: unknown): QueueIntent | null {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const source = raw as Record<string, unknown>
+  switch (source.kind) {
+    case 'list':
+      if (typeof source.sort !== 'string' || typeof source.direction !== 'string') return null
+      return {
+        kind: 'list',
+        sort: source.sort as TrackSortColumn,
+        direction: source.direction as SortDirection,
+        ...(source.filters !== null &&
+        typeof source.filters === 'object' &&
+        !Array.isArray(source.filters)
+          ? { filters: source.filters as LibraryBrowseFilters }
+          : {})
+      }
+    case 'playlist':
+      return isRowId(source.playlistId) ? { kind: 'playlist', playlistId: source.playlistId } : null
+    case 'favorites':
+      return { kind: 'favorites' }
+    case 'tracks': {
+      const trackIds = Array.isArray(source.trackIds) ? source.trackIds.filter(isRowId) : []
+      return trackIds.length > 0 ? { kind: 'tracks', trackIds } : null
+    }
+    default:
+      return null
+  }
+}
+
+/**
+ * A queue session, repaired field by field to the empty session.
+ *
+ * Never rejects: an unreadable blob is a launch with no queue to restore, which
+ * is exactly the default, so there is nothing a rejection would buy over the
+ * repair. An intent that does not sanitize takes `trackId` and `elapsedMs` down
+ * with it — a position into an order that is not being restored is meaningless.
+ */
+function queueSessionValue(): SettingValidator<QueueSession> {
+  return (raw) => {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      return acceptValue({ ...EMPTY_QUEUE_SESSION })
+    }
+    const source = raw as Partial<Record<keyof QueueSession, unknown>>
+    const intent = sanitizeIntent(source.intent)
+    if (!intent) {
+      return acceptValue({ ...EMPTY_QUEUE_SESSION })
+    }
+    const baseIndex =
+      typeof source.baseIndex === 'number' &&
+      Number.isInteger(source.baseIndex) &&
+      source.baseIndex >= 0
+        ? source.baseIndex
+        : 0
+    const trackId = isRowId(source.trackId) ? source.trackId : null
+    const elapsedMs =
+      typeof source.elapsedMs === 'number' &&
+      Number.isFinite(source.elapsedMs) &&
+      source.elapsedMs > 0
+        ? Math.round(source.elapsedMs)
+        : 0
+    // An intent with no current track is a position with nothing to anchor it;
+    // drop to empty rather than restore a queue with no head.
+    if (trackId === null) {
+      return acceptValue({ ...EMPTY_QUEUE_SESSION })
+    }
+    return acceptValue({ intent, baseIndex, trackId, elapsedMs })
   }
 }
 
@@ -377,6 +515,27 @@ export const VIEW_SETTINGS: readonly SettingDescriptor[] = [
     category: 'podcasts',
     label: 'Open show tabs',
     help: 'Which podcast shows are open as tabs, and which one is showing.',
+    internal: true
+  }),
+
+  /**
+   * The last queue, as an intent plus a position — G2's session-restore.
+   *
+   * Internal: it has no row, because the row that governs it is
+   * `view.restoreQueue` over in `./interface.ts`. The gate reads *this* through
+   * `restoredQueueSession`, and `usePlaybackStore` writes it whenever the
+   * current track or its order changes and once more at quit, so the snapshot is
+   * a track behind at worst even on a crash. `view`-scoped for the reason the
+   * gate is: it is read while the playback store is being constructed.
+   */
+  defineSetting<QueueSession>({
+    key: QUEUE_SESSION_KEY,
+    scope: 'view',
+    default: { ...EMPTY_QUEUE_SESSION },
+    validate: queueSessionValue(),
+    category: 'interface',
+    label: 'Last play queue',
+    help: 'The queue that was playing when Oscine last closed on this machine.',
     internal: true
   })
 ]

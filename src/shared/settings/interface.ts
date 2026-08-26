@@ -27,6 +27,13 @@
  * strip and fill it a tick later, which is worse than either honest answer. It
  * also keeps the gate in the same scope as the two sessions it gates.
  *
+ * `view.restoreQueue` is view-scoped for the same reason and the same moment:
+ * `usePlaybackStore` decides whether to rehydrate the last queue as it is
+ * constructed, and its snapshot (`view.queueSession` in `./view.ts`) is the
+ * matching workspace blob the gate reads. Off by default — remembering a queue
+ * is a thing the operator opts into — and the write is gated too, so a shut gate
+ * stores nothing rather than recording a queue nobody asked to keep.
+ *
  * The rest are durable: how long a duration reads, what a double-click does and
  * which deletions stop to ask are facts about the operator rather than about the
  * machine, so W8-13's export bundle should carry them.
@@ -71,6 +78,7 @@ export type FacetActivation = TrackActivation | 'none'
 
 export const TRACK_DENSITY_KEY = 'view.trackListDensity'
 export const RESTORE_SESSION_KEY = 'view.restoreSession'
+export const RESTORE_QUEUE_KEY = 'view.restoreQueue'
 export const DURATION_FORMAT_KEY = 'interface.durationFormat'
 export const DATE_FORMAT_KEY = 'interface.dateFormat'
 export const FILE_SIZE_FORMAT_KEY = 'interface.fileSizeFormat'
@@ -269,6 +277,19 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'Reopen the playlist and podcast tabs that were open when Oscine last closed.',
     keywords: ['session', 'restore', 'tabs', 'startup', 'launch', 'reopen'],
     order: 80
+  }),
+
+  defineSetting<boolean>({
+    key: RESTORE_QUEUE_KEY,
+    scope: 'view',
+    default: false,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'interface',
+    label: 'Keep the play queue between sessions',
+    help: 'Reload the queue you were playing when Oscine last closed, paused where you left off. Off by default; the queue is remembered only while this is on.',
+    keywords: ['queue', 'session', 'restore', 'resume', 'playback', 'startup', 'launch'],
+    order: 85
   }),
 
   defineSetting<boolean>({

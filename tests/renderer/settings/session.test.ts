@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { RESTORE_SESSION_KEY, type TabSession } from '@shared/settings'
-import { restoredTabSession } from '../../../src/renderer/settings/session'
+import {
+  EMPTY_QUEUE_SESSION,
+  QUEUE_SESSION_KEY,
+  RESTORE_QUEUE_KEY,
+  RESTORE_SESSION_KEY,
+  type QueueSession,
+  type TabSession
+} from '@shared/settings'
+import { restoredQueueSession, restoredTabSession } from '../../../src/renderer/settings/session'
 import { storedValue, viewSettingsFixture } from './fixture'
 
 /**
@@ -69,5 +76,43 @@ describe('restoredTabSession', () => {
   it("hands back the key's own default, not one shape for both", () => {
     const { settings } = viewSettingsFixture({ [RESTORE_SESSION_KEY]: false })
     expect(restoredTabSession(settings, PODCAST_TABS)).toEqual({ openIds: [], viewedId: null })
+  })
+})
+
+/**
+ * The launch gate over the last play queue — G2, W14-6.
+ *
+ * `view.restoreQueue` differs from the tab gate in one deliberate way: it is off
+ * by default, and it gates the write too (in `usePlaybackStore`). So a shut gate
+ * returns the empty session and the store never records — the read side of that
+ * is what these pin.
+ */
+describe('restoredQueueSession', () => {
+  const LAST_QUEUE: QueueSession = {
+    intent: { kind: 'playlist', playlistId: 7 },
+    baseIndex: 3,
+    trackId: 88,
+    elapsedMs: 4200
+  }
+
+  it('does not restore by default — the gate is off', () => {
+    const { settings } = viewSettingsFixture({ [QUEUE_SESSION_KEY]: LAST_QUEUE })
+    expect(restoredQueueSession(settings)).toEqual(EMPTY_QUEUE_SESSION)
+  })
+
+  it('brings the queue back once the gate is on', () => {
+    const { settings } = viewSettingsFixture({
+      [RESTORE_QUEUE_KEY]: true,
+      [QUEUE_SESSION_KEY]: LAST_QUEUE
+    })
+    expect(restoredQueueSession(settings)).toEqual(LAST_QUEUE)
+  })
+
+  it('hands back the empty session, never a stored queue, while shut', () => {
+    const { settings } = viewSettingsFixture({
+      [RESTORE_QUEUE_KEY]: false,
+      [QUEUE_SESSION_KEY]: LAST_QUEUE
+    })
+    expect(restoredQueueSession(settings)).toEqual(EMPTY_QUEUE_SESSION)
   })
 })
