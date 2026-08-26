@@ -25,7 +25,9 @@ const podcast: Podcast = {
   lastError: null,
   episodeCount: 1,
   undownloadedCount: 0,
-  unplayedCount: 1
+  unplayedCount: 1,
+  autoDownload: false,
+  keepLast: 3
 }
 
 const episode: Episode = {

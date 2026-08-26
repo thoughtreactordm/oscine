@@ -440,3 +440,142 @@ describe('SqlitePodcastService', () => {
     }
   })
 })
+
+/** A Multi Pod feed with one `<item>` per day; higher day = newer episode. */
+function multiFeed(days: readonly number[]): string {
+  const items = days
+    .map(
+      (day) => `
+    <item>
+      <title>Episode ${day}</title>
+      <guid>e${day}</guid>
+      <pubDate>${new Date(Date.UTC(2024, 0, day)).toUTCString()}</pubDate>
+      <enclosure url="https://cdn.example/e${day}.mp3" length="3" type="audio/mpeg" />
+    </item>`
+    )
+    .join('')
+  return `<?xml version="1.0"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Multi Pod</title>
+    <itunes:author>Tester</itunes:author>${items}
+  </channel>
+</rss>`
+}
+
+describe('SqlitePodcastService auto-download (P4)', () => {
+  async function statusByGuid(
+    podcasts: SqlitePodcastService,
+    podcastId: number
+  ): Promise<Map<string, string>> {
+    const { episodes } = await podcasts.listEpisodes({ podcastId, offset: 0, limit: 50 })
+    return new Map(episodes.map((e) => [e.guid, e.downloadStatus]))
+  }
+
+  /** Serves the current feed (mutable via the returned setter) and 3-byte mp3s. */
+  function autoFetch(initial: string): {
+    fetchImpl: typeof fetch
+    setFeed: (xml: string) => void
+  } {
+    let feed = initial
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('feed.xml')) return new Response(feed, { status: 200 })
+      if (url.endsWith('.mp3')) {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { 'content-length': '3' }
+        })
+      }
+      return new Response('missing', { status: 404 })
+    }) as unknown as typeof fetch
+    return { fetchImpl, setFeed: (xml) => (feed = xml) }
+  }
+
+  it('enabling fills the newest keepLast and leaves older episodes remote', async () => {
+    const { fetchImpl } = autoFetch(multiFeed([1, 2, 3, 4, 5]))
+    const { db, podcasts } = service(fetchImpl)
+    try {
+      const podcast = await podcasts.subscribe('https://example.com/feed.xml')
+      expect(podcast.autoDownload).toBe(false)
+      expect(podcast.keepLast).toBe(3)
+
+      const updated = await podcasts.setAutoDownload(podcast.id, true)
+      expect(updated.autoDownload).toBe(true)
+
+      await vi.waitFor(async () => {
+        const s = await statusByGuid(podcasts, podcast.id)
+        expect(s.get('e5')).toBe('ready')
+        expect(s.get('e4')).toBe('ready')
+        expect(s.get('e3')).toBe('ready')
+        expect(s.get('e2')).toBe('remote')
+        expect(s.get('e1')).toBe('remote')
+      })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('a refresh downloads a newer episode and prunes the oldest auto-download', async () => {
+    const { fetchImpl, setFeed } = autoFetch(multiFeed([1, 2, 3]))
+    const { db, podcasts } = service(fetchImpl)
+    try {
+      const podcast = await podcasts.subscribe('https://example.com/feed.xml')
+      await podcasts.setAutoDownload(podcast.id, true)
+      await vi.waitFor(async () => {
+        const s = await statusByGuid(podcasts, podcast.id)
+        expect([...s.values()].filter((v) => v === 'ready')).toHaveLength(3)
+      })
+
+      setFeed(multiFeed([1, 2, 3, 4]))
+      await podcasts.refresh(podcast.id)
+
+      await vi.waitFor(async () => {
+        const s = await statusByGuid(podcasts, podcast.id)
+        expect(s.get('e4')).toBe('ready')
+        expect(s.get('e3')).toBe('ready')
+        expect(s.get('e2')).toBe('ready')
+        expect(s.get('e1')).toBe('remote') // pushed out of the newest-3 window
+      })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('never prunes a manually-downloaded episode', async () => {
+    const { fetchImpl, setFeed } = autoFetch(multiFeed([1, 2, 3, 4]))
+    const { db, podcasts } = service(fetchImpl)
+    try {
+      const podcast = await podcasts.subscribe('https://example.com/feed.xml')
+      await podcasts.setKeepLast(podcast.id, 2)
+
+      // Manually download the oldest episode — a keep the prune must never touch.
+      const before = await podcasts.listEpisodes({ podcastId: podcast.id, offset: 0, limit: 50 })
+      const e1 = before.episodes.find((e) => e.guid === 'e1')!
+      const manual = await podcasts.downloadEpisode(e1.id)
+      expect(manual.downloadStatus).toBe('ready')
+
+      await podcasts.setAutoDownload(podcast.id, true)
+      await vi.waitFor(async () => {
+        const s = await statusByGuid(podcasts, podcast.id)
+        expect(s.get('e4')).toBe('ready') // auto
+        expect(s.get('e3')).toBe('ready') // auto
+        expect(s.get('e2')).toBe('remote')
+        expect(s.get('e1')).toBe('ready') // manual, untouched
+      })
+
+      setFeed(multiFeed([1, 2, 3, 4, 5]))
+      await podcasts.refresh(podcast.id)
+
+      await vi.waitFor(async () => {
+        const s = await statusByGuid(podcasts, podcast.id)
+        expect(s.get('e5')).toBe('ready') // new auto
+        expect(s.get('e4')).toBe('ready') // auto retained
+        expect(s.get('e3')).toBe('remote') // oldest auto pruned
+        expect(s.get('e1')).toBe('ready') // manual survives regardless
+      })
+    } finally {
+      db.close()
+    }
+  })
+})

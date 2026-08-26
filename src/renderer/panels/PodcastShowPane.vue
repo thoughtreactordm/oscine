@@ -4,7 +4,7 @@ import { visibleRange } from '@renderer/panels/listViewport'
 import { useDisplayFormatStore } from '@renderer/stores/displayFormat'
 import { usePodcastsStore } from '@renderer/stores/podcasts'
 import { hasArtwork } from '@shared/ipc'
-import type { Episode } from '@shared/podcasts'
+import { MAX_KEEP_LAST, MIN_KEEP_LAST, type Episode } from '@shared/podcasts'
 
 /**
  * Per-show body: artwork, metadata, virtualized episode list.
@@ -175,6 +175,32 @@ function statusLabel(episode: Episode): string {
           {{ podcast.episodeCount }} episodes
           <span v-if="podcast.unplayedCount"> · {{ podcast.unplayedCount }} unplayed</span>
         </p>
+        <!--
+          Auto-download new episodes, keeping the newest N on disk (P4). The N
+          stepper only appears while the toggle is on, since it is meaningless
+          otherwise.
+        -->
+        <div class="flex flex-wrap items-center gap-2 pt-1">
+          <USwitch
+            :model-value="podcast.autoDownload"
+            size="sm"
+            :label="podcast.autoDownload ? 'Auto-download latest' : 'Auto-download'"
+            :aria-label="`Auto-download new episodes of ${podcast.title}`"
+            @update:model-value="podcasts.setAutoDownload(podcast.id, $event === true)"
+          />
+          <div v-if="podcast.autoDownload" class="flex items-center gap-1.5 text-xs text-dimmed">
+            <span>keep newest</span>
+            <UInputNumber
+              :model-value="podcast.keepLast"
+              :min="MIN_KEEP_LAST"
+              :max="MAX_KEEP_LAST"
+              size="xs"
+              class="w-24"
+              :aria-label="`Number of episodes to keep downloaded for ${podcast.title}`"
+              @update:model-value="podcasts.setKeepLast(podcast.id, Number($event))"
+            />
+          </div>
+        </div>
       </div>
     </header>
 

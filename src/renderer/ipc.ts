@@ -224,6 +224,10 @@ export const podcasts = {
   clearDownloads: (podcastId: number) => unwrap(window.oscine.podcasts.clearDownloads(podcastId)),
   setPlayed: (episodeId: number, played: boolean) =>
     unwrap(window.oscine.podcasts.setPlayed(episodeId, played)),
+  setAutoDownload: (podcastId: number, enabled: boolean) =>
+    unwrap(window.oscine.podcasts.setAutoDownload(podcastId, enabled)),
+  setKeepLast: (podcastId: number, keepLast: number) =>
+    unwrap(window.oscine.podcasts.setKeepLast(podcastId, keepLast)),
   importOpml: (xml: string) => unwrap(window.oscine.podcasts.importOpml(xml)),
   getEpisodeFileUrl: (episodeId: number) =>
     unwrap(window.oscine.podcasts.getEpisodeFileUrl(episodeId)),

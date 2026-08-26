@@ -26,6 +26,21 @@ export interface Podcast {
   episodeCount: number
   undownloadedCount: number
   unplayedCount: number
+  /** Auto-download new episodes and keep the newest `keepLast` on disk (P4). */
+  autoDownload: boolean
+  /** How many auto-downloaded episodes to retain per pod. See `KEEP_LAST_*`. */
+  keepLast: number
+}
+
+/** Retention default and bounds for a pod's auto-download window (P4). */
+export const DEFAULT_KEEP_LAST = 3
+export const MIN_KEEP_LAST = 1
+export const MAX_KEEP_LAST = 50
+
+/** Clamp an arbitrary N into the retention range, falling back to the default. */
+export function clampKeepLast(n: number): number {
+  if (!Number.isFinite(n)) return DEFAULT_KEEP_LAST
+  return Math.min(MAX_KEEP_LAST, Math.max(MIN_KEEP_LAST, Math.trunc(n)))
 }
 
 export type EpisodeDownloadStatus = 'remote' | 'downloading' | 'ready' | 'failed'
