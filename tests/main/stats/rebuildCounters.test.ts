@@ -89,6 +89,8 @@ describe('rebuildTrackCounters', () => {
    * maintained with `MAX`, and a run of listens in chronological order would
    * pass whether it were `MAX` or a bare assignment. This one would not.
    */
+  // 3,000 sequential awaited writes; on a loaded Windows CI runner that clears
+  // the 5s default with no room, so give it a slow-runner budget.
   it('reproduces incrementally-maintained values exactly', async () => {
     const listens = new SqliteListenService({ db })
     const tracks = Array.from({ length: 300 }, () => seedTrack())
@@ -115,7 +117,7 @@ describe('rebuildTrackCounters', () => {
     expect(result.listensCounted).toBe(
       (db.prepare('SELECT COUNT(*) AS n FROM listens').get() as { n: number }).n
     )
-  })
+  }, 30_000)
 
   /**
    * 014's `ON DELETE SET NULL`: a track that left the library leaves its listens
