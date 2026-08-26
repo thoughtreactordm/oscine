@@ -69,6 +69,25 @@ export const SOURCES_ARTISTS_PANE: PaneSpec = {
   reserve: 176
 }
 
+/**
+ * The Subscriptions half of the Podcasts sidebar split.
+ *
+ * The same shape as `SOURCES_ARTISTS_PANE`: only the upper pane carries a size
+ * and Recent below takes what is left, so there is one number to store. `min`
+ * clears the section header, the pinned Discover row and a subscription or two;
+ * `reserve` is Recent's own minimum — its rows are 52px, so it needs the room
+ * of the `min-h-40` the lower section also carries as a CSS backstop.
+ */
+export const PODCASTS_SUBSCRIPTIONS_PANE: PaneSpec = {
+  key: 'podcasts.subscriptions',
+  axis: 'y',
+  side: 'before',
+  label: 'Subscriptions pane height',
+  defaultSize: 300,
+  min: 140,
+  reserve: 160
+}
+
 export interface ShellLayoutDeps {
   settings: ViewSettings
 }

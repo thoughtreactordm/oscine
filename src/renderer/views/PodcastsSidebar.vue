@@ -1,19 +1,41 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { visibleRange } from '@renderer/panels/listViewport'
+import PaneResizer from '@renderer/shell/PaneResizer.vue'
+import { PODCASTS_SUBSCRIPTIONS_PANE } from '@renderer/shell/shellLayout'
 import { useDisplayFormatStore } from '@renderer/stores/displayFormat'
-import { usePodcastsStore } from '@renderer/stores/podcasts'
+import { PODCAST_DISCOVER_TAB, usePodcastsStore } from '@renderer/stores/podcasts'
+import { useShellStore } from '@renderer/stores/shell'
 import { hasArtwork } from '@shared/ipc'
 import type { Episode, Podcast } from '@shared/podcasts'
 
 /**
- * Podcasts sidebar: Recent episodes above, Subscriptions below.
+ * Podcasts sidebar: Subscriptions above, Recent episodes below.
  *
- * Two independently scrolled, virtualized panels — the Curate rail split in
- * half. Clicking either opens (or focuses) a show tab in the body.
+ * The rail is the chooser now the tab strip is gone. Two independently
+ * scrolled, virtualized panels — the Curate rail split in half — with Discover
+ * pinned at the top of Subscriptions so the default page stays one click away.
+ *
+ * Discover sits *outside* the shows scroll container: it is the null stop, not
+ * a subscription, so it cannot be scrolled past, virtualized, or counted in the
+ * shows list. Clicking it views Discover; clicking a show views that show.
  */
 
 const podcasts = usePodcastsStore()
+const shell = useShellStore()
+
+/** Whether Discover — the null stop — is the thing on screen. */
+const discoverViewed = computed(() => podcasts.viewedPodcastId === PODCAST_DISCOVER_TAB)
+
+/**
+ * The Subscriptions/Recent divide, dragged and remembered.
+ *
+ * The same `PaneResizer` the Sources sidebar uses for Artists/Albums: only the
+ * upper pane carries a height and Recent takes what is left, so there is one
+ * number to store and no way for the two to add up to something other than the
+ * column.
+ */
+const subscriptionsHeight = shell.paneSize(PODCASTS_SUBSCRIPTIONS_PANE)
 const formats = useDisplayFormatStore()
 const RECENT_ROW = 52
 const SHOW_ROW = 40
@@ -98,7 +120,103 @@ function openShow(podcast: Podcast): void {
 
 <template>
   <aside class="flex h-full min-h-0 flex-col bg-default" aria-label="Podcasts">
-    <section class="flex min-h-0 flex-1 flex-col border-b border-default">
+    <section
+      class="flex min-h-0 flex-col overflow-hidden"
+      :style="{ height: `${subscriptionsHeight}px` }"
+    >
+      <header class="flex items-center justify-between gap-2 px-3 py-2">
+        <h2 class="text-xs font-semibold uppercase tracking-widest text-muted">Subscriptions</h2>
+        <UButton
+          size="xs"
+          color="neutral"
+          variant="ghost"
+          icon="i-tabler-refresh"
+          :loading="podcasts.refreshing"
+          aria-label="Refresh all feeds"
+          @click="podcasts.refreshAll()"
+        />
+      </header>
+
+      <!--
+        Discover, pinned above the shows and outside their scroll container, so
+        it stays put however far the list is scrolled. A plain button, not a
+        `role="listitem"` in the list below: it is the null stop, not a
+        subscription, so it must not be counted, virtualized, or scrolled past.
+      -->
+      <button
+        type="button"
+        class="flex shrink-0 cursor-default items-center gap-2 border-b border-default px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+        :class="
+          discoverViewed
+            ? 'bg-elevated text-highlighted shadow-[inset_2px_0_0_0_var(--ui-primary)]'
+            : 'text-muted hover:bg-elevated/80 hover:text-default'
+        "
+        :aria-current="discoverViewed ? 'true' : undefined"
+        @click="podcasts.view(PODCAST_DISCOVER_TAB)"
+      >
+        <UIcon
+          name="i-tabler-compass"
+          class="size-4 shrink-0"
+          :class="discoverViewed ? 'text-primary' : ''"
+          aria-hidden="true"
+        />
+        <span class="min-w-0 flex-1 truncate text-xs font-medium">Discover</span>
+      </button>
+
+      <div
+        :ref="measureShows"
+        class="min-h-0 flex-1 overflow-y-auto"
+        role="list"
+        aria-label="Subscribed podcasts"
+        @scroll="onShowsScroll"
+      >
+        <div v-if="podcasts.list.length === 0" class="px-3 py-6 text-center text-xs text-dimmed">
+          Subscribe from Discover, or import an OPML file.
+        </div>
+        <div
+          v-else
+          :style="{ height: `${podcasts.list.length * SHOW_ROW}px`, position: 'relative' }"
+        >
+          <button
+            v-for="(podcast, i) in showsDrawn"
+            :key="podcast.id"
+            type="button"
+            role="listitem"
+            class="absolute inset-x-0 flex w-full items-center gap-2 px-2 text-left transition-colors"
+            :class="
+              podcasts.viewedPodcastId === podcast.id
+                ? 'bg-elevated text-highlighted'
+                : 'hover:bg-elevated/80'
+            "
+            :style="{
+              top: `${(showsWindow.first + i) * SHOW_ROW}px`,
+              height: `${SHOW_ROW}px`
+            }"
+            @click="openShow(podcast)"
+          >
+            <UAvatar
+              :src="hasArtwork(podcast.artwork.small) ? podcast.artwork.small : undefined"
+              icon="i-tabler-microphone"
+              alt=""
+              size="sm"
+              class="shrink-0 rounded-md"
+              :ui="{ image: 'rounded-md object-cover', icon: 'size-3.5 text-dimmed' }"
+            />
+            <span class="min-w-0 flex-1 truncate text-xs font-medium">{{ podcast.title }}</span>
+            <span
+              v-if="podcast.unplayedCount > 0"
+              class="shrink-0 rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-primary"
+            >
+              {{ podcast.unplayedCount }}
+            </span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <PaneResizer v-model:size="subscriptionsHeight" :pane="PODCASTS_SUBSCRIPTIONS_PANE" />
+
+    <section class="flex min-h-40 flex-1 flex-col overflow-hidden">
       <header class="flex items-center justify-between gap-2 px-3 py-2">
         <h2 class="text-xs font-semibold uppercase tracking-widest text-muted">Recent</h2>
         <span class="text-[11px] text-dimmed">{{ podcasts.recentTotal }}</span>
@@ -151,70 +269,6 @@ function openShow(podcast: Podcast): void {
                 {{ episode.podcastTitle }}
                 <span v-if="episode.pubDate"> · {{ formats.date(episode.pubDate) }}</span>
               </span>
-            </span>
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <section class="flex min-h-0 flex-1 flex-col">
-      <header class="flex items-center justify-between gap-2 px-3 py-2">
-        <h2 class="text-xs font-semibold uppercase tracking-widest text-muted">Subscriptions</h2>
-        <UButton
-          size="xs"
-          color="neutral"
-          variant="ghost"
-          icon="i-tabler-refresh"
-          :loading="podcasts.refreshing"
-          aria-label="Refresh all feeds"
-          @click="podcasts.refreshAll()"
-        />
-      </header>
-      <div
-        :ref="measureShows"
-        class="min-h-0 flex-1 overflow-y-auto"
-        role="list"
-        aria-label="Subscribed podcasts"
-        @scroll="onShowsScroll"
-      >
-        <div v-if="podcasts.list.length === 0" class="px-3 py-6 text-center text-xs text-dimmed">
-          Subscribe from Discover, or import an OPML file.
-        </div>
-        <div
-          v-else
-          :style="{ height: `${podcasts.list.length * SHOW_ROW}px`, position: 'relative' }"
-        >
-          <button
-            v-for="(podcast, i) in showsDrawn"
-            :key="podcast.id"
-            type="button"
-            role="listitem"
-            class="absolute inset-x-0 flex w-full items-center gap-2 px-2 text-left transition-colors"
-            :class="
-              podcasts.viewedPodcastId === podcast.id
-                ? 'bg-elevated text-highlighted'
-                : 'hover:bg-elevated/80'
-            "
-            :style="{
-              top: `${(showsWindow.first + i) * SHOW_ROW}px`,
-              height: `${SHOW_ROW}px`
-            }"
-            @click="openShow(podcast)"
-          >
-            <UAvatar
-              :src="hasArtwork(podcast.artwork.small) ? podcast.artwork.small : undefined"
-              icon="i-tabler-microphone"
-              alt=""
-              size="sm"
-              class="shrink-0 rounded-md"
-              :ui="{ image: 'rounded-md object-cover', icon: 'size-3.5 text-dimmed' }"
-            />
-            <span class="min-w-0 flex-1 truncate text-xs font-medium">{{ podcast.title }}</span>
-            <span
-              v-if="podcast.unplayedCount > 0"
-              class="shrink-0 rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-primary"
-            >
-              {{ podcast.unplayedCount }}
             </span>
           </button>
         </div>
