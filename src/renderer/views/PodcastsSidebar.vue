@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { visibleRange } from '@renderer/panels/listViewport'
+import PaneResizer from '@renderer/shell/PaneResizer.vue'
+import { PODCASTS_SUBSCRIPTIONS_PANE } from '@renderer/shell/shellLayout'
 import { useDisplayFormatStore } from '@renderer/stores/displayFormat'
 import { PODCAST_DISCOVER_TAB, usePodcastsStore } from '@renderer/stores/podcasts'
+import { useShellStore } from '@renderer/stores/shell'
 import { hasArtwork } from '@shared/ipc'
 import type { Episode, Podcast } from '@shared/podcasts'
 
@@ -19,9 +22,20 @@ import type { Episode, Podcast } from '@shared/podcasts'
  */
 
 const podcasts = usePodcastsStore()
+const shell = useShellStore()
 
 /** Whether Discover — the null stop — is the thing on screen. */
 const discoverViewed = computed(() => podcasts.viewedPodcastId === PODCAST_DISCOVER_TAB)
+
+/**
+ * The Subscriptions/Recent divide, dragged and remembered.
+ *
+ * The same `PaneResizer` the Sources sidebar uses for Artists/Albums: only the
+ * upper pane carries a height and Recent takes what is left, so there is one
+ * number to store and no way for the two to add up to something other than the
+ * column.
+ */
+const subscriptionsHeight = shell.paneSize(PODCASTS_SUBSCRIPTIONS_PANE)
 const formats = useDisplayFormatStore()
 const RECENT_ROW = 52
 const SHOW_ROW = 40
@@ -106,7 +120,10 @@ function openShow(podcast: Podcast): void {
 
 <template>
   <aside class="flex h-full min-h-0 flex-col bg-default" aria-label="Podcasts">
-    <section class="flex min-h-0 flex-1 flex-col border-b border-default">
+    <section
+      class="flex min-h-0 flex-col overflow-hidden"
+      :style="{ height: `${subscriptionsHeight}px` }"
+    >
       <header class="flex items-center justify-between gap-2 px-3 py-2">
         <h2 class="text-xs font-semibold uppercase tracking-widest text-muted">Subscriptions</h2>
         <UButton
@@ -197,7 +214,9 @@ function openShow(podcast: Podcast): void {
       </div>
     </section>
 
-    <section class="flex min-h-0 flex-1 flex-col">
+    <PaneResizer v-model:size="subscriptionsHeight" :pane="PODCASTS_SUBSCRIPTIONS_PANE" />
+
+    <section class="flex min-h-40 flex-1 flex-col overflow-hidden">
       <header class="flex items-center justify-between gap-2 px-3 py-2">
         <h2 class="text-xs font-semibold uppercase tracking-widest text-muted">Recent</h2>
         <span class="text-[11px] text-dimmed">{{ podcasts.recentTotal }}</span>
