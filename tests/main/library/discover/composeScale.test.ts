@@ -105,7 +105,10 @@ describe('compose at the scale target', () => {
         }
       }
     })()
-  }, 30_000)
+    // A 100k-row seed is disk-bound; a loaded Windows CI runner can take well
+    // over 30s to land the transaction. Budget generously — this is setup, not
+    // the thing being measured (the tab-open budget below is what matters).
+  }, 120_000)
 
   afterAll(() => {
     opened.db.close()
