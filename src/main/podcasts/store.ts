@@ -1,13 +1,14 @@
 import type Database from 'better-sqlite3'
 import { artworkUrl } from '@shared/ipc'
-import type {
-  Episode,
-  EpisodeDownloadStatus,
-  ListEpisodesQuery,
-  ListEpisodesResult,
-  ListRecentEpisodesQuery,
-  ListRecentEpisodesResult,
-  Podcast
+import {
+  DEFAULT_KEEP_LAST,
+  type Episode,
+  type EpisodeDownloadStatus,
+  type ListEpisodesQuery,
+  type ListEpisodesResult,
+  type ListRecentEpisodesQuery,
+  type ListRecentEpisodesResult,
+  type Podcast
 } from '@shared/podcasts'
 import type { ParsedFeed, ParsedFeedEpisode } from './rss'
 
@@ -22,6 +23,8 @@ interface PodcastRow {
   subscribed_at: number
   last_fetched_at: number | null
   last_error: string | null
+  auto_download: number
+  keep_last: number
   episode_count: number
   undownloaded_count: number
   unplayed_count: number
@@ -64,7 +67,7 @@ export class PodcastStore {
         `
 SELECT
   p.id, p.feed_url, p.title, p.author, p.description, p.site_url, p.artwork_hash,
-  p.subscribed_at, p.last_fetched_at, p.last_error,
+  p.subscribed_at, p.last_fetched_at, p.last_error, p.auto_download, p.keep_last,
   (SELECT COUNT(*) FROM episodes e WHERE e.podcast_id = p.id) AS episode_count,
   (SELECT COUNT(*) FROM episodes e WHERE e.podcast_id = p.id AND e.rel_path IS NULL) AS undownloaded_count,
   (SELECT COUNT(*) FROM episodes e WHERE e.podcast_id = p.id AND e.played = 0) AS unplayed_count
@@ -82,7 +85,7 @@ ORDER BY p.title COLLATE NOCASE ASC
         `
 SELECT
   p.id, p.feed_url, p.title, p.author, p.description, p.site_url, p.artwork_hash,
-  p.subscribed_at, p.last_fetched_at, p.last_error,
+  p.subscribed_at, p.last_fetched_at, p.last_error, p.auto_download, p.keep_last,
   (SELECT COUNT(*) FROM episodes e WHERE e.podcast_id = p.id) AS episode_count,
   (SELECT COUNT(*) FROM episodes e WHERE e.podcast_id = p.id AND e.rel_path IS NULL) AS undownloaded_count,
   (SELECT COUNT(*) FROM episodes e WHERE e.podcast_id = p.id AND e.played = 0) AS unplayed_count
@@ -100,7 +103,7 @@ WHERE p.id = ?
         `
 SELECT
   p.id, p.feed_url, p.title, p.author, p.description, p.site_url, p.artwork_hash,
-  p.subscribed_at, p.last_fetched_at, p.last_error,
+  p.subscribed_at, p.last_fetched_at, p.last_error, p.auto_download, p.keep_last,
   (SELECT COUNT(*) FROM episodes e WHERE e.podcast_id = p.id) AS episode_count,
   (SELECT COUNT(*) FROM episodes e WHERE e.podcast_id = p.id AND e.rel_path IS NULL) AS undownloaded_count,
   (SELECT COUNT(*) FROM episodes e WHERE e.podcast_id = p.id AND e.played = 0) AS unplayed_count
@@ -125,8 +128,8 @@ WHERE p.feed_url = ?
       .prepare(
         `
 INSERT INTO podcasts (
-  feed_url, title, author, description, site_url, artwork_url, subscribed_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)
+  feed_url, title, author, description, site_url, artwork_url, subscribed_at, keep_last
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
       )
       .run(
@@ -136,7 +139,8 @@ INSERT INTO podcasts (
         input.description,
         input.siteUrl,
         input.artworkUrl,
-        input.subscribedAt
+        input.subscribedAt,
+        DEFAULT_KEEP_LAST
       )
     return Number(result.lastInsertRowid)
   }
@@ -330,7 +334,8 @@ WHERE id = ?
       .prepare(
         `
 UPDATE episodes SET
-  rel_path = NULL, file_size = NULL, downloaded_at = NULL, download_error = NULL
+  rel_path = NULL, file_size = NULL, downloaded_at = NULL, download_error = NULL,
+  auto_downloaded = 0
 WHERE id = ?
 `
       )
@@ -342,11 +347,70 @@ WHERE id = ?
       .prepare(
         `
 UPDATE episodes SET
-  rel_path = NULL, file_size = NULL, downloaded_at = NULL, download_error = NULL
+  rel_path = NULL, file_size = NULL, downloaded_at = NULL, download_error = NULL,
+  auto_downloaded = 0
 WHERE podcast_id = ?
 `
       )
       .run(podcastId)
+  }
+
+  setAutoDownload(podcastId: number, enabled: boolean): void {
+    this.db
+      .prepare(`UPDATE podcasts SET auto_download = ? WHERE id = ?`)
+      .run(enabled ? 1 : 0, podcastId)
+  }
+
+  setKeepLast(podcastId: number, keepLast: number): void {
+    this.db.prepare(`UPDATE podcasts SET keep_last = ? WHERE id = ?`).run(keepLast, podcastId)
+  }
+
+  getKeepLast(podcastId: number): number {
+    const row = this.db.prepare(`SELECT keep_last FROM podcasts WHERE id = ?`).get(podcastId) as
+      { keep_last: number } | undefined
+    return row?.keep_last ?? 0
+  }
+
+  /** Flags a downloaded episode as auto-retained (1) or manually kept (0). */
+  setAutoDownloaded(episodeId: number, auto: boolean): void {
+    this.db
+      .prepare(`UPDATE episodes SET auto_downloaded = ? WHERE id = ?`)
+      .run(auto ? 1 : 0, episodeId)
+  }
+
+  /** The newest `limit` episode ids for a show, newest first. */
+  latestEpisodeIds(podcastId: number, limit: number): number[] {
+    if (limit <= 0) return []
+    const rows = this.db
+      .prepare(
+        `
+SELECT id FROM episodes
+WHERE podcast_id = ?
+ORDER BY pub_date IS NULL, pub_date DESC, id DESC
+LIMIT ?
+`
+      )
+      .all(podcastId, limit) as Array<{ id: number }>
+    return rows.map((row) => row.id)
+  }
+
+  /**
+   * Auto-downloaded, on-disk episode ids ranked past the newest `keepLast` —
+   * the prune set. Manual downloads (`auto_downloaded = 0`) are never returned,
+   * so pruning cannot touch a file the user kept by hand.
+   */
+  autoDownloadedBeyond(podcastId: number, keepLast: number): number[] {
+    const rows = this.db
+      .prepare(
+        `
+SELECT id FROM episodes
+WHERE podcast_id = ? AND auto_downloaded = 1 AND rel_path IS NOT NULL
+ORDER BY pub_date IS NULL, pub_date DESC, id DESC
+LIMIT -1 OFFSET ?
+`
+      )
+      .all(podcastId, Math.max(0, keepLast)) as Array<{ id: number }>
+    return rows.map((row) => row.id)
   }
 
   setPlayed(episodeId: number, played: boolean): void {
@@ -395,7 +459,9 @@ function mapPodcast(row: PodcastRow): Podcast {
     lastError: row.last_error,
     episodeCount: row.episode_count,
     undownloadedCount: row.undownloaded_count,
-    unplayedCount: row.unplayed_count
+    unplayedCount: row.unplayed_count,
+    autoDownload: row.auto_download === 1,
+    keepLast: row.keep_last
   }
 }
 

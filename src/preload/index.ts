@@ -282,6 +282,10 @@ const api = {
     clearDownloads: (podcastId: number) => request('podcasts.clearDownloads', { podcastId }),
     setPlayed: (episodeId: number, played: boolean) =>
       request('podcasts.setPlayed', { episodeId, played }),
+    setAutoDownload: (podcastId: number, enabled: boolean) =>
+      request('podcasts.setAutoDownload', { podcastId, enabled }),
+    setKeepLast: (podcastId: number, keepLast: number) =>
+      request('podcasts.setKeepLast', { podcastId, keepLast }),
     importOpml: (xml: string) => request('podcasts.importOpml', { xml }),
     getEpisodeFileUrl: (episodeId: number) => request('podcasts.getEpisodeFileUrl', { episodeId }),
     getEpisodeAudioMetadata: (episodeId: number) =>
