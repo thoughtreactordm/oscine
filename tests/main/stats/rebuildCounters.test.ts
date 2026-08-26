@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import type Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openDatabase } from '../../../src/main/db'
@@ -17,8 +14,6 @@ import { rebuildTrackCounters } from '../../../src/main/stats/counters'
  * because a fake would be a third.
  */
 
-let dir: string
-let file: string
 let db: Database.Database
 
 let nextPath = 0
@@ -63,15 +58,16 @@ function everyCounter(): Array<{ id: number; play_count: number; last_played_at:
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'oscine-counters-'))
-  file = join(dir, 'library.db')
-  db = openDatabase(file).db
+  // In-memory: this suite proves that incremental maintenance and a from-scratch
+  // rebuild agree, which the real migration list gives us regardless of backing
+  // store. A disk file only added the WAL fsync per commit that made the
+  // 3,000-write test flake on a loaded Windows runner — cost with no coverage.
+  db = openDatabase(':memory:').db
   nextPath = 0
 })
 
 afterEach(() => {
   db.close()
-  rmSync(dir, { recursive: true, force: true })
 })
 
 describe('rebuildTrackCounters', () => {
@@ -89,8 +85,6 @@ describe('rebuildTrackCounters', () => {
    * maintained with `MAX`, and a run of listens in chronological order would
    * pass whether it were `MAX` or a bare assignment. This one would not.
    */
-  // 3,000 sequential awaited writes; on a loaded Windows CI runner that clears
-  // the 5s default with no room, so give it a slow-runner budget.
   it('reproduces incrementally-maintained values exactly', async () => {
     const listens = new SqliteListenService({ db })
     const tracks = Array.from({ length: 300 }, () => seedTrack())
@@ -117,7 +111,7 @@ describe('rebuildTrackCounters', () => {
     expect(result.listensCounted).toBe(
       (db.prepare('SELECT COUNT(*) AS n FROM listens').get() as { n: number }).n
     )
-  }, 30_000)
+  })
 
   /**
    * 014's `ON DELETE SET NULL`: a track that left the library leaves its listens

@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openDatabase } from '../../../../src/main/db'
@@ -28,12 +25,16 @@ const GENRES = 5
 const BUDGET_MS = 250
 
 describe('compose at the scale target', () => {
-  let dir: string
   let opened: ReturnType<typeof openDatabase>
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), 'oscine-discover-scale-'))
-    opened = openDatabase(join(dir, 'library.db'))
+    // In-memory: what this test measures is compose()'s query latency over 100k
+    // rows, which SQLite serves from its page cache — RAM whether the store is
+    // `:memory:` or a disk file with a warm cache. A disk file only added the
+    // WAL write cost of landing the 100k-row seed, which is what dragged the
+    // beforeAll past 30s on a loaded Windows runner. In-memory removes that seed
+    // cost and can only make the read budget below safer, never harder.
+    opened = openDatabase(':memory:')
     const { db } = opened
 
     const rootId = Number(
@@ -105,14 +106,10 @@ describe('compose at the scale target', () => {
         }
       }
     })()
-    // A 100k-row seed is disk-bound; a loaded Windows CI runner can take well
-    // over 30s to land the transaction. Budget generously — this is setup, not
-    // the thing being measured (the tab-open budget below is what matters).
-  }, 120_000)
+  })
 
   afterAll(() => {
     opened.db.close()
-    rmSync(dir, { recursive: true, force: true })
   })
 
   it('returns shelves rather than an empty page', () => {

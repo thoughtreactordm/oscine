@@ -27,6 +27,17 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts']
+    include: ['tests/**/*.test.ts'],
+
+    // The scale suites seed six-figure row counts in a hook, then measure a fast
+    // query. On a shared `windows-latest` runner (slow disk, Defender scanning
+    // the WAL file on every write) those seeds blow the 5s/10s defaults, while
+    // the measured `it()` bodies stay in the tens of milliseconds. This is one
+    // CI-wide budget so the fix lives in a single place — bumping a per-test
+    // timeout every time a new scale test lands is the whack-a-mole this
+    // replaces. Local stays tight enough to catch a genuinely hung test; a real
+    // seed on a dev machine clears it with room to spare.
+    testTimeout: process.env.CI ? 30_000 : 15_000,
+    hookTimeout: process.env.CI ? 120_000 : 30_000
   }
 })
