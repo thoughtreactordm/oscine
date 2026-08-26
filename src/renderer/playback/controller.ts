@@ -28,7 +28,13 @@ import type {
 import type { ListFavoritesQuery, ListFavoritesResult } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
 import type { ListPlaylistEntriesQuery, ListPlaylistEntriesResult } from '@shared/playlists'
-import { AUDIO_CROSSFADE_MS, AUDIO_CROSSFADE_MS_KEY } from '@shared/settings'
+import {
+  AUDIO_CROSSFADE_MS,
+  AUDIO_CROSSFADE_MS_KEY,
+  EMPTY_QUEUE_SESSION,
+  type QueueIntent,
+  type QueueSession
+} from '@shared/settings'
 import { createListenRecorder } from './listenRecorder'
 import type { MediaSessionBinding, MediaSessionState, MediaSessionTransport } from './mediaSession'
 import {
@@ -491,6 +497,30 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    */
   let sessionScope: SessionRowReader | null = null
 
+  /**
+   * The intent that produced the current order — G2's queue-restore, W14-6.
+   *
+   * Set by each play entry point to the discriminated fact it started from, so
+   * `snapshotSession` can persist *what was asked for* rather than the rows it
+   * derived. Cleared on stop and dispose, which is what makes a shut-down on an
+   * idle transport snapshot to the empty session rather than resurrect a queue.
+   * Held as a ref only so the persistence watcher in the store can react to it.
+   */
+  const currentIntent = ref<QueueIntent | null>(null)
+
+  /**
+   * A restored order waiting for its first play — the paused half of G2.
+   *
+   * `hydrateSession` installs the order, position and `nowPlaying` without
+   * touching the audio device: startup is not a user gesture, and browser
+   * autoplay policy only resumes the context during one. So the actual start is
+   * deferred to the first `resume`, which finds this set and starts the order at
+   * the saved index and elapsed rather than resuming an engine that was never
+   * built. Cleared the moment it is consumed, and by any real play or stop that
+   * overtakes it.
+   */
+  let pendingResume: { index: number; elapsedMs: number } | null = null
+
   /** Guards the one place a shuffle toggle awaits before it mutates state. */
   let shuffleToken = 0
 
@@ -694,8 +724,13 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     base: PlayOrder,
     at: number | null,
     scope: SessionRowReader,
-    track?: Track
+    track?: Track,
+    options?: { autostart?: boolean; resumeElapsedMs?: number }
   ): Promise<void> {
+    // A real start supersedes any queue that was waiting to be resumed. Set
+    // before anything else so an autostart path can never leave a stale one
+    // behind for the next `resume` to act on.
+    pendingResume = null
     baseOrder = base
     sessionScope = scope
 
@@ -738,6 +773,19 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       position.value = orderPosition(index)
       nowPlaying.value = opener
     }
+
+    // The paused-hydrate path (G2 queue-restore): everything above installs the
+    // order, position and now-playing row, but the audio device stays untouched
+    // — no `ensureScheduler`, no gesture spent — until the operator presses play
+    // and `resume` finds the `pendingResume` this leaves. The session tier is
+    // still filled so the up-next surface is populated for a queue nobody has
+    // started yet.
+    if (options?.autostart === false) {
+      pendingResume = { index, elapsedMs: Math.max(0, options.resumeElapsedMs ?? 0) }
+      void fillSession(index)
+      return
+    }
+
     // Deliberately not awaited. `startAt` is the click path and the fill is
     // five round trips behind it; making the audio wait on the queue being
     // drawable would trade the thing the user asked for against a list.
@@ -817,6 +865,12 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     // global setting rather than keeping whatever the last playlist wanted.
     // Clearing the id is the whole of that now: `crossfadeMs` derives from it.
     playingPlaylistId.value = null
+    currentIntent.value = {
+      kind: 'list',
+      sort: params.sort,
+      direction: params.direction,
+      ...(params.filters ? { filters: params.filters } : {})
+    }
 
     await startOrder(
       createListPlayOrder({
@@ -851,6 +905,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    */
   async function playFromFavorites(params: PlayFromFavoritesParams): Promise<void> {
     playingPlaylistId.value = null
+    currentIntent.value = { kind: 'favorites' }
 
     await startOrder(
       createFavoritesPlayOrder({ fetchPage: deps.fetchFavorites }),
@@ -868,6 +923,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    */
   async function playFromPlaylist(params: PlayFromPlaylistParams): Promise<void> {
     playingPlaylistId.value = params.playlistId
+    currentIntent.value = { kind: 'playlist', playlistId: params.playlistId }
     // Started rather than awaited: a playlist should not wait on a settings read
     // to begin playing, and until it lands `crossfadeMs` resolves to what the
     // playlist inherits — which is the right answer if it has no override, and
@@ -904,6 +960,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     playingPlaylistId.value = null
 
     const orderTracks = [...params.tracks]
+    currentIntent.value = { kind: 'tracks', trackIds: orderTracks.map((row) => row.id) }
     await startOrder(
       createFixedPlayOrder(orderTracks, `podcast:${orderTracks.map((row) => row.id).join(',')}`),
       index,
@@ -917,6 +974,158 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       },
       track
     )
+  }
+
+  /**
+   * Rebuilds the order and session scope an intent describes — G2's restore.
+   *
+   * The mirror of the four play entry points above, collected in one place so
+   * that what `snapshotSession` records and what a restore rebuilds cannot drift
+   * apart unremarked. `null` for an intent that resolves to nothing — a `tracks`
+   * list whose episodes have all left the library. Async only because that one
+   * variant fetches its rows before it can order them; the paged three resolve a
+   * row at a time exactly as their live counterparts do.
+   *
+   * `indexOf` is supplied only for `tracks`, whose whole order is materialized
+   * here and so can be searched for the current row after some of it has gone
+   * missing. The paged orders trust the saved base index instead — locating a
+   * track in one is a scan the live app never performs either.
+   */
+  async function intentToOrder(intent: QueueIntent): Promise<{
+    base: PlayOrder
+    scope: SessionRowReader
+    playlistId: number | null
+    indexOf?: (trackId: number) => number
+  } | null> {
+    switch (intent.kind) {
+      case 'list':
+        return {
+          base: createListPlayOrder({
+            fetchPage: deps.fetchPage,
+            sort: intent.sort,
+            direction: intent.direction,
+            filters: intent.filters
+          }),
+          scope: libraryScopeReader({
+            fetchTrackIds: deps.fetchTrackIds,
+            fetchTracksByIds: deps.fetchTracksByIds,
+            sort: intent.sort,
+            direction: intent.direction,
+            filters: intent.filters
+          }),
+          playlistId: null
+        }
+      case 'favorites':
+        return {
+          base: createFavoritesPlayOrder({ fetchPage: deps.fetchFavorites }),
+          scope: favoritesScopeReader({ fetchPage: deps.fetchFavorites }),
+          playlistId: null
+        }
+      case 'playlist':
+        return {
+          base: createPlaylistPlayOrder({
+            playlistId: intent.playlistId,
+            fetchEntries: deps.fetchPlaylistEntries
+          }),
+          scope: playlistScopeReader({
+            playlistId: intent.playlistId,
+            fetchEntries: deps.fetchPlaylistEntries
+          }),
+          playlistId: intent.playlistId
+        }
+      case 'tracks': {
+        const rows = await deps.fetchTracksByIds({ ids: intent.trackIds })
+        const byId = new Map(rows.map((row) => [row.id, row]))
+        // Preserve the saved order, dropping any episode that has since gone.
+        const orderTracks = intent.trackIds
+          .map((id) => byId.get(id))
+          .filter((row): row is Track => row !== undefined)
+        if (orderTracks.length === 0) return null
+        return {
+          base: createFixedPlayOrder(
+            orderTracks,
+            `podcast:${orderTracks.map((row) => row.id).join(',')}`
+          ),
+          scope: async (baseIndices) => {
+            const out = new Map<number, Track>()
+            for (const baseIndex of baseIndices) {
+              const row = orderTracks[baseIndex]
+              if (row) out.set(baseIndex, row)
+            }
+            return out
+          },
+          playlistId: null,
+          indexOf: (trackId) => orderTracks.findIndex((row) => row.id === trackId)
+        }
+      }
+    }
+  }
+
+  /**
+   * The current queue as a persistable session, or the empty one when idle.
+   *
+   * Async only because a shuffled position has to be mapped back to its base
+   * index: the snapshot is stored against the un-shuffled order, so a restore
+   * under shuffle pins the same current track and reshuffles what follows rather
+   * than claiming a permutation it never persisted. Everything else is a plain
+   * read of state the transport already holds.
+   */
+  async function snapshotSession(): Promise<QueueSession> {
+    const intent = currentIntent.value
+    const track = nowPlaying.value
+    if (!intent || !track) return { ...EMPTY_QUEUE_SESSION }
+
+    const orderIdx = position.value?.index ?? 0
+    const baseIndex = shuffledOrder ? await shuffledOrder.baseIndexAt(orderIdx) : orderIdx
+    return {
+      intent,
+      baseIndex: Math.max(0, baseIndex ?? orderIdx),
+      trackId: track.id,
+      elapsedMs: Math.max(0, Math.round(currentTime.value * 1000))
+    }
+  }
+
+  /**
+   * Installs a restored queue, paused at its saved position — G2's launch half.
+   *
+   * Refuses to act once anything is already loaded: a media key pressed during
+   * startup, or a track the operator started before the restore resolved, both
+   * win over a session from last time — hence the guard before *and* after the
+   * two awaits. The current track is fetched by id first, and its absence — an
+   * episode deleted, a file moved out of the library — drops the whole restore
+   * rather than resuming onto whatever row now sits at the saved index.
+   */
+  async function hydrateSession(session: QueueSession): Promise<void> {
+    const intent = session.intent
+    if (!intent || session.trackId === null) return
+    if (order || nowPlaying.value) return
+
+    const built = await intentToOrder(intent)
+    if (!built) return
+
+    const [opener] = await deps.fetchTracksByIds({ ids: [session.trackId] })
+    if (!opener) return
+    if (order || nowPlaying.value) return
+
+    let index = session.baseIndex
+    if (built.indexOf) {
+      const found = built.indexOf(session.trackId)
+      if (found < 0) return
+      index = found
+    }
+
+    // A restored playlist resolves its crossfade override the same way a live
+    // one does; without this the first boundary would use the global value.
+    if (intent.kind === 'playlist') {
+      void deps.settings?.loadOverrides({ kind: 'playlist', id: intent.playlistId })
+    }
+
+    playingPlaylistId.value = built.playlistId
+    currentIntent.value = intent
+    await startOrder(built.base, index, built.scope, opener, {
+      autostart: false,
+      resumeElapsedMs: session.elapsedMs
+    })
   }
 
   /**
@@ -1155,6 +1364,24 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    * second toggle would pause.
    */
   async function resume(): Promise<void> {
+    // The paused-hydrate path (G2): a restored queue has an order and a
+    // now-playing row but no engine yet. This first resume is the user gesture
+    // finally allowed to build one, so it starts the order at the saved index
+    // rather than resuming a device that was never opened.
+    if (pendingResume && !scheduler) {
+      const target = pendingResume
+      pendingResume = null
+      await startAt(target.index, nowPlaying.value ?? undefined)
+      if (target.elapsedMs > 0) {
+        const seconds = target.elapsedMs / 1000
+        currentTime.value = seconds
+        // Straight to the engine `startAt` has now built, which clamps to the
+        // real track length: `seek` would clamp to `duration.value`, and the
+        // first `timeupdate` that sets it has not arrived yet.
+        ensureScheduler().seek(seconds)
+      }
+      return
+    }
     if (!nowPlaying.value || status.value === 'playing') return
     await ensureScheduler().play()
   }
@@ -1292,6 +1519,11 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     baseOrder = null
     shuffledOrder = null
     sessionScope = null
+    // The queue is gone, so the intent that named it goes too — a stop snapshots
+    // to the empty session, which is what keeps a quit on a stopped transport
+    // from resurrecting a queue next launch. Any pending restore is moot.
+    currentIntent.value = null
+    pendingResume = null
     // The session tier describes a traversal that has just ended, so it ends
     // with it. The user tier is not a property of any traversal and survives —
     // rule 3 as amended, and the same asymmetry `startOrder` applies.
@@ -1340,6 +1572,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     baseOrder = null
     shuffledOrder = null
     sessionScope = null
+    // Not `currentIntent`: a quit persists the last snapshot through the store's
+    // flush hook, and that read must still find the intent the teardown is about
+    // to make moot. The order is gone, so nothing will start from it regardless.
+    pendingResume = null
     orderTotal.value = null
     status.value = 'idle'
     admission.value = null
@@ -1425,6 +1661,14 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     resume,
     pause,
     toggle,
+    /**
+     * G2's queue-restore, W14-6. `snapshotSession` reads the current queue as a
+     * persistable intent-plus-position; `hydrateSession` installs a saved one
+     * paused, to be started by the first `resume`. Both are gated by
+     * `view.restoreQueue` in `usePlaybackStore`, which owns the persistence.
+     */
+    snapshotSession,
+    hydrateSession,
     beginScrub,
     scrubTo,
     endScrub,

@@ -2704,4 +2704,167 @@ describe('createPlaybackController', () => {
       expect(plays).toEqual([LISTENABLE, LISTENABLE, LISTENABLE])
     })
   })
+
+  describe('queue-session restore (G2, W14-6)', () => {
+    const EMPTY = { intent: null, baseIndex: 0, trackId: null, elapsedMs: 0 }
+
+    it('snapshots a library play as its intent, position and elapsed', async () => {
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 2,
+        track: track(2)
+      })
+      h.engine.emit('timeupdate', { currentTime: 12.5, duration: 200 })
+      await settle()
+
+      expect(await h.controller.snapshotSession()).toEqual({
+        intent: { kind: 'list', sort: 'artist', direction: 'asc' },
+        baseIndex: 2,
+        trackId: 2,
+        elapsedMs: 12500
+      })
+    })
+
+    it('snapshots to the empty session when idle, and again after a stop', async () => {
+      expect(await h.controller.snapshotSession()).toEqual(EMPTY)
+
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 1,
+        track: track(1)
+      })
+      expect((await h.controller.snapshotSession()).intent).not.toBeNull()
+
+      h.controller.stop()
+      expect(await h.controller.snapshotSession()).toEqual(EMPTY)
+    })
+
+    it('records the base index of a shuffled position, not the shuffled one', async () => {
+      await h.controller.setShuffle(true)
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 2,
+        track: track(2)
+      })
+      await settle()
+
+      const snapshot = await h.controller.snapshotSession()
+      // Position 0 is base row 2 under the pin; the snapshot stores 2 so a
+      // restore re-pins the same current track rather than a permutation it did
+      // not persist.
+      expect(snapshot.baseIndex).toBe(2)
+      expect(snapshot.trackId).toBe(2)
+    })
+
+    it('hydrates a saved queue paused, without opening the audio device', async () => {
+      const restored = harness()
+      await restored.controller.hydrateSession({
+        intent: { kind: 'list', sort: 'artist', direction: 'asc' },
+        baseIndex: 3,
+        trackId: 3,
+        elapsedMs: 5000
+      })
+      await settle()
+
+      expect(restored.controller.hasTrack.value).toBe(true)
+      expect(restored.controller.nowPlaying.value?.id).toBe(3)
+      expect(restored.controller.orderIndex.value).toBe(3)
+      // Paused: startup is no gesture, so no engine has been claimed and nothing
+      // has been loaded or played.
+      expect(restored.controller.hasEngine()).toBe(false)
+      expect(restored.controller.status.value).toBe('idle')
+      expect(restored.engine.loaded).toEqual([])
+    })
+
+    it('starts the restored queue at its saved index and elapsed on the first resume', async () => {
+      const restored = harness()
+      await restored.controller.hydrateSession({
+        intent: { kind: 'list', sort: 'artist', direction: 'asc' },
+        baseIndex: 3,
+        trackId: 3,
+        elapsedMs: 5000
+      })
+      await settle()
+
+      await restored.controller.resume()
+      await settle()
+
+      expect(restored.controller.hasEngine()).toBe(true)
+      expect(restored.engine.loaded).toEqual([3])
+      expect(restored.engine.playCount).toBe(1)
+      // Seeks to 5000 ms once there is an engine to honour it.
+      expect(restored.engine.seeks).toContain(5)
+    })
+
+    it('drops the restore when the saved track has left the library', async () => {
+      const restored = harness({ total: 3 })
+      await restored.controller.hydrateSession({
+        intent: { kind: 'list', sort: 'artist', direction: 'asc' },
+        baseIndex: 0,
+        trackId: 99,
+        elapsedMs: 0
+      })
+      await settle()
+
+      expect(restored.controller.hasTrack.value).toBe(false)
+      expect(restored.controller.nowPlaying.value).toBeNull()
+    })
+
+    it('ignores an empty session', async () => {
+      const restored = harness()
+      await restored.controller.hydrateSession({ ...EMPTY })
+      await settle()
+
+      expect(restored.controller.hasTrack.value).toBe(false)
+    })
+
+    it('refuses to overwrite a queue that is already playing', async () => {
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 1,
+        track: track(1)
+      })
+      await settle()
+
+      await h.controller.hydrateSession({
+        intent: { kind: 'playlist', playlistId: 7 },
+        baseIndex: 0,
+        trackId: PLAYLIST_TRACK_BASE,
+        elapsedMs: 0
+      })
+      await settle()
+
+      // The live play stands; the restore was declined before it could touch it.
+      expect(h.controller.nowPlaying.value?.id).toBe(1)
+      expect(h.controller.playingPlaylistId.value).toBeNull()
+    })
+
+    it('recomputes a fixed order index around a track that has since gone', async () => {
+      const restored = harness({ total: 5 })
+      // The saved order was [1, 2, 3] with track 2 current at base index 1.
+      // Track 1 has since left, so the restored order is [2, 3] and the current
+      // track is now index 0 — the restore must follow the track, not the index.
+      restored.fetchTracksByIds.mockImplementation(async (query: GetTracksByIdsQuery) =>
+        query.ids.filter((id) => id !== 1 && id < 5).map(track)
+      )
+      await restored.controller.hydrateSession({
+        intent: { kind: 'tracks', trackIds: [1, 2, 3] },
+        baseIndex: 1,
+        trackId: 2,
+        elapsedMs: 0
+      })
+      await settle()
+
+      expect(restored.controller.nowPlaying.value?.id).toBe(2)
+
+      await restored.controller.resume()
+      await settle()
+      // Loaded the current track, not whatever now sits at the stale base index.
+      expect(restored.engine.loaded).toEqual([2])
+    })
+  })
 })

@@ -1,4 +1,12 @@
-import { RESTORE_SESSION_KEY, settingDefault, type TabSession } from '@shared/settings'
+import {
+  EMPTY_QUEUE_SESSION,
+  QUEUE_SESSION_KEY,
+  RESTORE_QUEUE_KEY,
+  RESTORE_SESSION_KEY,
+  settingDefault,
+  type QueueSession,
+  type TabSession
+} from '@shared/settings'
 import type { SettingsReader } from './reader'
 
 /**
@@ -30,4 +38,21 @@ import type { SettingsReader } from './reader'
 export function restoredTabSession(settings: SettingsReader, key: string): TabSession {
   if (!settings.get<boolean>(RESTORE_SESSION_KEY)) return settingDefault<TabSession>(key)
   return settings.get<TabSession>(key)
+}
+
+/**
+ * The last queue, or the empty session when the gate is shut.
+ *
+ * The gate here is `view.restoreQueue`, and it differs from the tab gate above
+ * in one deliberate way: the queue snapshot's *write* is gated too, in
+ * `usePlaybackStore`. Tabs record whatever is open regardless, because a tab is
+ * cheap and always-recording is what lets the setting be turned back on and find
+ * something there. A queue snapshot names the tracks the operator was playing,
+ * and remembering that while they have asked not to is the wrong default — so a
+ * shut gate here means both "do not reopen" and "do not record", and this read
+ * returns the empty session either way.
+ */
+export function restoredQueueSession(settings: SettingsReader): QueueSession {
+  if (!settings.get<boolean>(RESTORE_QUEUE_KEY)) return { ...EMPTY_QUEUE_SESSION }
+  return settings.get<QueueSession>(QUEUE_SESSION_KEY)
 }

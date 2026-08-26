@@ -305,3 +305,83 @@ describe('view.tunedeckOpen', () => {
     expect(fallsBack(KEY, 1)).toBe(true)
   })
 })
+
+describe('view.queueSession', () => {
+  const KEY = 'view.queueSession'
+  const EMPTY = { intent: null, baseIndex: 0, trackId: null, elapsedMs: 0 }
+
+  it('starts with no queue to restore', () => {
+    expect(resolveDefault(descriptor(KEY))).toEqual(EMPTY)
+  })
+
+  it('keeps a well-formed library session verbatim', () => {
+    const session = {
+      intent: { kind: 'list', sort: 'artist', direction: 'asc', filters: { search: 'jazz' } },
+      baseIndex: 4,
+      trackId: 12,
+      elapsedMs: 9000
+    }
+    expect(resolved(KEY, session)).toEqual(session)
+  })
+
+  it('keeps the playlist, favorites and fixed variants', () => {
+    for (const intent of [
+      { kind: 'playlist', playlistId: 7 },
+      { kind: 'favorites' },
+      { kind: 'tracks', trackIds: [3, 5, 8] }
+    ]) {
+      expect(
+        resolved<{ intent: unknown }>(KEY, { intent, baseIndex: 0, trackId: 3, elapsedMs: 0 })
+          .intent
+      ).toEqual(intent)
+    }
+  })
+
+  it('drops to the empty session for a blob of the wrong shape', () => {
+    for (const raw of [null, [1, 2, 3], 'queue', 42]) {
+      expect(resolved(KEY, raw)).toEqual(EMPTY)
+    }
+  })
+
+  it('drops an intent it cannot vouch for, taking the position with it', () => {
+    // A list with no sort, an unknown kind, a playlist with no id — each is a
+    // shape no variant could have produced, so the whole session goes empty
+    // rather than restoring a queue with a head it cannot resolve.
+    for (const intent of [
+      { kind: 'list', direction: 'asc' },
+      { kind: 'mystery' },
+      { kind: 'playlist' },
+      { kind: 'tracks', trackIds: [] }
+    ]) {
+      expect(resolved(KEY, { intent, baseIndex: 2, trackId: 9, elapsedMs: 100 })).toEqual(EMPTY)
+    }
+  })
+
+  it('drops a valid intent that has no current track', () => {
+    // A position with nothing to anchor it is meaningless, so a null or missing
+    // trackId empties the session rather than restoring a headless queue.
+    expect(
+      resolved(KEY, { intent: { kind: 'favorites' }, baseIndex: 3, trackId: null, elapsedMs: 0 })
+    ).toEqual(EMPTY)
+  })
+
+  it('repairs an out-of-range position and elapsed rather than the whole session', () => {
+    expect(
+      resolved(KEY, {
+        intent: { kind: 'favorites' },
+        baseIndex: -5,
+        trackId: 4,
+        elapsedMs: -20
+      })
+    ).toEqual({ intent: { kind: 'favorites' }, baseIndex: 0, trackId: 4, elapsedMs: 0 })
+
+    expect(
+      resolved<{ baseIndex: number }>(KEY, {
+        intent: { kind: 'favorites' },
+        baseIndex: 2.7,
+        trackId: 4,
+        elapsedMs: 500.6
+      })
+    ).toEqual({ intent: { kind: 'favorites' }, baseIndex: 0, trackId: 4, elapsedMs: 501 })
+  })
+})

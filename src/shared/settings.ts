@@ -42,6 +42,7 @@ export {
   FACET_ACTIVATION_KEY,
   FILE_SIZE_FORMAT_KEY,
   NOW_PLAYING_WAVEFORM_KEY,
+  RESTORE_QUEUE_KEY,
   RESTORE_SESSION_KEY,
   TRACK_ACTIVATION_KEY,
   TRACK_DENSITY_KEY
@@ -92,8 +93,15 @@ export {
   SCROBBLE_ENABLED_KEYS,
   SCROBBLING_SETTINGS
 } from './settings/scrobbling'
-export { FAVORITES_TAB } from './settings/view'
-export type { StoredColumnLayout, TabFixture, TabSession, TabStop } from './settings/view'
+export { EMPTY_QUEUE_SESSION, FAVORITES_TAB, QUEUE_SESSION_KEY } from './settings/view'
+export type {
+  QueueIntent,
+  QueueSession,
+  StoredColumnLayout,
+  TabFixture,
+  TabSession,
+  TabStop
+} from './settings/view'
 
 /**
  * Every known key, in one list.
