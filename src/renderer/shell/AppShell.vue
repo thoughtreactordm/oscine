@@ -8,6 +8,7 @@ import NowPlaying from '@renderer/panels/NowPlaying.vue'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
 import { shellTabs } from '@renderer/shell/routes'
 import { useGlobalShortcuts } from '@renderer/shell/useGlobalShortcuts'
+import { useIdleAutoShow } from '@renderer/shell/useIdleAutoShow'
 import { SIDEBAR_PANE } from '@renderer/shell/shellLayout'
 import ShellSidebar from '@renderer/shell/ShellSidebar.vue'
 import ShellTabs from '@renderer/shell/ShellTabs.vue'
@@ -66,6 +67,13 @@ useBrowseStore()
  * to absorb rather than a scatter of `keydown` listeners to hunt down.
  */
 useGlobalShortcuts()
+
+/**
+ * G4: the idle auto-show, mounted once with the frame for the same reason the
+ * shortcut is — it watches the transport and the route from outside any one tab
+ * and moves between them, so it cannot live under a view a tab change unmounts.
+ */
+useIdleAutoShow()
 
 const sidebarWidth = shell.paneSize(SIDEBAR_PANE)
 
