@@ -422,6 +422,11 @@ export function registerIpcHandlers(
     return podcasts.downloadEpisode(assertPositiveInt(episodeId, 'episodeId'))
   })
 
+  handle('podcasts.cancelDownload', (request) => {
+    const { episodeId } = assertRecord(request, 'request')
+    return podcasts.cancelDownload(assertPositiveInt(episodeId, 'episodeId'))
+  })
+
   handle('podcasts.deleteDownload', (request) => {
     const { episodeId } = assertRecord(request, 'request')
     return podcasts.deleteDownload(assertPositiveInt(episodeId, 'episodeId'))

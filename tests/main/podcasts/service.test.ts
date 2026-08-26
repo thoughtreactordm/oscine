@@ -1,7 +1,9 @@
+import { createServer, type Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDatabase } from '../../../src/main/db'
 import type { ItunesClient } from '../../../src/main/podcasts/itunes'
@@ -18,6 +20,21 @@ const FEED = `<?xml version="1.0"?>
       <guid>g1</guid>
       <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
       <enclosure url="https://cdn.example/hello.mp3" length="4" type="audio/mpeg" />
+    </item>
+  </channel>
+</rss>`
+
+/** Same feed shape, but the enclosure points at a live local server. */
+const WIRE_FEED = (port: string): string => `<?xml version="1.0"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Wire Pod</title>
+    <itunes:author>Tester</itunes:author>
+    <item>
+      <title>Streamed</title>
+      <guid>w1</guid>
+      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+      <enclosure url="http://127.0.0.1:${port}/ep.mp3" length="100000000" type="audio/mpeg" />
     </item>
   </channel>
 </rss>`
@@ -118,6 +135,106 @@ describe('SqlitePodcastService', () => {
       await expect(stat(abs!)).rejects.toMatchObject({ code: 'ENOENT' })
     } finally {
       db.close()
+    }
+  })
+
+  it('cancels an in-flight download back to remote, leaving no file', async () => {
+    // A body that yields one chunk then hangs until the fetch signal aborts,
+    // so the download sits in `downloading` long enough to be cancelled.
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('feed.xml')) return new Response(FEED, { status: 200 })
+      if (url.includes('hello.mp3')) {
+        const signal = init?.signal
+        // Mirror fetch: abort errors the body stream, whether it fired before
+        // the stream was read (the download is 'downloading' the moment the
+        // fetch starts, before any byte flows) or during streaming.
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1, 2]))
+            const fail = (): void => controller.error(new DOMException('aborted', 'AbortError'))
+            if (signal?.aborted) fail()
+            else signal?.addEventListener('abort', fail)
+          }
+        })
+        return new Response(body, { status: 200, headers: { 'content-length': '4' } })
+      }
+      return new Response('missing', { status: 404 })
+    }) as unknown as typeof fetch
+
+    const { db, podcasts } = service(fetchImpl)
+    try {
+      const podcast = await podcasts.subscribe('https://example.com/feed.xml')
+      const episodes = await podcasts.listEpisodes({ podcastId: podcast.id, offset: 0, limit: 20 })
+      const episodeId = episodes.episodes[0]!.id
+
+      const downloadPromise = podcasts.downloadEpisode(episodeId)
+      await vi.waitFor(async () => {
+        const listed = await podcasts.listEpisodes({ podcastId: podcast.id, offset: 0, limit: 20 })
+        expect(listed.episodes[0]?.downloadStatus).toBe('downloading')
+      })
+
+      const cancelled = await podcasts.cancelDownload(episodeId)
+      expect(cancelled.downloadStatus).toBe('remote')
+
+      // The original download call resolves as remote, not as a failure.
+      const resolved = await downloadPromise
+      expect(resolved.downloadStatus).toBe('remote')
+
+      expect(await podcasts.resolveEpisodePath(episodeId)).toBeNull()
+      const after = await podcasts.listEpisodes({ podcastId: podcast.id, offset: 0, limit: 20 })
+      expect(after.episodes[0]?.downloadStatus).toBe('remote')
+    } finally {
+      db.close()
+    }
+  })
+
+  it('cancels a real streaming download over the wire, aborting the socket', async () => {
+    // End-to-end through the real global `fetch` — not a mock — so the abort
+    // wiring is exercised as it runs in the app. The body never completes on
+    // its own, so cancel resolving at all proves the abort reached the fetch:
+    // a composite `AbortSignal.any` that got GC'd mid-transfer would hang here
+    // until the test times out.
+    const server: Server = createServer((req, res) => {
+      if (req.url?.includes('/feed.xml')) {
+        res.writeHead(200, { 'content-type': 'application/rss+xml' })
+        res.end(WIRE_FEED(String((server.address() as AddressInfo).port)))
+        return
+      }
+      // A slow, effectively endless body: one small chunk every 20ms, with a
+      // large content-length so the download never completes on its own.
+      res.writeHead(200, { 'content-length': '100000000' })
+      const timer = setInterval(() => res.write(Buffer.alloc(1024)), 20)
+      const stop = (): void => clearInterval(timer)
+      req.on('close', stop)
+      res.on('close', stop)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const port = String((server.address() as AddressInfo).port)
+
+    const { db, podcasts } = service(((u: RequestInfo | URL, i?: RequestInit) =>
+      fetch(u, i)) as unknown as typeof fetch)
+    try {
+      const podcast = await podcasts.subscribe(`http://127.0.0.1:${port}/feed.xml`)
+      const episodes = await podcasts.listEpisodes({ podcastId: podcast.id, offset: 0, limit: 20 })
+      const episodeId = episodes.episodes[0]!.id
+
+      const downloadPromise = podcasts.downloadEpisode(episodeId)
+      await vi.waitFor(async () => {
+        const listed = await podcasts.listEpisodes({ podcastId: podcast.id, offset: 0, limit: 20 })
+        expect(listed.episodes[0]?.downloadStatus).toBe('downloading')
+      })
+
+      // Must resolve promptly — a hang here is the exact bug this guards against.
+      const cancelled = await podcasts.cancelDownload(episodeId)
+      expect(cancelled.downloadStatus).toBe('remote')
+      const resolved = await downloadPromise
+      expect(resolved.downloadStatus).toBe('remote')
+
+      expect(await podcasts.resolveEpisodePath(episodeId)).toBeNull()
+    } finally {
+      db.close()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
     }
   })
 

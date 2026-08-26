@@ -277,6 +277,7 @@ const api = {
     listEpisodes: (query: ListEpisodesQuery) => request('podcasts.listEpisodes', query),
     listRecent: (query: ListRecentEpisodesQuery) => request('podcasts.listRecent', query),
     downloadEpisode: (episodeId: number) => request('podcasts.downloadEpisode', { episodeId }),
+    cancelDownload: (episodeId: number) => request('podcasts.cancelDownload', { episodeId }),
     deleteDownload: (episodeId: number) => request('podcasts.deleteDownload', { episodeId }),
     clearDownloads: (podcastId: number) => request('podcasts.clearDownloads', { podcastId }),
     setPlayed: (episodeId: number, played: boolean) =>
