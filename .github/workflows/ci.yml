@@ -76,3 +76,97 @@ jobs:
       # this repo with a plausible flake mode. It belongs in CI eventually, on
       # its own job where a failure reads as "the native binary broke" and not
       # as "the lint job is red" — W6's packaging work is where that lands.
+
+  # A push to main that carries a new package.json version cuts a release; a push
+  # that does not (docs, refactors, anything without a version bump) does nothing
+  # here. The version is the whole trigger: keying the tag off it means a release
+  # happens exactly once per version and re-running the workflow is idempotent,
+  # rather than one release per commit with colliding tags.
+  release-gate:
+    name: release gate
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # If a release for v<version> already exists, this push did not bump the
+      # version and there is nothing to cut. Otherwise create the draft now, on a
+      # single runner, so the two platform builds upload into one release instead
+      # of racing to create it.
+      - name: Decide and open draft
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          # A *published* release for this version means the bump already shipped;
+          # skip. A leftover *draft* (a run cancelled or failed mid-build) is
+          # reused so a re-run recovers instead of stranding it. Only a missing
+          # release opens a fresh draft. Keying on isDraft rather than mere
+          # existence is what makes the workflow idempotent under re-runs.
+          if gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx 'false'; then
+            echo "Release ${TAG} is already published; no version bump on this push."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Reusing existing draft ${TAG} from a prior run."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            gh release create "$TAG" \
+              --draft \
+              --title "$TAG" \
+              --target "$GITHUB_SHA" \
+              --generate-notes
+          fi
+
+  # Each platform packages itself (electron-builder.yml explains why there is no
+  # cross-build): the win runner produces the NSIS installer, the linux runner the
+  # AppImage and deb, and both `--publish` their artifacts into the draft release
+  # opened above.
+  release-build:
+    name: release build (${{ matrix.os }})
+    needs: release-gate
+    if: needs.release-gate.outputs.publish == 'true'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build && npx electron-builder --publish always
+
+  # Flip the draft to a published release only once both platforms have uploaded,
+  # so a release is never visible carrying just one OS's artifacts.
+  release-publish:
+    name: release publish
+    needs: [release-gate, release-build]
+    if: needs.release-gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Undraft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ needs.release-gate.outputs.tag }}" --draft=false
