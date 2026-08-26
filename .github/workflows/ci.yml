@@ -129,8 +129,9 @@ jobs:
 
   # Each platform packages itself (electron-builder.yml explains why there is no
   # cross-build): the win runner produces the NSIS installer, the linux runner the
-  # AppImage and deb, and both `--publish` their artifacts into the draft release
-  # opened above.
+  # AppImage and deb. Windows is a single-file deliverable and is attached as-is;
+  # Linux has two files, so they are bundled into one tarball. Either way the
+  # `.blockmap`/`latest*.yml` electron-updater sidecars are left off the release.
   release-build:
     name: release build (${{ matrix.os }})
     needs: release-gate
@@ -150,10 +151,41 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
-      - name: Build and publish
+
+      # `--publish never`: build the artifacts into release/ but do not upload
+      # them loose. The steps below are the only things that attach to the
+      # release, so the page carries the installer plus one Linux tarball rather
+      # than six loose files.
+      - name: Package
+        run: npm run build && npx electron-builder --publish never
+
+      # The NSIS installer is a single self-contained deliverable, so it is
+      # attached directly — zipping one file would only add an extract step for
+      # the user. The `.exe.blockmap` and `latest.yml` electron-updater sidecars
+      # are skipped: nothing in this app consumes them (no electron-updater).
+      # `--clobber` keeps a re-run idempotent by overwriting a prior upload.
+      - name: Upload installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build && npx electron-builder --publish always
+        run: |
+          $tag = "${{ needs.release-gate.outputs.tag }}"
+          $exe = (Get-ChildItem release/*.exe | Select-Object -First 1).FullName
+          gh release upload $tag $exe --clobber
+
+      # One tarball for Linux: the AppImage and the deb, both real deliverables.
+      # `latest-linux.yml` and the `.AppImage.blockmap` sidecar are excluded for
+      # the same reason as Windows.
+      - name: Archive and upload (Linux)
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.release-gate.outputs.tag }}"
+          TARBALL="Oscine-${TAG}-linux.tar.gz"
+          tar -czf "release/${TARBALL}" -C release $(cd release && ls *.AppImage *.deb)
+          gh release upload "$TAG" "release/${TARBALL}" --clobber
 
   # Flip the draft to a published release only once both platforms have uploaded,
   # so a release is never visible carrying just one OS's artifacts.

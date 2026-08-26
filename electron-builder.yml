@@ -4,10 +4,12 @@ directories:
   output: release
   buildResources: build
 
-# Where `electron-builder --publish` uploads the packaged artifacts. The CI
-# release job builds each platform on its own runner and points both at the same
-# tagged GitHub release; there is no inferable `repository` field in package.json,
-# so the target is spelled out here rather than guessed from the git remote.
+# CI no longer uses electron-builder's own publisher: the release job builds with
+# `--publish never`, then attaches the Windows installer directly and bundles the
+# two Linux files into a tarball with `gh release upload` (see
+# .github/workflows/ci.yml). This block only serves a manual local
+# `electron-builder --publish`, which otherwise has no target because
+# package.json carries no inferable `repository` field.
 publish:
   provider: github
   owner: thoughtreactordm
