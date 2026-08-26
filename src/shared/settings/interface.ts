@@ -76,6 +76,14 @@ export type TrackActivation = 'play' | 'playNext' | 'queue' | 'addToViewedPlayli
  */
 export type FacetActivation = TrackActivation | 'none'
 
+/**
+ * How long a playing library may sit untouched before the frame moves itself to
+ * Now Playing — G4. `off` is the default and the only value that disarms it;
+ * the rest are whole minutes, kept as their own strings so the select's values
+ * and the interval it means are the same token.
+ */
+export type NowPlayingIdleInterval = 'off' | '5' | '10' | '15' | '30' | '60'
+
 export const TRACK_DENSITY_KEY = 'view.trackListDensity'
 export const RESTORE_SESSION_KEY = 'view.restoreSession'
 export const RESTORE_QUEUE_KEY = 'view.restoreQueue'
@@ -87,6 +95,7 @@ export const FACET_ACTIVATION_KEY = 'interface.facetActivation'
 export const CONFIRM_PLAYLIST_DELETE_KEY = 'interface.confirmPlaylistDelete'
 export const CONFIRM_ENTRY_REMOVAL_KEY = 'interface.confirmEntryRemoval'
 export const NOW_PLAYING_WAVEFORM_KEY = 'interface.nowPlayingWaveform'
+export const NOW_PLAYING_IDLE_AUTOSHOW_KEY = 'interface.nowPlayingIdleAutoShow'
 
 export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
   /*
@@ -329,5 +338,34 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'A live trace of the audible track, along the bottom of the view. Off costs nothing; on costs one animation frame while a track is sounding.',
     keywords: ['waveform', 'visualizer', 'visualisation', 'now playing', 'animation', 'ribbon'],
     order: 110
+  }),
+
+  /**
+   * G4. Off by default — an app that pulls itself in front of what you were
+   * doing is a thing you opt into. Gated on playback and on the frame being
+   * anywhere but Now Playing already; the countdown lives in the renderer
+   * (`shell/useIdleAutoShow.ts`), and this only names the span.
+   */
+  defineSetting<NowPlayingIdleInterval>({
+    key: NOW_PLAYING_IDLE_AUTOSHOW_KEY,
+    scope: 'durable',
+    default: 'off',
+    validate: enumValue<NowPlayingIdleInterval>(['off', '5', '10', '15', '30', '60']),
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'off', label: 'Never' },
+        { value: '5', label: 'After 5 minutes' },
+        { value: '10', label: 'After 10 minutes' },
+        { value: '15', label: 'After 15 minutes' },
+        { value: '30', label: 'After 30 minutes' },
+        { value: '60', label: 'After 60 minutes' }
+      ]
+    },
+    category: 'interface',
+    label: 'Show Now Playing when idle',
+    help: 'While a track is playing and you have not touched Oscine for this long, switch to the Now Playing view. Off by default.',
+    keywords: ['now playing', 'idle', 'auto', 'inactive', 'away', 'switch', 'timeout'],
+    order: 115
   })
 ]
