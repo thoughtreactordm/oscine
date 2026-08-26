@@ -65,7 +65,16 @@ try {
     `ReplayGain worker passed on ${process.platform}/${process.arch}: ` +
       `${trackGainDb.toFixed(2)} dB, peak ${trackPeak.toFixed(4)}`
   )
-} finally {
-  await worker.terminate()
+} catch (error) {
   rmSync(dir, { recursive: true, force: true })
+  console.error(error instanceof Error ? error.stack : error)
+  process.exit(1)
 }
+
+rmSync(dir, { recursive: true, force: true })
+// node-web-audio-api's native binding intermittently poisons the process exit
+// code during worker_threads teardown on Windows: the probe prints "passed" and
+// then exits 1 with no JS error. Validation is complete and already reported, so
+// exit explicitly here rather than awaiting worker.terminate() and letting its
+// native teardown decide our exit code.
+process.exit(0)
