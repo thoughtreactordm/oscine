@@ -965,6 +965,25 @@ describe('createPlaybackController', () => {
       expect(broken.controller.orderIndex.value).toBe(1)
       expect(broken.controller.error.value).toBe('Could not read the next track.')
     })
+
+    it('marks a played-through order as ended naturally (G2)', async () => {
+      const end = harness({ total: 1 })
+      await end.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 0,
+        track: track(0)
+      })
+      await settle()
+      expect(end.controller.endedNaturally.value).toBe(0)
+
+      // The lone row plays out. No successor was ever prefetched, so this is the
+      // clean end rather than a boundary.
+      end.engine.emit('ended', { trackId: 0 })
+      await settle()
+
+      expect(end.controller.endedNaturally.value).toBe(1)
+    })
   })
 
   describe('rapid skipping', () => {
@@ -1085,6 +1104,16 @@ describe('createPlaybackController', () => {
       expect(h.engines[1].loaded).toEqual([1])
       expect(h.controller.orderIndex.value).toBe(1)
       expect(h.controller.nowPlaying.value?.id).toBe(1)
+    })
+
+    it('does not mark a natural end at a boundary a successor follows (G2)', async () => {
+      // The default order has ten rows; ending the first hands off to the
+      // second, so the order has not ended — only a track has.
+      h.engine.emit('ended', { trackId: 0 })
+      await settle()
+
+      expect(h.engines[1].loaded).toEqual([1])
+      expect(h.controller.endedNaturally.value).toBe(0)
     })
   })
 
