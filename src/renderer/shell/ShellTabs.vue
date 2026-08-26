@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { shellTabs } from '@renderer/shell/routes'
+import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
 
 /**
@@ -20,6 +21,17 @@ import { useShellStore } from '@renderer/stores/shell'
  */
 const router = useRouter()
 const shell = useShellStore()
+const playback = usePlaybackStore()
+
+/**
+ * Now Playing is a transient destination, not a fixed place: it appears while
+ * there is a track to look at and stands down when there is not, exactly as the
+ * deck does off the same `hasTrack` (G2). The route stays registered either way
+ * — hiding the chip is a statement about the row, not about what is reachable —
+ * so a deep link or the tick that returns here on a played-through queue still
+ * lands, and the chip reappears with the track.
+ */
+const isTabVisible = (name: string): boolean => name !== 'now-playing' || playback.hasTrack
 
 /**
  * Two groups, split on `trailing`. The primary destinations sit at the left; the
@@ -27,7 +39,9 @@ const shell = useShellStore()
  * off with a divider, so "where in the library am I" and "what do I want to do
  * to the library" read as separate concerns (G1).
  */
-const leadingTabs = computed(() => shellTabs.filter((tab) => !tab.trailing))
+const leadingTabs = computed(() =>
+  shellTabs.filter((tab) => !tab.trailing && isTabVisible(tab.name))
+)
 const trailingTabs = computed(() => shellTabs.filter((tab) => tab.trailing))
 </script>
 

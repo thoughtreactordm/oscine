@@ -61,11 +61,27 @@ export const useShellStore = defineStore('shell', () => {
   const activeTabIndex = ref(-1)
   const direction = ref<TabDirection>('none')
 
+  /**
+   * The view to fall back to when Now Playing bows out on its own — G2.
+   *
+   * The most recent tab that was not Now Playing itself, which is precisely
+   * "where the user came from" for the visit to Now Playing that follows it. A
+   * queue that plays through returns the frame here rather than stranding the
+   * user on a stage with nothing on it. Seeded at the launch tab so the fall
+   * back is defined before any navigation has happened.
+   */
+  const returnView = ref<string>('library')
+
   function setActiveTab(name: string | null, index: number): void {
     if (name === activeTab.value && index === activeTabIndex.value) return
     direction.value = tabDirection(activeTabIndex.value, index)
     activeTab.value = name
     activeTabIndex.value = index
+    // Recorded on the way *to* a view rather than on the way out of Now
+    // Playing, so the value is already right the moment Now Playing is entered
+    // — there is no leaving event to hang it on, and a deep link or a shortcut
+    // can reach Now Playing without one.
+    if (name !== null && name !== 'now-playing') returnView.value = name
   }
 
   /**
@@ -100,6 +116,7 @@ export const useShellStore = defineStore('shell', () => {
     activeTab,
     activeTabIndex,
     direction,
+    returnView,
     setActiveTab,
     quickMenuRequested,
     requestQuickMenu,

@@ -57,6 +57,19 @@ export interface PlaybackSchedulerEventMap extends AudioEngineEventMap {
    */
   playstart: { track: Track }
   prefetchchange: PrefetchState
+  /**
+   * The order played through its last row with nothing to follow — not paused,
+   * not stopped, and not a repeat lap. Emitted once, from the natural-end
+   * boundary that finds no successor prepared (the same clean stop
+   * `#onNaturalEnd` already performs by returning).
+   *
+   * Named because the transport otherwise reaches this only as `status`
+   * settling on `ended`, which is indistinguishable from the transient `ended`
+   * every gapless boundary passes through on its way to the next track. A
+   * consumer that wants the *edge* — G2 returns the frame to the last view here
+   * and nowhere else — cannot read it off `statuschange` alone.
+   */
+  orderended: { trackId: number }
 }
 
 export interface PlaybackSchedulerDeps {
@@ -777,7 +790,15 @@ export class PlaybackScheduler {
       return
     }
     const next = this.#prefetched
-    if (!next || this.#prefetchState.status === 'idle') return
+    if (!next || this.#prefetchState.status === 'idle') {
+      // The clean end of the order: the boundary found no successor prepared. A
+      // failed or still-resolving prefetch returned above, so everything that
+      // reaches here halted without an error — which is exactly G2's "played
+      // through, not stopped". Named so a consumer need not infer it from the
+      // `ended` status a gapless boundary also shows transiently.
+      this.#events.emit('orderended', event)
+      return
+    }
     if (this.#prefetchState.status !== 'ready' || !next.track || next.position === null) return
 
     const generation = ++this.#generation

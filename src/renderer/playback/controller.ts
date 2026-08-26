@@ -310,6 +310,16 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   const duration = ref(0)
   const volume = ref(1)
   /**
+   * Bumped once each time the order plays through to its natural end — the
+   * scheduler's `orderended`. A monotonic tick rather than a flag because what
+   * a consumer wants is the *edge*: G2 returns the frame to the last view on
+   * this transition and nowhere else, and a tick can be watched for that edge
+   * without a reset it could race. Deliberately not derivable from `status`,
+   * which a gapless boundary drives through `ended` transiently on its way to
+   * the next track.
+   */
+  const endedNaturally = ref(0)
+  /**
    * R2's fallback: what a boundary uses when no playlist is playing.
    *
    * Bound to `audio.crossfadeMs` when there is a settings surface to bind to, so
@@ -560,6 +570,12 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       // left to depart — see the recorder on why that ordering is not relied on.
       created.on('ended', () => {
         listen.depart()
+      }),
+      // G2's played-through signal. Distinct from `ended`, which fires at every
+      // boundary including those a successor follows; this fires only when the
+      // order stops here of its own accord.
+      created.on('orderended', () => {
+        endedNaturally.value += 1
       }),
       created.on('playstart', ({ track }) => {
         deps.onPlayStarted?.(track)
@@ -1339,6 +1355,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
 
   return {
     status,
+    endedNaturally,
     currentTime,
     duration,
     volume,

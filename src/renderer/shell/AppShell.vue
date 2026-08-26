@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppTitleBar from '@renderer/panels/AppTitleBar.vue'
 import CommandPalette from '@renderer/panels/CommandPalette.vue'
 import NewPlaylistModal from '@renderer/panels/NewPlaylistModal.vue'
@@ -42,6 +42,7 @@ import { useTunedeckStore } from '@renderer/stores/tunedeck'
  * reads rather than a value the frame happens to still have.
  */
 const route = useRoute()
+const router = useRouter()
 const roots = useLibraryRootsStore()
 const playback = usePlaybackStore()
 const playlists = usePlaylistsStore()
@@ -110,6 +111,24 @@ watch(
 )
 
 const bodyTransition = computed(() => `tab-${shell.direction}`)
+
+/**
+ * G2: a queue that plays through on its own returns the frame to the view the
+ * user came from — but only from Now Playing, and only on the natural end.
+ *
+ * The tick fires for the played-through boundary and no other: a pause, a Stop
+ * and a skip past the last row are all decisions to stay, and none of them
+ * reach here. The tab gate is the second half — the return is Now Playing's
+ * lifecycle, so the frame stays put when the queue ends behind a view the user
+ * chose to be on instead. Navigation goes through the router, which keeps
+ * `shell.activeTab` in step exactly as the tab row's own clicks do.
+ */
+watch(
+  () => playback.endedNaturally,
+  () => {
+    if (shell.activeTab === 'now-playing') void router.push({ name: shell.returnView })
+  }
+)
 
 /**
  * Scan progress and the roots list outlive any one tab, so the frame owns their
