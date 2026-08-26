@@ -24,7 +24,7 @@ import type {
   PodcastShelfKind,
   SearchPodcastCatalogResult
 } from '@shared/podcasts'
-import { PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
+import { clampKeepLast, PODCAST_BROWSE_CATEGORIES } from '@shared/podcasts'
 import type { ArtworkImageProcessor } from '../library/artworkProcessor'
 import { WorkerArtworkImageProcessor } from '../library/artworkProcessor'
 import {
@@ -87,6 +87,10 @@ export interface PodcastService {
   /** Deletes every local file for a show; the subscription stays. */
   clearDownloads(podcastId: number): Promise<Podcast>
   setPlayed(episodeId: number, played: boolean): Promise<Episode>
+  /** Toggle auto-download; enabling fills the newest `keepLast` in the background. */
+  setAutoDownload(podcastId: number, enabled: boolean): Promise<Podcast>
+  /** Set the retention window; re-fills or prunes to match if auto-download is on. */
+  setKeepLast(podcastId: number, keepLast: number): Promise<Podcast>
   importOpml(xml: string): Promise<ImportOpmlResult>
   resolveEpisodePath(episodeId: number): Promise<string | null>
   getEpisodeFileUrl(episodeId: number): Promise<string>
@@ -214,6 +218,11 @@ export class SqlitePodcastService implements PodcastService {
       throw error instanceof OscineError ? error : new OscineError('io-error', message)
     }
 
+    // A refresh may have pulled in newer episodes; keep the newest `keepLast`
+    // on disk. Runs after the feed write, in the background, so a slow download
+    // never holds up the refresh the caller is awaiting.
+    if (podcast.autoDownload) void this.fillAutoDownloads(podcastId).catch(() => undefined)
+
     const updated = this.store.getPodcast(podcastId)
     if (!updated) throw new OscineError('not-found', 'That podcast is not in your subscriptions.')
     return updated
@@ -256,6 +265,15 @@ export class SqlitePodcastService implements PodcastService {
   }
 
   async downloadEpisode(episodeId: number): Promise<Episode> {
+    const episode = await this.enqueueDownload(episodeId)
+    // A hand-pulled download is manually kept: clear any auto flag so prune,
+    // which only ever touches auto-downloaded rows, can never remove it.
+    if (episode.downloadStatus === 'ready') this.store.setAutoDownloaded(episodeId, false)
+    return episode
+  }
+
+  /** Deduped download job shared by the manual and auto-download paths. */
+  private enqueueDownload(episodeId: number): Promise<Episode> {
     const existing = this.downloadJobs.get(episodeId)
     if (existing) return existing
 
@@ -333,6 +351,28 @@ export class SqlitePodcastService implements PodcastService {
     const episode = this.store.getEpisode(episodeId, this.downloading)
     if (!episode) throw new OscineError('not-found', 'That episode is gone.')
     return episode
+  }
+
+  async setAutoDownload(podcastId: number, enabled: boolean): Promise<Podcast> {
+    const podcast = this.store.getPodcast(podcastId)
+    if (!podcast) throw new OscineError('not-found', 'That podcast is not in your subscriptions.')
+    this.store.setAutoDownload(podcastId, enabled)
+    // Enabling seeds the window immediately; disabling leaves existing files be
+    // (removal is the user's call, via the trash affordances). Downloads run in
+    // the background so the toggle returns at once and the row reports progress.
+    if (enabled) void this.fillAutoDownloads(podcastId).catch(() => undefined)
+    return this.requirePodcast(podcastId)
+  }
+
+  async setKeepLast(podcastId: number, keepLast: number): Promise<Podcast> {
+    const podcast = this.store.getPodcast(podcastId)
+    if (!podcast) throw new OscineError('not-found', 'That podcast is not in your subscriptions.')
+    this.store.setKeepLast(podcastId, clampKeepLast(keepLast))
+    // A larger N fills, a smaller N prunes; `fillAutoDownloads` does both. With
+    // auto-download off, only trim what auto already retained — never fetch.
+    if (podcast.autoDownload) void this.fillAutoDownloads(podcastId).catch(() => undefined)
+    else await this.pruneAutoDownloads(podcastId)
+    return this.requirePodcast(podcastId)
   }
 
   async importOpml(xml: string): Promise<ImportOpmlResult> {
@@ -569,6 +609,67 @@ export class SqlitePodcastService implements PodcastService {
   private invalidateDiscoverCaches(): void {
     this.recommendCache = null
     this.categoryCache.clear()
+  }
+
+  private requirePodcast(podcastId: number): Podcast {
+    const podcast = this.store.getPodcast(podcastId)
+    if (!podcast) throw new OscineError('not-found', 'That podcast is not in your subscriptions.')
+    return podcast
+  }
+
+  /**
+   * Bring the newest `keepLast` episodes of a show onto disk, then prune.
+   *
+   * Only the currently-remote ones are fetched: an episode already downloaded —
+   * by hand or by a previous fill — is left as it is, so a manual keep is never
+   * re-fetched or reclassified. Prune afterwards drops auto-downloads that the
+   * window has moved past. Downloads run one at a time to spare the network.
+   */
+  private async fillAutoDownloads(podcastId: number): Promise<void> {
+    const keepLast = this.store.getKeepLast(podcastId)
+    for (const episodeId of this.store.latestEpisodeIds(podcastId, keepLast)) {
+      if (this.store.getEpisodePath(episodeId)?.rel_path) continue
+      await this.autoDownload(episodeId)
+    }
+    await this.pruneAutoDownloads(podcastId)
+  }
+
+  /** Download one episode and, if it lands, mark it auto-retained. */
+  private async autoDownload(episodeId: number): Promise<void> {
+    try {
+      const episode = await this.enqueueDownload(episodeId)
+      if (episode.downloadStatus === 'ready') this.store.setAutoDownloaded(episodeId, true)
+    } catch {
+      // One failed auto-download must not abort the rest of the window.
+    }
+  }
+
+  /** Delete auto-downloaded files past the newest `keepLast`; keep manuals. */
+  private async pruneAutoDownloads(podcastId: number): Promise<void> {
+    const keepLast = this.store.getKeepLast(podcastId)
+    for (const episodeId of this.store.autoDownloadedBeyond(podcastId, keepLast)) {
+      await this.purgeDownload(episodeId)
+    }
+  }
+
+  /** Remove an episode's local file and reset it to remote (no error state). */
+  private async purgeDownload(episodeId: number): Promise<void> {
+    const pathRow = this.store.getEpisodePath(episodeId)
+    if (!pathRow) return
+    if (pathRow.rel_path) {
+      const abs = resolveEpisodeAbsPath(this.podcastsRoot, pathRow.rel_path)
+      await unlink(abs).catch(() => undefined)
+    }
+    const episode = this.store.getEpisode(episodeId, this.downloading)
+    this.store.clearDownload(episodeId)
+    if (episode) {
+      this.onDownloadProgress({
+        episodeId,
+        podcastId: episode.podcastId,
+        status: 'remote',
+        fraction: null
+      })
+    }
   }
 
   private async runDownload(episodeId: number): Promise<Episode> {

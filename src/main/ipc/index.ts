@@ -445,6 +445,22 @@ export function registerIpcHandlers(
     return podcasts.setPlayed(assertPositiveInt(episodeId, 'episodeId'), played)
   })
 
+  handle('podcasts.setAutoDownload', (request) => {
+    const { podcastId, enabled } = assertRecord(request, 'request')
+    if (typeof enabled !== 'boolean') {
+      throw new OscineError('invalid-request', 'enabled must be a boolean.')
+    }
+    return podcasts.setAutoDownload(assertPositiveInt(podcastId, 'podcastId'), enabled)
+  })
+
+  handle('podcasts.setKeepLast', (request) => {
+    const { podcastId, keepLast } = assertRecord(request, 'request')
+    return podcasts.setKeepLast(
+      assertPositiveInt(podcastId, 'podcastId'),
+      assertPositiveInt(keepLast, 'keepLast')
+    )
+  })
+
   handle('podcasts.importOpml', (request) => {
     const { xml } = assertRecord(request, 'request')
     return podcasts.importOpml(assertOpmlXml(xml))

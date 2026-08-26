@@ -133,6 +133,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     void loadEpisodes(podcastId).catch((error: unknown) => {
       notice.value = error instanceof OscineError ? error.message : 'Could not load episodes.'
     })
+    void maybeAutoRefresh(podcastId)
   }
 
   function view(podcastId: number | null): void {
@@ -142,6 +143,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
       void loadEpisodes(podcastId).catch((error: unknown) => {
         notice.value = error instanceof OscineError ? error.message : 'Could not load episodes.'
       })
+      void maybeAutoRefresh(podcastId)
     }
   }
 
@@ -304,19 +306,51 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     }
   }
 
-  async function refreshPodcast(podcastId: number): Promise<void> {
+  /**
+   * Minimum gap between automatic on-visit refreshes of one show (P3), so
+   * rapid re-visits don't hammer the feed. Manual Refresh ignores it.
+   */
+  const AUTO_REFRESH_MIN_INTERVAL_MS = 15 * 60 * 1000
+  /** When this session last *attempted* an auto-refresh, per show. */
+  const autoRefreshAttemptedAt = new Map<number, number>()
+
+  async function refreshPodcast(podcastId: number, options?: { silent?: boolean }): Promise<void> {
     refreshing.value = true
-    notice.value = null
+    if (!options?.silent) notice.value = null
     try {
       await podcastsApi.refresh(podcastId)
       list.value = await podcastsApi.list()
       await loadEpisodes(podcastId)
       await refreshRecent()
     } catch (error) {
-      notice.value = error instanceof OscineError ? error.message : 'Could not refresh feed.'
+      // A background refresh fails quietly: `lastError` already surfaces on the
+      // show header, so a transient network blip shouldn't raise a toast the
+      // user never asked for.
+      if (!options?.silent) {
+        notice.value = error instanceof OscineError ? error.message : 'Could not refresh feed.'
+      }
     } finally {
       refreshing.value = false
     }
+  }
+
+  /**
+   * Auto-refresh a show when its page opens (P3). Skips when the feed was
+   * fetched (or an attempt was made) within the min-interval, and when a
+   * refresh is already in flight, so re-visits and the open→mount double-path
+   * cannot pile up.
+   */
+  async function maybeAutoRefresh(podcastId: number): Promise<void> {
+    if (refreshing.value) return
+    const podcast = byId(podcastId)
+    if (!podcast) return
+    const now = Date.now()
+    const fetched = podcast.lastFetchedAt ? Date.parse(podcast.lastFetchedAt) : NaN
+    if (Number.isFinite(fetched) && now - fetched < AUTO_REFRESH_MIN_INTERVAL_MS) return
+    const attempted = autoRefreshAttemptedAt.get(podcastId) ?? 0
+    if (now - attempted < AUTO_REFRESH_MIN_INTERVAL_MS) return
+    autoRefreshAttemptedAt.set(podcastId, now)
+    await refreshPodcast(podcastId, { silent: true })
   }
 
   async function refreshAll(): Promise<void> {
@@ -379,6 +413,33 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     } catch (error) {
       notice.value = error instanceof OscineError ? error.message : 'Download failed.'
       return null
+    }
+  }
+
+  /**
+   * Toggle a show's auto-download (P4). Enabling kicks off background downloads
+   * in main; the list is re-read so the pod's `autoDownload`/`keepLast` and any
+   * freshly-pruned counts land, and progress events carry the rest.
+   */
+  async function setAutoDownload(podcastId: number, enabled: boolean): Promise<void> {
+    notice.value = null
+    try {
+      await podcastsApi.setAutoDownload(podcastId, enabled)
+      list.value = await podcastsApi.list()
+    } catch (error) {
+      notice.value =
+        error instanceof OscineError ? error.message : 'Could not change auto-download.'
+    }
+  }
+
+  /** Change how many auto-downloaded episodes a show keeps (P4). */
+  async function setKeepLast(podcastId: number, keepLast: number): Promise<void> {
+    notice.value = null
+    try {
+      await podcastsApi.setKeepLast(podcastId, keepLast)
+      list.value = await podcastsApi.list()
+    } catch (error) {
+      notice.value = error instanceof OscineError ? error.message : 'Could not change retention.'
     }
   }
 
@@ -559,6 +620,8 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     clearDownloads,
     playEpisode,
     setPlayed,
+    setAutoDownload,
+    setKeepLast,
     listenDownloadProgress
   }
 })

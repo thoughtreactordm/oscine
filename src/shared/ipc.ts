@@ -610,6 +610,16 @@ export interface IpcContract {
     request: { episodeId: number; played: boolean }
     response: Episode
   }
+  /** Toggle auto-download of new episodes for a show (P4). */
+  'podcasts.setAutoDownload': {
+    request: { podcastId: number; enabled: boolean }
+    response: Podcast
+  }
+  /** Set how many auto-downloaded episodes a show retains (P4). */
+  'podcasts.setKeepLast': {
+    request: { podcastId: number; keepLast: number }
+    response: Podcast
+  }
   /** Parses OPML text already read in the renderer (paste / file picker). */
   'podcasts.importOpml': { request: { xml: string }; response: ImportOpmlResult }
   'podcasts.getEpisodeFileUrl': { request: { episodeId: number }; response: string }
@@ -1037,6 +1047,8 @@ export const IPC_CHANNELS = [
   'podcasts.deleteDownload',
   'podcasts.clearDownloads',
   'podcasts.setPlayed',
+  'podcasts.setAutoDownload',
+  'podcasts.setKeepLast',
   'podcasts.importOpml',
   'podcasts.getEpisodeFileUrl',
   'podcasts.getEpisodeAudioMetadata',

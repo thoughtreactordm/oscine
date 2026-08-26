@@ -177,12 +177,17 @@ function openShow(podcast: Podcast): void {
           v-else
           :style="{ height: `${podcasts.list.length * SHOW_ROW}px`, position: 'relative' }"
         >
-          <button
+          <!--
+            A row is a container, not a button, so the auto-download toggle (P4)
+            can sit beside the open action without nesting one button in another.
+            The toggle is quiet until the row is hovered or focused, and stays
+            lit while auto-download is on.
+          -->
+          <div
             v-for="(podcast, i) in showsDrawn"
             :key="podcast.id"
-            type="button"
             role="listitem"
-            class="absolute inset-x-0 flex w-full items-center gap-2 px-2 text-left transition-colors"
+            class="group absolute inset-x-0 flex w-full items-center gap-1 pl-2 pr-1 transition-colors"
             :class="
               podcasts.viewedPodcastId === podcast.id
                 ? 'bg-elevated text-highlighted'
@@ -192,24 +197,48 @@ function openShow(podcast: Podcast): void {
               top: `${(showsWindow.first + i) * SHOW_ROW}px`,
               height: `${SHOW_ROW}px`
             }"
-            @click="openShow(podcast)"
           >
-            <UAvatar
-              :src="hasArtwork(podcast.artwork.small) ? podcast.artwork.small : undefined"
-              icon="i-tabler-microphone"
-              alt=""
-              size="sm"
-              class="shrink-0 rounded-md"
-              :ui="{ image: 'rounded-md object-cover', icon: 'size-3.5 text-dimmed' }"
-            />
-            <span class="min-w-0 flex-1 truncate text-xs font-medium">{{ podcast.title }}</span>
+            <button
+              type="button"
+              class="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left outline-none"
+              @click="openShow(podcast)"
+            >
+              <UAvatar
+                :src="hasArtwork(podcast.artwork.small) ? podcast.artwork.small : undefined"
+                icon="i-tabler-microphone"
+                alt=""
+                size="sm"
+                class="shrink-0 rounded-md"
+                :ui="{ image: 'rounded-md object-cover', icon: 'size-3.5 text-dimmed' }"
+              />
+              <span class="min-w-0 flex-1 truncate text-xs font-medium">{{ podcast.title }}</span>
+            </button>
             <span
               v-if="podcast.unplayedCount > 0"
               class="shrink-0 rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-primary"
             >
               {{ podcast.unplayedCount }}
             </span>
-          </button>
+            <UButton
+              size="xs"
+              variant="ghost"
+              :color="podcast.autoDownload ? 'primary' : 'neutral'"
+              icon="i-tabler-download"
+              class="shrink-0"
+              :class="
+                podcast.autoDownload
+                  ? ''
+                  : 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
+              "
+              :aria-pressed="podcast.autoDownload"
+              :aria-label="
+                podcast.autoDownload
+                  ? `Turn off auto-download for ${podcast.title}`
+                  : `Auto-download new episodes of ${podcast.title}`
+              "
+              @click="podcasts.setAutoDownload(podcast.id, !podcast.autoDownload)"
+            />
+          </div>
         </div>
       </div>
     </section>
