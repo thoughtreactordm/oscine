@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
@@ -175,6 +175,90 @@ function formatTime(seconds: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
+/**
+ * Whether the volume bar is open — hover, keyboard focus, or a drag in progress.
+ *
+ * Hover is read from the pointer's *geometry* against the control's box, not from
+ * `:hover` or `pointerenter`/`pointerleave`. The slider takes pointer capture
+ * while it is dragged, and Chromium leaves both `:hover` and the enter/leave
+ * boundary tracking stuck on the capture target after release — the bar latches
+ * open for as long as the cursor is anywhere in the window, which is the bug this
+ * replaces. A window `pointermove` keeps reporting true coordinates throughout a
+ * capture and after it, so testing them against the section's rect is immune. The
+ * one cost is a rect read per move, on a single element; cheap enough to leave
+ * always-on rather than juggle listeners that the same bug could stick.
+ *
+ * Keyboard focus opens it too, but not the click that also focuses the thumb —
+ * see `onVolumeFocusIn`. The drag flag holds it through a grab whose captured
+ * pointer strays off the row.
+ */
+const volumeHovered = ref(false)
+const volumeKeyboard = ref(false)
+const volumeDragging = ref(false)
+const volumeOpen = computed(
+  () => volumeHovered.value || volumeKeyboard.value || volumeDragging.value
+)
+const volumeSection = ref<HTMLElement | null>(null)
+
+/** Modality of the last interaction, to tell a Tab-focus from a click-focus. */
+let volumeFocusFromKeyboard = false
+
+function onWindowPointerMove(event: PointerEvent): void {
+  const el = volumeSection.value
+  if (!el) {
+    volumeHovered.value = false
+    return
+  }
+  const rect = el.getBoundingClientRect()
+  volumeHovered.value =
+    event.clientX >= rect.left &&
+    event.clientX <= rect.right &&
+    event.clientY >= rect.top &&
+    event.clientY <= rect.bottom
+}
+
+function onWindowKeydown(): void {
+  volumeFocusFromKeyboard = true
+}
+
+function onWindowPointerdown(): void {
+  volumeFocusFromKeyboard = false
+}
+
+onMounted(() => {
+  window.addEventListener('pointermove', onWindowPointerMove)
+  // Capture, so the modality is recorded before the focus these produce lands.
+  window.addEventListener('keydown', onWindowKeydown, true)
+  window.addEventListener('pointerdown', onWindowPointerdown, true)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('pointermove', onWindowPointerMove)
+  window.removeEventListener('keydown', onWindowKeydown, true)
+  window.removeEventListener('pointerdown', onWindowPointerdown, true)
+  window.removeEventListener('pointerup', endVolumeAdjust)
+  window.removeEventListener('pointercancel', endVolumeAdjust)
+})
+
+function onVolumeFocusIn(): void {
+  // Not `:focus-visible`: reka focuses the thumb from its own pointerdown, and
+  // Chromium matches `:focus-visible` on that programmatic focus — so a mouse
+  // click would key the bar open until the next click landed elsewhere. The
+  // focus is "keyboard" only when the interaction that caused it was a key.
+  volumeKeyboard.value = volumeFocusFromKeyboard
+}
+
+function beginVolumeAdjust(): void {
+  volumeDragging.value = true
+  window.addEventListener('pointerup', endVolumeAdjust)
+  window.addEventListener('pointercancel', endVolumeAdjust)
+}
+
+function endVolumeAdjust(): void {
+  volumeDragging.value = false
+  window.removeEventListener('pointerup', endVolumeAdjust)
+  window.removeEventListener('pointercancel', endVolumeAdjust)
+}
+
 function onSeekInput(value: number | undefined): void {
   if (value === undefined) return
   // A drag has already announced itself with `pointerdown`, so the position is
@@ -237,7 +321,8 @@ function onSeekInput(value: number | undefined): void {
       </div>
     </Transition>
 
-    <section class="flex items-center gap-3">
+    <!-- The transport: the elapsed / total time stacked over the controls, centred. -->
+    <section class="order-2 flex shrink-0 flex-col items-center justify-center gap-0.5">
       <div class="flex items-center gap-1">
         <UButton
           icon="i-tabler-player-skip-back-filled"
@@ -274,17 +359,24 @@ function onSeekInput(value: number | undefined): void {
         />
       </div>
 
-      <div v-if="playback.hasTrack" class="flex gap-3">
-        <div class="flex justify-between tabular-nums text-xs font-medium text-muted">
-          <span>{{ formatTime(playback.currentTime) }}</span>
-          <span>&nbsp;/&nbsp;</span>
-          <span>{{ formatTime(playback.duration) }}</span>
-        </div>
+      <div
+        v-if="playback.hasTrack"
+        class="order-first flex justify-between tabular-nums text-xs font-medium text-muted"
+      >
+        <span>{{ formatTime(playback.currentTime) }}</span>
+        <span>&nbsp;/&nbsp;</span>
+        <span>{{ formatTime(playback.duration) }}</span>
       </div>
     </section>
 
+    <!--
+      The now-playing track — cover, title, favourite, options — is the panel's
+      left column (`order-1`). It and the right cluster both take `flex-1`, so
+      they reserve equal width and the transport between them reads as centred in
+      the bar whatever is, or is not, playing.
+    -->
     <Transition name="trackInfo" mode="out-in">
-      <div v-if="playback.hasTrack" class="flex grow items-center justify-center">
+      <div v-if="playback.hasTrack" class="order-1 flex min-w-0 flex-1 items-center">
         <!--
           The thumbnail is the control for the sidebar's blow-up, and it stands
           down once that blow-up is on screen — two copies of the same cover a
@@ -328,14 +420,12 @@ function onSeekInput(value: number | undefined): void {
           </div>
         </Transition>
         <!--
-          Centred only while the thumbnail is gone. With the thumbnail present
-          the block is read against its left edge, and ragged-left text beside a
-          square would read as a misalignment rather than a choice.
+          Read against its left edge always, now the column is anchored there.
+          When the thumbnail wipes away for the sidebar's blow-up the text holds
+          its place rather than sliding to centre — the operator asked to see the
+          art bigger, not to have the title move house.
         -->
-        <div
-          class="flex flex-col justify-center"
-          :class="shell.coverExpanded ? 'items-center text-center' : ''"
-        >
+        <div class="flex min-w-0 flex-col justify-center">
           <p class="truncate text-sm font-medium text-highlighted max-w-60">
             {{ playback.nowPlaying?.title ?? 'Nothing playing' }}
           </p>
@@ -381,26 +471,51 @@ function onSeekInput(value: number | undefined): void {
       </div>
     </Transition>
 
-    <div class="flex shrink-0 items-center gap-3">
-      <section class="flex items-center gap-2 volumeSlider overflow-hidden w-42">
+    <div class="order-3 flex min-w-0 flex-1 items-center justify-end gap-3">
+      <!--
+        Collapsed to its icon and readout until pointed at or focused, then the
+        bar wipes open to be set and folds away again once the pointer leaves.
+        The transport is read at a glance far more often than the volume is
+        moved, and a slider always out is a slider always catching the eye and
+        the cursor. `is-adjusting` keeps it open through a drag whose pointer
+        strays off the row — the slider captures the pointer, so the grab must
+        outlive the hover that revealed it.
+      -->
+      <!--
+        The whole control's hover buffer: an even hit-area — taller top and
+        bottom than it is wide — that opens the bar as the cursor arrives and
+        holds it while the aim drifts toward the thumb. The negative margins
+        cancel the padding in the margin box, so the row's spacing is untouched;
+        only the hoverable area grows.
+      -->
+      <section
+        ref="volumeSection"
+        class="volume -mx-2 -my-3 flex items-center gap-1 px-2 py-3"
+        :class="{ 'is-open': volumeOpen }"
+        @focusin="onVolumeFocusIn"
+        @focusout="volumeKeyboard = false"
+      >
         <UIcon name="i-tabler-volume" class="size-5 shrink-0 text-muted" />
-        <USlider
-          :model-value="playback.volume"
-          class="min-w-0 flex-1"
-          aria-label="Volume"
-          :min="0"
-          :max="1"
-          :step="0.01"
-          :ui="{
-            root: 'group',
-            track: 'h-1.5',
-            range: 'h-1.5',
-            thumb:
-              'opacity-0 cursor-pointer group-hover:opacity-100 w-3 h-3 -ml-0.5 transition-opacity'
-          }"
-          @update:model-value="(value) => value !== undefined && playback.setVolume(value)"
-        />
-        <span class="wtext-right tabular-nums text-xs text-muted">
+        <div class="volume-track">
+          <USlider
+            :model-value="playback.volume"
+            class="w-24"
+            aria-label="Volume"
+            :min="0"
+            :max="1"
+            :step="0.01"
+            :ui="{
+              root: 'group px-2',
+              track: 'h-1.5',
+              range: 'h-1.5',
+              thumb:
+                'opacity-0 cursor-pointer group-hover:opacity-100 w-3 h-3 -ml-0.5 transition-opacity'
+            }"
+            @pointerdown="beginVolumeAdjust"
+            @update:model-value="(value) => value !== undefined && playback.setVolume(value)"
+          />
+        </div>
+        <span class="w-7 shrink-0 text-right tabular-nums text-xs text-muted">
           {{ Math.round(playback.volume * 100) }}
         </span>
       </section>
@@ -661,6 +776,38 @@ function onSeekInput(value: number | undefined): void {
     transform 300ms ease;
 }
 
+/*
+ * The volume slider keeps to itself until asked for. Collapsed it is width zero
+ * and clipped; hover, keyboard focus, or an in-progress drag open it to the
+ * slider's own width. Width — not opacity — carries the motion, so the icon and
+ * readout slide together as it opens rather than the bar fading in over its
+ * neighbours.
+ */
+.volume-track {
+  width: 0;
+  /*
+   * Clip across, not down. The thumb stands taller and wider than the 1.5px
+   * track it rides, so a plain `overflow: hidden` shaves it to a square as it
+   * rides the ends and folds away. `clip` on one axis is what lets the other
+   * stay `visible` — `hidden` would force it to `auto` — and the slider's own
+   * `px-2` keeps the thumb clear of the horizontal clip at either extreme.
+   */
+  overflow-x: clip;
+  overflow-y: visible;
+  /*
+   * The closing transition. A beat of delay so a cursor that clips the edge for
+   * a moment doesn't fold the bar away, then a slightly slower ease-out as it
+   * goes. Opening overrides both below to stay immediate — the reveal should
+   * meet the cursor, and only the retreat is worth easing.
+   */
+  transition: width 260ms ease-out 250ms;
+}
+
+.volume.is-open .volume-track {
+  width: 6rem;
+  transition: width 150ms ease 0ms;
+}
+
 .trackInfo-enter-from {
   opacity: 0;
   transform: translateY(6px);
@@ -698,6 +845,12 @@ function onSeekInput(value: number | undefined): void {
   .trackInfo-enter-from,
   .trackInfo-leave-to {
     transform: none;
+  }
+
+  .volume-track,
+  .volume.is-open .volume-track {
+    transition-duration: 0ms;
+    transition-delay: 0ms;
   }
 }
 </style>
