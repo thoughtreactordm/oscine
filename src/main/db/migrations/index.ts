@@ -16,6 +16,7 @@ import { listensLog } from './014-listens-log'
 import { favorites } from './015-favorites'
 import { quickAccess } from './016-quick-access'
 import { podcastAutoDownload } from './017-podcast-auto-download'
+import { userTags } from './018-user-tags'
 
 /**
  * Every migration, in order.
@@ -43,5 +44,6 @@ export const MIGRATIONS: readonly Migration[] = [
   listensLog,
   favorites,
   quickAccess,
-  podcastAutoDownload
+  podcastAutoDownload,
+  userTags
 ]
