@@ -68,17 +68,6 @@ const label = computed(() => {
           </div>
         </Transition>
       </div>
-
-      <p
-        v-if="playback.hasTrack"
-        class="mt-2 truncate text-center text-sm font-bold text-highlighted"
-      >
-        {{ playback.nowPlaying?.title }}
-      </p>
-      <p v-if="playback.hasTrack" class="truncate text-center text-xs text-muted">
-        {{ playback.nowPlaying?.albumArtist ?? playback.nowPlaying?.album }}
-      </p>
-      <p v-else class="mt-2 text-center text-xs text-dimmed">Nothing playing</p>
     </div>
   </section>
 </template>
