@@ -90,6 +90,13 @@ function shortcutKeys(id: string): string[] {
   return [...(SHORTCUTS.find((spec) => spec.id === id)?.keys ?? [])]
 }
 
+/**
+ * A wider floor on the menu panels than the default, so a row's label and its
+ * shortcut hint sit apart rather than crowding. A floor, not a fixed width — a
+ * long folder path in the Library menu still grows past it.
+ */
+const menuUi = { content: 'min-w-52' }
+
 let stopMaximizedListener: (() => void) | null = null
 
 /**
@@ -353,7 +360,11 @@ async function toggleMaximize(): Promise<void> {
     </div>
 
     <nav class="app-no-drag flex h-full items-center" aria-label="Application menu">
-      <UDropdownMenu :items="libraryItems" :content="{ align: 'start', sideOffset: 0 }">
+      <UDropdownMenu
+        :items="libraryItems"
+        :content="{ align: 'start', sideOffset: 0 }"
+        :ui="menuUi"
+      >
         <UButton
           label="Library"
           color="neutral"
@@ -363,7 +374,11 @@ async function toggleMaximize(): Promise<void> {
         />
       </UDropdownMenu>
 
-      <UDropdownMenu :items="playbackItems" :content="{ align: 'start', sideOffset: 0 }">
+      <UDropdownMenu
+        :items="playbackItems"
+        :content="{ align: 'start', sideOffset: 0 }"
+        :ui="menuUi"
+      >
         <UButton
           label="Playback"
           color="neutral"
@@ -373,7 +388,7 @@ async function toggleMaximize(): Promise<void> {
         />
       </UDropdownMenu>
 
-      <UDropdownMenu :items="viewItems" :content="{ align: 'start', sideOffset: 0 }">
+      <UDropdownMenu :items="viewItems" :content="{ align: 'start', sideOffset: 0 }" :ui="menuUi">
         <UButton
           label="View"
           color="neutral"
@@ -383,7 +398,7 @@ async function toggleMaximize(): Promise<void> {
         />
       </UDropdownMenu>
 
-      <UDropdownMenu :items="helpItems" :content="{ align: 'start', sideOffset: 0 }">
+      <UDropdownMenu :items="helpItems" :content="{ align: 'start', sideOffset: 0 }" :ui="menuUi">
         <UButton
           label="Help"
           color="neutral"
