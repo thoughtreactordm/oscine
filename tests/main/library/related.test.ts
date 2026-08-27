@@ -685,8 +685,9 @@ describe('genre neighbourhood widened to user tags (W15-6)', () => {
         `INSERT INTO tags (key, label, created_at) VALUES (?, ?, 1)
          ON CONFLICT(key) DO NOTHING`
       ).run(norm.key, norm.label)
-      const tagId = (db.prepare('SELECT id FROM tags WHERE key = ?').get(norm.key) as { id: number })
-        .id
+      const tagId = (
+        db.prepare('SELECT id FROM tags WHERE key = ?').get(norm.key) as { id: number }
+      ).id
       db.prepare(
         `INSERT INTO track_tags (track_id, tag_id, source, created_at) VALUES (?, ?, 'user', 1)`
       ).run(trackId, tagId)
