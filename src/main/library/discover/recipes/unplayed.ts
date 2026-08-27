@@ -48,13 +48,27 @@ export function unplayed(
               al.year AS year,
               al.artwork_hash AS artworkHash,
               al.album_artist_id AS albumArtistId,
-              (
-                SELECT tg.genre_key
-                FROM tracks g
-                JOIN track_genres tg ON tg.track_id = g.id
-                WHERE g.album_id = al.id
-                ORDER BY tg.genre_key
-                LIMIT 1
+              -- A single key for the diversity spread below. File genre first,
+              -- falling back to a user tag so a tag-only album still spreads by
+              -- its key rather than clumping under NULL (W15-6).
+              COALESCE(
+                (
+                  SELECT tg.genre_key
+                  FROM tracks g
+                  JOIN track_genres tg ON tg.track_id = g.id
+                  WHERE g.album_id = al.id
+                  ORDER BY tg.genre_key
+                  LIMIT 1
+                ),
+                (
+                  SELECT gtag.key
+                  FROM tracks g2
+                  JOIN track_tags tt ON tt.track_id = g2.id
+                  JOIN tags gtag ON gtag.id = tt.tag_id
+                  WHERE g2.album_id = al.id
+                  ORDER BY gtag.key
+                  LIMIT 1
+                )
               ) AS genreKey,
               stats.trackCount AS trackCount,
               CASE WHEN al.album_artist_id IN (SELECT value FROM json_each(@artistIds))
@@ -65,6 +79,14 @@ export function unplayed(
                 JOIN track_genres tg ON tg.track_id = g.id
                 WHERE g.album_id = al.id
                   AND tg.genre_key IN (SELECT value FROM json_each(@genreKeys))
+              ) OR EXISTS (
+                -- The user-tag layer, same casefold key set (W15-6).
+                SELECT 1
+                FROM tracks g2
+                JOIN track_tags tt ON tt.track_id = g2.id
+                JOIN tags gtag ON gtag.id = tt.tag_id
+                WHERE g2.album_id = al.id
+                  AND gtag.key IN (SELECT value FROM json_each(@genreKeys))
               ) THEN 1 ELSE 0 END AS seedGenre
        FROM (
          SELECT t.album_id AS albumId,

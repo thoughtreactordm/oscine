@@ -76,6 +76,16 @@ export function forYou(
                   JOIN track_genres tg ON tg.track_id = g.id
                   WHERE g.album_id = al.id
                     AND tg.genre_key IN (SELECT value FROM json_each(@genreKeys))
+                ) OR EXISTS (
+                  -- The user-tag layer, keyed by the same casefold (W15-6): the
+                  -- seed already carries the tags of what you play, so an album
+                  -- sharing one is as much a taste match as a shared file genre.
+                  SELECT 1
+                  FROM tracks g2
+                  JOIN track_tags tt ON tt.track_id = g2.id
+                  JOIN tags gtag ON gtag.id = tt.tag_id
+                  WHERE g2.album_id = al.id
+                    AND gtag.key IN (SELECT value FROM json_each(@genreKeys))
                 ) THEN 1 ELSE 0 END AS seedGenre
          FROM (
            SELECT t.album_id AS albumId,

@@ -70,13 +70,26 @@ export function neglectedGenre(
          FROM tracks t
          WHERE t.album_id IS NOT NULL
            AND t.album_id NOT IN (SELECT value FROM json_each(@claimedAlbums))
-           AND EXISTS (
-             SELECT 1
-             FROM tracks g
-             JOIN track_genres tg ON tg.track_id = g.id
-             WHERE g.album_id = t.album_id
-               AND tg.genre_key = @genreKey
-           )
+           AND (EXISTS (
+                  SELECT 1
+                  FROM tracks g
+                  JOIN track_genres tg ON tg.track_id = g.id
+                  WHERE g.album_id = t.album_id
+                    AND tg.genre_key = @genreKey
+                )
+                OR EXISTS (
+                  -- The user-tag layer, keyed by the same casefold (W15-6): an
+                  -- album a user hand-tagged with the picked key is neglected in
+                  -- exactly the sense this shelf means, whether or not any file
+                  -- on it carries the genre. tags.key resolves through its UNIQUE
+                  -- index and idx_track_tags_tag walks the assignments.
+                  SELECT 1
+                  FROM tracks g2
+                  JOIN track_tags tt ON tt.track_id = g2.id
+                  JOIN tags gtag ON gtag.id = tt.tag_id
+                  WHERE g2.album_id = t.album_id
+                    AND gtag.key = @genreKey
+                ))
          GROUP BY t.album_id
          HAVING COUNT(*) >= @minTracks
             AND SUM(CASE WHEN t.play_count = 0 THEN 1 ELSE 0 END) >= 1
@@ -119,14 +132,29 @@ function pickGenre(
   nowMs: number,
   seed: TasteSeed
 ): { genreKey: string; display: string } | null {
+  // The library-genre pool, widened to the user-tag layer (W15-6). File genres
+  // and user tags fold to one bucket on their shared casefold key, so a key a
+  // user only ever hand-applied is a first-class candidate here. `trackCount` is
+  // `COUNT(DISTINCT track_id)` so a track carrying the key in both vocabularies
+  // is one track, not two; the display prefers the file spelling and falls back
+  // to the tag label for a key no file carries. Same read shape as the original
+  // GROUP BY — the tag arm is user-scale and needs no new index.
   const library = db
     .prepare(
-      `SELECT tg.genre_key AS genreKey,
-              MIN(tg.genre) AS display,
-              COUNT(*) AS trackCount
-       FROM track_genres tg
-       GROUP BY tg.genre_key
-       ORDER BY trackCount DESC, tg.genre_key ASC
+      `WITH keyed AS (
+         SELECT genre_key AS key, genre AS label, track_id, 1 AS is_file
+           FROM track_genres
+         UNION ALL
+         SELECT gt.key AS key, gt.label AS label, tt.track_id AS track_id, 0 AS is_file
+           FROM track_tags tt
+           JOIN tags gt ON gt.id = tt.tag_id
+       )
+       SELECT k.key AS genreKey,
+              COALESCE(MAX(CASE WHEN k.is_file = 1 THEN k.label END), MAX(k.label)) AS display,
+              COUNT(DISTINCT k.track_id) AS trackCount
+       FROM keyed k
+       GROUP BY k.key
+       ORDER BY trackCount DESC, k.key ASC
        LIMIT @libraryN`
     )
     .all({ libraryN: NEGLECTED_LIBRARY_N }) as LibraryGenre[]

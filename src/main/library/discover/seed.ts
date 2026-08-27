@@ -6,9 +6,10 @@ import { RECENT_FALLBACK_MS, RECENT_MS, SEED_MIN_ARTISTS } from './constants'
  *
  * Distinct playable artists ranked by summed `ms_listened`, widening the
  * window from 30 days to 90 days to all-time until `SEED_MIN_ARTISTS` is met
- * or the log is exhausted. Genres are taken from `track_genres` on the same
- * playable listens, in the window that the artist half settled on — live
- * tags, not `listen_genres` snapshots, so a tag fix improves Discover.
+ * or the log is exhausted. Genre keys are taken from `track_genres` unioned with
+ * the user-tag layer (`track_tags`, W15-6) on the same playable listens, in the
+ * window that the artist half settled on — live tags, not `listen_genres`
+ * snapshots, so both a genre fix and a hand-applied tag improve Discover.
  *
  * Empty means cold start: *for-you* drops, *unplayed* is the page.
  */
@@ -91,17 +92,31 @@ function artistListenMs(db: Database.Database, fromMs: number): ArtistRow[] {
     .all({ fromMs }) as ArtistRow[]
 }
 
+/**
+ * Taste keys, widened to the user-tag layer (W15-6). A track's file genres and
+ * its user tags fold to one bucket on the shared casefold key (`@shared/genre`),
+ * so the inner `UNION` collapses `(track_id, key)` before the join — a track
+ * carrying a key in both vocabularies weights that key by a listen's `ms` once,
+ * not twice. The result is that hand-tagging what you play steers Discover the
+ * same way a file genre does, live off `track_tags` rather than a snapshot.
+ */
 function genreListenMs(db: Database.Database, fromMs: number): GenreRow[] {
   return db
     .prepare(
-      `SELECT tg.genre_key AS genreKey,
+      `SELECT k.key AS genreKey,
               SUM(l.ms_listened) AS ms
        FROM listens l
        JOIN tracks t ON t.id = l.track_id
-       JOIN track_genres tg ON tg.track_id = t.id
+       JOIN (
+         SELECT track_id, genre_key AS key FROM track_genres
+         UNION
+         SELECT tt.track_id, gt.key AS key
+           FROM track_tags tt
+           JOIN tags gt ON gt.id = tt.tag_id
+       ) k ON k.track_id = t.id
        WHERE l.started_at >= @fromMs
-       GROUP BY tg.genre_key
-       ORDER BY ms DESC, tg.genre_key ASC`
+       GROUP BY k.key
+       ORDER BY ms DESC, k.key ASC`
     )
     .all({ fromMs }) as GenreRow[]
 }

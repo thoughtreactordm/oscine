@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
-import { splitGenres } from '@shared/genre'
+import { normalizeLabel, splitGenres } from '@shared/genre'
 import { openDatabase } from '../../../../src/main/db'
 import { rebuildTrackCounters } from '../../../../src/main/stats/counters'
 import { DAY_MS } from '../../../../src/main/library/discover/constants'
@@ -145,6 +145,32 @@ export function addMixedAlbum(
     )
   })
   return { albumId, trackIds }
+}
+
+/**
+ * Apply a user tag to tracks — the `track_tags` layer the genre recipes union
+ * in (W15-6). The tag is upserted by its casefold key, the same fold
+ * `track_genres.genre_key` uses, so `tagTracks(db, 'IDM', …)` shares a bucket
+ * with a file genre `idm`.
+ */
+export function tagTracks(
+  db: Database.Database,
+  label: string,
+  trackIds: readonly number[],
+  source: 'user' | 'suggested' = 'user'
+): void {
+  const norm = normalizeLabel(label)
+  if (norm === null) throw new Error(`empty tag label: ${label}`)
+  db.prepare(
+    `INSERT INTO tags (key, label, created_at) VALUES (?, ?, 1)
+     ON CONFLICT(key) DO NOTHING`
+  ).run(norm.key, norm.label)
+  const tagId = (db.prepare('SELECT id FROM tags WHERE key = ?').get(norm.key) as { id: number }).id
+  const link = db.prepare(
+    `INSERT INTO track_tags (track_id, tag_id, source, created_at) VALUES (?, ?, ?, 1)
+     ON CONFLICT(track_id, tag_id) DO NOTHING`
+  )
+  for (const trackId of trackIds) link.run(trackId, tagId, source)
 }
 
 export function addFavorite(db: Database.Database, trackId: number, favoritedAt: number): void {
