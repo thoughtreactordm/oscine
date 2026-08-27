@@ -25,7 +25,7 @@ import type {
   TrackSortColumn
 } from '@shared/library'
 import type { AlbumCard } from '@shared/albums'
-import { splitGenres } from '@shared/genre'
+import { normalizeLabel, splitGenres } from '@shared/genre'
 import { artworkUrl } from '@shared/ipc'
 import type { FavoriteBias, RelatedAlbum } from '@shared/related'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
@@ -728,14 +728,25 @@ function prepareStatements(db: Database.Database) {
     `),
 
     /**
-     * The genre neighbourhood.
+     * The genre neighbourhood — widened to the user-tag layer (W15-6).
      *
-     * The inner `GROUP BY ... LIMIT` is load-bearing rather than defensive: a
-     * broad genre over a 100k-track library matches tens of thousands of rows,
-     * and aggregating all of them to display fifty albums is the difference
-     * between a pane that opens within the frame budget and one that does not.
-     * `idx_tracks_genre_album` (migration 10) lets SQLite satisfy the grouping
-     * from the index in order and stop as soon as the limit is met.
+     * The file branch is unchanged and load-bearing: a broad genre over a
+     * 100k-track library matches tens of thousands of rows, and its inner
+     * `GROUP BY ... LIMIT` is what lets `idx_tracks_genre_album` (migration 10)
+     * satisfy the grouping from the index in order and stop as soon as the limit
+     * is met — the difference between a pane that opens within the frame budget
+     * and one that does not. It stays exactly that shape.
+     *
+     * The tag branch is the union: the seed's genre and a user tag are the same
+     * bucket when they fold to one casefold key (`@shared/genre`), so an album a
+     * user hand-tagged with the seed's genre joins the neighbourhood alongside
+     * the ones whose files carry it. `@genreKey` is that fold of `@genre`; the
+     * arm resolves `tags.key` through its UNIQUE index to a `tag_id`, then
+     * `idx_track_tags_tag` to the tracks, so it needs no new index and stays
+     * user-scale. Each arm is a bounded subquery of album ids and `UNION` dedups
+     * them, so an album carrying the key in *both* vocabularies counts once. The
+     * `album_id IS NOT @albumId` guard on both arms is what stops the seed's own
+     * tags from making its album related to itself.
      *
      * Newest first here, unlike the discography: a genre is a browsing surface
      * rather than a body of work, and chronological order from 1954 is not what
@@ -751,12 +762,25 @@ function prepareStatements(db: Database.Database) {
       LEFT JOIN artists aa ON aa.id = al.album_artist_id
       JOIN tracks t ON t.album_id = al.id
       WHERE al.id IN (
-              SELECT gt.album_id
-              FROM tracks gt
-              WHERE gt.genre = @genre AND gt.album_id IS NOT NULL AND gt.album_id IS NOT @albumId
-                AND ${favoritesFilter(albumHasFavorite('gt.album_id'))}
-              GROUP BY gt.album_id
-              LIMIT @limit
+              SELECT album_id FROM (
+                SELECT gt.album_id AS album_id
+                FROM tracks gt
+                WHERE gt.genre = @genre AND gt.album_id IS NOT NULL AND gt.album_id IS NOT @albumId
+                  AND ${favoritesFilter(albumHasFavorite('gt.album_id'))}
+                GROUP BY gt.album_id
+                LIMIT @limit
+              )
+              UNION
+              SELECT album_id FROM (
+                SELECT tt2.album_id AS album_id
+                FROM track_tags tt
+                JOIN tags gtag ON gtag.id = tt.tag_id
+                JOIN tracks tt2 ON tt2.id = tt.track_id
+                WHERE gtag.key = @genreKey AND tt2.album_id IS NOT NULL AND tt2.album_id IS NOT @albumId
+                  AND ${favoritesFilter(albumHasFavorite('tt2.album_id'))}
+                GROUP BY tt2.album_id
+                LIMIT @limit
+              )
             )
       GROUP BY al.id
       ORDER BY ${favoritesFirst(albumHasFavorite('al.id'))},
@@ -1295,6 +1319,12 @@ export class LibraryStore {
       sameGenre: ({ genre, albumId, limit, favorites }) =>
         s.relatedSameGenre.all({
           genre,
+          // The tag arm matches on the shared casefold key, not the display
+          // spelling — fold the seed's genre the same way `track_genres.genre_key`
+          // and `tags.key` are folded (W15-6). A genre that normalises to nothing
+          // (`normalizeLabel` returns null) can never equal a stored key, so the
+          // arm is simply empty and the strand falls back to the file layer.
+          genreKey: normalizeLabel(genre)?.key ?? '',
           albumId,
           limit,
           ...favoriteBinds(favorites)

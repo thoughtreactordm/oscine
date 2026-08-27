@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { normalizeLabel } from '@shared/genre'
 import { openDatabase, type OpenDatabaseResult } from '../../../src/main/db'
 import { LibraryStore } from '../../../src/main/library/store'
 import {
@@ -611,5 +612,136 @@ describe('related queries', () => {
       const section = strands('only').find((candidate) => candidate.strand === 'genre')
       expect(section?.kind === 'albums' ? section.albums.map((a) => a.trackCount) : []).toEqual([2])
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+/**
+ * W15-6: the genre neighbourhood widened to the user-tag layer.
+ *
+ * Its own library rather than the shared one above, because the favorite-bias
+ * describe asserts the exact set of genre-strand albums and a hand-tagged album
+ * would change it. The shape here is the union's three cases: a tag-only album
+ * that shares the seed's genre *as a tag*, an album that carries the key in both
+ * vocabularies (which must count once), and the seed's own album tagged with its
+ * own genre (which the `album_id IS NOT @albumId` guard must still exclude).
+ */
+describe('genre neighbourhood widened to user tags (W15-6)', () => {
+  let dir: string
+  let opened: OpenDatabaseResult
+  let store: LibraryStore
+  let seedTrackId: number
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'oscine-related-tags-'))
+    opened = openDatabase(join(dir, 'library.db'))
+    const { db } = opened
+
+    const rootId = Number(
+      db
+        .prepare('INSERT INTO roots (label, path, added_at) VALUES (?, ?, ?)')
+        .run('Synthetic', '/synthetic', 1).lastInsertRowid
+    )
+    const insertArtist = db.prepare('INSERT INTO artists (name) VALUES (?)')
+    const insertAlbum = db.prepare(
+      'INSERT INTO albums (title, album_artist_id, year) VALUES (?, ?, ?)'
+    )
+    const insertTrack = db.prepare(`
+      INSERT INTO tracks (root_id, rel_path, mtime, size, title, artist_id, album_id, track_no, genre)
+      VALUES (@rootId, @relPath, 1, 1000, @title, @artistId, @albumId, @trackNo, @genre)
+    `)
+    const insertTrackGenre = db.prepare(
+      'INSERT INTO track_genres (track_id, genre_key, genre) VALUES (?, ?, ?)'
+    )
+
+    let pathSeq = 0
+    const addTrack = (
+      artistId: number,
+      albumId: number,
+      title: string,
+      trackNo: number,
+      genre: string | null
+    ): number => {
+      const id = Number(
+        insertTrack.run({
+          rootId,
+          relPath: `a${artistId}/al${albumId}/${pathSeq++}.flac`,
+          title,
+          artistId,
+          albumId,
+          trackNo,
+          genre
+        }).lastInsertRowid
+      )
+      const norm = normalizeLabel(genre)
+      if (norm !== null) insertTrackGenre.run(id, norm.key, norm.label)
+      return id
+    }
+
+    const tagTrack = (trackId: number, label: string): void => {
+      const norm = normalizeLabel(label)!
+      db.prepare(
+        `INSERT INTO tags (key, label, created_at) VALUES (?, ?, 1)
+         ON CONFLICT(key) DO NOTHING`
+      ).run(norm.key, norm.label)
+      const tagId = (db.prepare('SELECT id FROM tags WHERE key = ?').get(norm.key) as { id: number })
+        .id
+      db.prepare(
+        `INSERT INTO track_tags (track_id, tag_id, source, created_at) VALUES (?, ?, 'user', 1)`
+      ).run(trackId, tagId)
+    }
+
+    const seedster = Number(insertArtist.run('Seedster').lastInsertRowid)
+    const tagger = Number(insertArtist.run('Tagger').lastInsertRowid)
+    const bother = Number(insertArtist.run('Bother').lastInsertRowid)
+
+    // The seed's album: file genre IDM.
+    const seedAlbum = Number(insertAlbum.run('Seed Album', seedster, 2002).lastInsertRowid)
+    seedTrackId = addTrack(seedster, seedAlbum, 'Seed Track', 1, 'IDM')
+    // …tagged with its own genre. The guard must still keep it out of its own
+    // neighbourhood — a track's own tags do not make it related to itself.
+    tagTrack(seedTrackId, 'IDM')
+
+    // Tag-only: no file genre IDM, but hand-tagged 'idm' (the casefold of the
+    // seed's genre). The union is the only reason this can appear.
+    const taggedOnly = Number(insertAlbum.run('Tagged Only', tagger, 2015).lastInsertRowid)
+    const tagOnlyTrack = addTrack(tagger, taggedOnly, 'Tag Only Track', 1, 'Ambient')
+    tagTrack(tagOnlyTrack, 'idm')
+
+    // Both vocabularies on one album, across two of its tracks: file genre IDM
+    // and a user tag 'IDM'. It must appear once, counted by its own two tracks.
+    const both = Number(insertAlbum.run('Both Ways', bother, 2010).lastInsertRowid)
+    addTrack(bother, both, 'Both One', 1, 'IDM')
+    const bothTwo = addTrack(bother, both, 'Both Two', 2, 'Rock')
+    tagTrack(bothTwo, 'IDM')
+
+    store = new LibraryStore(db)
+  })
+
+  afterAll(() => {
+    opened.db.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  function genreAlbums(): RelatedAlbum[] {
+    const result = buildRelated(store.relatedQueries(), seedTrackId)
+    const section = result?.sections.find((candidate) => candidate.strand === 'genre')
+    if (section === undefined || section.kind !== 'albums') throw new Error('no genre section')
+    return section.albums
+  }
+
+  it('pulls in a tag-only album that shares the genre as a user tag', () => {
+    expect(genreAlbums().map((a) => a.title)).toContain('Tagged Only')
+  })
+
+  it('excludes the seed album even though it is tagged with its own genre', () => {
+    expect(genreAlbums().map((a) => a.title)).not.toContain('Seed Album')
+  })
+
+  it('lists an album carrying the key in both vocabularies once, by its own tracks', () => {
+    const both = genreAlbums().filter((a) => a.title === 'Both Ways')
+    expect(both).toHaveLength(1)
+    expect(both[0].trackCount).toBe(2)
   })
 })

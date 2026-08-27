@@ -12,7 +12,8 @@ import {
   addRoot,
   listenEveryTrack,
   openTempDb,
-  rebuild
+  rebuild,
+  tagTracks
 } from './fixture'
 
 describe('buildTasteSeed', () => {
@@ -153,6 +154,58 @@ describe('buildTasteSeed', () => {
     const seed = buildTasteSeed(db, NOW)
     expect(seed.windowMs).toBeNull()
     expect(seed.artistIds).toHaveLength(3)
+  })
+
+  it('takes taste keys from user tags as well as file genres (W15-6)', () => {
+    const opened = openTempDb()
+    close = opened.close
+    const { db } = opened
+    const rootId = addRoot(db)
+    for (const name of ['A', 'B', 'C']) {
+      const artist = addArtist(db, name)
+      const album = addCompleteAlbum(db, {
+        rootId,
+        artistId: artist,
+        title: name,
+        year: 2020,
+        genre: 'Krautrock',
+        tracks: 4
+      })
+      // Hand-tag what you play; the tag key must steer the seed like a genre.
+      tagTracks(db, 'Workout', album.trackIds)
+      listenEveryTrack(db, album.trackIds, NOW - 10 * DAY_MS)
+    }
+    rebuild(db)
+
+    const seed = buildTasteSeed(db, NOW)
+    expect(seed.genreKeys).toContain('krautrock')
+    expect(seed.genreKeys).toContain('workout')
+  })
+
+  it('weights a key carried by both vocabularies once per listen (W15-6)', () => {
+    const opened = openTempDb()
+    close = opened.close
+    const { db } = opened
+    const rootId = addRoot(db)
+    const artist = addArtist(db, 'Solo')
+    const album = addCompleteAlbum(db, {
+      rootId,
+      artistId: artist,
+      title: 'Solo',
+      year: 2020,
+      genre: 'Jazz',
+      tracks: 4
+    })
+    // The file genre and the user tag fold to the same key: a listen must count
+    // its ms toward `jazz` once, not twice.
+    tagTracks(db, 'Jazz', album.trackIds)
+    listenEveryTrack(db, album.trackIds, NOW - 10 * DAY_MS, 90_000)
+    rebuild(db)
+
+    const seed = buildTasteSeed(db, NOW)
+    const jazzKeys = [...seed.genreKeys].filter((key) => key === 'jazz')
+    expect(jazzKeys).toEqual(['jazz'])
+    expect(seed.genreMs.get('jazz')).toBe(4 * 90_000)
   })
 })
 
