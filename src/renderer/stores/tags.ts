@@ -56,6 +56,13 @@ export const useTagsStore = defineStore('tags', () => {
   const inFlight = new Map<number, Promise<TrackTagView>>()
 
   /**
+   * Track ids a batch `ensureTracks` has in flight, so a window that scrolls a
+   * page past twice does not ask for it twice. Plain, like `inFlight` — nothing
+   * renders off it.
+   */
+  const inFlightBatch = new Set<number>()
+
+  /**
    * The last write that landed, and a sequence so two edits are two events.
    *
    * Carries the track ids it touched, like favorites' `changed` carries its one:
@@ -96,6 +103,46 @@ export const useTagsStore = defineStore('tags', () => {
       })
     inFlight.set(trackId, pending)
     return pending
+  }
+
+  /**
+   * Fetches the two vocabularies for a window of tracks in one round trip — the
+   * Genre/Tags column's read (**W15-5**).
+   *
+   * Only ids missing from the cache and not already in flight are requested, so a
+   * virtualized list re-rendering the same rows costs nothing. Main answers with
+   * one row per track that carries *anything*; a requested id absent from the
+   * answer carries nothing, and is cached as an empty view so the column does not
+   * ask for it again on the next scroll. Never rejects — a decoration must not
+   * throw into the list it decorates; a failed batch simply leaves those rows to
+   * a later pass.
+   */
+  async function ensureTracks(trackIds: readonly number[]): Promise<void> {
+    const missing = [
+      ...new Set(trackIds.filter((id) => !trackTags.value.has(id) && !inFlightBatch.has(id)))
+    ]
+    if (missing.length === 0) return
+    for (const id of missing) inFlightBatch.add(id)
+    try {
+      const rows = await tags.forTracks(missing)
+      const carried = new Set<number>()
+      for (const row of rows) {
+        carried.add(row.trackId)
+        trackTags.value.set(row.trackId, { file: row.file, user: row.user })
+      }
+      // A requested id with no row carries nothing — cache the empty view so the
+      // column stops asking, but never overwrite one a concurrent `forTrack`
+      // filled in the meantime.
+      for (const id of missing) {
+        if (!carried.has(id) && !trackTags.value.has(id)) {
+          trackTags.value.set(id, { file: [], user: [] })
+        }
+      }
+    } catch {
+      // Silent: the rows stay unfetched and a later window pass retries them.
+    } finally {
+      for (const id of missing) inFlightBatch.delete(id)
+    }
   }
 
   /**
@@ -245,6 +292,7 @@ export const useTagsStore = defineStore('tags', () => {
     loadVocabulary,
     forTrack,
     ensureTrack,
+    ensureTracks,
     add,
     remove,
     rename,

@@ -43,6 +43,7 @@ import {
   assertListEpisodesQuery,
   assertListFacetIdsQuery,
   assertListFacetsQuery,
+  assertListTagFacetsQuery,
   assertListFavoriteIdsQuery,
   assertListFavoritesQuery,
   assertListPlayHistoryQuery,
@@ -84,6 +85,7 @@ import {
   assertSearchQuery,
   assertRecentlyAddedAlbumsRequest,
   assertTrackTagsRequest,
+  assertForTracksRequest,
   assertArtistTagsRequest,
   assertAddTagsRequest,
   assertRemoveTagRequest,
@@ -165,6 +167,10 @@ export function registerIpcHandlers(
   handle('library.listArtists', (request) => library.listArtists(assertListFacetsQuery(request)))
 
   handle('library.listAlbums', (request) => library.listAlbums(assertListFacetsQuery(request)))
+
+  handle('library.listTagFacets', (request) =>
+    library.listTagFacets(assertListTagFacetsQuery(request))
+  )
 
   handle('library.listArtistIds', (request) =>
     library.listArtistIds(assertListFacetIdsQuery(request))
@@ -340,6 +346,10 @@ export function registerIpcHandlers(
   handle('tags.list', () => tags.listTags())
 
   handle('tags.forTrack', (request) => tags.tagsForTrack(assertTrackTagsRequest(request).trackId))
+
+  // W15-5 — the Genre/Tags column's batch read. One validate-delegate-return onto
+  // the store's `forTracks`, the window-shaped sibling of `forTrack`.
+  handle('tags.forTracks', (request) => tags.forTracks(assertForTracksRequest(request).trackIds))
 
   // W15-7 — the artist altitude. Coverage over the browse-dimension artist's own
   // track set, resolved in one grouped pass in the store; no id list crosses the

@@ -3,6 +3,7 @@ import { computed, markRaw, ref, watch } from 'vue'
 import { library } from '@renderer/ipc'
 import { measureLibraryQuery } from '@renderer/metrics'
 import { createFacetWindow } from '@renderer/panels/facetWindow'
+import { createTagFacetWindow } from '@renderer/panels/tagFacetWindow'
 import { collectPagedIds } from '@renderer/panels/pagedIds'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { useTrackListStore } from '@renderer/stores/trackList'
@@ -75,17 +76,35 @@ export const useBrowseStore = defineStore('browse', () => {
       fetchIdPage: (query) => library.listAlbumIds(query)
     })
   )
+  /**
+   * The genre/tag pane — the broadest grouping, so it sits at the top of the
+   * chain (**W15-5**). A key-selection window rather than a numeric facet, for
+   * the reason its module gives: a file genre has no id, only the key it shares
+   * with a user tag. `markRaw` for the same reason the two above have it.
+   */
+  const genres = markRaw(
+    createTagFacetWindow({
+      fetch: (query) => measureLibraryQuery('tag-facets-query', () => library.listTagFacets(query))
+    })
+  )
 
   /**
-   * The three predicates, narrowing left to right.
+   * The predicates, narrowing top to bottom: genre, then artist, then album.
    *
    * Each pane is filtered by everything above it and never by itself: the
    * artist pane has to keep listing every artist under the root while some of
-   * them are selected, or selecting a second one would be impossible.
+   * them are selected, or selecting a second one would be impossible. Genre is
+   * the broadest grouping, so it sits above the other two — the genre pane lists
+   * every genre under the root and search, and a genre selection narrows the
+   * artist and album panes below it.
    */
-  const artistFilters = computed<LibraryBrowseFilters>(() => ({
+  const genreFilters = computed<LibraryBrowseFilters>(() => ({
     ...(rootId.value === null ? {} : { rootId: rootId.value }),
     ...(activeSearch.value === null ? {} : { searchText: activeSearch.value })
+  }))
+  const artistFilters = computed<LibraryBrowseFilters>(() => ({
+    ...genreFilters.value,
+    ...(genres.filterKeys.value === undefined ? {} : { tagKeys: genres.filterKeys.value })
   }))
   const albumFilters = computed<LibraryBrowseFilters>(() => ({
     ...artistFilters.value,
@@ -122,6 +141,10 @@ export const useBrowseStore = defineStore('browse', () => {
    * because the album pane is downstream of it — that direction would let a
    * click in the lower pane silently rewrite the upper one.
    */
+  // Genre is the top of the chain: nothing above it narrows it, so it needs only
+  // the root and search, and it prunes its own selection on reload rather than
+  // through a separate call the way the id windows do.
+  watch(genreFilters, (filters) => genres.setFilters(filters), { immediate: true })
   watch(
     artistFilters,
     (filters) => {
@@ -212,6 +235,7 @@ export const useBrowseStore = defineStore('browse', () => {
   )
 
   function reloadFacets(): void {
+    void genres.reload()
     artists.reload()
     albums.reload()
   }
@@ -281,6 +305,29 @@ export const useBrowseStore = defineStore('browse', () => {
     searchInput.value = text
     activeSearch.value = searchableText(text)
     searchPending.value = false
+  }
+
+  /**
+   * Narrows the library to one genre or tag, named from outside the sidebar —
+   * **W15-5**.
+   *
+   * `revealArtist`'s neighbour, and it clears the same things above and beside it
+   * for the same reason: a Tunedeck chip that names a genre the current predicate
+   * excludes would otherwise select a key the pane immediately prunes, and the
+   * operator would have clicked a chip and watched the library not change. Genre
+   * is the top of the chain, so the artist and album selections below it go too —
+   * they were chosen against a different slice and would filter the song list by
+   * rows this genre does not contain. Asking to see a genre is asking to see it.
+   */
+  function revealTag(key: string): void {
+    rootId.value = null
+    searchInput.value = ''
+    activeSearch.value = null
+    searchPending.value = false
+
+    artists.clearSelection()
+    albums.clearSelection()
+    genres.selectOnly(key)
   }
 
   /**
@@ -361,11 +408,13 @@ export const useBrowseStore = defineStore('browse', () => {
     activeSearch,
     artists,
     albums,
+    genres,
     currentFilters,
     facetFilters,
     facetTrackIds,
     reloadFacets,
     revealArtist,
-    revealSearch
+    revealSearch,
+    revealTag
   }
 })

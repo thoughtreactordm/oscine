@@ -10,6 +10,7 @@ import type {
 import type {
   ListFacetIdsQuery,
   ListFacetsQuery,
+  ListTagFacetsQuery,
   ListTrackGroupsQuery,
   GetTracksByIdsQuery,
   ListTrackIdsQuery,
@@ -124,6 +125,8 @@ const api = {
     removeRoot: (rootId: number) => request('library.removeRoot', { rootId }),
     listArtists: (query: ListFacetsQuery) => request('library.listArtists', query),
     listAlbums: (query: ListFacetsQuery) => request('library.listAlbums', query),
+    /** The unified genre/tag browse vocabulary under the current predicate (W15-5). */
+    listTagFacets: (query: ListTagFacetsQuery) => request('library.listTagFacets', query),
     /** The same two windows, ids only — for range selection and pruning. */
     listArtistIds: (query: ListFacetIdsQuery) => request('library.listArtistIds', query),
     listAlbumIds: (query: ListFacetIdsQuery) => request('library.listAlbumIds', query),
@@ -229,6 +232,8 @@ const api = {
     list: () => request('tags.list', null),
     /** One track's two vocabularies, file genres and user tags kept apart. */
     forTrack: (trackId: number) => request('tags.forTrack', { trackId }),
+    /** The two vocabularies for a batch of tracks — the Genre/Tags column's read (W15-5). */
+    forTracks: (trackIds: readonly number[]) => request('tags.forTracks', { trackIds }),
     /** An artist's tags as coverage over its catalogue, carried/total. */
     forArtist: (artistId: number) => request('tags.forArtist', { artistId }),
     /** Applies one label to a batch, coining it if new. Answers with the vocabulary row. */

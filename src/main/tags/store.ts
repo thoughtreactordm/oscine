@@ -58,6 +58,7 @@ export type {
   TagCoverage,
   ArtistTagsView,
   TrackTagAssignment,
+  TrackTagsRow,
   TrackTagView,
   RemoveTagResult
 } from '@shared/tags'
@@ -68,6 +69,7 @@ import type {
   TagCoverage,
   ArtistTagsView,
   TrackTagAssignment,
+  TrackTagsRow,
   TrackTagView,
   RemoveTagResult
 } from '@shared/tags'
@@ -77,6 +79,8 @@ export class TagStore {
     list: Database.Statement<[]>
     fileTags: Database.Statement<[number]>
     userTags: Database.Statement<[number]>
+    fileTagsBatch: Database.Statement<[string]>
+    userTagsBatch: Database.Statement<[string]>
     artistCoverage: Database.Statement<[number]>
     artistTrackCount: Database.Statement<[number]>
     upsertVocab: Database.Statement<{ key: string; label: string; createdAt: number }>
@@ -141,6 +145,24 @@ export class TagStore {
         JOIN tags t ON t.id = tt.tag_id
         WHERE tt.track_id = ?
         ORDER BY t.label COLLATE NOCASE, t.id
+      `),
+      // The batch shapes of the two above — the Genre/Tags column's read (W15-5).
+      // The ids arrive as a JSON array and drive `json_each` into the primary key,
+      // so a whole rendered window is two prepared statements rather than a probe
+      // per row. Ordered by `track_id` first so the assembler can rely on all of a
+      // track's rows arriving together, then by display spelling within a track.
+      fileTagsBatch: db.prepare(`
+        SELECT track_id AS trackId, genre
+        FROM track_genres
+        WHERE track_id IN (SELECT value FROM json_each(?))
+        ORDER BY track_id, genre COLLATE NOCASE
+      `),
+      userTagsBatch: db.prepare(`
+        SELECT tt.track_id AS trackId, t.id AS id, t.label AS label, tt.source AS source
+        FROM track_tags tt
+        JOIN tags t ON t.id = tt.tag_id
+        WHERE tt.track_id IN (SELECT value FROM json_each(?))
+        ORDER BY tt.track_id, t.label COLLATE NOCASE, t.id
       `),
       // W15-7 — coverage over one browse-dimension artist's catalogue. Every tag
       // used by any of the artist's tracks, with `carried` = how many carry it;
@@ -319,6 +341,46 @@ export class TagStore {
     )
     const user = this.statements.userTags.all(trackId) as TrackTagAssignment[]
     return { file, user }
+  }
+
+  /**
+   * The two vocabularies for a batch of tracks — the Genre/Tags column — **W15-5**.
+   *
+   * `tagsForTrack` widened to an id set: two `json_each` reads assembled per
+   * track. Ids are deduplicated on the way in, and a track that carries nothing —
+   * neither a file genre nor a user tag — is simply absent from the result rather
+   * than a row of two empty lists, so the answer is proportional to what is
+   * tagged. The rows come back ordered by `track_id`, so grouping is a linear
+   * fold; the returned order is unspecified and the column keys by `trackId`.
+   */
+  forTracks(trackIds: readonly number[]): TrackTagsRow[] {
+    const ids = [...new Set(trackIds)]
+    if (ids.length === 0) return []
+    const json = JSON.stringify(ids)
+
+    const fileRows = this.statements.fileTagsBatch.all(json) as Array<{
+      trackId: number
+      genre: string
+    }>
+    const userRows = this.statements.userTagsBatch.all(json) as Array<
+      { trackId: number } & TrackTagAssignment
+    >
+
+    const byTrack = new Map<number, { file: string[]; user: TrackTagAssignment[] }>()
+    const bucket = (trackId: number): { file: string[]; user: TrackTagAssignment[] } => {
+      let view = byTrack.get(trackId)
+      if (!view) {
+        view = { file: [], user: [] }
+        byTrack.set(trackId, view)
+      }
+      return view
+    }
+    for (const row of fileRows) bucket(row.trackId).file.push(row.genre)
+    for (const row of userRows) {
+      bucket(row.trackId).user.push({ id: row.id, label: row.label, source: row.source })
+    }
+
+    return [...byTrack].map(([trackId, view]) => ({ trackId, file: view.file, user: view.user }))
   }
 
   /**

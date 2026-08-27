@@ -23,7 +23,22 @@ import type { ViewSettings } from '../settings/viewStore'
  * what those strings mean. It is the split `clampPaneSize` already made.
  */
 
-export type TrackColumnKey = TrackSortColumn | DisplayColumnKey
+export type TrackColumnKey = TrackSortColumn | DisplayColumnKey | VirtualColumnKey
+
+/**
+ * Columns whose value is not a field on `Track` at all — **W15-5**.
+ *
+ * Every other column reads a value straight off the display row `listTracks`
+ * already ships. `tags` cannot: a track's genres and user tags are a separate
+ * projection, fetched out-of-band for the rendered window and cached in the tags
+ * store, deliberately kept off the `Track` row so the audio-admission path stays
+ * lean (see the invariant in CLAUDE.md — `Track` budgets whole-buffer decode).
+ * The catalogue still renders it; the cell just reads the store instead of the
+ * row, the way `favorite` reads a boolean the query happens to include but a chip
+ * cell draws specially. Exempt from the `keyof Track` guard below for this reason
+ * and this reason only.
+ */
+type VirtualColumnKey = 'tags'
 
 /**
  * Columns the list can show but the library cannot sort by.
@@ -206,6 +221,19 @@ export const TRACK_COLUMNS: readonly TrackColumnSpec[] = [
     defaultWidth: 48,
     minWidth: 40,
     defaultVisible: false
+  },
+  // W15-5 — file genres and the operator's own tags, one column. Off by default
+  // like everything added after W4-1, and unsortable because it is not in
+  // `TRACK_SORT_COLUMNS`: there is no single value to order a multi-chip cell by.
+  // The cell draws chips from the tags store rather than a `Track` field, which
+  // is what makes `tags` a `VirtualColumnKey`.
+  {
+    key: 'tags',
+    label: 'Tags',
+    title: 'Genre & tags',
+    defaultWidth: 200,
+    minWidth: 96,
+    defaultVisible: false
   }
 ]
 
@@ -227,8 +255,13 @@ type UnlistedSortColumn = Exclude<TrackSortColumn, TrackColumnKey>
 const _everySortColumnListed: UnlistedSortColumn extends never ? true : never = true
 void _everySortColumnListed
 
-/** …and that every column names a real `Track` field to read. */
-type UnreadableColumn = Exclude<TrackColumnKey, keyof Track>
+/**
+ * …and that every column either names a real `Track` field to read or is a
+ * declared virtual column. A field column that named no `Track` field is still a
+ * compile error; only `VirtualColumnKey` is exempt, and only because its cell
+ * reads the tags store rather than the row (see the note on `VirtualColumnKey`).
+ */
+type UnreadableColumn = Exclude<TrackColumnKey, keyof Track | VirtualColumnKey>
 const _everyColumnIsATrackField: UnreadableColumn extends never ? true : never = true
 void _everyColumnIsATrackField
 

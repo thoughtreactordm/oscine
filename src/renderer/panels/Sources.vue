@@ -5,6 +5,7 @@ import type { AddTarget } from '@renderer/panels/addToPlaylist'
 import { createFacetActivation } from '@renderer/panels/facetActivation'
 import type { FacetDimension, FacetWindow } from '@renderer/panels/facetWindow'
 import FacetList from '@renderer/panels/FacetList.vue'
+import GenreFacetList from '@renderer/panels/GenreFacetList.vue'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import { queueCommandLabel, queueIds } from '@renderer/playback/queueCommands'
@@ -24,6 +25,7 @@ import { MAX_SEARCH_LENGTH, type AlbumFacet, type ArtistFacet } from '@shared/li
 
 const ARTIST_ROW_HEIGHT = 32
 const ALBUM_ROW_HEIGHT = 44
+const GENRE_ROW_HEIGHT = 28
 
 const watchSettings = panelSettingsSurface('library-roots')
 
@@ -390,6 +392,63 @@ const albumPane = facetPane<AlbumFacet>({
         />
       </UFormField>
     </div>
+
+    <!--
+      Genres & tags — the browse dimension above artists and albums (W15-5). Its
+      own compact, fixed-height section rather than a third pane in the resizer
+      split below, so the two-pane resizer math is left exactly as it was. Names
+      the concept the way the deck Tags pane and the TrackList column do.
+    -->
+    <section class="flex flex-col border-b border-default">
+      <div class="flex h-8 shrink-0 items-center gap-2 bg-elevated/30 px-2">
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Genres &amp; tags</h2>
+        <template v-if="browse.genres.selectionCount.value > 0">
+          <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
+            {{ browse.genres.selectionCount.value.toLocaleString() }} selected
+          </span>
+          <UButton
+            icon="i-tabler-x"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            aria-label="Clear genre and tag selection"
+            @click="browse.genres.clearSelection()"
+          />
+        </template>
+        <span
+          class="text-xs tabular-nums text-dimmed"
+          :class="{ 'ml-auto': browse.genres.selectionCount.value === 0 }"
+        >
+          {{ browse.genres.total.value.toLocaleString() }}
+        </span>
+      </div>
+
+      <UAlert
+        v-if="browse.genres.error.value"
+        color="warning"
+        variant="subtle"
+        icon="i-tabler-alert-triangle"
+        :description="browse.genres.error.value"
+        class="rounded-none"
+      />
+
+      <div class="flex min-h-0 flex-col" style="height: 148px">
+        <GenreFacetList
+          v-show="browse.genres.total.value > 0"
+          :model="browse.genres"
+          :row-height="GENRE_ROW_HEIGHT"
+          label="Genres and tags"
+        />
+        <UEmpty
+          v-if="browse.genres.total.value === 0 && !browse.genres.loading.value"
+          variant="naked"
+          size="sm"
+          icon="i-tabler-tag"
+          title="No genres or tags"
+          class="min-h-0 flex-1"
+        />
+      </div>
+    </section>
 
     <UAlert
       v-if="roots.notice"

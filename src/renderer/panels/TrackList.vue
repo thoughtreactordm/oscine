@@ -35,7 +35,9 @@ import { useFavoritesStore } from '@renderer/stores/favorites'
 import { useTrackGroupingStore } from '@renderer/stores/grouping'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
+import { useTagsStore } from '@renderer/stores/tags'
 import type { Track } from '@shared/library'
+import type { TrackTagView } from '@shared/tags'
 
 /**
  * The virtualized song list.
@@ -97,6 +99,7 @@ const formats = useDisplayFormatStore()
 const playback = usePlaybackStore()
 const shell = useShellStore()
 const favorites = useFavoritesStore()
+const tags = useTagsStore()
 const OVERSCAN = 8
 /** Pixels an arrow key moves a column edge. Shift narrows it to one. */
 const WIDTH_STEP = 16
@@ -440,6 +443,59 @@ function isFavoriteCell(key: TrackColumnKey): boolean {
 }
 
 /**
+ * The Genre/Tags column draws chips, not a value — **W15-5**.
+ *
+ * Its own branch for the reason `favorite` has one: the cell is a strip of
+ * file-genre and user-tag chips read from the tags store, a projection that is
+ * not on the `Track` row at all, so `cellText` has nothing to return for it and
+ * the template renders it apart from the ordinary text path.
+ */
+function isTagsCell(key: TrackColumnKey): boolean {
+  return key === 'tags'
+}
+
+/**
+ * Track ids seen while rendering Tags cells this frame, flushed to the store as
+ * one batch.
+ *
+ * A virtualized list renders its Tags cells as they scroll into view, and
+ * fetching each row's tags on its own would be the N+1 the batch endpoint exists
+ * to avoid. Collecting the frame's ids and flushing once a microtask later folds
+ * a whole page into a single `tags.forTracks`, and the store dedups against its
+ * cache and its in-flight set so a stationary list re-rendering asks for nothing.
+ */
+let pendingTagIds: number[] = []
+let tagFlushScheduled = false
+
+function noteTagRow(trackId: number): void {
+  pendingTagIds.push(trackId)
+  if (tagFlushScheduled) return
+  tagFlushScheduled = true
+  void queueMicrotask(() => {
+    tagFlushScheduled = false
+    const ids = pendingTagIds
+    pendingTagIds = []
+    void tags.ensureTracks(ids)
+  })
+}
+
+/**
+ * A row's two vocabularies from the store, or `undefined` while the batch is
+ * still in flight.
+ *
+ * Reading it is what schedules the fetch, the same shape `trackAt` uses for the
+ * page itself: the request follows the render rather than leading it. Returns
+ * `undefined` until the id resolves and the batch lands, which the cell draws as
+ * a skeleton.
+ */
+function rowTags(row: TrackTableRow): TrackTagView | undefined {
+  const track = trackAt(row)
+  if (!track) return undefined
+  noteTagRow(track.id)
+  return tags.forTrack(track.id)
+}
+
+/**
  * The heart's state for a row, or `null` while the page is still loading.
  *
  * Read through the store rather than off `track.favorite`, so a track hearted in
@@ -479,6 +535,11 @@ function cellText(row: TrackTableRow, key: TrackColumnKey): string | undefined {
     // the empty string rather than a glyph so that a caller who did reach it
     // renders nothing instead of an unclickable heart.
     case 'favorite':
+      return ''
+    // Never reached either — the template branches on `isTagsCell` first. Listed
+    // so the switch stays total over `TrackColumnKey`; the empty string keeps a
+    // caller that did reach it drawing nothing rather than a stray glyph.
+    case 'tags':
       return ''
     case 'trackNo':
       return track.trackNo === null ? '' : String(track.trackNo)
@@ -1133,6 +1194,48 @@ onMounted(() => props.source.ensureRange(0, 30))
                   aria-hidden="true"
                 />
               </button>
+              <!--
+                Genre/Tags — a strip of chips rather than a value (W15-5). File
+                genres are muted with a file glyph, matching the deck Tags pane's
+                "From the file"; the operator's own tags carry the primary tint.
+                One `v-for` over a single-element array so `rowTags` — which
+                schedules the fetch — is called once per cell, and the strip is
+                clipped to the column width rather than wrapping the row taller.
+              -->
+              <template v-else-if="isTagsCell(column.key)">
+                <template v-for="(view, viewIndex) in [rowTags(row.original)]" :key="viewIndex">
+                  <USkeleton v-if="view === undefined" class="h-2 w-24 max-w-full" />
+                  <span
+                    v-else-if="view.file.length === 0 && view.user.length === 0"
+                    class="text-dimmed"
+                  >
+                    —
+                  </span>
+                  <div v-else class="flex w-full items-center gap-1 overflow-hidden">
+                    <span
+                      v-for="genre in view.file"
+                      :key="`g:${genre}`"
+                      class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-elevated/50 px-1.5 py-0.5 text-xs text-muted"
+                      :title="`“${genre}” — from the file’s tag.`"
+                    >
+                      <UIcon
+                        name="i-tabler-file-music"
+                        class="size-3 shrink-0 text-dimmed"
+                        aria-hidden="true"
+                      />
+                      {{ genre }}
+                    </span>
+                    <span
+                      v-for="tag in view.user"
+                      :key="`u:${tag.id}`"
+                      class="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-default"
+                      :title="`“${tag.label}” — your tag.`"
+                    >
+                      {{ tag.label }}
+                    </span>
+                  </div>
+                </template>
+              </template>
               <USkeleton
                 v-else-if="cellText(row.original, column.key) === undefined"
                 class="h-2 w-24 max-w-full"
