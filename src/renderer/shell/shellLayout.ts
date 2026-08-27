@@ -70,6 +70,26 @@ export const SOURCES_ARTISTS_PANE: PaneSpec = {
 }
 
 /**
+ * The Genres & tags pane, top of the Sources stack (W15-6).
+ *
+ * The same one-number rule as `SOURCES_ARTISTS_PANE`: this pane carries a
+ * height and the Artists/Albums split below takes what is left, so a drag on its
+ * handle moves one stored size. `reserve` is that split's own floor — the
+ * Artists minimum plus the Albums reserve it already keeps (128 + 176) — so
+ * growing genres can shrink the two lists below but never crush them past the
+ * point of use. `min` clears the header and a couple of 28px rows.
+ */
+export const SOURCES_GENRES_PANE: PaneSpec = {
+  key: 'sources.genres',
+  axis: 'y',
+  side: 'before',
+  label: 'Genres and tags pane height',
+  defaultSize: 148,
+  min: 96,
+  reserve: 304
+}
+
+/**
  * The Subscriptions half of the Podcasts sidebar split.
  *
  * The same shape as `SOURCES_ARTISTS_PANE`: only the upper pane carries a size
