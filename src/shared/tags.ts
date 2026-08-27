@@ -85,6 +85,31 @@ export interface TrackTagsRequest {
 }
 
 /**
+ * `tags.forTracks` — the two vocabularies for a batch of tracks — **W15-5**.
+ *
+ * The window-shaped sibling of `tags.forTrack`: the Genre/Tags column draws a
+ * chip strip per row, and a virtualized list scrolls a page of ids past at once,
+ * so a per-row round trip would be an N+1 the column cannot afford. Bounded by
+ * `MAX_TAG_TRACK_IDS`, the same ceiling the write batches share — the ids come
+ * from the same rendered window a range resolves through.
+ */
+export interface ForTracksRequest {
+  readonly trackIds: readonly number[]
+}
+
+/**
+ * One track's two vocabularies, carrying the id that ties the row back.
+ *
+ * The response is one of these per requested track that carries *anything* — a
+ * track with neither a file genre nor a user tag is simply absent rather than a
+ * row of two empty lists, so the payload is proportional to what is tagged, not
+ * to the window size.
+ */
+export interface TrackTagsRow extends TrackTagView {
+  readonly trackId: number
+}
+
+/**
  * One vocabulary row and how much of a subject's catalogue carries it —
  * **W15-7**.
  *

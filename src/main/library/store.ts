@@ -9,6 +9,7 @@ import type {
   ListFacetIdsQuery,
   ListFacetIdsResult,
   ListFacetsQuery,
+  ListTagFacetsQuery,
   ListTrackGroupsQuery,
   ListTrackGroupsResult,
   ListTrackIdsQuery,
@@ -16,6 +17,7 @@ import type {
   ListTracksQuery,
   ListTracksResult,
   OrderTrackIdsQuery,
+  TagFacet,
   Track,
   TrackAudioMetadata,
   TrackFacets,
@@ -1148,6 +1150,7 @@ export class LibraryStore {
     const filtered =
       query.artistIds !== undefined ||
       query.albumIds !== undefined ||
+      query.tagKeys !== undefined ||
       query.searchText !== undefined
     if (filtered) return this.listFilteredTrackIds(query, keys, direction)
 
@@ -1372,6 +1375,64 @@ export class LibraryStore {
       })),
       total
     }
+  }
+
+  /**
+   * The unified genre/tag browse vocabulary under a predicate — **W15-5**.
+   *
+   * A `UNION ALL` of the two vocabularies keyed by the shared casefold — file
+   * genres out of `track_genres` by `genre_key`, user tags out of `track_tags`
+   * joined to `tags` by `tags.key` — grouped so a file genre `hip-hop` and a user
+   * tag `Hip-Hop` fold to one row. `trackCount` is `COUNT(DISTINCT track_id)`
+   * because a track carrying the key in *both* vocabularies must count once, and
+   * the display label prefers a user spelling over the file's. Every row is joined
+   * back through `tracks t` so the same `buildFilter` predicate the artist/album
+   * facets use — root, search, a narrowing artist or album selection — narrows
+   * this vocabulary too.
+   *
+   * Unpaged: the vocabulary is human-scale, so it ships whole the way the album
+   * runs do, which is what lets the browse list size itself before it draws a row.
+   */
+  listTagFacets(query: ListTagFacetsQuery): TagFacet[] {
+    const filter = buildFilter(query)
+    const rows = this.db
+      .prepare(
+        `WITH keyed AS (
+           SELECT genre_key AS key, genre AS label, track_id, 1 AS is_file, 0 AS is_user
+             FROM track_genres
+           UNION ALL
+           SELECT gt.key AS key, gt.label AS label, tt.track_id AS track_id, 0 AS is_file, 1 AS is_user
+             FROM track_tags tt
+             JOIN tags gt ON gt.id = tt.tag_id
+         )
+         SELECT k.key AS key,
+                COALESCE(MAX(CASE WHEN k.is_user = 1 THEN k.label END), MAX(k.label)) AS label,
+                COUNT(DISTINCT k.track_id) AS trackCount,
+                MAX(k.is_file) AS hasFile,
+                MAX(k.is_user) AS hasUser
+         FROM keyed k
+         JOIN tracks t ON t.id = k.track_id
+         ${filter.ftsJoin}
+         LEFT JOIN albums al ON al.id = t.album_id
+         ${filter.where}
+         GROUP BY k.key
+         ORDER BY label COLLATE NOCASE, k.key`
+      )
+      .all(filter.params) as Array<{
+      key: string
+      label: string
+      trackCount: number
+      hasFile: number
+      hasUser: number
+    }>
+
+    return rows.map((row) => ({
+      key: row.key,
+      label: row.label,
+      trackCount: row.trackCount,
+      hasFile: row.hasFile === 1,
+      hasUser: row.hasUser === 1
+    }))
   }
 
   /**
@@ -1780,6 +1841,21 @@ function buildFilter(filters: LibraryBrowseFilters): FilterSql {
   // of one selected artist should not pay for a table-valued function.
   addIdPredicate(predicates, params, BROWSE_ARTIST_ID, 'artistIds', filters.artistIds)
   addIdPredicate(predicates, params, 't.album_id', 'albumIds', filters.albumIds)
+  // The genre/tag dimension is a *string* set, not an id set: a file genre has no
+  // numeric id, only the casefold key it shares with a user tag. A track matches
+  // when it carries any of the keys in either vocabulary — `track_genres` by
+  // `genre_key`, or `track_tags` by the joined `tags.key`. Two `IN` subqueries
+  // ORed, both driven by one `json_each` over the same bound array.
+  if (filters.tagKeys !== undefined && filters.tagKeys.length > 0) {
+    predicates.push(
+      `(t.id IN (SELECT track_id FROM track_genres
+                 WHERE genre_key IN (SELECT value FROM json_each(@tagKeys)))
+        OR t.id IN (SELECT tt.track_id FROM track_tags tt
+                    JOIN tags gt ON gt.id = tt.tag_id
+                    WHERE gt.key IN (SELECT value FROM json_each(@tagKeys))))`
+    )
+    params.tagKeys = JSON.stringify([...filters.tagKeys])
+  }
   if (filters.searchText !== undefined) {
     predicates.push('tracks_fts MATCH @search')
     params.search = ftsLiteral(filters.searchText)

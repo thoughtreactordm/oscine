@@ -2,6 +2,7 @@ import { OscineError, type IpcResult } from '@shared/errors'
 import type {
   ListFacetIdsQuery,
   ListFacetsQuery,
+  ListTagFacetsQuery,
   ListTrackGroupsQuery,
   GetTracksByIdsQuery,
   ListTrackIdsQuery,
@@ -78,6 +79,8 @@ export const library = {
   listAlbums: (query: ListFacetsQuery) => unwrap(window.oscine.library.listAlbums(query)),
   listArtistIds: (query: ListFacetIdsQuery) => unwrap(window.oscine.library.listArtistIds(query)),
   listAlbumIds: (query: ListFacetIdsQuery) => unwrap(window.oscine.library.listAlbumIds(query)),
+  /** The unified genre/tag browse vocabulary under the current predicate (W15-5). */
+  listTagFacets: (query: ListTagFacetsQuery) => unwrap(window.oscine.library.listTagFacets(query)),
   /** The Quick Menu's Recent Additions — albums by arrival, newest first (D25/D26). */
   recentlyAddedAlbums: (limit: number) => unwrap(window.oscine.library.recentlyAddedAlbums(limit)),
   listTracks: (query: ListTracksQuery) => unwrap(window.oscine.library.listTracks(query)),
@@ -173,6 +176,8 @@ export const tags = {
   list: () => unwrap(window.oscine.tags.list()),
   /** One track's two vocabularies, file genres and user tags kept apart. */
   forTrack: (trackId: number) => unwrap(window.oscine.tags.forTrack(trackId)),
+  /** The two vocabularies for a batch of tracks — the Genre/Tags column's read (W15-5). */
+  forTracks: (trackIds: readonly number[]) => unwrap(window.oscine.tags.forTracks(trackIds)),
   /** An artist's tags as coverage over its catalogue, carried/total. */
   forArtist: (artistId: number) => unwrap(window.oscine.tags.forArtist(artistId)),
   /** Applies one label to a batch, coining it if new. Answers with the vocabulary row. */

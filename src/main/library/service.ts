@@ -6,6 +6,7 @@ import type {
   ListFacetIdsQuery,
   ListFacetIdsResult,
   ListFacetsQuery,
+  ListTagFacetsQuery,
   ListTrackGroupsQuery,
   ListTrackGroupsResult,
   ListTrackIdsQuery,
@@ -15,6 +16,7 @@ import type {
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
   ScanSummary,
+  TagFacet,
   Track,
   TrackAudioMetadata,
   TrackFacets,
@@ -49,6 +51,11 @@ export interface LibraryService {
   removeRoot(rootId: number): Promise<LibraryRoot[]>
   listArtists(query: ListFacetsQuery): Promise<ListArtistsResult>
   listAlbums(query: ListFacetsQuery): Promise<ListAlbumsResult>
+  /**
+   * The unified genre/tag browse vocabulary under the current predicate (W15-5).
+   * Unpaged; narrowed by the same filters the artist/album facets are.
+   */
+  listTagFacets(query: ListTagFacetsQuery): Promise<TagFacet[]>
   /**
    * The same two windows, ids only.
    *

@@ -240,3 +240,24 @@ describe('createColumnLayout', () => {
     expect(visibleKeys(layout)).toEqual(DEFAULT_VISIBLE)
   })
 })
+
+describe('the Genre/Tags virtual column (W15-5)', () => {
+  it('is in the catalogue, off by default, and unsortable', () => {
+    const spec = TRACK_COLUMNS.find((column) => column.key === 'tags')
+    expect(spec).toMatchObject({ key: 'tags', label: 'Tags', title: 'Genre & tags' })
+    expect(spec?.defaultVisible).toBe(false)
+    // Not a sort column: a multi-chip cell has no single value to order by, and
+    // the header must not offer an ordering main would reject.
+    expect(isSortableColumn('tags')).toBe(false)
+    expect(TRACK_SORT_COLUMNS as readonly string[]).not.toContain('tags')
+  })
+
+  it('can be shown and hidden like any other column', () => {
+    const { layout } = columnLayout()
+    expect(layout.isVisible('tags')).toBe(false)
+    expect(layout.toggleVisible('tags')).toBe(true)
+    expect(visibleKeys(layout)).toContain('tags')
+    expect(layout.toggleVisible('tags')).toBe(true)
+    expect(layout.isVisible('tags')).toBe(false)
+  })
+})

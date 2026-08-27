@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { normalizeLabel } from '@shared/genre'
 import { MAX_TRACK_ID_PAGE } from '@shared/library'
@@ -8,6 +9,7 @@ import type { TagSuggestion, TrackTagAssignment } from '@shared/tags'
 import { collectPagedIds } from '@renderer/panels/pagedIds'
 import { library } from '@renderer/ipc'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
+import { useBrowseStore } from '@renderer/stores/browse'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useTagsStore } from '@renderer/stores/tags'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
@@ -48,6 +50,33 @@ const playback = usePlaybackStore()
 const tags = useTagsStore()
 const tunedeck = useTunedeckStore()
 const identity = useArtistIdentityStore()
+const browse = useBrowseStore()
+const router = useRouter()
+
+/**
+ * Opens the library filtered to one genre or tag — the "make the deck chips
+ * browse" half of W15-5.
+ *
+ * The key is the shared casefold, so a file genre and a user tag that spell to
+ * the same thing open the same slice. `revealTag` clears the sidebar's other
+ * narrowing for the reason it documents; here we then route to the library so
+ * the filtered song list is what the operator is looking at, exactly as the
+ * relations pane routes after `revealArtist`.
+ */
+function browseKey(key: string): void {
+  browse.revealTag(key)
+  void router.push({ name: 'library' })
+}
+
+function browseGenre(genre: string): void {
+  const norm = normalizeLabel(genre)
+  if (norm) browseKey(norm.key)
+}
+
+function browseTag(tag: TrackTagAssignment): void {
+  const norm = normalizeLabel(tag.label)
+  if (norm) browseKey(norm.key)
+}
 
 type Scope = 'track' | 'album' | 'artist'
 
@@ -281,6 +310,13 @@ function elevateItems(tag: TrackTagAssignment): DropdownMenuItem[][] {
   return [
     [
       {
+        label: 'Browse this tag',
+        icon: 'i-tabler-list-search',
+        onSelect: () => browseTag(tag)
+      }
+    ],
+    [
+      {
         label: 'Apply to this album',
         icon: 'i-tabler-disc',
         disabled: busy.value || facets.value?.albumId == null,
@@ -318,25 +354,30 @@ async function removeTag(tag: TrackTagAssignment): Promise<void> {
   <div class="flex h-full min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain">
     <template v-if="state === 'ready'">
       <!--
-        The file's own genres, and it says so. Muted, no ✕: they are read-only
+        The file's own genres, and it says so. Muted, no ✕: they stay read-only
         because v1 never writes a tag back to disk (D7), and a chip that looked
         removable would be promising an edit the app has decided not to make.
+        They are, however, a button now: clicking one browses the library by that
+        genre (W15-5), which reads it without writing it.
       -->
       <section v-if="fileGenres.length > 0" class="flex flex-col gap-1.5">
         <h3 class="text-xs font-medium text-muted">From the file</h3>
         <ul class="m-0 flex list-none flex-wrap gap-1.5 p-0">
-          <li
-            v-for="genre in fileGenres"
-            :key="genre"
-            class="inline-flex items-center gap-1 rounded-full bg-elevated/50 px-2 py-0.5 text-xs text-muted"
-            :title="`“${genre}” — from the file’s tag. Read-only.`"
-          >
-            <UIcon
-              name="i-tabler-file-music"
-              class="size-3 shrink-0 text-dimmed"
-              aria-hidden="true"
-            />
-            {{ genre }}
+          <li v-for="genre in fileGenres" :key="genre">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-full bg-elevated/50 px-2 py-0.5 text-xs text-muted outline-none transition-colors hover:bg-elevated hover:text-default focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+              :aria-label="`Browse the library by ${genre}`"
+              :title="`“${genre}” — from the file’s tag, read-only. Browse the library by it.`"
+              @click="browseGenre(genre)"
+            >
+              <UIcon
+                name="i-tabler-file-music"
+                class="size-3 shrink-0 text-dimmed"
+                aria-hidden="true"
+              />
+              {{ genre }}
+            </button>
           </li>
         </ul>
       </section>

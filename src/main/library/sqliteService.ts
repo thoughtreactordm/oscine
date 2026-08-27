@@ -13,6 +13,7 @@ import {
   type ListFacetIdsQuery,
   type ListFacetIdsResult,
   type ListFacetsQuery,
+  type ListTagFacetsQuery,
   type ListTrackGroupsQuery,
   type ListTrackGroupsResult,
   type ListTrackIdsQuery,
@@ -23,6 +24,7 @@ import {
   type ReplayGainJobProgress,
   type ScanProgress,
   type ScanSummary,
+  type TagFacet,
   type Track,
   type TrackAudioMetadata,
   type TrackFacets,
@@ -338,6 +340,10 @@ export class SqliteLibraryService implements LibraryService {
 
   async listAlbums(query: ListFacetsQuery): Promise<ListAlbumsResult> {
     return this.store.listAlbums(query)
+  }
+
+  async listTagFacets(query: ListTagFacetsQuery): Promise<TagFacet[]> {
+    return this.store.listTagFacets(query)
   }
 
   async listArtistIds(query: ListFacetIdsQuery): Promise<ListFacetIdsResult> {

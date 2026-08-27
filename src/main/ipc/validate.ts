@@ -33,6 +33,7 @@ import {
   MAX_TAG_TRACK_IDS,
   type AddTagsRequest,
   type ArtistTagsRequest,
+  type ForTracksRequest,
   type RemoveTagRequest,
   type RenameTagRequest,
   type SuggestTagsRequest,
@@ -82,6 +83,7 @@ import {
   type LibraryBrowseFilters,
   type ListFacetIdsQuery,
   type ListFacetsQuery,
+  type ListTagFacetsQuery,
   type ListTrackGroupsQuery,
   type ListTrackIdsQuery,
   type ListTracksQuery,
@@ -174,12 +176,43 @@ function assertIdSet(value: unknown, field: string): number[] {
   return [...new Set(value.map((id) => assertPositiveInt(id, `${field} entries`)))]
 }
 
+/**
+ * The genre/tag browse dimension: a non-empty, deduplicated set of key strings.
+ *
+ * Empty is rejected for the same reason `assertIdSet` rejects it — a cleared
+ * selection that kept the field would be ambiguous between "match nothing" and
+ * "match everything". A key is a normalised label, so it is bounded by the label
+ * ceiling rather than a new one, and by `MAX_FILTER_IDS` in count like the id
+ * dimensions. The keys are taken verbatim — main does not re-fold them, because
+ * the renderer built them from `@shared/genre` and a second normalisation here
+ * could disagree with the one that keyed the rows.
+ */
+function assertKeySet(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) invalid(`${field} must be an array of strings.`)
+  if (value.length === 0) invalid(`${field} must not be empty.`)
+  if (value.length > MAX_FILTER_IDS) invalid(`${field} must not exceed ${MAX_FILTER_IDS} keys.`)
+  return [
+    ...new Set(
+      value.map((key) => {
+        if (typeof key !== 'string' || key.length === 0) {
+          invalid(`${field} entries must be non-empty strings.`)
+        }
+        if ([...key].length > MAX_TAG_LABEL_LENGTH) {
+          invalid(`${field} entries must not exceed ${MAX_TAG_LABEL_LENGTH} characters.`)
+        }
+        return key
+      })
+    )
+  ]
+}
+
 function assertBrowseFilters(raw: Record<string, unknown>): LibraryBrowseFilters {
   const filters: LibraryBrowseFilters = {}
   if (raw.rootId !== undefined) filters.rootId = assertPositiveInt(raw.rootId, 'rootId')
   for (const field of ['artistIds', 'albumIds'] as const) {
     if (raw[field] !== undefined) filters[field] = assertIdSet(raw[field], field)
   }
+  if (raw.tagKeys !== undefined) filters.tagKeys = assertKeySet(raw.tagKeys, 'tagKeys')
 
   if (raw.searchText !== undefined) {
     if (typeof raw.searchText !== 'string') invalid('searchText must be a string.')
@@ -219,10 +252,24 @@ const FACET_QUERY_KEYS = [
   'rootId',
   'artistIds',
   'albumIds',
+  'tagKeys',
   'searchText',
   'offset',
   'limit'
 ] as const
+
+const BROWSE_FILTER_KEYS = ['rootId', 'artistIds', 'albumIds', 'tagKeys', 'searchText'] as const
+
+/**
+ * The genre/tag browse vocabulary request — a plain browse filter, no window
+ * (W15-5). The vocabulary is unpaged, so unlike a facet query this carries only
+ * the predicate that narrows it.
+ */
+export function assertListTagFacetsQuery(value: unknown): ListTagFacetsQuery {
+  const raw = assertRecord(value, 'query')
+  assertOnlyKeys(raw, BROWSE_FILTER_KEYS)
+  return assertBrowseFilters(raw)
+}
 
 export function assertListFacetsQuery(value: unknown): ListFacetsQuery {
   const raw = assertRecord(value, 'query')
@@ -269,6 +316,7 @@ const TRACK_QUERY_KEYS = [
   'rootId',
   'artistIds',
   'albumIds',
+  'tagKeys',
   'searchText',
   'sort',
   'direction',
@@ -315,7 +363,15 @@ export function assertListTrackIdsQuery(value: unknown): ListTrackIdsQuery {
  */
 export function assertListTrackGroupsQuery(value: unknown): ListTrackGroupsQuery {
   const raw = assertRecord(value, 'query')
-  assertOnlyKeys(raw, ['rootId', 'artistIds', 'albumIds', 'searchText', 'sort', 'direction'])
+  assertOnlyKeys(raw, [
+    'rootId',
+    'artistIds',
+    'albumIds',
+    'tagKeys',
+    'searchText',
+    'sort',
+    'direction'
+  ])
   return {
     ...assertBrowseFilters(raw),
     ...assertOrdering(raw)
@@ -548,6 +604,17 @@ export function assertTrackTagsRequest(value: unknown): TrackTagsRequest {
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['trackId'])
   return { trackId: assertPositiveInt(raw.trackId, 'trackId') }
+}
+
+/**
+ * The Genre/Tags column's batch read (W15-5). A set of track ids and nothing
+ * else, bounded by `MAX_TAG_TRACK_IDS` like the tag write batches — the ids come
+ * from the same rendered window a range resolves through.
+ */
+export function assertForTracksRequest(value: unknown): ForTracksRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds'])
+  return { trackIds: assertTagTrackIds(raw.trackIds) }
 }
 
 export function assertAddTagsRequest(value: unknown): AddTagsRequest {

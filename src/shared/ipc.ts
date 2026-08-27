@@ -37,6 +37,7 @@ import type {
   AddTagsRequest,
   ArtistTagsRequest,
   ArtistTagsView,
+  ForTracksRequest,
   RemoveTagRequest,
   RemoveTagResult,
   RenameTagRequest,
@@ -45,6 +46,7 @@ import type {
   TagSummary,
   TagSuggestion,
   TrackTagsRequest,
+  TrackTagsRow,
   TrackTagView
 } from './tags'
 import type { AlbumCard } from './albums'
@@ -61,6 +63,7 @@ import type {
   ListFacetIdsQuery,
   ListFacetIdsResult,
   ListFacetsQuery,
+  ListTagFacetsQuery,
   ListTrackGroupsQuery,
   ListTrackGroupsResult,
   ListTrackIdsQuery,
@@ -71,6 +74,7 @@ import type {
   ReplayGainJobProgress,
   ScanProgress,
   ScanSummary,
+  TagFacet,
   Track,
   TrackAudioMetadata,
   TrackFacets,
@@ -197,6 +201,13 @@ export interface IpcContract {
    */
   'library.listArtistIds': { request: ListFacetIdsQuery; response: ListFacetIdsResult }
   'library.listAlbumIds': { request: ListFacetIdsQuery; response: ListFacetIdsResult }
+  /**
+   * The unified genre/tag browse vocabulary under the current predicate —
+   * **W15-5**. Unpaged: the vocabulary is human-scale, so it ships whole and a
+   * windowed list sizes itself from it. A string-keyed dimension, not a numeric
+   * one, because a file genre has no id — only the key it shares with a user tag.
+   */
+  'library.listTagFacets': { request: ListTagFacetsQuery; response: TagFacet[] }
   'library.listTracks': { request: ListTracksQuery; response: ListTracksResult }
   /**
    * The same window as `library.listTracks`, resolved to ids only.
@@ -540,6 +551,13 @@ export interface IpcContract {
    * pane that reads this draws the same nothing for both.
    */
   'tags.forTrack': { request: TrackTagsRequest; response: TrackTagView }
+  /**
+   * The two vocabularies for a batch of tracks — the Genre/Tags column's read
+   * (**W15-5**). One row per requested track that carries anything; a track with
+   * neither vocabulary is absent rather than an empty pair, so the payload tracks
+   * what is tagged rather than the window size.
+   */
+  'tags.forTracks': { request: ForTracksRequest; response: TrackTagsRow[] }
   /**
    * An artist's tags as coverage over its catalogue — **W15-7**.
    *
@@ -1085,6 +1103,7 @@ export const IPC_CHANNELS = [
   'library.listAlbums',
   'library.listArtistIds',
   'library.listAlbumIds',
+  'library.listTagFacets',
   'library.listTracks',
   'library.listTrackIds',
   'library.listTrackGroups',
@@ -1124,6 +1143,7 @@ export const IPC_CHANNELS = [
   'favorites.listArtists',
   'tags.list',
   'tags.forTrack',
+  'tags.forTracks',
   'tags.forArtist',
   'tags.add',
   'tags.remove',

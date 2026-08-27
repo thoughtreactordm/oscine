@@ -208,6 +208,15 @@ export interface LibraryBrowseFilters {
   artistIds?: number[]
   albumIds?: number[]
   /**
+   * Genre/tag identities — the casefold key `@shared/genre` mints, the one
+   * `track_genres.genre_key` and `tags.key` share. A string dimension rather than
+   * a numeric one because a file genre has no numeric id, only its key: the whole
+   * point of the browse surface is that a file genre `hip-hop` and a user tag
+   * `Hip-Hop` are one thing, and the key is where they are one. A track matches
+   * when it carries any of these keys in *either* vocabulary.
+   */
+  tagKeys?: string[]
+  /**
    * Literal, user-visible infix terms over title, artist and album.
    * FTS query syntax is never accepted here.
    */
@@ -248,7 +257,8 @@ export function plainBrowseFilters(filters: LibraryBrowseFilters): LibraryBrowse
   return {
     ...filters,
     ...(filters.artistIds === undefined ? {} : { artistIds: [...filters.artistIds] }),
-    ...(filters.albumIds === undefined ? {} : { albumIds: [...filters.albumIds] })
+    ...(filters.albumIds === undefined ? {} : { albumIds: [...filters.albumIds] }),
+    ...(filters.tagKeys === undefined ? {} : { tagKeys: [...filters.tagKeys] })
   }
 }
 
@@ -282,7 +292,9 @@ export function browseFilterKey(filters: LibraryBrowseFilters): string {
 export function browseScopeKey(filters: LibraryBrowseFilters): string {
   const ids = (values: readonly number[] | undefined): string =>
     values === undefined ? '' : [...values].sort((a, b) => a - b).join(',')
-  return `artists:${ids(filters.artistIds)}|albums:${ids(filters.albumIds)}`
+  const keys = (values: readonly string[] | undefined): string =>
+    values === undefined ? '' : [...values].sort().join(',')
+  return `artists:${ids(filters.artistIds)}|albums:${ids(filters.albumIds)}|tags:${keys(filters.tagKeys)}`
 }
 
 /**
@@ -481,6 +493,35 @@ export interface AlbumFacet {
   trackCount: number
   artwork: ArtworkUrls
 }
+
+/**
+ * One row of the unified genre/tag browse vocabulary — **W15-5**.
+ *
+ * `key` is the shared casefold identity (`@shared/genre`), the same one that
+ * unifies a file genre and a user tag; it is what a `tagKeys` filter selects on.
+ * `label` is the display spelling — a user tag's if the operator coined one, else
+ * the file's — and `trackCount` is how many distinct tracks carry the key in
+ * either vocabulary under the upstream predicate. `hasFile`/`hasUser` say which
+ * vocabularies the key appears in, so a row can show its origin the way the
+ * Tunedeck Tags pane's "From the file" / "Your tags" split does.
+ */
+export interface TagFacet {
+  key: string
+  label: string
+  trackCount: number
+  hasFile: boolean
+  hasUser: boolean
+}
+
+/**
+ * The browse-by-genre/tag vocabulary under a predicate — `library.listTagFacets`.
+ *
+ * Unpaged, unlike the artist/album facets: the genre/tag vocabulary is
+ * human-scale (a library's distinct genres plus the operator's coined tags), so
+ * it ships whole the way the album *runs* do, which is what lets a windowed list
+ * size itself before it draws a row.
+ */
+export type ListTagFacetsQuery = LibraryBrowseFilters
 
 export interface ListFacetsQuery extends LibraryBrowseFilters {
   offset: number

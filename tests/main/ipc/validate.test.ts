@@ -100,6 +100,25 @@ describe('library browse IPC validation', () => {
     ).toThrow(OscineError)
   })
 
+  it('accepts and deduplicates a tagKeys dimension, rejecting malformed ones', () => {
+    // W15-5 — the genre/tag browse dimension is a string set, deduplicated like
+    // the id sets and taken verbatim (main does not re-fold the keys).
+    expect(
+      assertListTracksQuery({
+        tagKeys: ['rock', 'jazz', 'rock'],
+        sort: 'title',
+        direction: 'asc',
+        offset: 0,
+        limit: 20
+      }).tagKeys
+    ).toEqual(['rock', 'jazz'])
+
+    const base = { sort: 'title', direction: 'asc', offset: 0, limit: 20 } as const
+    for (const tagKeys of [[], [''], [42], 'rock']) {
+      expect(() => assertListTracksQuery({ ...base, tagKeys })).toThrow(OscineError)
+    }
+  })
+
   it('lets an id page be larger than a row page, but not unbounded', () => {
     const query = { sort: 'title', direction: 'asc', offset: 0 } as const
 
