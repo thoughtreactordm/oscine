@@ -44,10 +44,43 @@ export interface SplitGenre {
   readonly genre: string
 }
 
+/** One label reduced to its grouping identity and its display spelling. */
+export interface NormalizedLabel {
+  /** Casefolded, trimmed, internal whitespace collapsed. The grouping identity. */
+  readonly key: string
+  /** The display spelling: trimmed and whitespace-collapsed, but not casefolded. */
+  readonly label: string
+}
+
 /** `;`, `/` and `,`. Not global — `String.split` ignores the flag anyway. */
 const SEPARATORS = /[;/,]/
 
 const WHITESPACE = /\s+/g
+
+/**
+ * One label, normalised to the grouping identity `track_genres.genre_key` is
+ * built from — or `null` when it holds no label at all.
+ *
+ * Factored out of `splitGenres` so the app-side user-tag layer (`src/main/tags`)
+ * can key a tag by the *exact* same rule a file genre is grouped by. A tag
+ * spelled `Hip-Hop` and a file genre spelled `hip-hop` have to land on one key
+ * or the two vocabularies never unify — and the only way to guarantee that is
+ * one function. The header's argument against a second splitter is the same
+ * argument against a second casefold, verbatim.
+ *
+ * It does *not* split. A user tag is one label the operator typed, not a
+ * multi-valued file frame, so `Rock/Pop` entered as a tag stays the single tag
+ * `Rock/Pop`. Trimming, whitespace-collapse and casefold are shared with
+ * `splitGenres`; separating on `;/,` is `splitGenres`' alone.
+ */
+export function normalizeLabel(raw: string | null | undefined): NormalizedLabel | null {
+  if (typeof raw !== 'string') return null
+
+  const label = raw.trim().replace(WHITESPACE, ' ')
+  if (label === '') return null
+
+  return { key: label.toLowerCase(), label }
+}
 
 /**
  * Splits one genre tag into its distinct genres, in the order they appear.
@@ -62,11 +95,10 @@ export function splitGenres(tag: string | null | undefined): SplitGenre[] {
 
   const byKey = new Map<string, SplitGenre>()
   for (const part of tag.split(SEPARATORS)) {
-    const genre = part.trim().replace(WHITESPACE, ' ')
-    if (genre === '') continue
+    const norm = normalizeLabel(part)
+    if (norm === null) continue
 
-    const key = genre.toLowerCase()
-    if (!byKey.has(key)) byKey.set(key, { key, genre })
+    if (!byKey.has(norm.key)) byKey.set(norm.key, { key: norm.key, genre: norm.label })
   }
   return [...byKey.values()]
 }

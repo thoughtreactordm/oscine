@@ -226,6 +226,28 @@ export const BUNDLE_TABLES: readonly BundleTable[] = [
       'first need an artist named the portable way (by name, as tracks are named by root label ' +
       'and rel_path), a mechanism the bundle does not yet have. The exporter card decides both ' +
       'whether it travels and how it would be keyed if it did.'
+  },
+  {
+    name: 'tags',
+    side: 'open',
+    why:
+      'A user tag is an operator’s statement about their library (D7, W15), on the same footing ' +
+      'as a rating or a favorite — so by the `track_favorites` argument the vocabulary is a ' +
+      'candidate to carry, and unlike `artist_id` its `key` is already a portable casefold ' +
+      'identity a bundle could re-key on directly. But W15-1 only adds the tables; the D11 ' +
+      'exporter card (W10-13) has not ruled, and carrying the vocabulary is meaningless without ' +
+      'carrying `track_tags` with it. The exporter decides both. Do not read the resemblance to ' +
+      '`track_favorites` as a ruling.'
+  },
+  {
+    name: 'track_tags',
+    side: 'open',
+    why:
+      'The assignments the `tags` vocabulary exists for, and unruled for its reason. If they ' +
+      'travel they ride with `tags`, tracks named the portable way (root label, rel_path) as ' +
+      '`playlist_entries` are and the tag named by its `key`. `source` is local colour a merge ' +
+      'would resolve toward `user`. All of that is the exporter card’s design, not this ' +
+      'migration’s.'
   }
 ]
 
