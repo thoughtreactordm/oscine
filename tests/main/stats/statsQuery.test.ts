@@ -322,7 +322,15 @@ describe('StatsStore.query — the surviving track link', () => {
       offset: 0
     })
     expect(result.rows).toEqual([
-      { key: 'A', label: 'A', sublabel: null, listens: 1, msListened: 60_000, trackId: null }
+      {
+        key: 'A',
+        label: 'A',
+        sublabel: null,
+        listens: 1,
+        msListened: 60_000,
+        trackId: null,
+        artworkHash: null
+      }
     ])
   })
 
@@ -339,6 +347,36 @@ describe('StatsStore.query — the surviving track link', () => {
       offset: 0
     })
     expect(result.rows[0]?.trackId).toBe(trackId)
+  })
+
+  it("carries the surviving track's album artwork hash, and null when it has none", () => {
+    const albumId = Number(
+      db.prepare('INSERT INTO albums (title, artwork_hash) VALUES (?, ?)').run('Rec', 'deadbeef')
+        .lastInsertRowid
+    )
+    const withArt = Number(
+      db
+        .prepare(
+          `INSERT INTO tracks (root_id, rel_path, mtime, size, title, album_id, duration_ms)
+           VALUES (?, ?, 1, 2, ?, ?, 200000)`
+        )
+        .run(rootId(), `art${nextPath++}.flac`, 'Lit', albumId).lastInsertRowid
+    )
+    listen({ startedAt: 100, title: 'Lit', artist: 'A', album: 'Rec', trackId: withArt })
+    listen({ startedAt: 200, title: 'Dim', artist: 'A', album: 'Rec', trackId: seedTrack('Dim') })
+
+    const rows = store.query({
+      range: ALL,
+      dimension: 'track',
+      sort: 'listens',
+      limit: 10,
+      offset: 0
+    }).rows
+    const byLabel = new Map(rows.map((row) => [row.label, row.artworkHash]))
+    // The linked album's hash for the row whose track carries one; the
+    // unlinked track's row falls through the LEFT JOIN to null.
+    expect(byLabel.get('Lit')).toBe('deadbeef')
+    expect(byLabel.get('Dim')).toBeNull()
   })
 })
 

@@ -160,6 +160,18 @@ export interface StatsRow {
    * makes, seen from the other end.
    */
   readonly trackId: number | null
+  /**
+   * The album artwork hash of that surviving track, or `null`.
+   *
+   * A decoration on `trackId` and nothing more: resolved from
+   * `albums.artwork_hash` of whatever `MAX(track_id)` chose, after the grouping,
+   * so it changes no count and inherits `trackId`'s "as the library reads now"
+   * trade whole — a corrected tag shows the current cover, not the one the
+   * snapshot was filed under. `null` when the group kept no surviving track or
+   * that track has no album art. Feed it to `artworkUrl`; genre rows carry one
+   * but the dashboard does not draw it.
+   */
+  readonly artworkHash: string | null
 }
 
 export interface StatsQuery {

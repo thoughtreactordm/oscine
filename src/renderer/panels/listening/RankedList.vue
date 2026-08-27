@@ -6,6 +6,7 @@ import {
   rankedRows,
   type RankedListSpec
 } from '@renderer/panels/listening/listeningRows'
+import { artworkUrl } from '@shared/ipc'
 import type { StatsQueryResult, StatsSort } from '@shared/stats'
 
 /**
@@ -32,7 +33,7 @@ const props = defineProps<{
 const emit = defineEmits<{ reveal: [text: string] }>()
 
 const ROW_PX = 40
-const BODY_PX = 288
+const BODY_PX = 360
 
 const viewport = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
@@ -136,6 +137,28 @@ onBeforeUnmount(() => {
 
             <span class="relative w-5 shrink-0 text-right text-xs tabular-nums text-dimmed">
               {{ row.rank }}
+            </span>
+
+            <!--
+              The cover, for the lists that have one (spec.art). `artworkUrl`
+              never fails — a null hash is the placeholder route, not a broken
+              image — so the row draws a square or a circle either way rather
+              than reflowing when art is missing. Decorative: the label beside it
+              is the accessible name, so the alt is empty on purpose.
+            -->
+            <span
+              v-if="spec.art !== 'none'"
+              class="relative size-8 shrink-0 overflow-hidden border border-default bg-elevated"
+              :class="spec.art === 'circle' ? 'rounded-full' : 'rounded'"
+              aria-hidden="true"
+            >
+              <img
+                :src="artworkUrl(row.artworkHash, 'small')"
+                alt=""
+                class="size-full object-cover"
+                draggable="false"
+                loading="lazy"
+              />
             </span>
 
             <span class="relative flex min-w-0 flex-1 flex-col">
