@@ -10,6 +10,8 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
 import { OPEN_SOURCE_CREDITS } from '@renderer/panels/openSourceCredits'
+import { useSettings } from '@renderer/settings'
+import { COMMAND_PALETTE_AFFORDANCE_KEY } from '@shared/settings'
 
 /**
  * The menu reaches the stores directly rather than emitting to a parent. The
@@ -22,7 +24,15 @@ const playback = usePlaybackStore()
 const shell = useShellStore()
 const tunedeck = useTunedeckStore()
 const router = useRouter()
+const settings = useSettings()
 const maximized = ref(false)
+
+/**
+ * G5(a): the palette's title-bar face is an opt-out. The flex-1 spacer stays
+ * either way so hiding the box does not let the menu and window controls close
+ * up — the chrome keeps its shape, it just loses the search box.
+ */
+const paletteAffordance = computed(() => settings.get<boolean>(COMMAND_PALETTE_AFFORDANCE_KEY))
 
 /**
  * The About dialog and the Open Source dialog, opened from the Help menu and
@@ -352,6 +362,7 @@ async function toggleMaximize(): Promise<void> {
         instead of starting a window drag.
       -->
       <button
+        v-if="paletteAffordance"
         type="button"
         class="app-no-drag flex h-6 w-full max-w-80 items-center gap-2 rounded-md border border-default bg-default/60 px-2.5 text-xs text-muted transition-colors hover:bg-elevated hover:text-default"
         aria-label="Search"

@@ -96,6 +96,8 @@ export const CONFIRM_PLAYLIST_DELETE_KEY = 'interface.confirmPlaylistDelete'
 export const CONFIRM_ENTRY_REMOVAL_KEY = 'interface.confirmEntryRemoval'
 export const NOW_PLAYING_WAVEFORM_KEY = 'interface.nowPlayingWaveform'
 export const NOW_PLAYING_IDLE_AUTOSHOW_KEY = 'interface.nowPlayingIdleAutoShow'
+export const COMMAND_PALETTE_AFFORDANCE_KEY = 'interface.commandPaletteAffordance'
+export const TAB_NAV_BAR_KEY = 'interface.tabNavBar'
 
 export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
   /*
@@ -367,5 +369,43 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'While a track is playing and you have not touched Oscine for this long, switch to the Now Playing view. Off by default.',
     keywords: ['now playing', 'idle', 'auto', 'inactive', 'away', 'switch', 'timeout'],
     order: 115
+  }),
+
+  /**
+   * G5(a). The palette's discoverable face in the title bar — D21's search box.
+   * On by default so the palette stays findable for the operator who has not
+   * learned the shortcut; turning it off leaves Ctrl/Cmd+K and the palette
+   * itself untouched, it only reclaims the chrome. See `AppTitleBar.vue`.
+   */
+  defineSetting<boolean>({
+    key: COMMAND_PALETTE_AFFORDANCE_KEY,
+    scope: 'durable',
+    default: true,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'interface',
+    label: 'Command Palette search box in the title bar',
+    help: 'The search box that opens the Command Palette. Off hides it; Ctrl/Cmd+K still opens the palette.',
+    keywords: ['command palette', 'search', 'title bar', 'omnibar', 'affordance', 'chrome'],
+    order: 120
+  }),
+
+  /**
+   * G5(b). The tab row under the title bar. On by default; turning it off is a
+   * power-user move that leans on G6's shortcuts and the palette for navigation
+   * (the title bar's View menu still lists every destination). The frame reads
+   * this to collapse the row and skip mounting it — see `AppShell.vue`.
+   */
+  defineSetting<boolean>({
+    key: TAB_NAV_BAR_KEY,
+    scope: 'durable',
+    default: true,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'interface',
+    label: 'Tab navigation bar',
+    help: 'The row of view tabs under the title bar. Off leaves navigation to keyboard shortcuts, the Command Palette, and the title bar’s View menu.',
+    keywords: ['tab bar', 'navigation', 'tabs', 'views', 'nav', 'chrome'],
+    order: 125
   })
 ]

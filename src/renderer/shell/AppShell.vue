@@ -20,6 +20,8 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { useShellStore } from '@renderer/stores/shell'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
+import { useSettings } from '@renderer/settings'
+import { TAB_NAV_BAR_KEY } from '@shared/settings'
 
 /**
  * The frame.
@@ -49,6 +51,20 @@ const playback = usePlaybackStore()
 const playlists = usePlaylistsStore()
 const shell = useShellStore()
 const tunedeck = useTunedeckStore()
+const settings = useSettings()
+
+/**
+ * G5(b): the tab row is an opt-out. Off collapses its grid track to nothing and
+ * skips mounting the row entirely — navigation falls to the global shortcuts
+ * (D27), the palette, and the title bar's View menu. The other three rows (title
+ * bar, body, transport) are fixed; only the second track changes.
+ */
+const tabNavBar = computed(() => settings.get<boolean>(TAB_NAV_BAR_KEY))
+const gridRows = computed(() =>
+  tabNavBar.value
+    ? 'grid-rows-[2.25rem_2.25rem_minmax(0,1fr)_5rem]'
+    : 'grid-rows-[2.25rem_minmax(0,1fr)_5rem]'
+)
 
 /**
  * Instantiated here, not in `Sources`.
@@ -160,12 +176,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main
-    class="grid h-screen grid-rows-[2.25rem_2.25rem_minmax(0,1fr)_5rem] overflow-hidden bg-default text-default"
-  >
+  <main class="grid h-screen overflow-hidden bg-default text-default" :class="gridRows">
     <AppTitleBar />
 
-    <ShellTabs />
+    <ShellTabs v-if="tabNavBar" />
 
     <div class="flex min-h-0 min-w-0 overflow-hidden">
       <!--

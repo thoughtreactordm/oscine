@@ -35,6 +35,7 @@ export * from './settings/scope'
 export * from './settings/cascade'
 export * from './settings/profile'
 export {
+  COMMAND_PALETTE_AFFORDANCE_KEY,
   CONFIRM_ENTRY_REMOVAL_KEY,
   CONFIRM_PLAYLIST_DELETE_KEY,
   DATE_FORMAT_KEY,
@@ -45,6 +46,7 @@ export {
   NOW_PLAYING_WAVEFORM_KEY,
   RESTORE_QUEUE_KEY,
   RESTORE_SESSION_KEY,
+  TAB_NAV_BAR_KEY,
   TRACK_ACTIVATION_KEY,
   TRACK_DENSITY_KEY
 } from './settings/interface'
