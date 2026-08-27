@@ -1,7 +1,7 @@
 ---
 taskId: 01M0XBPFGS6H01V0Y4RRWYRWY7
 title: 'Context-menu pass: track rows + album/artist cards (G8)'
-status: todo
+status: in-progress
 labels:
   - ui
 workstream: W14

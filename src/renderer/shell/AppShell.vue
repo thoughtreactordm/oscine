@@ -5,6 +5,7 @@ import AppTitleBar from '@renderer/panels/AppTitleBar.vue'
 import CommandPalette from '@renderer/panels/CommandPalette.vue'
 import NewPlaylistModal from '@renderer/panels/NewPlaylistModal.vue'
 import NowPlaying from '@renderer/panels/NowPlaying.vue'
+import TrackInfoModal from '@renderer/panels/TrackInfoModal.vue'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
 import { shellTabs } from '@renderer/shell/routes'
 import { useGlobalShortcuts } from '@renderer/shell/useGlobalShortcuts'
@@ -286,6 +287,12 @@ onUnmounted(() => {
       change unmounts. It draws nothing until something asks it to.
     -->
     <NewPlaylistModal />
+
+    <!--
+      Track Info, mounted with the frame for the same reason: it is opened by a
+      right-click in a list or on a card, both of which a tab change unmounts.
+    -->
+    <TrackInfoModal />
 
     <!--
       The command palette, mounted with the frame for the reason the playlist

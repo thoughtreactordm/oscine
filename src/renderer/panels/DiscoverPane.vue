@@ -13,6 +13,8 @@ import {
   showPlaceholderBadge,
   type DiscoverView
 } from '@renderer/panels/discoverShelves'
+import { trackMenuItems } from '@renderer/panels/trackMenu'
+import { useTrackActions } from '@renderer/panels/useTrackActions'
 import { queueCommandLabel, queueIds } from '@renderer/playback/queueCommands'
 import { useSettings } from '@renderer/settings'
 import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
@@ -21,11 +23,13 @@ import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
+import { useTrackInfoStore } from '@renderer/stores/trackInfo'
 import type {
   DiscoverAlbumItem,
   DiscoverItem,
   DiscoverRecipeId,
-  DiscoverShelvesResult
+  DiscoverShelvesResult,
+  DiscoverTrackItem
 } from '@shared/discover'
 import { MAX_TRACK_ID_PAGE } from '@shared/library'
 
@@ -64,6 +68,8 @@ const playback = usePlaybackStore()
 const queue = useQueueCommandsStore()
 const playlists = usePlaylistsStore()
 const addToPlaylist = useAddToPlaylistStore()
+const trackInfo = useTrackInfoStore()
+const trackActions = useTrackActions()
 
 const result = shallowRef<DiscoverShelvesResult | null>(null)
 const loading = shallowRef(false)
@@ -173,10 +179,41 @@ async function activateItem(item: DiscoverItem): Promise<void> {
   await trackActivation.activate(track, 0)
 }
 
+/**
+ * Play one track card now, fetching the row the card only holds an id for.
+ *
+ * The card carries display text and a `trackId`, not a `Track`; Play and Track
+ * Info both need the row, so each fetches it on select rather than the strip
+ * widening every card up front for a menu that may never open.
+ */
+async function playTrackCard(item: DiscoverTrackItem): Promise<void> {
+  const [track] = await library.getTracksByIds({ ids: [item.trackId] })
+  if (track) playback.playTracks({ tracks: [track], index: 0 })
+}
+
+async function showTrackInfo(item: DiscoverTrackItem): Promise<void> {
+  const [track] = await library.getTracksByIds({ ids: [item.trackId] })
+  if (track) trackInfo.show(track)
+}
+
+/**
+ * The card menus (**G8**).
+ *
+ * A track card gets the shared single-track set (`trackMenu`), the same one the
+ * lists and Now Playing build. An album card gets the album-scoped verbs — the
+ * queue and playlist ones aimed at the whole run, View album at the record and
+ * View artist at whoever made it — but no Track Info, which is a fact about one
+ * file and an album is many.
+ */
 function itemMenu(item: DiscoverItem): ContextMenuItem[] {
   if (item.grain === 'album') {
     const trackIds = (): Promise<number[]> => albumTrackIds(item.albumId)
     return [
+      {
+        label: 'Play',
+        icon: 'i-tabler-player-play',
+        onSelect: () => void playback.playFromList(albumPlayParams(item.albumId))
+      },
       {
         label: queueCommandLabel('playNext', item.trackCount),
         icon: 'i-tabler-corner-right-down',
@@ -186,21 +223,35 @@ function itemMenu(item: DiscoverItem): ContextMenuItem[] {
         label: queueCommandLabel('addToQueue', item.trackCount),
         icon: 'i-tabler-list-numbers',
         onSelect: () => void trackIds().then((ids) => queue.addToQueue(queueIds(ids)))
+      },
+      { type: 'separator' },
+      addToPlaylist.menuItem({ count: item.trackCount, trackIds, suggestedName: item.title }),
+      { type: 'separator' },
+      {
+        label: 'View artist',
+        icon: 'i-tabler-user',
+        disabled: item.artist === null,
+        onSelect: trackActions.viewArtist(item.artist) ?? undefined
+      },
+      {
+        label: 'View album',
+        icon: 'i-tabler-vinyl',
+        onSelect: () => void trackActions.reveal(item.title)
       }
     ]
   }
-  return [
-    {
-      label: queueCommandLabel('playNext', 1),
-      icon: 'i-tabler-corner-right-down',
-      onSelect: () => void queue.playNext(queueIds([item.trackId]))
-    },
-    {
-      label: queueCommandLabel('addToQueue', 1),
-      icon: 'i-tabler-list-numbers',
-      onSelect: () => void queue.addToQueue(queueIds([item.trackId]))
-    }
-  ]
+  return trackMenuItems({
+    play: () => void playTrackCard(item),
+    playNext: () => void queue.playNext(queueIds([item.trackId])),
+    addToQueue: () => void queue.addToQueue(queueIds([item.trackId])),
+    addToPlaylist: addToPlaylist.menuItem({
+      count: 1,
+      trackIds: () => Promise.resolve([item.trackId])
+    }),
+    viewArtist: trackActions.viewArtist(item.artist),
+    viewAlbum: trackActions.viewAlbum(item.albumTitle),
+    trackInfo: () => void showTrackInfo(item)
+  })
 }
 
 async function save(recipeId: DiscoverRecipeId): Promise<void> {

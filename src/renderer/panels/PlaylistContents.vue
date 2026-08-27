@@ -8,6 +8,8 @@ import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { activeRowDrag, beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
+import { trackMenuItems } from '@renderer/panels/trackMenu'
+import { useTrackActions } from '@renderer/panels/useTrackActions'
 import { useTrackActivation } from '@renderer/panels/useTrackActivation'
 import { FAVORITES_TAB } from '@renderer/panels/playlistTabs'
 import type {
@@ -75,6 +77,7 @@ const favorites = useFavoritesListStore()
 const playback = usePlaybackStore()
 const queue = useQueueCommandsStore()
 const addToPlaylist = useAddToPlaylistStore()
+const trackActions = useTrackActions()
 const settings = useSettings()
 
 /** Which of the two collections is on screen. Everything below branches on it. */
@@ -243,6 +246,52 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
   const list = source.value
   const many = list.isSelectedAt(index) && list.selectionCount > 1
   const count = many ? list.selectionCount : 1
+
+  // Two verbs, two wordings, because they are two different things. Removing an
+  // entry takes a row out of a playlist; removing a favorite un-hearts the
+  // track, which is a fact about the track itself and is worth saying. The same
+  // item ends both the single-track and the multi-select menu.
+  const remove: ContextMenuItem = favoritesViewed.value
+    ? {
+        label: many
+          ? `Un-favorite ${selectionSize.value.toLocaleString()} tracks`
+          : 'Remove from favorites',
+        icon: 'i-tabler-heart-off',
+        color: 'error',
+        onSelect: () => void removeAt(index)
+      }
+    : {
+        label: many
+          ? `Remove ${selectionSize.value.toLocaleString()} entries`
+          : 'Remove from playlist',
+        icon: 'i-tabler-trash',
+        color: 'error',
+        onSelect: () => void removeAt(index)
+      }
+
+  // The shared single-track set (**G8**), then this pane's own removal. A
+  // multi-select drops the identity verbs — view artist/track info cannot speak
+  // for a heterogeneous selection — and keeps the count-aware queue and playlist
+  // verbs below.
+  const track = many ? undefined : list.rowAt(index)
+  if (track) {
+    return [
+      ...trackMenuItems({
+        play: () => playAt(index),
+        playNext: () => void targetFor(index).then(queue.playNext),
+        addToQueue: () => void targetFor(index).then(queue.addToQueue),
+        // Copying the row out into another playlist by track id, never by entry
+        // id: an entry belongs to the playlist it is in, and a copy of it does not.
+        addToPlaylist: addToPlaylist.menuItem({ count, trackIds: () => trackIdsFor(index) }),
+        viewArtist: trackActions.viewArtist(trackActions.artistOf(track)),
+        viewAlbum: trackActions.viewAlbum(track.album),
+        trackInfo: trackActions.showInfo(track)
+      }),
+      { type: 'separator' },
+      remove
+    ]
+  }
+
   return [
     {
       label: 'Play',
@@ -260,31 +309,9 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
       onSelect: () => void targetFor(index).then(queue.addToQueue)
     },
     { type: 'separator' },
-    // Copying entries out into another playlist, including a new one. By track
-    // id and never by entry id, for the same reason the queue verbs above are:
-    // an entry belongs to the playlist it is in, and a copy of it does not.
     addToPlaylist.menuItem({ count, trackIds: () => trackIdsFor(index) }),
     { type: 'separator' },
-    // Two verbs, two wordings, because they are two different things. Removing
-    // an entry takes a row out of a playlist; removing a favorite un-hearts the
-    // track, which is a fact about the track itself and is worth saying.
-    favoritesViewed.value
-      ? {
-          label: many
-            ? `Un-favorite ${selectionSize.value.toLocaleString()} tracks`
-            : 'Remove from favorites',
-          icon: 'i-tabler-heart-off',
-          color: 'error',
-          onSelect: () => void removeAt(index)
-        }
-      : {
-          label: many
-            ? `Remove ${selectionSize.value.toLocaleString()} entries`
-            : 'Remove from playlist',
-          icon: 'i-tabler-trash',
-          color: 'error',
-          onSelect: () => void removeAt(index)
-        }
+    remove
   ]
 }
 
