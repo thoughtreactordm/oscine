@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
+import type { DropdownMenuItem } from '@nuxt/ui'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import QuickMenu from '@renderer/panels/QuickMenu.vue'
 import UpNextOverlay from '@renderer/panels/UpNextOverlay.vue'
 import { hasArtwork } from '@shared/ipc'
+import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
+import { useBrowseStore } from '@renderer/stores/browse'
 import { useFavoritesStore } from '@renderer/stores/favorites'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
@@ -86,6 +90,68 @@ function toggleFavorite(): void {
   const track = playback.nowPlaying
   if (track) void favorites.toggle(track.id)
 }
+
+/**
+ * The 3-dot menu, scoped to the track on the bar (**G3**).
+ *
+ * Three verbs, all about the one track: add it to a playlist, and follow its
+ * artist or its album into the library. The set is deliberately the one G8 will
+ * give a track row — the transport is just another surface that acts on a
+ * track, and two menus of the same verbs that drifted apart would be the bug.
+ */
+const addToPlaylist = useAddToPlaylistStore()
+const browse = useBrowseStore()
+const router = useRouter()
+
+/**
+ * View artist / view album, from the bar.
+ *
+ * The bar shows *tags as read* — a track carries its artist and album as names,
+ * not as facet ids, and the renderer has no cheap way to turn one into the
+ * other — so this reveals by search text, the honest route the Listening
+ * dashboard already takes (see `browse.revealSearch`): naming text that cannot
+ * be resolved to a facet id puts the phrase in the search box, where it is
+ * visible and editable, rather than hiding an approximation inside a query.
+ * Then it moves the frame to the library that renders the result — the same
+ * two-step `RelationsPane` does for its exact reveal, because filtering without
+ * navigating leaves the operator wondering what their click did.
+ */
+async function reveal(text: string): Promise<void> {
+  browse.revealSearch(text)
+  await router.push({ name: 'library' })
+}
+
+const songMenu = computed<DropdownMenuItem[]>(() => {
+  const track = playback.nowPlaying
+  if (!track) return []
+  const artist = track.albumArtist ?? track.artist
+  const album = track.album
+  return [
+    // The one add-to-playlist model (see `stores/addToPlaylist`), so the wording,
+    // the trailing "New playlist…" and the failure text match every other
+    // surface that offers it. Its submenu is authored as a `ContextMenuItem`;
+    // the two item types are structurally identical for the fields it sets, so
+    // it drops straight into a dropdown.
+    addToPlaylist.menuItem({
+      trackIds: () => Promise.resolve([track.id]),
+      count: 1
+    }) as DropdownMenuItem,
+    {
+      label: 'View artist',
+      icon: 'i-tabler-user',
+      // Disabled rather than hidden: an untagged file has no artist to follow,
+      // and a verb that silently vanished would read as the menu being broken.
+      disabled: artist === null,
+      onSelect: artist === null ? undefined : () => void reveal(artist)
+    },
+    {
+      label: 'View album',
+      icon: 'i-tabler-vinyl',
+      disabled: album === null,
+      onSelect: album === null ? undefined : () => void reveal(album)
+    }
+  ]
+})
 
 /**
  * The cover to bleed behind the bar, or null when there is nothing worth
@@ -301,8 +367,15 @@ function onSeekInput(value: number | undefined): void {
               @click="toggleFavorite()"
             />
           </UTooltip>
-          <UTooltip text="Song Options">
-            <UButton variant="ghost" icon="i-tabler-dots-vertical-filled" square />
+          <UTooltip text="Song options">
+            <UDropdownMenu :items="songMenu" :content="{ align: 'end' }">
+              <UButton
+                variant="ghost"
+                icon="i-tabler-dots-vertical-filled"
+                square
+                aria-label="Song options"
+              />
+            </UDropdownMenu>
           </UTooltip>
         </div>
       </div>
