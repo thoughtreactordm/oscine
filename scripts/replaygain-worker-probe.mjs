@@ -95,7 +95,9 @@ try {
 cleanup()
 // node-web-audio-api's native binding intermittently poisons the process exit
 // code during worker_threads teardown on Windows: the probe prints "passed" and
-// then exits 1 with no JS error. Validation is complete and already reported, so
-// exit explicitly here rather than awaiting worker.terminate() and letting its
-// native teardown decide our exit code.
+// then exits 1 with no JS error. This explicit exit is a best effort at a clean
+// code, but the crash happens *during* the exit and overrides it — which is why
+// CI does not run this script directly. `replaygain-worker-probe-run.mjs` wraps
+// it and judges the result by the "passed" marker above rather than this exit
+// code. Run direct only for local debugging.
 process.exit(0)
