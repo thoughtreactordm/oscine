@@ -168,6 +168,20 @@
         "W10",
         "W13"
       ]
+    },
+    {
+      "tag": "W15",
+      "name": "Tagging",
+      "description": "Free-form user tagging: the operator's own labels on tracks, applied app-side and surfaced through Tunedeck, with genre suggestions from the network behind D14's consent gate.\n\nTwo layers that must not be confused. The **file layer** — `tracks.genre` and the derived `track_genres` (split-and-casefolded, owned by W10) — stays exactly as it is: read-only, rebuilt from the tag on every rescan-upsert, the origin a chip is marked as coming from. The **user layer** is new: a `tags` vocabulary plus a `track_tags` join, applied by the operator, that survives rescan and never touches disk. Honouring D7 (v1 never writes tags to file) is the whole reason the user layer is app-side rather than a mutation of `tracks.genre`; it is not a reopening of D7 but a compliance with it. Should a later milestone add opt-in write-back, the `track_tags` rows with `source='user'` are precisely the diff to flush.\n\nGenre and user tags are one free-form surface, not two taxonomies: file genres render as read-only origin-marked chips beside editable user tags, unified on the same casefold key `track_genres` already uses, so \"Hip-Hop\" and \"hip hop\" are one label across both.\n\nThe suggestion path is Oscine's use of what W7 already built. MusicBrainz returns `genres[]`/`tags[]` (vote-weighted) on artist and release-group entities but the integration does not fetch them today; adding that parse and routing it through `CacheService.through` with its own TTL inherits D14 for free — suggestions behave like Biography and Members (present online or warm, silently absent otherwise) while the local tag editor keeps working. Nothing is auto-applied: a suggestion is a claim about the world, and accepting one writes a `track_tags` row with `source='suggested'`, the same visible-and-correctable stance R5 takes on identity. MB tags are per-artist and per-release-group, so a suggestion applies to the track by default and offers a batch apply to the whole album or everything by the artist.\n\nDepends on W2 (schema/scanner), W10 (owns `track_genres` normalization this extends), W7 (Tunedeck registry and the D14 net/cache layer) and W4 (TrackList column) for reuse and surface, not for permission. Does NOT write to disk (D7), does NOT reopen D7 or D14, and does NOT build a separate tag taxonomy divorced from genre.",
+      "color": "purple",
+      "order": 14,
+      "cardCounter": 6,
+      "dependsOn": [
+        "W2",
+        "W4",
+        "W7",
+        "W10"
+      ]
     }
   ]
 }
