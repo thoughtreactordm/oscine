@@ -371,7 +371,10 @@ describe('StatsStore.query at scale', () => {
             sublabel: group.sublabel,
             listens: group.listens,
             msListened: group.msListened,
-            trackId: group.trackId
+            trackId: group.trackId,
+            // The fixture seeds no album artwork, so every surviving track's
+            // album resolves through the LEFT JOIN to a null hash.
+            artworkHash: null
           }))
         )
       })

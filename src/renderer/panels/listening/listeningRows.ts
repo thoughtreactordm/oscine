@@ -12,19 +12,37 @@ import { formatListeningTime, formatPlays } from '../displayFormat'
  * compiles under `tsconfig.node.json`, which maps `@shared` and not `@renderer`.
  */
 
+/**
+ * How a row draws its leading thumbnail.
+ *
+ * `square` for tracks and albums — the cover as it sits on a shelf. `circle` for
+ * artists, the Quick Menu's shape for the same idea: a representative album
+ * standing in for the person, cropped round so it does not read as *the* record.
+ * `none` for genres, which have no cover to show and whose rows stay text.
+ */
+export type RankedArt = 'square' | 'circle' | 'none'
+
 export interface RankedListSpec {
   readonly dimension: StatsDimension
   readonly title: string
   readonly icon: string
   /** Singular noun for the "top 50 of 431" line. */
   readonly unit: string
+  /** Whether the rows carry a cover, and in what shape. */
+  readonly art: RankedArt
 }
 
 export const RANKED_LISTS: readonly RankedListSpec[] = [
-  { dimension: 'track', title: 'Top tracks', icon: 'i-tabler-music', unit: 'track' },
-  { dimension: 'album', title: 'Top albums', icon: 'i-tabler-vinyl', unit: 'album' },
-  { dimension: 'artist', title: 'Top artists', icon: 'i-tabler-users', unit: 'artist' },
-  { dimension: 'genre', title: 'Top genres', icon: 'i-tabler-tag', unit: 'genre' }
+  { dimension: 'track', title: 'Top tracks', icon: 'i-tabler-music', unit: 'track', art: 'square' },
+  { dimension: 'album', title: 'Top albums', icon: 'i-tabler-vinyl', unit: 'album', art: 'square' },
+  {
+    dimension: 'artist',
+    title: 'Top artists',
+    icon: 'i-tabler-users',
+    unit: 'artist',
+    art: 'circle'
+  },
+  { dimension: 'genre', title: 'Top genres', icon: 'i-tabler-tag', unit: 'genre', art: 'none' }
 ]
 
 export interface RankedRow {
@@ -54,6 +72,12 @@ export interface RankedRow {
    * row still draws, it simply draws as text.
    */
   readonly reveal: string | null
+  /**
+   * The row's cover hash, passed straight to `artworkUrl`, or `null` for the
+   * placeholder. Carried on every dimension; the spec's `art` decides whether a
+   * given list draws it.
+   */
+  readonly artworkHash: string | null
 }
 
 /**
@@ -127,7 +151,8 @@ export function rankedRows(
     plays: formatPlays(row.listens),
     time: formatListeningTime(row.msListened),
     share: leader <= 0 ? 0 : Math.min(1, totalFor(row, sort) / leader),
-    reveal: revealTextFor(dimension, row)
+    reveal: revealTextFor(dimension, row),
+    artworkHash: row.artworkHash
   }))
 }
 

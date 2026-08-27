@@ -108,22 +108,22 @@ function reveal(text: string): void {
     <header
       class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-default bg-elevated/40 px-3 py-2"
     >
-      <div class="flex items-center gap-2">
-        <UIcon name="i-tabler-chart-histogram" class="size-5 text-primary" />
-        <h1 class="font-semibold text-highlighted">Stats</h1>
-      </div>
-
-      <div class="flex items-center gap-1" role="group" aria-label="Time range">
-        <UButton
-          v-for="preset in LISTENING_RANGES"
-          :key="preset.id"
-          :label="preset.label"
-          size="xs"
-          :color="listening.rangeId === preset.id ? 'primary' : 'neutral'"
-          :variant="listening.rangeId === preset.id ? 'soft' : 'ghost'"
-          :aria-pressed="listening.rangeId === preset.id"
-          @click="listening.rangeId = preset.id"
-        />
+      <div class="flex items-center gap-2" role="group" aria-labelledby="stats-range-label">
+        <span id="stats-range-label" class="text-xs font-medium uppercase tracking-wide text-muted">
+          Range
+        </span>
+        <div class="flex items-center gap-1">
+          <UButton
+            v-for="preset in LISTENING_RANGES"
+            :key="preset.id"
+            :label="preset.label"
+            size="xs"
+            :color="listening.rangeId === preset.id ? 'primary' : 'neutral'"
+            :variant="listening.rangeId === preset.id ? 'soft' : 'ghost'"
+            :aria-pressed="listening.rangeId === preset.id"
+            @click="listening.rangeId = preset.id"
+          />
+        </div>
       </div>
 
       <div class="ml-auto flex items-center gap-1" role="group" aria-label="Rank by">

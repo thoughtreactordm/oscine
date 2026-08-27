@@ -15,6 +15,7 @@ function row(over: Partial<StatsRow> = {}): StatsRow {
     listens: 10,
     msListened: 600_000,
     trackId: 7,
+    artworkHash: null,
     ...over
   }
 }

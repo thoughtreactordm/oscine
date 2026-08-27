@@ -163,20 +163,43 @@ const ORDER: Readonly<Record<StatsSort, string>> = {
 
 const RANGE = (d: DimensionSql): string => `${d.time} >= @from AND ${d.time} <= @to${d.filter}`
 
+/**
+ * The ranked page, decorated with each row's cover — and the one place a join
+ * back to the library appears, kept honest by where it sits.
+ *
+ * The grouping is untouched: it is the inner query, the same `MAX(track_id)`
+ * link and the same counts, and the `LEFT JOIN` runs *outside* it, over the ≤50
+ * rows already chosen, by primary key. So it decorates and cannot regroup —
+ * `albums.artwork_hash` for whatever surviving track the link picked, `NULL`
+ * for a group that kept none or a track with no album. That is the exact nature
+ * of `trackId` itself (a link, resolved as the library reads now), and the
+ * artwork inherits its D17 trade rather than opening a new one: the join can
+ * change a cover, never a number.
+ *
+ * The outer `ORDER BY` repeats the inner one because a join does not promise to
+ * preserve subquery order; both name the same aliased columns, so they agree.
+ */
 function rowsSql(dimension: StatsDimension, sort: StatsSort): string {
   const d = DIMENSIONS[dimension]
   return `
-    SELECT ${d.key}                     AS key,
-           ${d.label}                   AS label,
-           ${d.sublabel}                AS sublabel,
-           COUNT(*)                     AS listens,
-           COALESCE(SUM(${d.ms}), 0)    AS msListened,
-           MAX(${d.track})              AS trackId
-    FROM ${d.source}
-    WHERE ${RANGE(d)}
-    GROUP BY ${d.groupBy}
+    SELECT g.key, g.label, g.sublabel, g.listens, g.msListened, g.trackId,
+           al.artwork_hash AS artworkHash
+    FROM (
+      SELECT ${d.key}                     AS key,
+             ${d.label}                   AS label,
+             ${d.sublabel}                AS sublabel,
+             COUNT(*)                     AS listens,
+             COALESCE(SUM(${d.ms}), 0)    AS msListened,
+             MAX(${d.track})              AS trackId
+      FROM ${d.source}
+      WHERE ${RANGE(d)}
+      GROUP BY ${d.groupBy}
+      ORDER BY ${ORDER[sort]}
+      LIMIT @limit OFFSET @offset
+    ) g
+    LEFT JOIN tracks t  ON t.id = g.trackId
+    LEFT JOIN albums al ON al.id = t.album_id
     ORDER BY ${ORDER[sort]}
-    LIMIT @limit OFFSET @offset
   `
 }
 
@@ -327,6 +350,7 @@ interface RankedRow {
   listens: number
   msListened: number
   trackId: number | null
+  artworkHash: string | null
 }
 
 interface BucketRow {
@@ -442,7 +466,8 @@ export class StatsStore {
         sublabel: row.sublabel,
         listens: row.listens,
         msListened: row.msListened,
-        trackId: row.trackId
+        trackId: row.trackId,
+        artworkHash: row.artworkHash
       }))
     }
   }
