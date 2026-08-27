@@ -1,6 +1,6 @@
 {
   "name": "oscine",
-  "version": "0.8.4",
+  "version": "0.9.0",
   "description": "A format-first local music player for large libraries",
   "author": {
     "name": "Michael DeLally",
