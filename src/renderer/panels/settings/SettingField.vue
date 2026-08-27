@@ -110,16 +110,19 @@ defineEmits<{
         -->
         <div v-if="compact" class="ms-auto flex shrink-0 items-center">
           <SettingRevertButton v-if="revertTo" :destination="revertTo" @revert="$emit('revert')" />
-          <UButton
+          <UTooltip
             v-if="linkable"
-            color="neutral"
-            variant="ghost"
-            size="xs"
-            icon="i-tabler-arrow-up-right"
-            :title="`Show ${row.descriptor.label} in Settings ▸ ${row.categoryLabel}`"
-            :aria-label="`Show ${row.descriptor.label} in Settings`"
-            @click="$emit('reveal')"
-          />
+            :text="`Show ${row.descriptor.label} in Settings ▸ ${row.categoryLabel}`"
+          >
+            <UButton
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              icon="i-tabler-arrow-up-right"
+              :aria-label="`Show ${row.descriptor.label} in Settings`"
+              @click="$emit('reveal')"
+            />
+          </UTooltip>
         </div>
       </div>
 

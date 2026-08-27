@@ -116,63 +116,66 @@ onBeforeUnmount(() => {
       <div :style="{ height: `${visible.topPx}px` }" aria-hidden="true" />
       <ol class="m-0 list-none p-0">
         <li v-for="row in drawn" :key="row.key" :style="{ height: `${ROW_PX}px` }">
-          <component
-            :is="row.reveal === null ? 'div' : 'button'"
-            :type="row.reveal === null ? undefined : 'button'"
-            class="group relative flex h-full w-full items-center gap-2.5 overflow-hidden px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
-            :class="row.reveal === null ? 'cursor-default' : 'cursor-pointer hover:bg-elevated/50'"
-            :title="row.reveal === null ? undefined : `Show ${row.label} in the library`"
-            @click="row.reveal !== null && emit('reveal', row.reveal)"
-          >
-            <!--
+          <UTooltip :text="row.reveal === null ? undefined : `Show ${row.label} in the library`">
+            <component
+              :is="row.reveal === null ? 'div' : 'button'"
+              :type="row.reveal === null ? undefined : 'button'"
+              class="group relative flex h-full w-full items-center gap-2.5 overflow-hidden px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+              :class="
+                row.reveal === null ? 'cursor-default' : 'cursor-pointer hover:bg-elevated/50'
+              "
+              @click="row.reveal !== null && emit('reveal', row.reveal)"
+            >
+              <!--
               The magnitude bar: length only, never hue. Behind the row rather
               than beside it, so a fifty-row list stays a list — and washed far
               enough back that the text on top of it keeps its own contrast.
             -->
-            <div
-              class="pointer-events-none absolute inset-y-1 left-0 rounded-r-sm bg-primary/10"
-              :style="{ width: `${row.share * 100}%` }"
-              aria-hidden="true"
-            />
+              <div
+                class="pointer-events-none absolute inset-y-1 left-0 rounded-r-sm bg-primary/10"
+                :style="{ width: `${row.share * 100}%` }"
+                aria-hidden="true"
+              />
 
-            <span class="relative w-5 shrink-0 text-right text-xs tabular-nums text-dimmed">
-              {{ row.rank }}
-            </span>
+              <span class="relative w-5 shrink-0 text-right text-xs tabular-nums text-dimmed">
+                {{ row.rank }}
+              </span>
 
-            <!--
+              <!--
               The cover, for the lists that have one (spec.art). `artworkUrl`
               never fails — a null hash is the placeholder route, not a broken
               image — so the row draws a square or a circle either way rather
               than reflowing when art is missing. Decorative: the label beside it
               is the accessible name, so the alt is empty on purpose.
             -->
-            <span
-              v-if="spec.art !== 'none'"
-              class="relative size-8 shrink-0 overflow-hidden border border-default bg-elevated"
-              :class="spec.art === 'circle' ? 'rounded-full' : 'rounded'"
-              aria-hidden="true"
-            >
-              <img
-                :src="artworkUrl(row.artworkHash, 'small')"
-                alt=""
-                class="size-full object-cover"
-                draggable="false"
-                loading="lazy"
-              />
-            </span>
-
-            <span class="relative flex min-w-0 flex-1 flex-col">
-              <span class="truncate text-sm text-default">{{ row.label }}</span>
-              <span v-if="row.sublabel" class="truncate text-xs text-muted">
-                {{ row.sublabel }}
+              <span
+                v-if="spec.art !== 'none'"
+                class="relative size-8 shrink-0 overflow-hidden border border-default bg-elevated"
+                :class="spec.art === 'circle' ? 'rounded-full' : 'rounded'"
+                aria-hidden="true"
+              >
+                <img
+                  :src="artworkUrl(row.artworkHash, 'small')"
+                  alt=""
+                  class="size-full object-cover"
+                  draggable="false"
+                  loading="lazy"
+                />
               </span>
-            </span>
 
-            <span class="relative shrink-0 text-right text-xs tabular-nums">
-              <span class="block text-default">{{ row.plays }}</span>
-              <span class="block text-muted">{{ row.time }}</span>
-            </span>
-          </component>
+              <span class="relative flex min-w-0 flex-1 flex-col">
+                <span class="truncate text-sm text-default">{{ row.label }}</span>
+                <span v-if="row.sublabel" class="truncate text-xs text-muted">
+                  {{ row.sublabel }}
+                </span>
+              </span>
+
+              <span class="relative shrink-0 text-right text-xs tabular-nums">
+                <span class="block text-default">{{ row.plays }}</span>
+                <span class="block text-muted">{{ row.time }}</span>
+              </span>
+            </component>
+          </UTooltip>
         </li>
       </ol>
       <div :style="{ height: `${visible.bottomPx}px` }" aria-hidden="true" />

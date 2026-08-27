@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { ButtonProps } from '@nuxt/ui'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -42,6 +43,8 @@ const props = defineProps<{
   active?: boolean
   /** Said at the foot: why one of these controls may currently be doing nothing. */
   hint?: string
+  /** The gear's button size. Defaults to `lg`, the size the transport and rails use. */
+  size?: ButtonProps['size']
 }>()
 
 const router = useRouter()
@@ -79,14 +82,15 @@ function reveal(key: string): void {
 
 <template>
   <UPopover v-model:open="open" :ui="{ content: 'w-80 p-0' }">
-    <UButton
-      color="neutral"
-      :variant="active ? 'soft' : 'ghost'"
-      size="lg"
-      :icon="surface.icon"
-      :aria-label="`${surface.title} settings`"
-      :title="`${surface.title} settings`"
-    />
+    <UTooltip :text="`${surface.title} settings`">
+      <UButton
+        color="neutral"
+        :variant="active ? 'soft' : 'ghost'"
+        :size="size ?? 'lg'"
+        :icon="surface.icon"
+        :aria-label="`${surface.title} settings`"
+      />
+    </UTooltip>
 
     <template #content>
       <div class="flex flex-col">

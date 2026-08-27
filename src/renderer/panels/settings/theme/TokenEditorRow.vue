@@ -127,17 +127,20 @@ const warningText = computed(() => {
       <h3 class="min-w-0 truncate text-xs font-semibold text-highlighted">{{ group.label }}</h3>
       <p class="truncate text-[11px] text-muted" :title="group.help">{{ group.help }}</p>
     </div>
-    <UButton
+    <UTooltip
       v-if="group.overridden > 0"
-      color="neutral"
-      variant="ghost"
-      size="xs"
-      icon="i-tabler-arrow-back-up"
-      :label="`Revert (${group.overridden})`"
-      :title="`Revert every overridden ${group.label} token to the theme`"
-      class="shrink-0 text-xs"
-      @click="emit('revertGroup', group.id)"
-    />
+      :text="`Revert every overridden ${group.label} token to the theme`"
+    >
+      <UButton
+        color="neutral"
+        variant="ghost"
+        size="xs"
+        icon="i-tabler-arrow-back-up"
+        :label="`Revert (${group.overridden})`"
+        class="shrink-0 text-xs"
+        @click="emit('revertGroup', group.id)"
+      />
+    </UTooltip>
   </div>
 
   <div
@@ -150,15 +153,9 @@ const warningText = computed(() => {
         <span class="min-w-0 truncate text-xs font-medium text-highlighted">
           {{ token.descriptor.label }}
         </span>
-        <UBadge
-          v-if="token.overridden"
-          color="primary"
-          variant="subtle"
-          size="sm"
-          label="Yours"
-          :title="`Overridden. The theme's own value is underneath.`"
-          class="shrink-0"
-        />
+        <UTooltip v-if="token.overridden" text="Overridden. The theme's own value is underneath.">
+          <UBadge color="primary" variant="subtle" size="sm" label="Yours" class="shrink-0" />
+        </UTooltip>
       </div>
       <p class="truncate text-[11px] text-muted" :title="token.descriptor.help">
         {{ token.descriptor.help }}
@@ -209,16 +206,19 @@ const warningText = computed(() => {
       editing it. Same reasoning as `SettingField`.
     -->
     <div class="flex w-7 shrink-0 justify-end">
-      <UButton
+      <UTooltip
         v-if="token.overridden"
-        color="neutral"
-        variant="ghost"
-        size="xs"
-        icon="i-tabler-arrow-back-up"
-        :title="`Revert ${token.descriptor.label} to the theme's value`"
-        :aria-label="`Revert ${token.descriptor.label} to the theme's value`"
-        @click="emit('revert', token.key)"
-      />
+        :text="`Revert ${token.descriptor.label} to the theme's value`"
+      >
+        <UButton
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          icon="i-tabler-arrow-back-up"
+          :aria-label="`Revert ${token.descriptor.label} to the theme's value`"
+          @click="emit('revert', token.key)"
+        />
+      </UTooltip>
     </div>
   </div>
 
@@ -242,15 +242,16 @@ const warningText = computed(() => {
     <div class="w-5 shrink-0" aria-hidden="true" />
 
     <div class="flex w-7 shrink-0 justify-end">
-      <UButton
-        color="neutral"
-        variant="ghost"
-        size="xs"
-        icon="i-tabler-arrow-back-up"
-        :title="`Discard the override for ${orphan.id}`"
-        :aria-label="`Discard the override for ${orphan.id}`"
-        @click="emit('revert', orphan.id)"
-      />
+      <UTooltip :text="`Discard the override for ${orphan.id}`">
+        <UButton
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          icon="i-tabler-arrow-back-up"
+          :aria-label="`Discard the override for ${orphan.id}`"
+          @click="emit('revert', orphan.id)"
+        />
+      </UTooltip>
     </div>
   </div>
 </template>

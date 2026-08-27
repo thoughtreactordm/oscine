@@ -345,7 +345,6 @@ const albumPane = facetPane<AlbumFacet>({
             v-model="browse.rootValue"
             value-key="value"
             :items="rootItems"
-            size="lg"
             class="min-w-0 flex-1"
             aria-label="Library folder"
           />
@@ -361,12 +360,11 @@ const albumPane = facetPane<AlbumFacet>({
             rather than a second time from a title-bar list.
           -->
           <UFieldGroup>
-            <PanelSettingsPopover :surface="watchSettings" />
+            <PanelSettingsPopover :surface="watchSettings" size="md" />
 
             <UDropdownMenu :items="folderItems" :content="{ align: 'end' }">
               <UButton
                 icon="i-tabler-dots-vertical"
-                size="lg"
                 color="neutral"
                 variant="ghost"
                 :loading="roots.removing !== null"

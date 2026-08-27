@@ -962,32 +962,34 @@ onMounted(() => props.source.ensureRange(0, 30))
             @drop.stop.prevent="onDrop(column.key)"
             @dragend.stop="onDragEnd"
           >
-            <UButton
+            <UTooltip
               v-if="sortable && isSortableColumn(column.key)"
-              color="neutral"
-              variant="ghost"
-              size="xs"
-              class="min-w-0 flex-1 justify-start rounded-none px-2 uppercase"
-              :class="alignClass(column)"
-              :aria-sort="ariaSort(column.key)"
-              :title="`Sort by ${columnName(column)}`"
-              @click="source.setSort?.(column.key)"
+              :text="`Sort by ${columnName(column)}`"
             >
-              <span class="truncate">{{ column.label }}</span>
-              <UIcon
-                v-if="source.sort === column.key"
-                :name="source.direction === 'asc' ? 'i-tabler-chevron-up' : 'i-tabler-chevron-down'"
-                class="size-3 shrink-0 text-primary"
-              />
-            </UButton>
-            <span
-              v-else
-              class="min-w-0 flex-1 truncate px-2"
-              :class="alignClass(column)"
-              :title="unsortableTitle(column)"
-            >
-              {{ column.label }}
-            </span>
+              <UButton
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                class="min-w-0 flex-1 justify-start rounded-none px-2 uppercase"
+                :class="alignClass(column)"
+                :aria-sort="ariaSort(column.key)"
+                @click="source.setSort?.(column.key)"
+              >
+                <span class="truncate">{{ column.label }}</span>
+                <UIcon
+                  v-if="source.sort === column.key"
+                  :name="
+                    source.direction === 'asc' ? 'i-tabler-chevron-up' : 'i-tabler-chevron-down'
+                  "
+                  class="size-3 shrink-0 text-primary"
+                />
+              </UButton>
+            </UTooltip>
+            <UTooltip v-else :text="unsortableTitle(column)">
+              <span class="min-w-0 flex-1 truncate px-2" :class="alignClass(column)">
+                {{ column.label }}
+              </span>
+            </UTooltip>
 
             <!--
             A focusable separator rather than a bare drag affordance: resizing a
