@@ -1,19 +1,21 @@
 /**
- * Renders the application icon set from the mark AppTitleBar draws: the tabler
- * `wave-sine` glyph on a rounded `bg-primary` badge.
+ * Renders the application icon set from the Oscine mark: the sound-wave songbird
+ * on a filled disc, the same two paths `AppLogo.vue` draws in the title bar.
  *
- * The mark lives in a component, where it is a `<UIcon>` inside a `<span>` and
- * therefore not a file anything can package. Rather than check in a hand-drawn
- * duplicate that silently drifts from the title bar, this reproduces it from the
- * same two inputs — the tabler path and the Tailwind amber ramp behind
- * `--ui-primary` — and rasterises every size the two platforms ask for.
+ * The vector source is `build/oscine-logo.svg`. The mark is a component in the
+ * app, where the disc takes `--ui-primary` and the wave `--ui-text-inverted` and
+ * both theme at runtime; an icon is a raster artefact and cannot carry a token,
+ * so this bakes the disc to the Tailwind amber ramp behind `--ui-primary` and
+ * the wave to a fixed dark stone, and rasterises every size the two platforms
+ * ask for.
  *
- * Each size is rendered from its own SVG rather than downscaled from one master.
- * That is the whole point of the exercise: a 2 px stroke that reads correctly at
- * 512 px resolves to a third of a pixel at 16 px and disappears into grey mush.
- * The hint table below thickens the stroke and grows the glyph as the canvas
- * shrinks, which is what keeps the small sizes legible on a 1x panel while the
- * large ones stay faithful on a hidpi one.
+ * Each size is rendered from the vector at exactly that pixel size rather than
+ * downscaled from one master raster: librsvg resolving the paths at the target
+ * resolution stays crisp where a resample would blur, and the ICO path below
+ * needs raw pixels whose dimensions match the directory entry that declares
+ * them. The wave is a filled shape, not a stroke, so — unlike the glyph badge
+ * this replaced — there is no per-size stroke weight to hint; the disc fills the
+ * canvas edge to edge at every size.
  *
  *   npm run icons
  */
@@ -27,52 +29,41 @@ const buildDir = join(root, 'build')
 const iconsDir = join(buildDir, 'icons')
 
 /*
- * Tailwind's amber ramp, which is what `colors.primary: 'amber'` in
- * electron.vite.config.ts resolves `--ui-primary` to. Converted from the oklch
- * source values to sRGB once, here, because an icon is a raster artefact: it
- * cannot carry a token and be resolved later.
+ * The disc takes Tailwind's amber ramp, which is what `colors.primary: 'amber'`
+ * in electron.vite.config.ts resolves `--ui-primary` to. Converted from the
+ * oklch source values to sRGB once, here, because an icon is a raster artefact:
+ * it cannot carry a token and be resolved later.
  *
  *   amber-400  oklch(82.8% 0.189 84.429)
  *   amber-600  oklch(66.6% 0.179 58.318)
- *   amber-950  oklch(27.9% 0.077 45.635)
  *
- * The badge runs 400 → 600 top to bottom, which brackets the amber-500 the title
+ * The disc runs 400 → 600 top to bottom, which brackets the amber-500 the title
  * bar renders flat, and reads as depth at 512 px without shifting the hue.
  */
-const BADGE_TOP = '#ffb900'
-const BADGE_BOTTOM = '#e17100'
+const DISC_TOP = '#ffb900'
+const DISC_BOTTOM = '#e17100'
 
 /*
- * The glyph takes the dark end of the ramp rather than the white the title bar
- * uses in light mode. White on amber-500 is a 2.1:1 contrast ratio, which
- * survives at 20 px in a toolbar and does not survive at 16 px on a taskbar
- * against an arbitrary wallpaper; amber-950 is 6.1:1. Both are faithful — the
- * title bar itself draws the glyph dark in dark mode, because `text-inverted`
- * flips.
+ * The wave takes a fixed dark stone rather than the `text-inverted` the title
+ * bar flips per theme. A raster cannot flip, so it takes the value that stays
+ * legible everywhere: near-black stone-950 on amber is ~9:1, which survives at
+ * 16 px on a taskbar over an arbitrary wallpaper where a light wave (~2:1) would
+ * dissolve into the disc.
  */
-const GLYPH = '#451a03'
-
-// tabler `wave-sine`, on its native 24x24 grid, already centred on (12,12).
-const GLYPH_PATH =
-  'M21 12h-2c-.894 0-1.662-.857-1.761-2c-.296-3.45-.749-6-2.749-6s-2.5 3.582-2.5 8s-.5 8-2.5 8s-2.452-2.547-2.749-6c-.1-1.147-.867-2-1.763-2h-2'
+const WAVE = '#0c0a09'
 
 /*
- * `inset` is in device pixels, not a percentage, so the badge edge lands on a
- * pixel boundary at every size instead of straddling one and rendering soft.
- * `glyph` is the fraction of the canvas the 24-unit grid is scaled to, and
- * `stroke` is in those grid units.
+ * The Oscine mark, from `build/oscine-logo.svg`. The disc geometry is normalised
+ * to plain `cx/cy/r` filling the 1354.467 design square; the wave keeps its
+ * native path under the one translate it was authored with, which is cheaper and
+ * safer than rebaking every coordinate. Both are design units — the per-size
+ * `width`/`height` on the <svg> is what scales them to the target canvas.
  */
-const HINTS = [
-  { size: 16, inset: 0, glyph: 0.82, stroke: 3.4 },
-  { size: 24, inset: 1, glyph: 0.78, stroke: 3.1 },
-  { size: 32, inset: 1, glyph: 0.74, stroke: 2.9 },
-  { size: 48, inset: 2, glyph: 0.7, stroke: 2.7 },
-  { size: 64, inset: 3, glyph: 0.68, stroke: 2.6 },
-  { size: 128, inset: 6, glyph: 0.66, stroke: 2.5 },
-  { size: 256, inset: 13, glyph: 0.64, stroke: 2.4 },
-  { size: 512, inset: 27, glyph: 0.64, stroke: 2.4 },
-  { size: 1024, inset: 54, glyph: 0.64, stroke: 2.4 }
-]
+const VIEWBOX = 1354.467
+const DISC_CENTER = 677.2335
+const WAVE_TRANSFORM = 'translate(-598.58913,-19.030152)'
+const WAVE_PATH =
+  'M 1271.0421,1332.0073 C 720.86037,1323.7482 637.09928,841.79597 636.45478,670.17008 656.3118,224.80402 996.3891,55.771967 1298.8782,56.787508 c 298.9086,2.076343 600.2925,296.198262 607.4604,622.194332 1.8971,86.2776 -90.7862,76.92832 -141.1306,76.50025 -126.6255,-1.07667 -189.1615,-242.05088 -259.9645,-272.58215 -105.7766,-45.61239 -91.0593,524.39466 -228.8595,523.99576 -145.3775,-0.4208 -82.1232,-246.94223 -170.3545,-297.06091 -72.1742,-29.5688 -224.7968,13.9022 -223.83474,-57.61327 1.37449,-102.17402 175.34234,-36.61493 281.27414,-18.37528 85.4027,14.70489 33.7716,234.98509 111.5209,234.8442 88.0534,-0.15956 36.0399,-291.96208 159.6187,-460.02876 149.1958,-202.90555 219.3199,272.48755 346.8386,266.69413 125.4952,-4.23609 12.9376,-179.46865 -33.6204,-249.14715 -96.8035,-144.87583 -244.8329,-248.09291 -451.8458,-262.82072 -679.00208,45.67301 -626.71532,1059.73196 -12.009,1069.35986 342.4392,5.3635 440.6567,-233.1419 534.308,-395.46271 21.5662,-37.37951 76.5014,-67.67095 69.6698,8.1322 -16.0177,177.73091 -209.4377,492.70681 -616.9076,486.59001 z'
 
 // The hicolor sizes a desktop actually installs. 1024 is not one of them; it is
 // the master that ships as build/icon.png.
@@ -81,29 +72,17 @@ const LINUX_SIZES = [16, 24, 32, 48, 64, 128, 256, 512]
 // views and the installer, and the rest cover the 125–200% scaling steps.
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
 
-function hintFor(size) {
-  const hint = HINTS.find((entry) => entry.size === size)
-  if (!hint) throw new Error(`no hint table entry for ${size}px`)
-  return hint
-}
-
 function svgFor(size) {
-  const { inset, glyph, stroke } = hintFor(size)
-  const box = size - inset * 2
-  // 20%, matching the `rounded` on the title bar's size-5 badge.
-  const radius = Math.round(box * 0.2 * 100) / 100
-  const scale = (size * glyph) / 24
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${VIEWBOX} ${VIEWBOX}">
   <defs>
-    <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${BADGE_TOP}"/>
-      <stop offset="1" stop-color="${BADGE_BOTTOM}"/>
+    <linearGradient id="disc" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${DISC_TOP}"/>
+      <stop offset="1" stop-color="${DISC_BOTTOM}"/>
     </linearGradient>
   </defs>
-  <rect x="${inset}" y="${inset}" width="${box}" height="${box}" rx="${radius}" fill="url(#badge)"/>
-  <g transform="translate(${size / 2} ${size / 2}) scale(${scale}) translate(-12 -12)">
-    <path d="${GLYPH_PATH}" fill="none" stroke="${GLYPH}" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="${DISC_CENTER}" cy="${DISC_CENTER}" r="${DISC_CENTER}" fill="url(#disc)"/>
+  <g transform="${WAVE_TRANSFORM}">
+    <path d="${WAVE_PATH}" fill="${WAVE}"/>
   </g>
 </svg>
 `

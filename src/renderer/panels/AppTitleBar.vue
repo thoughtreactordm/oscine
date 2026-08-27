@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { appInfo, windowControls } from '@renderer/ipc'
+import AppLogo from '@renderer/shell/AppLogo.vue'
 import { SHORTCUTS, type ShortcutCategory } from '@renderer/shell/globalShortcuts'
 import { shellTabs } from '@renderer/shell/routes'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
@@ -353,9 +354,7 @@ async function toggleMaximize(): Promise<void> {
     aria-label="Application toolbar"
   >
     <div class="flex h-full shrink-0 items-center gap-2 px-3" aria-label="Oscine">
-      <span class="flex size-5 items-center justify-center rounded bg-primary text-inverted">
-        <UIcon name="i-tabler-wave-sine" class="size-3.5" />
-      </span>
+      <AppLogo class="size-5" />
       <span class="app-logo text-sm font-semibold tracking-wide text-highlighted">oscine</span>
     </div>
 
@@ -478,18 +477,14 @@ async function toggleMaximize(): Promise<void> {
 
     <!--
       About — the mark and wordmark exactly as the bar wears them, the running
-      version, and the byline. The mark is the same badge the title bar and the
-      app icon are built from (see `scripts/make-icons.mjs`), rebuilt here rather
-      than referenced so it themes with everything else.
+      version, and the byline. The mark is the same `AppLogo` the title bar
+      wears and the app icon is built from (see `scripts/make-icons.mjs`), so it
+      themes with everything else.
     -->
     <UModal v-model:open="aboutOpen" title="About Oscine">
       <template #body>
         <div class="flex flex-col items-center gap-4 py-4 text-center">
-          <span
-            class="flex size-16 items-center justify-center rounded-2xl bg-primary text-inverted"
-          >
-            <UIcon name="i-tabler-wave-sine" class="size-9" />
-          </span>
+          <AppLogo class="size-16" />
           <div class="flex flex-col items-center gap-1">
             <span class="app-logo text-2xl font-semibold tracking-wide text-highlighted">
               oscine
