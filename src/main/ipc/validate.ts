@@ -5,6 +5,7 @@ import {
   type SearchArtistCandidatesRequest,
   type SetArtistMbidRequest
 } from '@shared/artist'
+import type { GetArtistLinksRequest } from '@shared/artistLinks'
 import type { GetArtistRelationsRequest } from '@shared/artistRelations'
 import type { GetArtistBiographyRequest } from '@shared/biography'
 import type { GetArtistImageRequest } from '@shared/artistImage'
@@ -1316,6 +1317,21 @@ export function assertGetArtistRelationsRequest(value: unknown): GetArtistRelati
  * main process a general-purpose downloader on the renderer's behalf.
  */
 export function assertGetArtistImageRequest(value: unknown): GetArtistImageRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artistId'])
+  return { artistId: assertPositiveInt(raw.artistId, 'artistId') }
+}
+
+/**
+ * And once more, for the outbound links.
+ *
+ * The same shape as its three siblings and for `assertGetArtistRelationsRequest`'
+ * reason: an artist id and nothing else, so a renderer cannot ask for the links
+ * of an artist it merely believes is playing. The URLs that come back are opened
+ * through `app.openExternal`, which fixes their scheme; nothing about the request
+ * carries one.
+ */
+export function assertGetArtistLinksRequest(value: unknown): GetArtistLinksRequest {
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['artistId'])
   return { artistId: assertPositiveInt(raw.artistId, 'artistId') }

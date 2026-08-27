@@ -26,7 +26,11 @@ import { SqliteLibraryService } from './library/sqliteService'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { SqlitePodcastService } from './podcasts/service'
-import { createArtistIdentityService, createArtistRelationsService } from './musicbrainz'
+import {
+  createArtistIdentityService,
+  createArtistLinksService,
+  createArtistRelationsService
+} from './musicbrainz'
 import { createNetService, createNetworkConsent } from './net'
 import { createKeyringProbe, selectPasswordStore } from './passwordStore'
 import { migrateUserDataDirectory } from './userDataMigration'
@@ -516,6 +520,14 @@ if (!app.requestSingleInstanceLock()) {
     // a MusicBrainz document and the `artists` table itself.
     const relations = createArtistRelationsService({ db, client: net.client, cache })
 
+    // D14's fourth source and the only one that ends outside the app: the
+    // `url-rels` half of the same MusicBrainz document `relations` reads the
+    // `artist-rels` half of, downstream of the resolver in the same strict way.
+    // It needs the database only to read the MBID off the `artists` row — there
+    // is no library to intersect a homepage against — so unlike `relations` it
+    // does not touch the `artists` table a second time.
+    const links = createArtistLinksService({ db, client: net.client, cache })
+
     // One artwork worker for library albums and podcast covers — a second
     // WorkerArtworkImageProcessor was racing the same native sharp module and
     // silently dropping podcast thumbs.
@@ -705,6 +717,7 @@ if (!app.requestSingleInstanceLock()) {
       biographies,
       relations,
       images,
+      links,
       search
     )
 

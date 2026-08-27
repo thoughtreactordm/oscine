@@ -410,7 +410,16 @@ const api = {
      * album art comes from by the time this resolves, so the renderer loads it
      * from the same privileged scheme and the same handler.
      */
-    image: (artistId: number) => request('artist.image', { artistId })
+    image: (artistId: number) => request('artist.image', { artistId }),
+    /**
+     * The artist's outbound links — homepage, Bandcamp, purchase and socials.
+     *
+     * A list of http/https URLs and their category, never the response body. The
+     * renderer opens each through `app.openExternal`, which fixes the scheme; it
+     * never loads one into a view of its own, because this app has no in-app view
+     * of third-party content.
+     */
+    links: (artistId: number) => request('artist.links', { artistId })
   }
 } as const
 
