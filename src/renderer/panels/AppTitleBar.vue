@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { appInfo, windowControls } from '@renderer/ipc'
+import { SHORTCUTS, type ShortcutCategory } from '@renderer/shell/globalShortcuts'
 import { shellTabs } from '@renderer/shell/routes'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { usePaletteStore } from '@renderer/stores/palette'
@@ -42,6 +43,7 @@ const paletteAffordance = computed(() => settings.get<boolean>(COMMAND_PALETTE_A
  */
 const aboutOpen = ref(false)
 const openSourceOpen = ref(false)
+const shortcutsOpen = ref(false)
 
 /**
  * The running version, read once when the bar mounts. It comes from
@@ -62,6 +64,39 @@ const DOCS_URL = 'https://github.com/thoughtreactordm/oscine'
 const shortcutHint = computed(() =>
   navigator.platform.toUpperCase().includes('MAC') ? '⌘K' : 'Ctrl K'
 )
+
+/** The order the reference groups G6's set; the categories the table carries. */
+const SHORTCUT_CATEGORIES: readonly ShortcutCategory[] = ['Playback', 'Navigation']
+
+/**
+ * The fixed 1.0 shortcut set (G6), grouped for the reference modal and read
+ * straight from `SHORTCUTS` — the keymap the app actually obeys — so the printed
+ * set cannot drift from the bound one. The keycaps are Nuxt UI `Kbd` tokens the
+ * modal renders directly, so `meta` localises to Ctrl or ⌘ on its own.
+ */
+const shortcutGroups = computed(() =>
+  SHORTCUT_CATEGORIES.map((category) => ({
+    category,
+    shortcuts: SHORTCUTS.filter((spec) => spec.category === category)
+  }))
+)
+
+/**
+ * The keycaps for one binding, by id — how a title-bar menu item shows the same
+ * shortcut the global handler obeys, through Nuxt UI's `kbds`. The tab items
+ * build their own `meta + N`, since one row of the table stands for all six.
+ */
+function shortcutKeys(id: string): string[] {
+  return [...(SHORTCUTS.find((spec) => spec.id === id)?.keys ?? [])]
+}
+
+/**
+ * A wider floor on the menu panels than the default, so a row's label and its
+ * shortcut hint sit apart rather than crowding. A floor, not a fixed width — a
+ * long folder path in the Library menu still grows past it.
+ */
+const menuUi = { content: 'min-w-52' }
+
 let stopMaximizedListener: (() => void) | null = null
 
 /**
@@ -165,18 +200,21 @@ const playbackItems = computed<DropdownMenuItem[][]>(() => [
     {
       label: 'Previous',
       icon: 'i-tabler-player-skip-back',
+      kbds: shortcutKeys('previous'),
       disabled: !playback.hasTrack,
       onSelect: () => playback.previous()
     },
     {
       label: playback.isPlaying ? 'Pause' : 'Play',
       icon: playback.isPlaying ? 'i-tabler-player-pause' : 'i-tabler-player-play',
+      kbds: shortcutKeys('playPause'),
       disabled: !playback.hasTrack,
       onSelect: () => playback.toggle()
     },
     {
       label: 'Next',
       icon: 'i-tabler-player-skip-forward',
+      kbds: shortcutKeys('next'),
       disabled: !playback.hasTrack,
       onSelect: () => playback.next()
     }
@@ -227,9 +265,11 @@ const playbackItems = computed<DropdownMenuItem[][]>(() => [
  * `shell.requestQuickMenu`.
  */
 const viewItems = computed<DropdownMenuItem[][]>(() => [
-  shellTabs.map((tab) => ({
+  shellTabs.map((tab, index) => ({
     label: tab.label,
     icon: tab.icon,
+    // The same Mod+digit `navigateTab` binds, one row of the table per tab.
+    kbds: ['meta', String(index + 1)],
     onSelect: () => void router.push({ name: tab.name })
   })),
   [
@@ -276,6 +316,13 @@ const helpItems = computed<DropdownMenuItem[][]>(() => [
   ],
   [
     {
+      label: 'Keyboard shortcuts',
+      icon: 'i-tabler-keyboard',
+      onSelect: () => {
+        shortcutsOpen.value = true
+      }
+    },
+    {
       label: 'Open Source',
       icon: 'i-tabler-heart-handshake',
       onSelect: () => {
@@ -313,7 +360,11 @@ async function toggleMaximize(): Promise<void> {
     </div>
 
     <nav class="app-no-drag flex h-full items-center" aria-label="Application menu">
-      <UDropdownMenu :items="libraryItems" :content="{ align: 'start', sideOffset: 0 }">
+      <UDropdownMenu
+        :items="libraryItems"
+        :content="{ align: 'start', sideOffset: 0 }"
+        :ui="menuUi"
+      >
         <UButton
           label="Library"
           color="neutral"
@@ -323,7 +374,11 @@ async function toggleMaximize(): Promise<void> {
         />
       </UDropdownMenu>
 
-      <UDropdownMenu :items="playbackItems" :content="{ align: 'start', sideOffset: 0 }">
+      <UDropdownMenu
+        :items="playbackItems"
+        :content="{ align: 'start', sideOffset: 0 }"
+        :ui="menuUi"
+      >
         <UButton
           label="Playback"
           color="neutral"
@@ -333,7 +388,7 @@ async function toggleMaximize(): Promise<void> {
         />
       </UDropdownMenu>
 
-      <UDropdownMenu :items="viewItems" :content="{ align: 'start', sideOffset: 0 }">
+      <UDropdownMenu :items="viewItems" :content="{ align: 'start', sideOffset: 0 }" :ui="menuUi">
         <UButton
           label="View"
           color="neutral"
@@ -343,7 +398,7 @@ async function toggleMaximize(): Promise<void> {
         />
       </UDropdownMenu>
 
-      <UDropdownMenu :items="helpItems" :content="{ align: 'start', sideOffset: 0 }">
+      <UDropdownMenu :items="helpItems" :content="{ align: 'start', sideOffset: 0 }" :ui="menuUi">
         <UButton
           label="Help"
           color="neutral"
@@ -479,6 +534,43 @@ async function toggleMaximize(): Promise<void> {
             </UBadge>
           </li>
         </ul>
+      </template>
+    </UModal>
+
+    <!--
+      Keyboard shortcuts — the reference G6 asks Help to carry, rendered from
+      `SHORTCUTS`, the same table `useGlobalShortcuts` dispatches, so what is
+      printed here is what the keys actually do.
+    -->
+    <UModal
+      v-model:open="shortcutsOpen"
+      title="Keyboard shortcuts"
+      :ui="{ body: 'sm:max-h-[60vh] overflow-y-auto' }"
+    >
+      <template #body>
+        <div class="flex flex-col gap-4">
+          <section
+            v-for="group in shortcutGroups"
+            :key="group.category"
+            class="flex flex-col gap-1"
+          >
+            <h3 class="px-2 text-xs font-semibold uppercase tracking-wide text-muted">
+              {{ group.category }}
+            </h3>
+            <ul class="flex flex-col gap-1">
+              <li
+                v-for="shortcut in group.shortcuts"
+                :key="shortcut.id"
+                class="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-elevated"
+              >
+                <span class="text-sm text-highlighted">{{ shortcut.description }}</span>
+                <span class="flex shrink-0 items-center gap-1">
+                  <UKbd v-for="(key, index) in shortcut.keys" :key="index" :value="key" size="sm" />
+                </span>
+              </li>
+            </ul>
+          </section>
+        </div>
       </template>
     </UModal>
   </header>

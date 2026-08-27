@@ -1,44 +1,188 @@
 import { describe, expect, it } from 'vitest'
-import { paletteShortcut, type ShortcutChord } from '../../../src/renderer/shell/globalShortcuts'
+import {
+  resolveShortcut,
+  SEEK_STEP_SECONDS,
+  SHORTCUTS,
+  VOLUME_STEP,
+  type ShortcutChord
+} from '../../../src/renderer/shell/globalShortcuts'
 
 /**
- * The one global shortcut's decision, D27. Every case here is behaviour the
- * composable can only wire, not decide: the guard that keeps Ctrl+K from
- * stealing a keystroke mid-type is the whole reason this is a pure function.
+ * The fixed 1.0 keymap's decision, G6 (D27's seam grown up). Every case here is
+ * behaviour the composable can only wire, not decide: the guards that keep a
+ * shortcut from stealing a keystroke mid-type — or Space off a focused button —
+ * are the whole reason this is a pure function.
  */
 
 function chord(over: Partial<ShortcutChord>): ShortcutChord {
-  return { key: '', ctrlKey: false, metaKey: false, editable: false, ...over }
+  return {
+    key: '',
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+    editable: false,
+    interactive: false,
+    ...over
+  }
 }
 
-describe('paletteShortcut', () => {
+describe('resolveShortcut — palette', () => {
   it('toggles on Ctrl+K and Cmd+K', () => {
-    expect(paletteShortcut(chord({ key: 'k', ctrlKey: true }))).toBe('toggle')
-    expect(paletteShortcut(chord({ key: 'k', metaKey: true }))).toBe('toggle')
+    expect(resolveShortcut(chord({ key: 'k', ctrlKey: true }))).toEqual({
+      kind: 'palette',
+      action: 'toggle'
+    })
+    expect(resolveShortcut(chord({ key: 'k', metaKey: true }))).toEqual({
+      kind: 'palette',
+      action: 'toggle'
+    })
   })
 
   it('is case-insensitive on the key', () => {
-    // A held Shift, or Caps, still opens the palette.
-    expect(paletteShortcut(chord({ key: 'K', metaKey: true }))).toBe('toggle')
+    // A held Shift, or Caps, still opens the palette — but Shift is not a fresh
+    // modifier here, it is the same K arriving capitalised.
+    expect(resolveShortcut(chord({ key: 'K', metaKey: true }))).toEqual({
+      kind: 'palette',
+      action: 'toggle'
+    })
   })
 
   it('needs a modifier — a bare k is typing', () => {
-    expect(paletteShortcut(chord({ key: 'k' }))).toBeNull()
+    expect(resolveShortcut(chord({ key: 'k' }))).toBeNull()
+  })
+
+  it('focuses search on Ctrl+F / Cmd+F', () => {
+    expect(resolveShortcut(chord({ key: 'f', ctrlKey: true }))).toEqual({
+      kind: 'palette',
+      action: 'search'
+    })
+    expect(resolveShortcut(chord({ key: 'f', metaKey: true }))).toEqual({
+      kind: 'palette',
+      action: 'search'
+    })
   })
 
   it('closes on Escape', () => {
-    expect(paletteShortcut(chord({ key: 'Escape' }))).toBe('close')
+    expect(resolveShortcut(chord({ key: 'Escape' }))).toEqual({ kind: 'palette', action: 'close' })
   })
 
   it('does not fire while a text control is focused', () => {
-    // The guard. Ctrl+K in a rename field must not open the palette, and Escape
-    // there belongs to the field — the palette closes through the modal instead.
-    expect(paletteShortcut(chord({ key: 'k', metaKey: true, editable: true }))).toBeNull()
-    expect(paletteShortcut(chord({ key: 'Escape', editable: true }))).toBeNull()
+    // The guard. Ctrl+K in a rename field must not open the palette, Space must
+    // not toggle playback, and Escape there belongs to the field.
+    expect(resolveShortcut(chord({ key: 'k', metaKey: true, editable: true }))).toBeNull()
+    expect(resolveShortcut(chord({ key: 'Escape', editable: true }))).toBeNull()
+    expect(resolveShortcut(chord({ key: ' ', editable: true }))).toBeNull()
+  })
+})
+
+describe('resolveShortcut — playback', () => {
+  it('plays / pauses on a bare Space', () => {
+    expect(resolveShortcut(chord({ key: ' ' }))).toEqual({
+      kind: 'transport',
+      action: 'playPause'
+    })
   })
 
-  it('ignores every other key', () => {
-    expect(paletteShortcut(chord({ key: 'a', ctrlKey: true }))).toBeNull()
-    expect(paletteShortcut(chord({ key: 'Enter' }))).toBeNull()
+  it('leaves Space to a focused control', () => {
+    // A focused button gets its own Space; play/pause stands down so one press is
+    // not two actions.
+    expect(resolveShortcut(chord({ key: ' ', interactive: true }))).toBeNull()
+  })
+
+  it('does not treat a modified Space as play/pause', () => {
+    expect(resolveShortcut(chord({ key: ' ', ctrlKey: true }))).toBeNull()
+    expect(resolveShortcut(chord({ key: ' ', shiftKey: true }))).toBeNull()
+  })
+
+  it('skips track on Ctrl/Cmd + arrows', () => {
+    expect(resolveShortcut(chord({ key: 'ArrowRight', ctrlKey: true }))).toEqual({
+      kind: 'transport',
+      action: 'next'
+    })
+    expect(resolveShortcut(chord({ key: 'ArrowLeft', metaKey: true }))).toEqual({
+      kind: 'transport',
+      action: 'previous'
+    })
+  })
+
+  it('seeks on Shift + arrows, by the named step', () => {
+    expect(resolveShortcut(chord({ key: 'ArrowRight', shiftKey: true }))).toEqual({
+      kind: 'seek',
+      deltaSeconds: SEEK_STEP_SECONDS
+    })
+    expect(resolveShortcut(chord({ key: 'ArrowLeft', shiftKey: true }))).toEqual({
+      kind: 'seek',
+      deltaSeconds: -SEEK_STEP_SECONDS
+    })
+  })
+
+  it('adjusts volume on Ctrl/Cmd + up/down, by the named step', () => {
+    expect(resolveShortcut(chord({ key: 'ArrowUp', ctrlKey: true }))).toEqual({
+      kind: 'volume',
+      delta: VOLUME_STEP
+    })
+    expect(resolveShortcut(chord({ key: 'ArrowDown', ctrlKey: true }))).toEqual({
+      kind: 'volume',
+      delta: -VOLUME_STEP
+    })
+  })
+
+  it('keeps seek and skip on different modifiers so neither shadows the other', () => {
+    // Shift+Left is a seek, Ctrl+Left is a skip; a chord holding both is neither.
+    expect(resolveShortcut(chord({ key: 'ArrowLeft', shiftKey: true, ctrlKey: true }))).toBeNull()
+  })
+})
+
+describe('resolveShortcut — navigation', () => {
+  it('maps Ctrl/Cmd + digit to a 0-based tab index', () => {
+    expect(resolveShortcut(chord({ key: '1', ctrlKey: true }))).toEqual({
+      kind: 'navigate',
+      tabIndex: 0
+    })
+    expect(resolveShortcut(chord({ key: '6', metaKey: true }))).toEqual({
+      kind: 'navigate',
+      tabIndex: 5
+    })
+  })
+
+  it('resolves any 1–9 digit and leaves the bound to the dispatcher', () => {
+    // The table does not know how many tabs there are; a digit past the last one
+    // resolves here and no-ops at dispatch. Nine is the ceiling a single key can
+    // name.
+    expect(resolveShortcut(chord({ key: '9', ctrlKey: true }))).toEqual({
+      kind: 'navigate',
+      tabIndex: 8
+    })
+    expect(resolveShortcut(chord({ key: '0', ctrlKey: true }))).toBeNull()
+  })
+
+  it('needs the modifier — a bare digit is typing', () => {
+    expect(resolveShortcut(chord({ key: '1' }))).toBeNull()
+    expect(resolveShortcut(chord({ key: '1', shiftKey: true }))).toBeNull()
+  })
+})
+
+describe('resolveShortcut — misses', () => {
+  it('ignores every unbound key', () => {
+    expect(resolveShortcut(chord({ key: 'a', ctrlKey: true }))).toBeNull()
+    expect(resolveShortcut(chord({ key: 'Enter' }))).toBeNull()
+    expect(resolveShortcut(chord({ key: 'ArrowUp' }))).toBeNull()
+  })
+})
+
+describe('SHORTCUTS table', () => {
+  it('gives every binding a unique id, a description and at least one keycap', () => {
+    const ids = SHORTCUTS.map((spec) => spec.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const spec of SHORTCUTS) {
+      expect(spec.description.length).toBeGreaterThan(0)
+      expect(spec.keys.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('covers each of G6’s named categories', () => {
+    const categories = new Set(SHORTCUTS.map((spec) => spec.category))
+    expect(categories).toEqual(new Set(['Playback', 'Navigation']))
   })
 })
