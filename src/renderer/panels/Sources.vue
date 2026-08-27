@@ -11,7 +11,7 @@ import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover
 import { queueCommandLabel, queueIds } from '@renderer/playback/queueCommands'
 import { useSettings } from '@renderer/settings'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
-import { SOURCES_ARTISTS_PANE } from '@renderer/shell/shellLayout'
+import { SOURCES_ARTISTS_PANE, SOURCES_GENRES_PANE } from '@renderer/shell/shellLayout'
 import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
 import { useArtistFavorites } from '@renderer/stores/artistStars'
 import { useBrowseStore } from '@renderer/stores/browse'
@@ -69,6 +69,14 @@ const artistFavorites = useArtistFavorites()
  * up to something other than the column.
  */
 const artistsHeight = shell.paneSize(SOURCES_ARTISTS_PANE)
+
+/**
+ * The Genres & tags height, dragged and remembered — the same one-number split
+ * as the Artists pane, one level up (W15-6). This pane carries a size and the
+ * Artists/Albums split below takes what is left, so its handle moves a single
+ * stored number and the inner split's own resizer math is untouched.
+ */
+const genresHeight = shell.paneSize(SOURCES_GENRES_PANE)
 
 const rootItems = computed(() => [
   { label: 'All folders', value: 0 },
@@ -394,225 +402,252 @@ const albumPane = facetPane<AlbumFacet>({
     </div>
 
     <!--
-      Genres & tags — the browse dimension above artists and albums (W15-5). Its
-      own compact, fixed-height section rather than a third pane in the resizer
-      split below, so the two-pane resizer math is left exactly as it was. Names
-      the concept the way the deck Tags pane and the TrackList column do.
-    -->
-    <section class="flex flex-col border-b border-default">
-      <div class="flex h-8 shrink-0 items-center gap-2 bg-elevated/30 px-2">
-        <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Genres &amp; tags</h2>
-        <template v-if="browse.genres.selectionCount.value > 0">
-          <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
-            {{ browse.genres.selectionCount.value.toLocaleString() }} selected
-          </span>
-          <UButton
-            icon="i-tabler-x"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            aria-label="Clear genre and tag selection"
-            @click="browse.genres.clearSelection()"
-          />
-        </template>
-        <span
-          class="text-xs tabular-nums text-dimmed"
-          :class="{ 'ml-auto': browse.genres.selectionCount.value === 0 }"
-        >
-          {{ browse.genres.total.value.toLocaleString() }}
-        </span>
-      </div>
-
-      <UAlert
-        v-if="browse.genres.error.value"
-        color="warning"
-        variant="subtle"
-        icon="i-tabler-alert-triangle"
-        :description="browse.genres.error.value"
-        class="rounded-none"
-      />
-
-      <div class="flex min-h-0 flex-col" style="height: 148px">
-        <GenreFacetList
-          v-show="browse.genres.total.value > 0"
-          :model="browse.genres"
-          :row-height="GENRE_ROW_HEIGHT"
-          label="Genres and tags"
-        />
-        <UEmpty
-          v-if="browse.genres.total.value === 0 && !browse.genres.loading.value"
-          variant="naked"
-          size="sm"
-          icon="i-tabler-tag"
-          title="No genres or tags"
-          class="min-h-0 flex-1"
-        />
-      </div>
-    </section>
-
-    <UAlert
-      v-if="roots.notice"
-      color="warning"
-      variant="subtle"
-      icon="i-tabler-alert-triangle"
-      :description="roots.notice"
-      class="rounded-none"
-    />
-
-    <div v-if="roots.scan" class="space-y-2 border-b border-default px-3 py-2" role="status">
-      <UProgress animation="carousel" size="2xs" />
-      <p class="text-xs text-muted">
-        {{ roots.scan.filesSeen }} found · {{ roots.scan.tracksIndexed }} indexed
-      </p>
-      <p class="truncate text-xs text-muted">{{ roots.scan.currentFile ?? 'Reading folders…' }}</p>
-    </div>
-
-    <!--
-      The split, and nothing above it. The handle measures its own parent to
-      know how much room there is to divide, so the header has to stay outside:
-      an alert or a scan bar appearing would otherwise change how tall the
-      resizer believes the column is, mid-drag.
+      The Sources stack: Genres & tags on top, then the Artists/Albums split,
+      each a draggable pane (W15-6). Genres carries a height and the split below
+      takes what is left, so its handle moves one stored number — and the split's
+      own two-pane resizer math is left exactly as it was, one level down,
+      measuring its own parent and unaware of the pane above it.
     -->
     <div class="flex min-h-0 flex-1 flex-col">
+      <!--
+        Genres & tags — the browse dimension above artists and albums (W15-5),
+        named the way the deck Tags pane and the TrackList column do.
+      -->
       <section
         class="flex min-h-0 flex-col overflow-hidden"
-        :style="{ height: `${artistsHeight}px` }"
+        :style="{ height: `${genresHeight}px` }"
       >
         <div
           class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2"
         >
-          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Artists</h2>
-          <template v-if="browse.artists.selectionCount.value > 0">
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">
+            Genres &amp; tags
+          </h2>
+          <template v-if="browse.genres.selectionCount.value > 0">
             <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
-              {{ browse.artists.selectionCount.value.toLocaleString() }} selected
+              {{ browse.genres.selectionCount.value.toLocaleString() }} selected
             </span>
             <UButton
               icon="i-tabler-x"
               size="xs"
               color="neutral"
               variant="ghost"
-              aria-label="Clear artist selection"
-              @click="browse.artists.clearSelection()"
+              aria-label="Clear genre and tag selection"
+              @click="browse.genres.clearSelection()"
             />
           </template>
           <span
             class="text-xs tabular-nums text-dimmed"
-            :class="{ 'ml-auto': browse.artists.selectionCount.value === 0 }"
+            :class="{ 'ml-auto': browse.genres.selectionCount.value === 0 }"
           >
-            {{ browse.artists.total.value.toLocaleString() }}
+            {{ browse.genres.total.value.toLocaleString() }}
           </span>
         </div>
 
         <UAlert
-          v-if="browse.artists.error.value"
+          v-if="browse.genres.error.value"
           color="warning"
           variant="subtle"
           icon="i-tabler-alert-triangle"
-          :description="browse.artists.error.value"
+          :description="browse.genres.error.value"
           class="rounded-none"
         />
 
-        <FacetList
-          :model="browse.artists"
-          :row-height="ARTIST_ROW_HEIGHT"
-          label="Artists"
-          :menu="artistPane.menu"
-          @activate="artistPane.activate"
-          @menu-open="artistPane.onMenuOpen"
-        >
-          <template #row="{ item }">
-            <span class="truncate">{{ item?.name ?? 'Loading…' }}</span>
-            <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
-              {{ item?.trackCount ?? '' }}
-            </span>
-          </template>
-        </FacetList>
-
-        <UEmpty
-          v-if="browse.artists.total.value === 0 && !browse.artists.loading.value"
-          variant="naked"
-          size="sm"
-          icon="i-tabler-users"
-          title="No artists match"
-          class="min-h-0 flex-1"
-        />
+        <div class="flex min-h-0 flex-1 flex-col">
+          <GenreFacetList
+            v-show="browse.genres.total.value > 0"
+            :model="browse.genres"
+            :row-height="GENRE_ROW_HEIGHT"
+            label="Genres and tags"
+          />
+          <UEmpty
+            v-if="browse.genres.total.value === 0 && !browse.genres.loading.value"
+            variant="naked"
+            size="sm"
+            icon="i-tabler-tag"
+            title="No genres or tags"
+            class="min-h-0 flex-1"
+          />
+        </div>
       </section>
 
-      <PaneResizer v-model:size="artistsHeight" :pane="SOURCES_ARTISTS_PANE" />
+      <PaneResizer v-model:size="genresHeight" :pane="SOURCES_GENRES_PANE" />
 
-      <section class="flex min-h-44 flex-1 flex-col overflow-hidden">
-        <div
-          class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2"
-        >
-          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Albums</h2>
-          <template v-if="browse.albums.selectionCount.value > 0">
-            <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
-              {{ browse.albums.selectionCount.value.toLocaleString() }} selected
-            </span>
-            <UButton
-              icon="i-tabler-x"
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              aria-label="Clear album selection"
-              @click="browse.albums.clearSelection()"
-            />
-          </template>
-          <span
-            class="text-xs tabular-nums text-dimmed"
-            :class="{ 'ml-auto': browse.albums.selectionCount.value === 0 }"
-          >
-            {{ browse.albums.total.value.toLocaleString() }}
-          </span>
-        </div>
-
+      <!--
+        The rest of the stack: the library-wide alerts and scan bar, then the
+        Artists/Albums split. They sit inside this remainder — not between the
+        two panes of the split below — so the split's handle still measures a
+        parent whose height only a window resize can change.
+      -->
+      <div class="flex min-h-0 flex-1 flex-col">
         <UAlert
-          v-if="browse.albums.error.value"
+          v-if="roots.notice"
           color="warning"
           variant="subtle"
           icon="i-tabler-alert-triangle"
-          :description="browse.albums.error.value"
+          :description="roots.notice"
           class="rounded-none"
         />
 
-        <FacetList
-          :model="browse.albums"
-          :row-height="ALBUM_ROW_HEIGHT"
-          label="Albums"
-          :menu="albumPane.menu"
-          @activate="albumPane.activate"
-        >
-          <template #row="{ item }">
-            <UAvatar
-              :src="item?.artwork.small"
-              :icon="item ? undefined : 'i-tabler-vinyl'"
-              alt=""
-              size="md"
-              class="shrink-0 rounded"
-              :ui="{ image: 'rounded object-cover', icon: 'size-4 text-dimmed' }"
-              loading="lazy"
-            />
-            <span class="flex min-w-0 flex-col">
-              <span class="truncate">{{ item?.title ?? 'Loading…' }}</span>
-              <span class="truncate text-xs text-muted">
-                {{ item ? (item.albumArtist ?? 'Unknown artist') : '' }}
+        <div v-if="roots.scan" class="space-y-2 border-b border-default px-3 py-2" role="status">
+          <UProgress animation="carousel" size="2xs" />
+          <p class="text-xs text-muted">
+            {{ roots.scan.filesSeen }} found · {{ roots.scan.tracksIndexed }} indexed
+          </p>
+          <p class="truncate text-xs text-muted">
+            {{ roots.scan.currentFile ?? 'Reading folders…' }}
+          </p>
+        </div>
+
+        <!--
+          The Artists/Albums split. Its handle measures its own parent to know
+          how much room there is to divide, so the alerts and scan bar stay
+          outside it — one level up in the remainder — rather than between its
+          two panes: an alert or a scan bar appearing inside here would change
+          how tall the resizer believes the column is, mid-drag.
+        -->
+        <div class="flex min-h-0 flex-1 flex-col">
+          <section
+            class="flex min-h-0 flex-col overflow-hidden"
+            :style="{ height: `${artistsHeight}px` }"
+          >
+            <div
+              class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2"
+            >
+              <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Artists</h2>
+              <template v-if="browse.artists.selectionCount.value > 0">
+                <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
+                  {{ browse.artists.selectionCount.value.toLocaleString() }} selected
+                </span>
+                <UButton
+                  icon="i-tabler-x"
+                  size="xs"
+                  color="neutral"
+                  variant="ghost"
+                  aria-label="Clear artist selection"
+                  @click="browse.artists.clearSelection()"
+                />
+              </template>
+              <span
+                class="text-xs tabular-nums text-dimmed"
+                :class="{ 'ml-auto': browse.artists.selectionCount.value === 0 }"
+              >
+                {{ browse.artists.total.value.toLocaleString() }}
               </span>
-            </span>
-            <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
-              {{ item?.trackCount ?? '' }}
-            </span>
-          </template>
-        </FacetList>
+            </div>
 
-        <UEmpty
-          v-if="browse.albums.total.value === 0 && !browse.albums.loading.value"
-          variant="naked"
-          size="sm"
-          icon="i-tabler-vinyl"
-          title="No albums match"
-          class="min-h-0 flex-1"
-        />
-      </section>
+            <UAlert
+              v-if="browse.artists.error.value"
+              color="warning"
+              variant="subtle"
+              icon="i-tabler-alert-triangle"
+              :description="browse.artists.error.value"
+              class="rounded-none"
+            />
+
+            <FacetList
+              :model="browse.artists"
+              :row-height="ARTIST_ROW_HEIGHT"
+              label="Artists"
+              :menu="artistPane.menu"
+              @activate="artistPane.activate"
+              @menu-open="artistPane.onMenuOpen"
+            >
+              <template #row="{ item }">
+                <span class="truncate">{{ item?.name ?? 'Loading…' }}</span>
+                <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
+                  {{ item?.trackCount ?? '' }}
+                </span>
+              </template>
+            </FacetList>
+
+            <UEmpty
+              v-if="browse.artists.total.value === 0 && !browse.artists.loading.value"
+              variant="naked"
+              size="sm"
+              icon="i-tabler-users"
+              title="No artists match"
+              class="min-h-0 flex-1"
+            />
+          </section>
+
+          <PaneResizer v-model:size="artistsHeight" :pane="SOURCES_ARTISTS_PANE" />
+
+          <section class="flex min-h-44 flex-1 flex-col overflow-hidden">
+            <div
+              class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2"
+            >
+              <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Albums</h2>
+              <template v-if="browse.albums.selectionCount.value > 0">
+                <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
+                  {{ browse.albums.selectionCount.value.toLocaleString() }} selected
+                </span>
+                <UButton
+                  icon="i-tabler-x"
+                  size="xs"
+                  color="neutral"
+                  variant="ghost"
+                  aria-label="Clear album selection"
+                  @click="browse.albums.clearSelection()"
+                />
+              </template>
+              <span
+                class="text-xs tabular-nums text-dimmed"
+                :class="{ 'ml-auto': browse.albums.selectionCount.value === 0 }"
+              >
+                {{ browse.albums.total.value.toLocaleString() }}
+              </span>
+            </div>
+
+            <UAlert
+              v-if="browse.albums.error.value"
+              color="warning"
+              variant="subtle"
+              icon="i-tabler-alert-triangle"
+              :description="browse.albums.error.value"
+              class="rounded-none"
+            />
+
+            <FacetList
+              :model="browse.albums"
+              :row-height="ALBUM_ROW_HEIGHT"
+              label="Albums"
+              :menu="albumPane.menu"
+              @activate="albumPane.activate"
+            >
+              <template #row="{ item }">
+                <UAvatar
+                  :src="item?.artwork.small"
+                  :icon="item ? undefined : 'i-tabler-vinyl'"
+                  alt=""
+                  size="md"
+                  class="shrink-0 rounded"
+                  :ui="{ image: 'rounded object-cover', icon: 'size-4 text-dimmed' }"
+                  loading="lazy"
+                />
+                <span class="flex min-w-0 flex-col">
+                  <span class="truncate">{{ item?.title ?? 'Loading…' }}</span>
+                  <span class="truncate text-xs text-muted">
+                    {{ item ? (item.albumArtist ?? 'Unknown artist') : '' }}
+                  </span>
+                </span>
+                <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
+                  {{ item?.trackCount ?? '' }}
+                </span>
+              </template>
+            </FacetList>
+
+            <UEmpty
+              v-if="browse.albums.total.value === 0 && !browse.albums.loading.value"
+              variant="naked"
+              size="sm"
+              icon="i-tabler-vinyl"
+              title="No albums match"
+              class="min-h-0 flex-1"
+            />
+          </section>
+        </div>
+      </div>
     </div>
   </section>
 </template>
