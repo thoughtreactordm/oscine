@@ -196,6 +196,14 @@ export function registerIpcHandlers(
   // an error would mean the store catching an exception on a normal race.
   handle('library.getRelated', (request) => library.getRelated(assertRelatedQuery(request)))
 
+  // No `not-found`: a track that has left the library answers with two nulls,
+  // which the Tags pane reads as "album/artist batch does not apply" — the same
+  // race `getRelated` above tolerates, and for the same reason.
+  handle('library.trackFacets', (request) => {
+    const { trackId } = assertRecord(request, 'request')
+    return library.trackFacets(assertPositiveInt(trackId, 'trackId'))
+  })
+
   handle('library.getTrackAudioMetadata', async (request) => {
     const { trackId } = assertRecord(request, 'request')
     const metadata = await library.getTrackAudioMetadata(assertPositiveInt(trackId, 'trackId'))

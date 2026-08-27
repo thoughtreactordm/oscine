@@ -18,6 +18,7 @@ import type {
   OrderTrackIdsQuery,
   Track,
   TrackAudioMetadata,
+  TrackFacets,
   TrackGroup,
   TrackSortColumn
 } from '@shared/library'
@@ -584,6 +585,17 @@ function prepareStatements(db: Database.Database) {
              t.rg_album_peak AS rgAlbumPeak,
              t.rg_source     AS rgSource
       FROM tracks t
+      WHERE t.id = ?
+    `),
+    // The album and album-artist a track sits in, for the Tags pane's batch
+    // scope. `artistId` is the browse dimension's own `COALESCE`, not the bare
+    // performer, so the pair feeds straight back into `listTrackIds` and picks
+    // the same set the Artist and Album facets do — the seed track included.
+    trackFacets: db.prepare(`
+      SELECT t.album_id AS albumId,
+             COALESCE(al.album_artist_id, t.artist_id) AS artistId
+      FROM tracks t
+      LEFT JOIN albums al ON al.id = t.album_id
       WHERE t.id = ?
     `),
     // Widens a page of already-chosen ids. Taking the ids as one JSON array
@@ -1207,6 +1219,17 @@ export class LibraryStore {
    */
   getTracksByIds(query: GetTracksByIdsQuery): Track[] {
     return this.hydrateTracks(query.ids)
+  }
+
+  /**
+   * The album and album-artist facet a track belongs to — the Tags pane's batch
+   * scope. Two `null`s for a track that has left the library, which is the batch
+   * option quietly not applying rather than a failure the pane has to catch.
+   */
+  trackFacets(trackId: number): TrackFacets {
+    const row = this.statements.trackFacets.get(trackId) as
+      { albumId: number | null; artistId: number | null } | undefined
+    return { albumId: row?.albumId ?? null, artistId: row?.artistId ?? null }
   }
 
   /**

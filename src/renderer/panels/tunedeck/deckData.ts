@@ -8,6 +8,7 @@ import { useArtistRelationsStore } from '@renderer/stores/artistRelations'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 import { useRelatedStore } from '@renderer/stores/related'
+import { useTagsStore } from '@renderer/stores/tags'
 import { useTrackStatsStore } from '@renderer/stores/trackStats'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
 
@@ -53,6 +54,7 @@ export function useDeckData(): void {
   const playback = usePlaybackStore()
   const trail = usePlayHistoryStore()
   const related = useRelatedStore()
+  const tags = useTagsStore()
   const identity = useArtistIdentityStore()
   const artistFavorites = useArtistFavoritesStore()
   const trackStats = useTrackStatsStore()
@@ -83,6 +85,12 @@ export function useDeckData(): void {
       // resolves which artist from the seed, which is what keeps a local
       // surface local. See `useTrackStatsStore`.
       void trackStats.load(trackId)
+      // The Tags group's badge counts the operator's tags on this track, and a
+      // badge on a *shut* group has to be right without the group ever opening —
+      // so the per-track cache is filled here, on the same trigger, rather than
+      // on the pane's mount. One indexed local probe; the pane reads the cache.
+      // Skipped for a standby transport, where `trackId` is null. See `TagsPane`.
+      if (trackId !== null) void tags.ensureTrack(trackId)
       // The one call here that can leave the machine, and the gate on `open` is
       // therefore not a performance choice but **D14**: fetching is scoped to a
       // drawer the operator has opened. Main declines it anyway when consent is

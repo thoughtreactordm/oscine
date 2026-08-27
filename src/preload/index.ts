@@ -139,6 +139,8 @@ const api = {
     getTracksByIds: (query: GetTracksByIdsQuery) => request('library.getTracksByIds', query),
     /** Catalog and neighbourhood relations for one track. Local index only. */
     getRelated: (trackId: number) => request('library.getRelated', { trackId }),
+    /** The album and album-artist a track sits in — the Tags pane's batch scope. */
+    trackFacets: (trackId: number) => request('library.trackFacets', { trackId }),
     /** Metadata-only lookup for the audio admission guard. */
     getTrackAudioMetadata: (trackId: number) =>
       request('library.getTrackAudioMetadata', { trackId }),

@@ -1,16 +1,16 @@
 ---
 taskId: 01M126ZBGXQZ8QTJ9W6E5N2CBS
 title: 'tags.* IPC contract, preload surface, and renderer store'
-status: in-progress
+status: in-review
 priority: high
 labels: []
 workstream: W15
 workstreamId: W15-2
 dependsOn:
   - 01M126Z037ZH3B7X34PTQRPCGR
-order: 0
+order: 1
 created: '2026-08-27T18:16:04.893Z'
-updated: '2026-08-27T19:24:03.206Z'
+updated: '2026-08-27T19:38:03.267Z'
 ---
 Contract-first: the cross-process surface for user tags. `src/shared` is the only place this may originate.
 
