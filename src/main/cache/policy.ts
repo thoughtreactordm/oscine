@@ -35,6 +35,16 @@ export const CACHE_ENTITIES = [
   'musicbrainz.artist-search',
   /** MBID → the artist document, with its relations and outbound links. */
   'musicbrainz.artist',
+  /**
+   * MBID → the artist's vote-weighted genres and folksonomy tags (W15-4).
+   *
+   * A different `inc` from `musicbrainz.artist` and so a different document, not
+   * the same one asked a second way: relations and links are one payload,
+   * `genres+tags` is another, and merging them would make the relations pane pay
+   * for the tag suggestion's bytes on every track change. Its own entity keeps
+   * the two lifetimes and the two payloads apart.
+   */
+  'musicbrainz.artist-tags',
   /** Artist name + our album titles → who MusicBrainz credits those albums to. */
   'musicbrainz.release-group',
   /** MBID or wiki title → the Wikidata entity that links the two worlds. */
@@ -108,6 +118,19 @@ export const DEFAULT_CACHE_TTLS: Readonly<Record<CacheEntity, EntityTtl>> = {
    * re-checking weekly rather than treating as permanent.
    */
   'musicbrainz.artist': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
+
+  /**
+   * Thirty days positive, seven negative — the identity cadence, because a
+   * folksonomy is identity data and not a feed. An artist's agreed-upon genres
+   * move when the crowd votes, which is on the scale of months, and the pane
+   * shows them on every play of every track by the artist; a month-old tag list
+   * is not staleness anybody reads as wrong.
+   *
+   * Seven days negative for the ordinary artist MusicBrainz has no genres or tags
+   * for — a small or local act, which is exactly the artist a shuffle session
+   * would otherwise re-ask on every play.
+   */
+  'musicbrainz.artist-tags': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
 
   /**
    * Thirty days positive, matching the search it disambiguates. The question

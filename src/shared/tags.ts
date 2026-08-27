@@ -59,16 +59,24 @@ export interface RemoveTagResult {
 }
 
 /**
- * A tag the operator might want — the shape `tags.suggest` will one day carry.
+ * A tag the operator might want — what `tags.suggest` carries (**W15-4**).
  *
- * Declared now, minimal, so the renderer store is complete against the full
- * surface before the MusicBrainz card that fills it exists. Today the channel
- * answers with an empty list; when the fetch lands it returns these, and the MB
- * card is free to widen this shape (a source, a score) without the store having
- * to grow a new field it did not already read.
+ * MusicBrainz records `genres[]` and `tags[]` on an artist, each vote-weighted by
+ * a `count`. A suggestion is one of those, deduped against what the track already
+ * carries and ordered by that weight, so the pane draws the most-agreed-upon
+ * label first. The shape was declared minimal by W15-2 so the renderer store was
+ * complete before this card existed; the one field added here is the `count` the
+ * chips order by, and the store that only ever read `label` is untouched by its
+ * arrival.
  */
 export interface TagSuggestion {
   readonly label: string
+  /**
+   * MusicBrainz's net vote weight for this tag on the artist — higher is more
+   * agreed-upon, and the order the chips are drawn in. Always positive: a tag
+   * the crowd voted down is not offered as one to adopt.
+   */
+  readonly count: number
 }
 
 /** `tags.forTrack` — the one track whose two vocabularies are wanted. */

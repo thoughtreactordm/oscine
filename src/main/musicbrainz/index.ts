@@ -45,6 +45,20 @@ export {
   type ArtistRelationsServiceOptions
 } from './relationsService'
 export {
+  ARTIST_TAGS_INC,
+  artistTagsCacheKey,
+  artistTagsUrl,
+  fetchArtistTags,
+  parseArtistTags,
+  type WeightedTag
+} from './artistTags'
+export {
+  SUGGESTED_TAG_LIMIT,
+  createTagSuggestionService,
+  type TagSuggestionService,
+  type TagSuggestionServiceOptions
+} from './tagSuggestionsService'
+export {
   ARTIST_URL_RELATIONS_INC,
   artistUrlRelationsUrl,
   fetchArtistUrlRelations,
