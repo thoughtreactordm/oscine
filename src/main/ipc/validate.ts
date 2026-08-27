@@ -28,6 +28,15 @@ import {
   type TogglePlaylistFavoriteRequest,
   type ToggleFavoriteRequest
 } from '@shared/favorites'
+import {
+  MAX_TAG_LABEL_LENGTH,
+  MAX_TAG_TRACK_IDS,
+  type AddTagsRequest,
+  type RemoveTagRequest,
+  type RenameTagRequest,
+  type SuggestTagsRequest,
+  type TrackTagsRequest
+} from '@shared/tags'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
 import type { RecordListenRequest } from '@shared/listens'
 import {
@@ -501,6 +510,67 @@ export function assertListFavoriteArtistsQuery(value: unknown): ListFavoriteArti
   const limit = assertPositiveInt(raw.limit, 'limit')
   if (limit > MAX_FAVORITES_PAGE) invalid(`limit must not exceed ${MAX_FAVORITES_PAGE}.`)
   return { limit }
+}
+
+/**
+ * W15's requests — the user-tag surface.
+ *
+ * `assertOnlyKeys` on every one, like the rest of this file, and the two batch
+ * writes bounded by `MAX_TAG_TRACK_IDS` for the reason the favorites batches are
+ * bounded: a selection legally spans the window a range resolves through, and
+ * the write must accept exactly what the range could ask about, no more. The
+ * label goes through `assertTagLabel` so an empty or oversized one is a loud
+ * `invalid-request` at the seam rather than a `null` the store returns and the
+ * caller has to think about.
+ */
+function assertTagLabel(value: unknown): string {
+  if (typeof value !== 'string') invalid('label must be a string.')
+  const label = value.trim()
+  if (label.length === 0) invalid('label must not be empty.')
+  if ([...label].length > MAX_TAG_LABEL_LENGTH) {
+    invalid(`label must not exceed ${MAX_TAG_LABEL_LENGTH} characters.`)
+  }
+  return label
+}
+
+function assertTagTrackIds(value: unknown): number[] {
+  if (!Array.isArray(value)) invalid('trackIds must be an array.')
+  if (value.length === 0) invalid('trackIds must not be empty.')
+  if (value.length > MAX_TAG_TRACK_IDS) {
+    invalid(`trackIds must not exceed ${MAX_TAG_TRACK_IDS} entries.`)
+  }
+  for (const id of value) assertPositiveInt(id, 'trackIds entry')
+  return value as number[]
+}
+
+export function assertTrackTagsRequest(value: unknown): TrackTagsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackId'])
+  return { trackId: assertPositiveInt(raw.trackId, 'trackId') }
+}
+
+export function assertAddTagsRequest(value: unknown): AddTagsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds', 'label'])
+  return { trackIds: assertTagTrackIds(raw.trackIds), label: assertTagLabel(raw.label) }
+}
+
+export function assertRemoveTagRequest(value: unknown): RemoveTagRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds', 'tagId'])
+  return { trackIds: assertTagTrackIds(raw.trackIds), tagId: assertPositiveInt(raw.tagId, 'tagId') }
+}
+
+export function assertRenameTagRequest(value: unknown): RenameTagRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['tagId', 'label'])
+  return { tagId: assertPositiveInt(raw.tagId, 'tagId'), label: assertTagLabel(raw.label) }
+}
+
+export function assertSuggestTagsRequest(value: unknown): SuggestTagsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackId'])
+  return { trackId: assertPositiveInt(raw.trackId, 'trackId') }
 }
 
 /**

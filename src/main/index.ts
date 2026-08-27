@@ -18,6 +18,7 @@ import { SqliteListenService } from './listens/service'
 import { rebuildTrackCounters } from './stats/counters'
 import { SqliteStatsService } from './stats/service'
 import { SqliteFavoriteService } from './favorites/service'
+import { TagStore } from './tags/store'
 import { SqliteSearchService } from './search/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
@@ -620,6 +621,12 @@ if (!app.requestSingleInstanceLock()) {
       onChanged: () => void scrobbleDrain.wake()
     })
 
+    // User tags (W15). Same connection, its own tables, no network: coining and
+    // applying a tag is a local write, and D7 keeps it there — v1 never touches
+    // the file's own genre frames. Rescan-safe by the W15-1 schema, so the store
+    // is just handed the connection and asked nothing more.
+    const tags = new TagStore(db)
+
     // The command palette's finder (D23). Same connection, no tables of its own
     // and no network: it reuses `tracks_fts` for tracks and a light LIKE over
     // the small entity sets, and reaches nothing but this database.
@@ -718,7 +725,8 @@ if (!app.requestSingleInstanceLock()) {
       relations,
       images,
       links,
-      search
+      search,
+      tags
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was
