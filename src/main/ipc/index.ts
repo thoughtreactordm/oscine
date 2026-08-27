@@ -84,6 +84,7 @@ import {
   assertSearchQuery,
   assertRecentlyAddedAlbumsRequest,
   assertTrackTagsRequest,
+  assertArtistTagsRequest,
   assertAddTagsRequest,
   assertRemoveTagRequest,
   assertRenameTagRequest,
@@ -339,6 +340,13 @@ export function registerIpcHandlers(
   handle('tags.list', () => tags.listTags())
 
   handle('tags.forTrack', (request) => tags.tagsForTrack(assertTrackTagsRequest(request).trackId))
+
+  // W15-7 — the artist altitude. Coverage over the browse-dimension artist's own
+  // track set, resolved in one grouped pass in the store; no id list crosses the
+  // wire, just the facet id the Track pane already resolves for its batch.
+  handle('tags.forArtist', (request) =>
+    tags.tagsForArtist(assertArtistTagsRequest(request).artistId)
+  )
 
   // `'user'` is fixed, not taken from the request: everything the renderer adds
   // is the operator's own, and the `'suggested'` source is the suggestion

@@ -173,6 +173,8 @@ export const tags = {
   list: () => unwrap(window.oscine.tags.list()),
   /** One track's two vocabularies, file genres and user tags kept apart. */
   forTrack: (trackId: number) => unwrap(window.oscine.tags.forTrack(trackId)),
+  /** An artist's tags as coverage over its catalogue, carried/total. */
+  forArtist: (artistId: number) => unwrap(window.oscine.tags.forArtist(artistId)),
   /** Applies one label to a batch, coining it if new. Answers with the vocabulary row. */
   add: (trackIds: readonly number[], label: string) =>
     unwrap(window.oscine.tags.add(trackIds, label)),

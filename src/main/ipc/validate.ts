@@ -32,6 +32,7 @@ import {
   MAX_TAG_LABEL_LENGTH,
   MAX_TAG_TRACK_IDS,
   type AddTagsRequest,
+  type ArtistTagsRequest,
   type RemoveTagRequest,
   type RenameTagRequest,
   type SuggestTagsRequest,
@@ -571,6 +572,12 @@ export function assertSuggestTagsRequest(value: unknown): SuggestTagsRequest {
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['trackId'])
   return { trackId: assertPositiveInt(raw.trackId, 'trackId') }
+}
+
+export function assertArtistTagsRequest(value: unknown): ArtistTagsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artistId'])
+  return { artistId: assertPositiveInt(raw.artistId, 'artistId') }
 }
 
 /**

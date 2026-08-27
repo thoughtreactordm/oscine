@@ -55,6 +55,8 @@ export type {
   TagSource,
   Tag,
   TagSummary,
+  TagCoverage,
+  ArtistTagsView,
   TrackTagAssignment,
   TrackTagView,
   RemoveTagResult
@@ -63,6 +65,8 @@ import type {
   TagSource,
   Tag,
   TagSummary,
+  TagCoverage,
+  ArtistTagsView,
   TrackTagAssignment,
   TrackTagView,
   RemoveTagResult
@@ -73,6 +77,8 @@ export class TagStore {
     list: Database.Statement<[]>
     fileTags: Database.Statement<[number]>
     userTags: Database.Statement<[number]>
+    artistCoverage: Database.Statement<[number]>
+    artistTrackCount: Database.Statement<[number]>
     upsertVocab: Database.Statement<{ key: string; label: string; createdAt: number }>
     vocabByKey: Database.Statement<[string]>
     vocabById: Database.Statement<[number]>
@@ -135,6 +141,34 @@ export class TagStore {
         JOIN tags t ON t.id = tt.tag_id
         WHERE tt.track_id = ?
         ORDER BY t.label COLLATE NOCASE, t.id
+      `),
+      // W15-7 — coverage over one browse-dimension artist's catalogue. Every tag
+      // used by any of the artist's tracks, with `carried` = how many carry it;
+      // `count(tt.track_id)` needs no DISTINCT because `(track_id, tag_id)` is the
+      // join's primary key, so a (tag, track) pair appears at most once. The
+      // artist is `COALESCE(al.album_artist_id, t.artist_id)` — the same
+      // BROWSE_ARTIST_ID the library store's Artist facet and `trackFacets` use
+      // (kept a literal here to leave this module free of the library store), so a
+      // suggestion applied "to everything by this artist" and this readout name
+      // one set. Ordered most-covered first: the tags nearest to being the
+      // artist's own read at the top, ties alphabetical so the order is stable.
+      artistCoverage: db.prepare(`
+        SELECT t.id AS id, t.key AS key, t.label AS label, count(tt.track_id) AS carried
+        FROM tags t
+        JOIN track_tags tt ON tt.tag_id = t.id
+        JOIN tracks tr ON tr.id = tt.track_id
+        LEFT JOIN albums al ON al.id = tr.album_id
+        WHERE COALESCE(al.album_artist_id, tr.artist_id) = ?
+        GROUP BY t.id
+        ORDER BY carried DESC, t.label COLLATE NOCASE, t.id
+      `),
+      // The denominator the coverage above reads against — the artist's own track
+      // count, by the same COALESCE so numerator and denominator describe one set.
+      artistTrackCount: db.prepare(`
+        SELECT count(*) AS n
+        FROM tracks tr
+        LEFT JOIN albums al ON al.id = tr.album_id
+        WHERE COALESCE(al.album_artist_id, tr.artist_id) = ?
       `),
       // Coin the vocabulary row, or leave the existing one untouched. `DO NOTHING`
       // rather than an upsert of the label: `label` is the spelling as *first*
@@ -285,6 +319,24 @@ export class TagStore {
     )
     const user = this.statements.userTags.all(trackId) as TrackTagAssignment[]
     return { file, user }
+  }
+
+  /**
+   * An artist's tags as coverage over its catalogue — **W15-7**.
+   *
+   * The union of every tag any of the artist's tracks carries, each with how many
+   * of them do, over the artist's own track count. `artistId` is the browse
+   * dimension's — the id `trackFacets` hands the pane and `listTrackIds` selects
+   * on — so this readout and the "everything by this artist" batch name one set.
+   *
+   * An artist with nothing tagged answers an empty list over its `total`; one
+   * resolved to no tracks at all answers empty over `0`. Neither is an error — an
+   * untagged catalogue is an ordinary thing to be looking at.
+   */
+  tagsForArtist(artistId: number): ArtistTagsView {
+    const tags = this.statements.artistCoverage.all(artistId) as TagCoverage[]
+    const { n } = this.statements.artistTrackCount.get(artistId) as { n: number }
+    return { total: n, tags }
   }
 
   /**

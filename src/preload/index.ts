@@ -229,6 +229,8 @@ const api = {
     list: () => request('tags.list', null),
     /** One track's two vocabularies, file genres and user tags kept apart. */
     forTrack: (trackId: number) => request('tags.forTrack', { trackId }),
+    /** An artist's tags as coverage over its catalogue, carried/total. */
+    forArtist: (artistId: number) => request('tags.forArtist', { artistId }),
     /** Applies one label to a batch, coining it if new. Answers with the vocabulary row. */
     add: (trackIds: readonly number[], label: string) => request('tags.add', { trackIds, label }),
     /** Removes one tag from a batch; prunes it if that emptied it. */

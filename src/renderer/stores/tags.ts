@@ -1,6 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { RemoveTagResult, Tag, TagSuggestion, TagSummary, TrackTagView } from '@shared/tags'
+import type {
+  ArtistTagsView,
+  RemoveTagResult,
+  Tag,
+  TagSuggestion,
+  TagSummary,
+  TrackTagView
+} from '@shared/tags'
 import { tags } from '@renderer/ipc'
 
 /**
@@ -154,6 +161,24 @@ export const useTagsStore = defineStore('tags', () => {
     }
   }
 
+  /**
+   * An artist's tags as coverage over its catalogue — **W15-7**.
+   *
+   * Pane-owned like `suggest`, and for the same reason: the Artist-tab pane holds
+   * this for as long as it shows one artist and re-asks when the subject or an
+   * edit changes it, so there is no cross-surface cache to keep coherent here.
+   * Never rejects — a coverage readout must not throw into the pane it fills, and
+   * an empty view over `0` is the same ordinary "nothing tagged" the query itself
+   * returns.
+   */
+  async function forArtist(artistId: number): Promise<ArtistTagsView> {
+    try {
+      return await tags.forArtist(artistId)
+    } catch {
+      return { total: 0, tags: [] }
+    }
+  }
+
   function applyAdded(trackIds: readonly number[], tag: Tag): void {
     for (const trackId of trackIds) {
       const view = trackTags.value.get(trackId)
@@ -224,6 +249,7 @@ export const useTagsStore = defineStore('tags', () => {
     remove,
     rename,
     suggest,
+    forArtist,
     refreshVocabulary
   }
 })
