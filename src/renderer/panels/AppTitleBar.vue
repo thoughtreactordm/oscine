@@ -65,28 +65,30 @@ const shortcutHint = computed(() =>
   navigator.platform.toUpperCase().includes('MAC') ? '⌘K' : 'Ctrl K'
 )
 
-/** Ctrl on the shipped platforms, ⌘ on macOS — the one platform-variable keycap. */
-const modLabel = computed(() => (navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'))
-
 /** The order the reference groups G6's set; the categories the table carries. */
 const SHORTCUT_CATEGORIES: readonly ShortcutCategory[] = ['Playback', 'Navigation']
 
 /**
  * The fixed 1.0 shortcut set (G6), grouped for the reference modal and read
  * straight from `SHORTCUTS` — the keymap the app actually obeys — so the printed
- * set cannot drift from the bound one. `Mod` is resolved to the platform's key
- * here, the one layer that knows which it is.
+ * set cannot drift from the bound one. The keycaps are Nuxt UI `Kbd` tokens the
+ * modal renders directly, so `meta` localises to Ctrl or ⌘ on its own.
  */
 const shortcutGroups = computed(() =>
   SHORTCUT_CATEGORIES.map((category) => ({
     category,
-    shortcuts: SHORTCUTS.filter((spec) => spec.category === category).map((spec) => ({
-      id: spec.id,
-      description: spec.description,
-      keys: spec.keys.map((key) => (key === 'Mod' ? modLabel.value : key))
-    }))
+    shortcuts: SHORTCUTS.filter((spec) => spec.category === category)
   }))
 )
+
+/**
+ * The keycaps for one binding, by id — how a title-bar menu item shows the same
+ * shortcut the global handler obeys, through Nuxt UI's `kbds`. The tab items
+ * build their own `meta + N`, since one row of the table stands for all six.
+ */
+function shortcutKeys(id: string): string[] {
+  return [...(SHORTCUTS.find((spec) => spec.id === id)?.keys ?? [])]
+}
 
 let stopMaximizedListener: (() => void) | null = null
 
@@ -191,18 +193,21 @@ const playbackItems = computed<DropdownMenuItem[][]>(() => [
     {
       label: 'Previous',
       icon: 'i-tabler-player-skip-back',
+      kbds: shortcutKeys('previous'),
       disabled: !playback.hasTrack,
       onSelect: () => playback.previous()
     },
     {
       label: playback.isPlaying ? 'Pause' : 'Play',
       icon: playback.isPlaying ? 'i-tabler-player-pause' : 'i-tabler-player-play',
+      kbds: shortcutKeys('playPause'),
       disabled: !playback.hasTrack,
       onSelect: () => playback.toggle()
     },
     {
       label: 'Next',
       icon: 'i-tabler-player-skip-forward',
+      kbds: shortcutKeys('next'),
       disabled: !playback.hasTrack,
       onSelect: () => playback.next()
     }
@@ -253,9 +258,11 @@ const playbackItems = computed<DropdownMenuItem[][]>(() => [
  * `shell.requestQuickMenu`.
  */
 const viewItems = computed<DropdownMenuItem[][]>(() => [
-  shellTabs.map((tab) => ({
+  shellTabs.map((tab, index) => ({
     label: tab.label,
     icon: tab.icon,
+    // The same Mod+digit `navigateTab` binds, one row of the table per tab.
+    kbds: ['meta', String(index + 1)],
     onSelect: () => void router.push({ name: tab.name })
   })),
   [
@@ -516,15 +523,13 @@ async function toggleMaximize(): Promise<void> {
     </UModal>
 
     <!--
-      Keyboard shortcuts — the reference G6 asks Help to carry. The set is fixed
-      and not rebindable in 1.0 (W8 owns remapping later), and it is rendered from
+      Keyboard shortcuts — the reference G6 asks Help to carry, rendered from
       `SHORTCUTS`, the same table `useGlobalShortcuts` dispatches, so what is
       printed here is what the keys actually do.
     -->
     <UModal
       v-model:open="shortcutsOpen"
       title="Keyboard shortcuts"
-      description="A fixed set for 1.0 — not yet rebindable."
       :ui="{ body: 'sm:max-h-[60vh] overflow-y-auto' }"
     >
       <template #body>

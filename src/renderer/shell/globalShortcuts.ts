@@ -65,9 +65,11 @@ export interface ShortcutSpec {
   /** The human sentence the Help reference prints. */
   readonly description: string
   /**
-   * The keycaps the Help reference draws, in order. `Mod` is resolved to Ctrl or
-   * ⌘ at render time — the only platform-variable token, kept symbolic so this
-   * module stays free of `navigator`.
+   * The keycaps the Help reference and the title-bar menus draw, in order, as
+   * Nuxt UI `Kbd` tokens: `meta` renders Ctrl or ⌘ for the platform, the arrow
+   * aliases render their glyphs, and a plain word like `Space` prints itself.
+   * Kept as tokens rather than resolved strings so this module stays free of
+   * `navigator` — the one platform-variable cap is decided at render.
    */
   readonly keys: readonly string[]
   /** The action this chord produces, or `null` when it is not this binding. */
@@ -102,8 +104,8 @@ function tabIndexForKey(key: string): number | null {
  * reach — every `match` is exclusive on the key — so it is written in reading
  * order, the order the Help reference prints within each category.
  *
- * Mod is Ctrl on the two shipped platforms (Windows, Linux); `match` also honours
- * ⌘ so a macOS build behaves, and the doc label follows the platform.
+ * The modifier is Ctrl on the two shipped platforms (Windows, Linux); `match`
+ * also honours ⌘ so a macOS build behaves, and the `meta` keycap follows suit.
  */
 export const SHORTCUTS: readonly ShortcutSpec[] = [
   {
@@ -120,7 +122,7 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     id: 'previous',
     category: 'Playback',
     description: 'Previous track',
-    keys: ['Mod', '←'],
+    keys: ['meta', 'arrowleft'],
     match: (chord) =>
       justMod(chord) && chord.key === 'ArrowLeft' ? { kind: 'transport', action: 'previous' } : null
   },
@@ -128,7 +130,7 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     id: 'next',
     category: 'Playback',
     description: 'Next track',
-    keys: ['Mod', '→'],
+    keys: ['meta', 'arrowright'],
     match: (chord) =>
       justMod(chord) && chord.key === 'ArrowRight' ? { kind: 'transport', action: 'next' } : null
   },
@@ -136,7 +138,7 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     id: 'seekBackward',
     category: 'Playback',
     description: `Seek back ${SEEK_STEP_SECONDS}s`,
-    keys: ['Shift', '←'],
+    keys: ['Shift', 'arrowleft'],
     match: (chord) =>
       justShift(chord) && chord.key === 'ArrowLeft'
         ? { kind: 'seek', deltaSeconds: -SEEK_STEP_SECONDS }
@@ -146,7 +148,7 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     id: 'seekForward',
     category: 'Playback',
     description: `Seek forward ${SEEK_STEP_SECONDS}s`,
-    keys: ['Shift', '→'],
+    keys: ['Shift', 'arrowright'],
     match: (chord) =>
       justShift(chord) && chord.key === 'ArrowRight'
         ? { kind: 'seek', deltaSeconds: SEEK_STEP_SECONDS }
@@ -156,7 +158,7 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     id: 'volumeUp',
     category: 'Playback',
     description: 'Volume up',
-    keys: ['Mod', '↑'],
+    keys: ['meta', 'arrowup'],
     match: (chord) =>
       justMod(chord) && chord.key === 'ArrowUp' ? { kind: 'volume', delta: VOLUME_STEP } : null
   },
@@ -164,7 +166,7 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     id: 'volumeDown',
     category: 'Playback',
     description: 'Volume down',
-    keys: ['Mod', '↓'],
+    keys: ['meta', 'arrowdown'],
     match: (chord) =>
       justMod(chord) && chord.key === 'ArrowDown' ? { kind: 'volume', delta: -VOLUME_STEP } : null
   },
@@ -172,7 +174,7 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     id: 'navigateTab',
     category: 'Navigation',
     description: 'Jump to a tab',
-    keys: ['Mod', '1 – 6'],
+    keys: ['meta', '1 – 6'],
     match: (chord) => {
       if (!justMod(chord)) return null
       const tabIndex = tabIndexForKey(chord.key)
@@ -183,7 +185,7 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     id: 'commandPalette',
     category: 'Navigation',
     description: 'Open the Command Palette',
-    keys: ['Mod', 'K'],
+    keys: ['meta', 'K'],
     match: (chord) =>
       justMod(chord) && chord.key.toLowerCase() === 'k'
         ? { kind: 'palette', action: 'toggle' }
@@ -193,7 +195,7 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     id: 'focusSearch',
     category: 'Navigation',
     description: 'Focus search',
-    keys: ['Mod', 'F'],
+    keys: ['meta', 'F'],
     match: (chord) =>
       justMod(chord) && chord.key.toLowerCase() === 'f'
         ? { kind: 'palette', action: 'search' }
@@ -203,7 +205,7 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     id: 'closePalette',
     category: 'Navigation',
     description: 'Close the palette',
-    keys: ['Esc'],
+    keys: ['escape'],
     match: (chord) =>
       bare(chord) && chord.key === 'Escape' ? { kind: 'palette', action: 'close' } : null
   }
