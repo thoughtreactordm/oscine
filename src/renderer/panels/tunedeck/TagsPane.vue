@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { normalizeLabel } from '@shared/genre'
 import { MAX_TRACK_ID_PAGE } from '@shared/library'
 import type { TrackFacets } from '@shared/library'
-import type { TrackTagAssignment } from '@shared/tags'
+import type { TagSuggestion, TrackTagAssignment } from '@shared/tags'
 import { collectPagedIds } from '@renderer/panels/pagedIds'
 import { library } from '@renderer/ipc'
+import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useTagsStore } from '@renderer/stores/tags'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
@@ -44,12 +46,23 @@ import { useTunedeckStore } from '@renderer/stores/tunedeck'
 const playback = usePlaybackStore()
 const tags = useTagsStore()
 const tunedeck = useTunedeckStore()
+const identity = useArtistIdentityStore()
 
 type Scope = 'track' | 'album' | 'artist'
 
 const scope = ref<Scope>('track')
 const facets = ref<TrackFacets | null>(null)
 const busy = ref(false)
+
+/**
+ * The D14 suggestions for the current subject — **W15-4**.
+ *
+ * Pane-owned and transient: fetched when the subject changes, and reset first so
+ * a slow lookup can never paint the last track's genres over this one's. Empty is
+ * the ordinary state — consent off, an unresolved artist, an offline machine —
+ * and reads as no "Suggested" section at all rather than an error.
+ */
+const suggestions = ref<TagSuggestion[]>([])
 
 /** Loaded once, lazily, the first time the deck shows this — the vocabulary is library-wide. */
 let vocabularyRequested = false
@@ -66,6 +79,33 @@ const state = computed<'standby' | 'loading' | 'ready'>(() => {
 
 const fileGenres = computed<readonly string[]>(() => view.value?.file ?? [])
 const userTags = computed<readonly TrackTagAssignment[]>(() => view.value?.user ?? [])
+
+/**
+ * The casefold keys the track already carries, from either vocabulary.
+ *
+ * The same fold main deduped against (`normalizeLabel`), recomputed here so that
+ * accepting a suggestion collapses its chip the instant the store's optimistic
+ * add lands — no second lookup, and no chip offering a tag the operator just
+ * adopted. Removing a user tag that matched a suggestion re-surfaces it the same
+ * way.
+ */
+const existingKeys = computed(() => {
+  const keys = new Set<string>()
+  for (const genre of fileGenres.value) {
+    const norm = normalizeLabel(genre)
+    if (norm) keys.add(norm.key)
+  }
+  for (const tag of userTags.value) {
+    const norm = normalizeLabel(tag.label)
+    if (norm) keys.add(norm.key)
+  }
+  return keys
+})
+
+/** Suggestions minus anything the track now carries — weight order kept from main. */
+const suggestedTags = computed(() =>
+  suggestions.value.filter((tag) => !existingKeys.value.has(normalizeLabel(tag.label)?.key ?? ''))
+)
 
 /** The vocabulary as the input's suggestion list — labels only. */
 const vocabularyItems = computed(() => tags.vocabulary.map((tag) => tag.label))
@@ -108,6 +148,42 @@ watch(
   },
   { immediate: true }
 )
+
+/**
+ * Suggestions follow the resolved *artist*, not the raw track — the second
+ * watcher `useDeckData` runs, and for its reason. The deck resolves the identity
+ * asynchronously (`identity.load`), so at the instant the track changes there is
+ * no MBID on the `artists` row yet; loading on the track trigger would race the
+ * resolution and read an empty answer that nothing re-asks. Watching the store's
+ * resolved MBID instead means the "Suggested" section fills when the identity
+ * arrives, refreshes when the operator corrects it in the picker, and clears for
+ * an artist resolved to "none of these" rather than stranding the last one's.
+ *
+ * The MBID here is only the readiness signal; `loadSuggestions` passes the
+ * current track id, and main reads that track's own artist row — so a suggestion
+ * is always the playing track's artist's, whatever the store happens to show for
+ * a frame across a skip.
+ */
+watch(
+  [
+    () => tunedeck.showing,
+    () => playback.nowPlaying?.id ?? null,
+    () => identity.resolution?.mbid ?? null
+  ],
+  ([showing, trackId, mbid]) => {
+    suggestions.value = []
+    if (!showing || trackId === null || mbid === null) return
+    void loadSuggestions(trackId)
+  },
+  { immediate: true }
+)
+
+async function loadSuggestions(trackId: number): Promise<void> {
+  const resolved = await tags.suggest(trackId)
+  // The subject can change across the await; only the current track's
+  // suggestions belong on screen.
+  if ((playback.nowPlaying?.id ?? null) === trackId) suggestions.value = resolved
+}
 
 async function loadFacets(trackId: number): Promise<void> {
   const resolved = await library.trackFacets(trackId)
@@ -243,12 +319,31 @@ async function removeTag(tag: TrackTagAssignment): Promise<void> {
       </section>
 
       <!--
-        SUGGESTED SEAM — W15-4. The next card layers a "Suggested" section in
-        here, between the operator's own tags and the add row: tags MusicBrainz
-        proposes, each a chip that accepts into `.user` on a click. Its slot is
-        this gap; leaving it marked keeps the arrangement the layer lands into
-        visible rather than inferred.
+        Suggested — W15-4. Genres and tags MusicBrainz records for this track's
+        artist, vote-ordered and already deduped against both vocabularies above.
+        Nothing auto-applies: each chip is a button, and tapping it is an ordinary
+        add through the `Add to` scope below, so acceptance makes the claim the
+        operator's own record (R5) at whatever reach they chose. A dashed outline
+        and a + say "not yours yet"; the moment one is adopted it collapses out.
       -->
+      <section v-if="suggestedTags.length > 0" class="flex flex-col gap-1.5">
+        <h3 class="text-xs font-medium text-muted">Suggested</h3>
+        <ul class="m-0 flex list-none flex-wrap gap-1.5 p-0">
+          <li v-for="tag in suggestedTags" :key="tag.label">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 py-0.5 pr-2 pl-1.5 text-xs text-muted outline-none transition-colors hover:border-primary/60 hover:bg-primary/10 hover:text-default focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70 disabled:opacity-50"
+              :disabled="busy"
+              :aria-label="`Add ${tag.label} to this track`"
+              :title="`Suggested by MusicBrainz (${tag.count} votes). Click to add.`"
+              @click="addToScope(tag.label)"
+            >
+              <UIcon name="i-tabler-plus" class="size-3 shrink-0 text-dimmed" aria-hidden="true" />
+              {{ tag.label }}
+            </button>
+          </li>
+        </ul>
+      </section>
 
       <!--
         Add is the one action with a reach. `Add to` names the set; removing a

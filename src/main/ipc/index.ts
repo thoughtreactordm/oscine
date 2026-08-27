@@ -9,7 +9,8 @@ import type { PlaylistService } from '../library/playlists/service'
 import type {
   ArtistIdentityService,
   ArtistLinksService,
-  ArtistRelationsService
+  ArtistRelationsService,
+  TagSuggestionService
 } from '../musicbrainz'
 import type { NetService } from '../net'
 import type { ScrobbleAccountsService } from '../scrobble/accounts'
@@ -113,7 +114,8 @@ export function registerIpcHandlers(
   images: ArtistImageService,
   links: ArtistLinksService,
   search: SearchService,
-  tags: TagStore
+  tags: TagStore,
+  tagSuggestions: TagSuggestionService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -356,12 +358,13 @@ export function registerIpcHandlers(
     return tags.renameTag(tagId, label)
   })
 
-  // Stubbed until the MusicBrainz card lands: the request is validated so the
-  // channel is real, and the answer is empty because this build fetches nothing.
-  handle('tags.suggest', (request) => {
-    assertSuggestTagsRequest(request)
-    return []
-  })
+  // W15-4 — the networked half. The service resolves the track's artist MBID,
+  // goes through the D14 gate, and dedups against what the track already carries;
+  // a decline or an offline machine answers with an empty list, never an error,
+  // so the local editor above stays live whatever the network is doing.
+  handle('tags.suggest', (request) =>
+    tagSuggestions.suggest(assertSuggestTagsRequest(request).trackId)
+  )
 
   // D23 — one grouped, ranked pass over every local entity type. The service
   // owns the ranking so a new searchable kind is not another round trip to

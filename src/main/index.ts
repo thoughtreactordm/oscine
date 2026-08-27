@@ -30,7 +30,8 @@ import { SqlitePodcastService } from './podcasts/service'
 import {
   createArtistIdentityService,
   createArtistLinksService,
-  createArtistRelationsService
+  createArtistRelationsService,
+  createTagSuggestionService
 } from './musicbrainz'
 import { createNetService, createNetworkConsent } from './net'
 import { createKeyringProbe, selectPasswordStore } from './passwordStore'
@@ -627,6 +628,14 @@ if (!app.requestSingleInstanceLock()) {
     // is just handed the connection and asked nothing more.
     const tags = new TagStore(db)
 
+    // W15-4 — the tag suggestions D14's fifth source. It resolves the playing
+    // track's artist MBID off the `artists` row, looks the artist's genres and
+    // tags up through the same gate `relations` and `links` use, and dedups the
+    // result against the local editor `tags` owns — so a suggestion is only ever
+    // offered when it is neither on the file nor already the operator's, and the
+    // whole networked half is silent when consent is off.
+    const tagSuggestions = createTagSuggestionService({ db, client: net.client, cache, tags })
+
     // The command palette's finder (D23). Same connection, no tables of its own
     // and no network: it reuses `tracks_fts` for tracks and a light LIKE over
     // the small entity sets, and reaches nothing but this database.
@@ -726,7 +735,8 @@ if (!app.requestSingleInstanceLock()) {
       images,
       links,
       search,
-      tags
+      tags,
+      tagSuggestions
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

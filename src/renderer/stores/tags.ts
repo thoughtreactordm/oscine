@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { RemoveTagResult, Tag, TagSummary, TrackTagView } from '@shared/tags'
+import type { RemoveTagResult, Tag, TagSuggestion, TagSummary, TrackTagView } from '@shared/tags'
 import { tags } from '@renderer/ipc'
 
 /**
@@ -136,6 +136,24 @@ export const useTagsStore = defineStore('tags', () => {
     }
   }
 
+  /**
+   * The D14 tag suggestions for a track — **W15-4**.
+   *
+   * Not cached: unlike the vocabulary and a track's own tags, a suggestion is a
+   * transient claim about the world that the pane owns for as long as it shows a
+   * track, and the pane collapses it the moment the operator adopts it locally.
+   * Never rejects, following every other write here: a decoration must not be
+   * able to throw into the pane it decorates, so a declined or offline lookup
+   * answers with the empty list main already returns for the same conditions.
+   */
+  async function suggest(trackId: number): Promise<TagSuggestion[]> {
+    try {
+      return await tags.suggest(trackId)
+    } catch {
+      return []
+    }
+  }
+
   function applyAdded(trackIds: readonly number[], tag: Tag): void {
     for (const trackId of trackIds) {
       const view = trackTags.value.get(trackId)
@@ -205,6 +223,7 @@ export const useTagsStore = defineStore('tags', () => {
     add,
     remove,
     rename,
+    suggest,
     refreshVocabulary
   }
 })
