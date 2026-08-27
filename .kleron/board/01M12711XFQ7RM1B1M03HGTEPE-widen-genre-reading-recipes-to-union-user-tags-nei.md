@@ -3,7 +3,7 @@ taskId: 01M12711XFQ7RM1B1M03HGTEPE
 title: >-
   Widen genre-reading recipes to union user tags (Neighbourhood, Discover,
   stats)
-status: backlog
+status: todo
 priority: low
 labels: []
 workstream: W15
@@ -14,9 +14,9 @@ workstreamDependsOn:
   - W12
 dependsOn:
   - 01M126Z037ZH3B7X34PTQRPCGR
-order: 15
+order: 5
 created: '2026-08-27T18:17:00.591Z'
-updated: '2026-08-27T18:17:00.591Z'
+updated: '2026-08-27T19:12:24.963Z'
 ---
 The cheap, high-payoff reuse: user tags feed the existing genre machinery, so a tag applied in the pane immediately becomes a browsing and discovery surface.
 

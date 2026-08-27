@@ -1,7 +1,7 @@
 ---
 taskId: 01M126Z037ZH3B7X34PTQRPCGR
 title: 'User-tag schema and store: tags + track_tags, rescan-safe'
-status: backlog
+status: in-review
 priority: high
 labels: []
 workstream: W15
@@ -9,9 +9,9 @@ workstreamId: W15-1
 workstreamDependsOn:
   - W2
   - W10
-order: 10
+order: 0
 created: '2026-08-27T18:15:53.191Z'
-updated: '2026-08-27T18:15:53.191Z'
+updated: '2026-08-27T19:24:02.212Z'
 ---
 The app-side user layer that never touches disk (D7). Foundation for the rest of W15.
 
