@@ -6,7 +6,11 @@ import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
 import type { ListenService } from '../listens/service'
 import type { PlaylistService } from '../library/playlists/service'
-import type { ArtistIdentityService, ArtistRelationsService } from '../musicbrainz'
+import type {
+  ArtistIdentityService,
+  ArtistLinksService,
+  ArtistRelationsService
+} from '../musicbrainz'
 import type { NetService } from '../net'
 import type { ScrobbleAccountsService } from '../scrobble/accounts'
 import type { ScrobbleStatusService } from '../scrobble/status'
@@ -23,6 +27,7 @@ import {
   assertClearArtistMbidRequest,
   assertGetArtistBiographyRequest,
   assertGetArtistImageRequest,
+  assertGetArtistLinksRequest,
   assertGetArtistRelationsRequest,
   assertResolveArtistQuery,
   assertSearchArtistCandidatesRequest,
@@ -100,6 +105,7 @@ export function registerIpcHandlers(
   biographies: ArtistBiographyService,
   relations: ArtistRelationsService,
   images: ArtistImageService,
+  links: ArtistLinksService,
   search: SearchService
 ): void {
   handle('window.minimize', (_request, event) => {
@@ -576,6 +582,11 @@ export function registerIpcHandlers(
   // absent than the other two: a Commons file that no longer exists, or one the
   // artwork processor could not decode. Both are "no picture", not an error.
   handle('artist.image', (request) => images.get(assertGetArtistImageRequest(request).artistId))
+
+  // The url-rels half of the same document `artist.relations` reads. An artist
+  // MusicBrainz records no outbound URLs for is an empty state rather than an
+  // error, and an unresolved one never reaches a socket at all.
+  handle('artist.links', (request) => links.get(assertGetArtistLinksRequest(request).artistId))
 
   assertEveryChannelHandled()
 }

@@ -15,13 +15,16 @@ import FormatPane from './FormatPane.vue'
 import ListeningPane from './ListeningPane.vue'
 import LoudnessPane from './LoudnessPane.vue'
 import NeighbourhoodPane from './NeighbourhoodPane.vue'
+import OutboundLinksPane from './OutboundLinksPane.vue'
 import RelationsPane from './RelationsPane.vue'
 import TrackIdentityHeader from './TrackIdentityHeader.vue'
 import TrailPane from './TrailPane.vue'
 import UpNextPane from './UpNextPane.vue'
+import { countLinks } from './artistLinks'
 import { countOwnedRelations } from './relationRows'
 import { createTunedeckRegistry } from './tunedeckPanes'
 import { useArtistFavoritesStore } from '@renderer/stores/artistFavorites'
+import { useArtistLinksStore } from '@renderer/stores/artistLinks'
 import { useArtistRelationsStore } from '@renderer/stores/artistRelations'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
@@ -159,6 +162,22 @@ export const tunedeckRegistry = createTunedeckRegistry([
         hint: 'Line-ups, bands, side projects and collaborations from MusicBrainz, matched against your library. Double-click an artist you own to open them. A match made on the name alone is marked, because two artists can share one.',
         badge: () => countOwnedRelations(useArtistRelationsStore().result),
         component: RelationsPane
+      },
+      // Third, and the last of the three groups that answer "who is this" with
+      // something the library alone could not: the biography and the members are
+      // claims about the world, and so is this — where the artist is off-library,
+      // from MusicBrainz's own url-rels. It reads after the members because a
+      // homepage is a colder trail than a bandmate you already own, and before
+      // the catalog because everything below is about these files rather than
+      // about the artist out in the world. Every link opens in the system
+      // browser; nothing here is ever shown in-app. See `OutboundLinksPane`.
+      {
+        id: 'artist-links',
+        title: 'On the web',
+        icon: 'i-tabler-world',
+        hint: 'The artist’s own homepage, Bandcamp, purchase links and socials, from MusicBrainz. Each one opens in your browser — Oscine never shows another site inside itself.',
+        badge: () => countLinks(useArtistLinksStore().result),
+        component: OutboundLinksPane
       },
       {
         id: 'artist-catalog',

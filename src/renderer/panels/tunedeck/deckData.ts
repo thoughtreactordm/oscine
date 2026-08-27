@@ -3,6 +3,7 @@ import { useArtistBiographyStore } from '@renderer/stores/artistBiography'
 import { useArtistFavoritesStore } from '@renderer/stores/artistFavorites'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
 import { useArtistImageStore } from '@renderer/stores/artistImage'
+import { useArtistLinksStore } from '@renderer/stores/artistLinks'
 import { useArtistRelationsStore } from '@renderer/stores/artistRelations'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
@@ -57,6 +58,7 @@ export function useDeckData(): void {
   const trackStats = useTrackStatsStore()
   const biography = useArtistBiographyStore()
   const relations = useArtistRelationsStore()
+  const links = useArtistLinksStore()
   const image = useArtistImageStore()
 
   watch(
@@ -106,11 +108,11 @@ export function useDeckData(): void {
    * clears both panes instead of leaving the previous band's history, and the
    * previous band's line-up, under the new one's name.
    *
-   * Three calls and one watcher, because they are the same trigger and the three
+   * Four calls and one watcher, because they are the same trigger and the four
    * stores are independent of each other: a Wikipedia outage must not stop the
-   * relations loading, a Commons outage must not stop either, and no lookup
-   * blocks another. All three are idempotent per artist, so the set costs one
-   * round trip each per new artist and nothing at all per track.
+   * relations or the links loading, a Commons outage must not stop any of them,
+   * and no lookup blocks another. All four are idempotent per artist, so the set
+   * costs one round trip each per new artist and nothing at all per track.
    */
   watch(
     [
@@ -121,6 +123,7 @@ export function useDeckData(): void {
       if (!showing) return
       void biography.load(artistId)
       void relations.load(artistId)
+      void links.load(artistId)
       void image.load(artistId)
     },
     { immediate: true }

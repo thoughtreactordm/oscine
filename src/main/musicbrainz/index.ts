@@ -45,6 +45,20 @@ export {
   type ArtistRelationsServiceOptions
 } from './relationsService'
 export {
+  ARTIST_URL_RELATIONS_INC,
+  artistUrlRelationsUrl,
+  fetchArtistUrlRelations,
+  linkCategory,
+  parseArtistUrlRelations,
+  urlRelationsCacheKey
+} from './urlRelations'
+export {
+  createArtistLinksService,
+  limitLinks,
+  type ArtistLinksService,
+  type ArtistLinksServiceOptions
+} from './urlRelationsService'
+export {
   CORROBORATION_ALBUM_LIMIT,
   parseReleaseGroupSearch,
   releaseGroupCacheKey,

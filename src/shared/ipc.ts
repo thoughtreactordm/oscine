@@ -5,6 +5,7 @@ import type {
   SearchArtistCandidatesRequest,
   SetArtistMbidRequest
 } from './artist'
+import type { ArtistLinksResult, GetArtistLinksRequest } from './artistLinks'
 import type { ArtistRelationsResult, GetArtistRelationsRequest } from './artistRelations'
 import type { ArtistBiographyResult, GetArtistBiographyRequest } from './biography'
 import type { ArtistImageResult, GetArtistImageRequest } from './artistImage'
@@ -898,6 +899,23 @@ export interface IpcContract {
     request: GetArtistImageRequest
     response: ArtistImageResult
   }
+
+  /**
+   * Where the artist is on the web — homepage, Bandcamp, purchase and socials.
+   *
+   * Keyed on the artist for `artist.biography`'s reason, and the `url-rels` half
+   * of the same MusicBrainz document `artist.relations` reads the `artist-rels`
+   * half of. Cached under **D14**; the response carries only http/https URLs,
+   * validated at the parse, because each one is handed to `app.openExternal` and
+   * never to a `BrowserWindow` — this app has no in-app view of third-party pages.
+   *
+   * Never throws for an artist with no links: a page that records no outbound
+   * URLs comes back as `none`, which is ordinary and not a fault.
+   */
+  'artist.links': {
+    request: GetArtistLinksRequest
+    response: ArtistLinksResult
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -1074,7 +1092,8 @@ export const IPC_CHANNELS = [
   'artist.clearMbid',
   'artist.biography',
   'artist.relations',
-  'artist.image'
+  'artist.image',
+  'artist.links'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [

@@ -312,7 +312,8 @@ export const artists = {
   clearMbid: (artistId: number) => unwrap(window.oscine.artists.clearMbid(artistId)),
   biography: (artistId: number) => unwrap(window.oscine.artists.biography(artistId)),
   relations: (artistId: number) => unwrap(window.oscine.artists.relations(artistId)),
-  image: (artistId: number) => unwrap(window.oscine.artists.image(artistId))
+  image: (artistId: number) => unwrap(window.oscine.artists.image(artistId)),
+  links: (artistId: number) => unwrap(window.oscine.artists.links(artistId))
 }
 
 export const windowControls = {
