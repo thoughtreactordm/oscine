@@ -5,6 +5,8 @@ import ColumnChooser from '@renderer/panels/ColumnChooser.vue'
 import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
+import { trackMenuItems } from '@renderer/panels/trackMenu'
+import { useTrackActions } from '@renderer/panels/useTrackActions'
 import { useTrackActivation } from '@renderer/panels/useTrackActivation'
 import type {
   TrackListDrag,
@@ -37,6 +39,7 @@ const columns = useTrackColumnsStore()
 const playback = usePlaybackStore()
 const queue = useQueueCommandsStore()
 const addToPlaylist = useAddToPlaylistStore()
+const trackActions = useTrackActions()
 
 /**
  * The ordering, shown only when its column is not.
@@ -111,16 +114,19 @@ const drag: TrackListDrag = {
 }
 
 /**
- * The row menu: the queue verbs, then "add to playlist".
+ * The row menu.
  *
- * Both queue verbs come from `queueCommands`, wording included, so that this
- * menu and the playlist pane's cannot drift — and so W7-2's deck pane inherits
- * them rather than restating them.
+ * A single loaded row gets the shared single-track set (**G8**) — Play, the two
+ * queue verbs, add to playlist, view artist/album, track info — so this menu, the
+ * playlist pane's, a Curate card's and Now Playing's cannot drift; see
+ * `trackMenu`. A multi-select keeps the count-aware verbs and drops the
+ * single-track ones, which have nothing to say for a heterogeneous selection:
+ * "view artist" of four thousand rows is not a verb.
  *
- * The playlist half is now the same import the sidebar's facet menus use, which
- * is what carries "New playlist…" here without this view knowing there is a
- * modal. It used to build its own submenu, and the disabled "No playlists yet"
- * it ended at for an empty library is exactly what that item replaces.
+ * Both queue verbs come from `queueCommands`, wording included, so W7-2's deck
+ * pane inherits them rather than restating them. The playlist half is the same
+ * import the sidebar's facet menus use, which carries "New playlist…" here
+ * without this view knowing there is a modal.
  *
  * A single loaded row is handed over as a *row*, a multi-select as ids. The
  * queue holds display snapshots, and the list resolves a selection through main
@@ -128,6 +134,19 @@ const drag: TrackListDrag = {
  */
 const menu: TrackListMenu = (index): ContextMenuItem[] => {
   const count = rowCount(index)
+  const track = count === 1 ? trackList.rowAt(index) : undefined
+  if (track) {
+    return trackMenuItems({
+      play: () => playTrack(track, index),
+      playNext: () => void targetFor(index).then(queue.playNext),
+      addToQueue: () => void targetFor(index).then(queue.addToQueue),
+      // No suggested name: one song title would be an odd name for a playlist.
+      addToPlaylist: addToPlaylist.menuItem({ count, trackIds: trackIdsFor(index) }),
+      viewArtist: trackActions.viewArtist(trackActions.artistOf(track)),
+      viewAlbum: trackActions.viewAlbum(track.album),
+      trackInfo: trackActions.showInfo(track)
+    })
+  }
   return [
     {
       label: queueCommandLabel('playNext', count),

@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import type { ContextMenuItem } from '@nuxt/ui'
 import { visibleRange } from '@renderer/panels/listViewport'
 import type { DropSide } from '@renderer/panels/playlistReorder'
+import { trackMenuItems } from '@renderer/panels/trackMenu'
 import {
   buildUpNextRows,
   createQueueReorder,
   type UpNextRow
 } from '@renderer/panels/tunedeck/upNextRows'
+import { useTrackActions } from '@renderer/panels/useTrackActions'
 import { queueEntryLabel } from '@renderer/playback/queueCommands'
+import type { QueueEntry } from '@renderer/playback/upNextQueue'
+import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 
@@ -52,6 +57,8 @@ import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 
 const playback = usePlaybackStore()
 const commands = useQueueCommandsStore()
+const addToPlaylist = useAddToPlaylistStore()
+const trackActions = useTrackActions()
 
 const ROW_PX = 36
 const scrollTop = ref(0)
@@ -152,6 +159,39 @@ function activate(row: UpNextRow): void {
   if (row.kind === 'entry') commands.jumpTo(row.entry.id)
 }
 
+/**
+ * The row's right-click menu (**G8**): the shared single-track set, then Remove.
+ *
+ * The queue verbs are `null` — Play next and Add to queue on a row already in the
+ * queue would enqueue a second copy, which is a mistake to offer — so Play here is
+ * the jump the double-click already does, and the rest is view/info/playlist. The
+ * `×` button stays for the pointer that is already on the row; this is the same
+ * removal for the pointer that arrived by right-click instead.
+ */
+function queueMenu(entry: QueueEntry): ContextMenuItem[] {
+  return [
+    ...trackMenuItems({
+      play: () => void commands.jumpTo(entry.id),
+      playNext: null,
+      addToQueue: null,
+      addToPlaylist: addToPlaylist.menuItem({
+        count: 1,
+        trackIds: () => Promise.resolve([entry.track.id])
+      }),
+      viewArtist: trackActions.viewArtist(trackActions.artistOf(entry.track)),
+      viewAlbum: trackActions.viewAlbum(entry.track.album),
+      trackInfo: trackActions.showInfo(entry.track)
+    }),
+    { type: 'separator' },
+    {
+      label: 'Remove from queue',
+      icon: 'i-tabler-x',
+      color: 'error',
+      onSelect: () => void commands.remove(entry.id)
+    }
+  ]
+}
+
 function isDragging(row: UpNextRow): boolean {
   return row.kind === 'entry' && dragging.value === row.entry.id
 }
@@ -211,95 +251,108 @@ function indicatorFor(row: UpNextRow): DropSide | null {
           contiguous, so there is nowhere in the list a drag can be that is not
           over exactly one of them — see `targetOf` for what the earlier
           arrangement cost.
+
+          The context menu wraps the row with `as-child`, so the `<li>` is still
+          the direct child of the `<ul>` and the drag surface is unchanged — the
+          same shape Discover's cards use. A tier label is not a track, so its
+          trigger is disabled rather than opening an empty menu (**G8**).
         -->
-        <li
+        <UContextMenu
           v-for="row in drawn"
           :key="row.key"
-          class="group relative flex cursor-default items-center gap-1.5 rounded-sm px-1 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
-          :style="{ height: `${ROW_PX}px` }"
-          :class="[
-            isDragging(row) ? 'opacity-50' : row.kind === 'entry' ? 'hover:bg-elevated/60' : '',
-            indicatorFor(row) === 'before'
-              ? 'shadow-[inset_0_2px_0_0_var(--ui-primary)]'
-              : indicatorFor(row) === 'after'
-                ? 'shadow-[inset_0_-2px_0_0_var(--ui-primary)]'
-                : ''
-          ]"
-          :draggable="row.kind === 'entry'"
-          :tabindex="row.kind === 'entry' ? 0 : -1"
-          :title="row.kind === 'entry' ? queueEntryLabel(row.entry) : undefined"
-          @dragstart="onDragStart($event, row)"
-          @dragover="onDragOver($event, row)"
-          @drop.prevent="reorder.drop()"
-          @dragend="onDragEnd()"
-          @dblclick="activate(row)"
-          @keydown.enter="activate(row)"
+          :items="row.kind === 'entry' ? queueMenu(row.entry) : []"
+          :disabled="row.kind !== 'entry'"
+          :ui="{ content: 'w-56' }"
         >
-          <!--
+          <li
+            class="group relative flex cursor-default items-center gap-1.5 rounded-sm px-1 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+            :style="{ height: `${ROW_PX}px` }"
+            :class="[
+              isDragging(row) ? 'opacity-50' : row.kind === 'entry' ? 'hover:bg-elevated/60' : '',
+              indicatorFor(row) === 'before'
+                ? 'shadow-[inset_0_2px_0_0_var(--ui-primary)]'
+                : indicatorFor(row) === 'after'
+                  ? 'shadow-[inset_0_-2px_0_0_var(--ui-primary)]'
+                  : ''
+            ]"
+            :draggable="row.kind === 'entry'"
+            :tabindex="row.kind === 'entry' ? 0 : -1"
+            :title="row.kind === 'entry' ? queueEntryLabel(row.entry) : undefined"
+            @dragstart="onDragStart($event, row)"
+            @dragover="onDragOver($event, row)"
+            @drop.prevent="reorder.drop()"
+            @dragend="onDragEnd()"
+            @dblclick="activate(row)"
+            @keydown.enter="activate(row)"
+          >
+            <!--
             A tier label is a row like any other, which is what keeps one set of
             virtualization arithmetic over both tiers.
           -->
-          <template v-if="row.kind === 'header'">
-            <span class="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-dimmed">
-              {{ row.label }}
-            </span>
-            <span
-              v-if="row.origin === 'session' && playback.shuffleEnabled"
-              class="shrink-0 text-xs text-dimmed"
-            >
-              shuffled
-            </span>
-            <span class="shrink-0 text-xs tabular-nums text-dimmed">
-              {{ row.count.toLocaleString() }}
-            </span>
-          </template>
+            <template v-if="row.kind === 'header'">
+              <span
+                class="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-dimmed"
+              >
+                {{ row.label }}
+              </span>
+              <span
+                v-if="row.origin === 'session' && playback.shuffleEnabled"
+                class="shrink-0 text-xs text-dimmed"
+              >
+                shuffled
+              </span>
+              <span class="shrink-0 text-xs tabular-nums text-dimmed">
+                {{ row.count.toLocaleString() }}
+              </span>
+            </template>
 
-          <template v-else>
-            <UIcon
-              name="i-tabler-grip-vertical"
-              class="size-3.5 shrink-0 cursor-grab text-dimmed opacity-0 group-hover:opacity-100"
-              aria-hidden="true"
-            />
-            <span class="w-4 shrink-0 text-right text-xs tabular-nums text-dimmed">
-              {{ row.position }}
-            </span>
-            <!--
+            <template v-else>
+              <UIcon
+                name="i-tabler-grip-vertical"
+                class="size-3.5 shrink-0 cursor-grab text-dimmed opacity-0 group-hover:opacity-100"
+                aria-hidden="true"
+              />
+              <span class="w-4 shrink-0 text-right text-xs tabular-nums text-dimmed">
+                {{ row.position }}
+              </span>
+              <!--
               The row is the jump, on double-click rather than click, because it
               is also the thing being dragged around — a single click that
               started audio would fire on every failed grab. Plain text and not
               a nested button: a control inside the drag surface is one more
               thing that has to agree about who owns the gesture.
             -->
-            <span class="min-w-0 flex-1 truncate text-sm text-default">
-              {{ row.entry.track.title }}
-              <span v-if="row.entry.track.artist !== null" class="text-muted">
-                · {{ row.entry.track.artist }}
+              <span class="min-w-0 flex-1 truncate text-sm text-default">
+                {{ row.entry.track.title }}
+                <span v-if="row.entry.track.artist !== null" class="text-muted">
+                  · {{ row.entry.track.artist }}
+                </span>
               </span>
-            </span>
-            <!--
+              <!--
               §5 rule 1's first arm: the queue head is what plays next, ahead
               of the playing playlist's own upcoming order. Withdrawn under
               repeat-one, which is rule 7 overriding it.
             -->
-            <UBadge
-              v-if="row.isNext && !queueSuspended"
-              label="Next"
-              size="sm"
-              color="primary"
-              variant="subtle"
-              class="shrink-0"
-            />
-            <UButton
-              icon="i-tabler-x"
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              class="shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
-              :aria-label="`Remove ${row.entry.track.title} from the queue`"
-              @click="commands.remove(row.entry.id)"
-            />
-          </template>
-        </li>
+              <UBadge
+                v-if="row.isNext && !queueSuspended"
+                label="Next"
+                size="sm"
+                color="primary"
+                variant="subtle"
+                class="shrink-0"
+              />
+              <UButton
+                icon="i-tabler-x"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                class="shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+                :aria-label="`Remove ${row.entry.track.title} from the queue`"
+                @click="commands.remove(row.entry.id)"
+              />
+            </template>
+          </li>
+        </UContextMenu>
       </ul>
       <div :style="{ height: `${visible.bottomPx}px` }" aria-hidden="true" />
     </div>

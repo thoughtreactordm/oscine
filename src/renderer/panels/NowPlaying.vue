@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import QuickMenu from '@renderer/panels/QuickMenu.vue'
+import { trackMenuItems } from '@renderer/panels/trackMenu'
+import { useTrackActions } from '@renderer/panels/useTrackActions'
 import UpNextOverlay from '@renderer/panels/UpNextOverlay.vue'
+import { queueRows } from '@renderer/playback/queueCommands'
 import { hasArtwork } from '@shared/ipc'
 import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
-import { useBrowseStore } from '@renderer/stores/browse'
 import { useFavoritesStore } from '@renderer/stores/favorites'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { useShellStore } from '@renderer/stores/shell'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
 
@@ -100,57 +102,39 @@ function toggleFavorite(): void {
  * track, and two menus of the same verbs that drifted apart would be the bug.
  */
 const addToPlaylist = useAddToPlaylistStore()
-const browse = useBrowseStore()
-const router = useRouter()
+const queue = useQueueCommandsStore()
+const trackActions = useTrackActions()
 
 /**
- * View artist / view album, from the bar.
+ * The bar's 3-dot menu (**G3**), now the shared single-track set (**G8**).
  *
- * The bar shows *tags as read* — a track carries its artist and album as names,
- * not as facet ids, and the renderer has no cheap way to turn one into the
- * other — so this reveals by search text, the honest route the Listening
- * dashboard already takes (see `browse.revealSearch`): naming text that cannot
- * be resolved to a facet id puts the phrase in the search box, where it is
- * visible and editable, rather than hiding an approximation inside a query.
- * Then it moves the frame to the library that renders the result — the same
- * two-step `RelationsPane` does for its exact reveal, because filtering without
- * navigating leaves the operator wondering what their click did.
+ * It was three hand-rolled items — add to playlist, view artist, view album —
+ * and is now `trackMenuItems`, the same set the library row, the playlist row and
+ * a Curate card build, so the five cannot drift. `play` is `null`: this is the
+ * track already playing, and a Play that restarted it would be a verb for a state
+ * the operator is already in. The queue verbs act on this one row via
+ * `queueRows`, and view artist/album still reveal by name — `useTrackActions`
+ * carries the route this menu used to own.
+ *
+ * `trackMenuItems` yields `ContextMenuItem[]`; the two item shapes are
+ * structurally identical for the fields set here, so the cast drops it straight
+ * into the dropdown, the same way the old code cast the add-to-playlist submenu.
  */
-async function reveal(text: string): Promise<void> {
-  browse.revealSearch(text)
-  await router.push({ name: 'library' })
-}
-
 const songMenu = computed<DropdownMenuItem[]>(() => {
   const track = playback.nowPlaying
   if (!track) return []
-  const artist = track.albumArtist ?? track.artist
-  const album = track.album
-  return [
-    // The one add-to-playlist model (see `stores/addToPlaylist`), so the wording,
-    // the trailing "New playlist…" and the failure text match every other
-    // surface that offers it. Its submenu is authored as a `ContextMenuItem`;
-    // the two item types are structurally identical for the fields it sets, so
-    // it drops straight into a dropdown.
-    addToPlaylist.menuItem({
+  return trackMenuItems({
+    play: null,
+    playNext: () => void queue.playNext(queueRows([track])),
+    addToQueue: () => void queue.addToQueue(queueRows([track])),
+    addToPlaylist: addToPlaylist.menuItem({
       trackIds: () => Promise.resolve([track.id]),
       count: 1
-    }) as DropdownMenuItem,
-    {
-      label: 'View artist',
-      icon: 'i-tabler-user',
-      // Disabled rather than hidden: an untagged file has no artist to follow,
-      // and a verb that silently vanished would read as the menu being broken.
-      disabled: artist === null,
-      onSelect: artist === null ? undefined : () => void reveal(artist)
-    },
-    {
-      label: 'View album',
-      icon: 'i-tabler-vinyl',
-      disabled: album === null,
-      onSelect: album === null ? undefined : () => void reveal(album)
-    }
-  ]
+    }),
+    viewArtist: trackActions.viewArtist(trackActions.artistOf(track)),
+    viewAlbum: trackActions.viewAlbum(track.album),
+    trackInfo: trackActions.showInfo(track)
+  }) as DropdownMenuItem[]
 })
 
 /**
