@@ -7,6 +7,7 @@ import { countListening } from './listeningStats'
 import { countRelatedRows } from './relatedRows'
 import AlbumTracksPane from './AlbumTracksPane.vue'
 import ArtistCatalogPane from './ArtistCatalogPane.vue'
+import ArtistTagsPane from './ArtistTagsPane.vue'
 import ArtistIdentityHeader from './ArtistIdentityHeader.vue'
 import BiographyPane from './BiographyPane.vue'
 import DecodePathPane from './DecodePathPane.vue'
@@ -221,6 +222,22 @@ export const tunedeckRegistry = createTunedeckRegistry([
         hint: LISTENING_HINT,
         badge: () => countListening('artist', useTrackStatsStore().result),
         component: listening('artist')
+      },
+      // Last under Artist, the way the Track tab's Tags group reads last: it is
+      // the operator's own labelling, and it reads after what they have hearted
+      // and what they have played. `i-tabler-tags` — the plural — matching the
+      // Track pane. No badge, like Format/ReplayGain/Decode: coverage is resolved
+      // from the browse-dimension facet in the pane, not a store a shut group's
+      // badge could read, and a count that only becomes true once the group is
+      // open is worse than none (see `useDeckData`). Local like its neighbours —
+      // seeded by the track, answered from SQLite — so the tab still has an
+      // editable surface with every online lookup declined. See `ArtistTagsPane`.
+      {
+        id: 'artist-tags',
+        title: 'Tags',
+        icon: 'i-tabler-tags',
+        hint: 'Your own labels across everything by this artist, each with how many of the artist’s tracks carry it. Apply one to the whole catalogue or lift it off; a tag on every track is one you have made the artist’s own. The file’s genres are not shown here — this is your record, not the files’ (D7). Local: it works with online lookups off.',
+        component: ArtistTagsPane
       }
     ]
   },

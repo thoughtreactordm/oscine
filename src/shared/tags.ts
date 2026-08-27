@@ -85,6 +85,45 @@ export interface TrackTagsRequest {
 }
 
 /**
+ * One vocabulary row and how much of a subject's catalogue carries it —
+ * **W15-7**.
+ *
+ * `carried` is the numerator against `ArtistTagsView.total`: a tag on 18 of an
+ * artist's 40 tracks reads `18/40`, and one at full coverage is, in effect, "an
+ * artist tag". A `Tag` rather than a `TagSummary` because the count that matters
+ * at this altitude is coverage of *this* subject, not the library-wide track
+ * count the browse column shows.
+ */
+export interface TagCoverage extends Tag {
+  readonly carried: number
+}
+
+/**
+ * An artist's tags as coverage over its catalogue — `tags.forArtist`, **W15-7**.
+ *
+ * The union of every tag used anywhere by the artist, each with how many of the
+ * artist's tracks carry it, over the one denominator `total`. An artist with no
+ * tagged track — or one resolved to no tracks at all — comes back an empty list
+ * over a `total`, the same ordinary "nothing here" the Track pane draws for a
+ * track with no tags.
+ */
+export interface ArtistTagsView {
+  readonly total: number
+  readonly tags: TagCoverage[]
+}
+
+/**
+ * `tags.forArtist` — the browse-dimension artist whose coverage is wanted.
+ *
+ * The id is the Artist facet's own — `COALESCE(album_artist_id, artist_id)`, the
+ * same one `library.trackFacets` returns and `listTrackIds({ artistIds })`
+ * selects on — so the pane's subject is exactly the set the Artist facet picks.
+ */
+export interface ArtistTagsRequest {
+  readonly artistId: number
+}
+
+/**
  * `tags.add` — one label onto a batch of tracks, coining the vocabulary row if
  * it is new.
  *

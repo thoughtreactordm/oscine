@@ -35,6 +35,8 @@ import type {
 } from './favorites'
 import type {
   AddTagsRequest,
+  ArtistTagsRequest,
+  ArtistTagsView,
   RemoveTagRequest,
   RemoveTagResult,
   RenameTagRequest,
@@ -538,6 +540,16 @@ export interface IpcContract {
    * pane that reads this draws the same nothing for both.
    */
   'tags.forTrack': { request: TrackTagsRequest; response: TrackTagView }
+  /**
+   * An artist's tags as coverage over its catalogue — **W15-7**.
+   *
+   * Every tag used anywhere by the artist, each with how many of the artist's
+   * tracks carry it, over the artist's track count. `artistId` is the browse
+   * dimension's own, so the set matches the album/artist batch `tags.add`
+   * applies to; the Artist-tab pane draws the pair as `carried/total`. An artist
+   * with nothing tagged answers an empty list over a `total`, never an error.
+   */
+  'tags.forArtist': { request: ArtistTagsRequest; response: ArtistTagsView }
   /**
    * Applies one label to a batch of tracks, coining the vocabulary row if new,
    * and answers with that row — **W15**.
@@ -1112,6 +1124,7 @@ export const IPC_CHANNELS = [
   'favorites.listArtists',
   'tags.list',
   'tags.forTrack',
+  'tags.forArtist',
   'tags.add',
   'tags.remove',
   'tags.rename',

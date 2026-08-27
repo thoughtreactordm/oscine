@@ -199,6 +199,81 @@ describe('tagsForTrack', () => {
   })
 })
 
+describe('tagsForArtist', () => {
+  /**
+   * The browse-dimension artist a track sits in — `COALESCE(album_artist_id,
+   * artist_id)`, the same expression the store's coverage query and the library's
+   * Artist facet use. Computed here from raw SQL so the test names the id the same
+   * way production does, without leaning on a facet method.
+   */
+  function browseArtistId(trackId: number): number {
+    return (
+      db
+        .prepare(
+          `SELECT COALESCE(al.album_artist_id, t.artist_id) AS artistId
+           FROM tracks t LEFT JOIN albums al ON al.id = t.album_id
+           WHERE t.id = ?`
+        )
+        .get(trackId) as { artistId: number }
+    ).artistId
+  }
+
+  /** A track under its own album artist, so a second artist's tracks can be seeded. */
+  function seedTrackForArtist(artistName: string): number {
+    const relPath = `t${nextPath++}.flac`
+    library.writeTracks(rootId, [
+      {
+        file: { absPath: `/music/${relPath}`, relPath, size: 1000, mtime: 1 },
+        tags: {
+          ...tags(null),
+          artist: artistName,
+          albumArtist: artistName,
+          album: `${artistName} Album`
+        }
+      }
+    ])
+    return Number(
+      (db.prepare('SELECT id FROM tracks WHERE rel_path = ?').get(relPath) as { id: number }).id
+    )
+  }
+
+  it('returns coverage over the artist, most-covered first, over the artist total', () => {
+    const a = seedTrack()
+    const b = seedTrack()
+    seedTrack() // a third, untagged, so the artist total is 3
+    store.addTag([a, b], 'Live', 'user')
+    store.addTag([a], 'Acoustic', 'user')
+
+    const view = store.tagsForArtist(browseArtistId(a))
+
+    expect(view.total).toBe(3)
+    expect(view.tags).toEqual([
+      expect.objectContaining({ key: 'live', label: 'Live', carried: 2 }),
+      expect.objectContaining({ key: 'acoustic', label: 'Acoustic', carried: 1 })
+    ])
+  })
+
+  it('answers an empty list over the track count for an untagged artist', () => {
+    const a = seedTrack()
+    seedTrack()
+
+    expect(store.tagsForArtist(browseArtistId(a))).toEqual({ total: 2, tags: [] })
+  })
+
+  it('does not count another artist’s tracks toward this one’s coverage', () => {
+    const mine = seedTrack()
+    const theirs = seedTrackForArtist('Someone Else')
+    store.addTag([mine], 'Shared', 'user')
+    store.addTag([theirs], 'Shared', 'user')
+
+    const view = store.tagsForArtist(browseArtistId(mine))
+
+    // One tag row in the vocabulary, but coverage counts only this artist's track.
+    expect(view.total).toBe(1)
+    expect(view.tags).toEqual([expect.objectContaining({ label: 'Shared', carried: 1 })])
+  })
+})
+
 describe('removeTag', () => {
   it('removes an assignment and prunes the tag it empties', () => {
     const track = seedTrack()

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import type { DropdownMenuItem } from '@nuxt/ui'
 import { normalizeLabel } from '@shared/genre'
 import { MAX_TRACK_ID_PAGE } from '@shared/library'
 import type { TrackFacets } from '@shared/library'
@@ -115,6 +116,15 @@ const artistName = computed(() => {
   return track ? (track.albumArtist ?? track.artist) : null
 })
 
+/** How the active `Add to` set reads, so the suggestion chips can name their real reach. */
+const scopeNoun = computed(() => {
+  if (scope.value === 'album') return 'this album'
+  if (scope.value === 'artist') {
+    return artistName.value ? `everything by ${artistName.value}` : 'everything by this artist'
+  }
+  return 'this track'
+})
+
 const scopeItems = computed(() => [
   { label: 'This track', value: 'track' as const },
   {
@@ -192,10 +202,10 @@ async function loadFacets(trackId: number): Promise<void> {
   if ((playback.nowPlaying?.id ?? null) === trackId) facets.value = resolved
 }
 
-async function resolveScopeTrackIds(trackId: number): Promise<number[]> {
+async function resolveScopeTrackIds(target: Scope, trackId: number): Promise<number[]> {
   const current = facets.value
   const albumId = current?.albumId
-  if (scope.value === 'album' && albumId != null) {
+  if (target === 'album' && albumId != null) {
     return collectPagedIds(MAX_TRACK_ID_PAGE, (offset, limit) =>
       library.listTrackIds({
         albumIds: [albumId],
@@ -207,7 +217,7 @@ async function resolveScopeTrackIds(trackId: number): Promise<number[]> {
     )
   }
   const artistId = current?.artistId
-  if (scope.value === 'artist' && artistId != null) {
+  if (target === 'artist' && artistId != null) {
     return collectPagedIds(MAX_TRACK_ID_PAGE, (offset, limit) =>
       library.listTrackIds({
         artistIds: [artistId],
@@ -239,15 +249,53 @@ function commit(raw: string): void {
 }
 
 async function addToScope(label: string): Promise<void> {
+  await applyLabelToScope(label, scope.value)
+}
+
+/**
+ * Applies one label to a named set around the current track — the add input's
+ * gesture at `scope.value`, and a chip's elevate menu at an explicit `album`/
+ * `artist`. Elevating is an ordinary add: the tag is already the operator's, so
+ * lifting it to the album or artist just widens the set it sits on, and a track
+ * that already carries it is a harmless re-cover (`tags.add` upserts).
+ */
+async function applyLabelToScope(label: string, target: Scope): Promise<void> {
   const track = playback.nowPlaying
   if (!track || busy.value) return
   busy.value = true
   try {
-    const ids = await resolveScopeTrackIds(track.id)
+    const ids = await resolveScopeTrackIds(target, track.id)
     if (ids.length > 0) await tags.add(ids, label)
   } finally {
     busy.value = false
   }
+}
+
+/**
+ * A chip's elevate menu — raise this one tag from the track it sits on to the
+ * album or the whole artist. Remove stays the ✕'s job and stays track-only: a
+ * remove that reached an album would be a destructive gesture on a one-row
+ * control, so only the widening lives here.
+ */
+function elevateItems(tag: TrackTagAssignment): DropdownMenuItem[][] {
+  return [
+    [
+      {
+        label: 'Apply to this album',
+        icon: 'i-tabler-disc',
+        disabled: busy.value || facets.value?.albumId == null,
+        onSelect: () => void applyLabelToScope(tag.label, 'album')
+      },
+      {
+        label: artistName.value
+          ? `Apply to everything by ${artistName.value}`
+          : 'Apply to everything by this artist',
+        icon: 'i-tabler-microphone-2',
+        disabled: busy.value || facets.value?.artistId == null,
+        onSelect: () => void applyLabelToScope(tag.label, 'artist')
+      }
+    ]
+  ]
 }
 
 function onSelectExisting(value: string | undefined): void {
@@ -300,9 +348,20 @@ async function removeTag(tag: TrackTagAssignment): Promise<void> {
           <li
             v-for="tag in userTags"
             :key="tag.id"
-            class="group inline-flex items-center gap-1 rounded-full bg-primary/10 py-0.5 pr-1 pl-2 text-xs text-default"
+            class="group inline-flex items-center gap-0.5 rounded-full bg-primary/10 py-0.5 pr-1 pl-2 text-xs text-default"
           >
-            {{ tag.label }}
+            <span class="mr-0.5">{{ tag.label }}</span>
+            <UDropdownMenu :items="elevateItems(tag)" :content="{ align: 'end', sideOffset: 4 }">
+              <button
+                type="button"
+                class="flex size-4 items-center justify-center rounded-full text-dimmed outline-none transition-colors hover:bg-primary/20 hover:text-default focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70 disabled:opacity-50"
+                :disabled="busy"
+                :aria-label="`Apply ${tag.label} to this album or artist`"
+                :title="`Apply “${tag.label}” to this album or artist`"
+              >
+                <UIcon name="i-tabler-chevron-down" class="size-3" aria-hidden="true" />
+              </button>
+            </UDropdownMenu>
             <button
               type="button"
               class="flex size-4 items-center justify-center rounded-full text-dimmed outline-none transition-colors hover:bg-primary/20 hover:text-default focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70 disabled:opacity-50"
@@ -334,8 +393,8 @@ async function removeTag(tag: TrackTagAssignment): Promise<void> {
               type="button"
               class="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 py-0.5 pr-2 pl-1.5 text-xs text-muted outline-none transition-colors hover:border-primary/60 hover:bg-primary/10 hover:text-default focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70 disabled:opacity-50"
               :disabled="busy"
-              :aria-label="`Add ${tag.label} to this track`"
-              :title="`Suggested by MusicBrainz (${tag.count} votes). Click to add.`"
+              :aria-label="`Add ${tag.label} to ${scopeNoun}`"
+              :title="`Suggested by MusicBrainz (${tag.count} votes). Adds to ${scopeNoun}.`"
               @click="addToScope(tag.label)"
             >
               <UIcon name="i-tabler-plus" class="size-3 shrink-0 text-dimmed" aria-hidden="true" />
