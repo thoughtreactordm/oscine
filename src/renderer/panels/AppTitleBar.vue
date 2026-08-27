@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { appInfo, windowControls } from '@renderer/ipc'
+import { SHORTCUTS, type ShortcutCategory } from '@renderer/shell/globalShortcuts'
 import { shellTabs } from '@renderer/shell/routes'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { usePaletteStore } from '@renderer/stores/palette'
@@ -42,6 +43,7 @@ const paletteAffordance = computed(() => settings.get<boolean>(COMMAND_PALETTE_A
  */
 const aboutOpen = ref(false)
 const openSourceOpen = ref(false)
+const shortcutsOpen = ref(false)
 
 /**
  * The running version, read once when the bar mounts. It comes from
@@ -62,6 +64,30 @@ const DOCS_URL = 'https://github.com/thoughtreactordm/oscine'
 const shortcutHint = computed(() =>
   navigator.platform.toUpperCase().includes('MAC') ? '⌘K' : 'Ctrl K'
 )
+
+/** Ctrl on the shipped platforms, ⌘ on macOS — the one platform-variable keycap. */
+const modLabel = computed(() => (navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'))
+
+/** The order the reference groups G6's set; the categories the table carries. */
+const SHORTCUT_CATEGORIES: readonly ShortcutCategory[] = ['Playback', 'Navigation']
+
+/**
+ * The fixed 1.0 shortcut set (G6), grouped for the reference modal and read
+ * straight from `SHORTCUTS` — the keymap the app actually obeys — so the printed
+ * set cannot drift from the bound one. `Mod` is resolved to the platform's key
+ * here, the one layer that knows which it is.
+ */
+const shortcutGroups = computed(() =>
+  SHORTCUT_CATEGORIES.map((category) => ({
+    category,
+    shortcuts: SHORTCUTS.filter((spec) => spec.category === category).map((spec) => ({
+      id: spec.id,
+      description: spec.description,
+      keys: spec.keys.map((key) => (key === 'Mod' ? modLabel.value : key))
+    }))
+  }))
+)
+
 let stopMaximizedListener: (() => void) | null = null
 
 /**
@@ -276,6 +302,13 @@ const helpItems = computed<DropdownMenuItem[][]>(() => [
   ],
   [
     {
+      label: 'Keyboard shortcuts',
+      icon: 'i-tabler-keyboard',
+      onSelect: () => {
+        shortcutsOpen.value = true
+      }
+    },
+    {
       label: 'Open Source',
       icon: 'i-tabler-heart-handshake',
       onSelect: () => {
@@ -479,6 +512,45 @@ async function toggleMaximize(): Promise<void> {
             </UBadge>
           </li>
         </ul>
+      </template>
+    </UModal>
+
+    <!--
+      Keyboard shortcuts — the reference G6 asks Help to carry. The set is fixed
+      and not rebindable in 1.0 (W8 owns remapping later), and it is rendered from
+      `SHORTCUTS`, the same table `useGlobalShortcuts` dispatches, so what is
+      printed here is what the keys actually do.
+    -->
+    <UModal
+      v-model:open="shortcutsOpen"
+      title="Keyboard shortcuts"
+      description="A fixed set for 1.0 — not yet rebindable."
+      :ui="{ body: 'sm:max-h-[60vh] overflow-y-auto' }"
+    >
+      <template #body>
+        <div class="flex flex-col gap-4">
+          <section
+            v-for="group in shortcutGroups"
+            :key="group.category"
+            class="flex flex-col gap-1"
+          >
+            <h3 class="px-2 text-xs font-semibold uppercase tracking-wide text-muted">
+              {{ group.category }}
+            </h3>
+            <ul class="flex flex-col gap-1">
+              <li
+                v-for="shortcut in group.shortcuts"
+                :key="shortcut.id"
+                class="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-elevated"
+              >
+                <span class="text-sm text-highlighted">{{ shortcut.description }}</span>
+                <span class="flex shrink-0 items-center gap-1">
+                  <UKbd v-for="(key, index) in shortcut.keys" :key="index" :value="key" size="sm" />
+                </span>
+              </li>
+            </ul>
+          </section>
+        </div>
       </template>
     </UModal>
   </header>
