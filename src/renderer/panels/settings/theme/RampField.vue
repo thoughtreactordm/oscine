@@ -104,23 +104,24 @@ function setStep(step: RampStep, value: string): void {
       no separate Edit button to find. Colours come from the resolved values at
       runtime; nothing here names one.
     -->
-    <button
-      type="button"
-      :disabled="disabled"
-      class="flex min-w-0 flex-1 items-center gap-2 rounded border border-default px-1.5 py-1 transition-colors hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
-      :aria-label="`Edit the ${descriptor.label} ramp, ${summary}`"
-      :title="summary"
-    >
-      <span class="flex h-5 min-w-0 flex-1 overflow-hidden rounded-sm">
-        <span
-          v-for="step in RAMP_STEPS"
-          :key="step"
-          class="h-full flex-1"
-          :style="{ background: steps[step] }"
-        />
-      </span>
-      <UIcon name="i-tabler-chevron-down" class="size-3.5 shrink-0 text-dimmed" />
-    </button>
+    <UTooltip :text="summary">
+      <button
+        type="button"
+        :disabled="disabled"
+        class="flex min-w-0 flex-1 items-center gap-2 rounded border border-default px-1.5 py-1 transition-colors hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
+        :aria-label="`Edit the ${descriptor.label} ramp, ${summary}`"
+      >
+        <span class="flex h-5 min-w-0 flex-1 overflow-hidden rounded-sm">
+          <span
+            v-for="step in RAMP_STEPS"
+            :key="step"
+            class="h-full flex-1"
+            :style="{ background: steps[step] }"
+          />
+        </span>
+        <UIcon name="i-tabler-chevron-down" class="size-3.5 shrink-0 text-dimmed" />
+      </button>
+    </UTooltip>
 
     <template #content>
       <div class="flex flex-col">

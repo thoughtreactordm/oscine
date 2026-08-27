@@ -13,7 +13,7 @@
  * it. A button that said "Reset" in both places would be the same button telling
  * two different lies.
  *
- * The phrase is the button's accessible name and its tooltip rather than
+ * The phrase is the button's accessible name and its `UTooltip` rather than
  * on-screen text: the row is a fixed 64px and the list is virtualized on that
  * number, so a 180-pixel label would cost the control beside it more room than
  * the distinction is worth. Hovering says it; a screen reader reads it.
@@ -27,13 +27,14 @@ defineEmits<{ revert: [] }>()
 </script>
 
 <template>
-  <UButton
-    color="neutral"
-    variant="ghost"
-    size="xs"
-    icon="i-tabler-arrow-back-up"
-    :title="`Revert to ${destination}`"
-    :aria-label="`Revert to ${destination}`"
-    @click="$emit('revert')"
-  />
+  <UTooltip :text="`Revert to ${destination}`">
+    <UButton
+      color="neutral"
+      variant="ghost"
+      size="xs"
+      icon="i-tabler-arrow-back-up"
+      :aria-label="`Revert to ${destination}`"
+      @click="$emit('revert')"
+    />
+  </UTooltip>
 </template>

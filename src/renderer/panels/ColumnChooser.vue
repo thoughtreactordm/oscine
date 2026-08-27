@@ -31,14 +31,15 @@ function visiblePosition(column: TrackColumnSpec): number {
 
 <template>
   <UPopover :ui="{ content: 'w-80' }">
-    <UButton
-      color="neutral"
-      variant="ghost"
-      size="xs"
-      icon="i-tabler-columns-3"
-      aria-label="Choose columns"
-      title="Choose columns"
-    />
+    <UTooltip text="Choose columns">
+      <UButton
+        color="neutral"
+        variant="ghost"
+        size="xs"
+        icon="i-tabler-columns-3"
+        aria-label="Choose columns"
+      />
+    </UTooltip>
 
     <template #content>
       <div class="flex flex-col">

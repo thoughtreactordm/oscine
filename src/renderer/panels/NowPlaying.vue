@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { DropdownMenuItem } from '@nuxt/ui'
+import MarqueeText from '@renderer/panels/MarqueeText.vue'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import QuickMenu from '@renderer/panels/QuickMenu.vue'
@@ -410,16 +411,17 @@ function onSeekInput(value: number | undefined): void {
           art bigger, not to have the title move house.
         -->
         <div class="flex min-w-0 flex-col justify-center">
-          <p class="truncate text-sm font-medium text-highlighted max-w-60">
-            {{ playback.nowPlaying?.title ?? 'Nothing playing' }}
-          </p>
-          <p class="truncate text-xs text-muted">
+          <MarqueeText
+            class="max-w-60 text-sm font-medium text-highlighted"
+            :text="playback.nowPlaying?.title ?? 'Nothing playing'"
+          />
+          <MarqueeText class="text-xs text-muted">
             <span>{{ playback.nowPlaying?.album }}</span>
             <span v-if="playback.nowPlaying?.year"
               >&nbsp;&nbsp;•&nbsp;&nbsp;{{ playback.nowPlaying?.year }}</span
             >
-          </p>
-          <p class="truncate text-xs text-primary">{{ playback.nowPlaying?.albumArtist }}</p>
+          </MarqueeText>
+          <MarqueeText class="text-xs text-primary" :text="playback.nowPlaying?.albumArtist" />
           <p v-if="playback.error" class="truncate text-xs text-error">{{ playback.error }}</p>
         </div>
         <div class="pl-3">
@@ -441,16 +443,16 @@ function onSeekInput(value: number | undefined): void {
               @click="toggleFavorite()"
             />
           </UTooltip>
-          <UTooltip text="Song options">
-            <UDropdownMenu :items="songMenu" :content="{ align: 'end' }">
+          <UDropdownMenu :items="songMenu" :content="{ align: 'end' }">
+            <UTooltip text="Song options">
               <UButton
                 variant="ghost"
                 icon="i-tabler-dots-vertical-filled"
                 square
                 aria-label="Song options"
               />
-            </UDropdownMenu>
-          </UTooltip>
+            </UTooltip>
+          </UDropdownMenu>
         </div>
       </div>
     </Transition>
@@ -543,8 +545,8 @@ function onSeekInput(value: number | undefined): void {
         is playing" — which the transport already says, and which would drown
         out the one thing this is here to signal.
       -->
-      <UTooltip :text="queueLabel">
-        <UPopover :ui="{ content: 'p-0' }">
+      <UPopover :ui="{ content: 'p-0' }">
+        <UTooltip :text="queueLabel">
           <UButton
             variant="ghost"
             size="lg"
@@ -562,10 +564,10 @@ function onSeekInput(value: number | undefined): void {
               {{ playback.queuedUserCount.toLocaleString() }}
             </UBadge>
           </UButton>
+        </UTooltip>
 
-          <template #content> <UpNextOverlay /> </template>
-        </UPopover>
-      </UTooltip>
+        <template #content> <UpNextOverlay /> </template>
+      </UPopover>
 
       <!--
         Crossfade and levelling, next to the thing they act on. Both are judged
