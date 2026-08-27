@@ -33,6 +33,18 @@ import type {
   TogglePlaylistFavoriteRequest,
   ToggleFavoriteRequest
 } from './favorites'
+import type {
+  AddTagsRequest,
+  RemoveTagRequest,
+  RemoveTagResult,
+  RenameTagRequest,
+  SuggestTagsRequest,
+  Tag,
+  TagSummary,
+  TagSuggestion,
+  TrackTagsRequest,
+  TrackTagView
+} from './tags'
 import type { AlbumCard } from './albums'
 import type { SearchQuery, SearchResult } from './search'
 import type { ListPlayHistoryQuery, PlayEntry } from './history'
@@ -501,6 +513,56 @@ export interface IpcContract {
     request: ListFavoriteArtistsQuery
     response: ListFavoriteArtistsResult
   }
+  /**
+   * The tag vocabulary with a live per-tag count — **W15**. Unpaged: this is the
+   * browse-by-tag column's whole content, and a vocabulary is small by nature (a
+   * person coins tags, they do not accrue). Ordered by display spelling in the
+   * store, so the column reads alphabetically however each tag was capitalised.
+   */
+  'tags.list': { request: null; response: TagSummary[] }
+  /**
+   * One track's two vocabularies, kept apart — file genres and user tags.
+   *
+   * A track with neither, or one not in the library at all, comes back two empty
+   * lists rather than an error: "no tags" is an ordinary answer, and the deck
+   * pane that reads this draws the same nothing for both.
+   */
+  'tags.forTrack': { request: TrackTagsRequest; response: TrackTagView }
+  /**
+   * Applies one label to a batch of tracks, coining the vocabulary row if new,
+   * and answers with that row — **W15**.
+   *
+   * Returns the `Tag` rather than nothing for `favorites.toggle`'s reason: the
+   * renderer holds the same tag in a column, a deck pane and the tracks it just
+   * tagged, and only main knows the id and key it minted. Handing back the row
+   * lets every one of them redraw from the same truth instead of predicting it.
+   * `null` only if the label normalised away to nothing, which the validate
+   * layer already refuses — so a caller past the seam can read it as the row.
+   */
+  'tags.add': { request: AddTagsRequest; response: Tag | null }
+  /**
+   * Removes one tag from a batch of tracks, in one transaction. Emptying a tag's
+   * last assignment prunes it — `pruned` says so, and the vocabulary column drops
+   * it without re-reading `tags.list`.
+   */
+  'tags.remove': { request: RemoveTagRequest; response: RemoveTagResult }
+  /**
+   * Re-spells one vocabulary row and answers with the surviving one.
+   *
+   * The store resolves a rename into a correction, a rename, or a merge into an
+   * existing tag that shares the new key; the renderer sends id and label and
+   * redraws from what returns rather than guessing which of the three happened.
+   */
+  'tags.rename': { request: RenameTagRequest; response: Tag | null }
+  /**
+   * Tags the operator might want for a track — **W15**, stubbed here.
+   *
+   * Declared now so the renderer store is complete against the full surface, but
+   * it returns an empty list until the MusicBrainz card lands: this build fetches
+   * nothing, and D14's "nothing leaves the machine except from main" is not
+   * bent by a channel that never opens a socket.
+   */
+  'tags.suggest': { request: SuggestTagsRequest; response: TagSuggestion[] }
   /**
    * The Quick Menu's Recent Additions — albums by arrival, newest first
    * (**D25/D26**). Ordered by `MAX(indexed_at)` over each album's tracks, never
@@ -1037,6 +1099,12 @@ export const IPC_CHANNELS = [
   'favorites.toggleArtist',
   'favorites.artistState',
   'favorites.listArtists',
+  'tags.list',
+  'tags.forTrack',
+  'tags.add',
+  'tags.remove',
+  'tags.rename',
+  'tags.suggest',
   'library.recentlyAddedAlbums',
   'playlists.list',
   'playlists.create',

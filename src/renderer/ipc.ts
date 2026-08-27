@@ -166,6 +166,23 @@ export const favorites = {
     unwrap(window.oscine.favorites.listArtists(query))
 }
 
+export const tags = {
+  /** The tag vocabulary with a live per-tag count — the browse column's whole content. */
+  list: () => unwrap(window.oscine.tags.list()),
+  /** One track's two vocabularies, file genres and user tags kept apart. */
+  forTrack: (trackId: number) => unwrap(window.oscine.tags.forTrack(trackId)),
+  /** Applies one label to a batch, coining it if new. Answers with the vocabulary row. */
+  add: (trackIds: readonly number[], label: string) =>
+    unwrap(window.oscine.tags.add(trackIds, label)),
+  /** Removes one tag from a batch; prunes it if that emptied it. */
+  remove: (trackIds: readonly number[], tagId: number) =>
+    unwrap(window.oscine.tags.remove(trackIds, tagId)),
+  /** Re-spells one tag — correction, rename, or merge. Answers with the surviving row. */
+  rename: (tagId: number, label: string) => unwrap(window.oscine.tags.rename(tagId, label)),
+  /** Tags the operator might want. Empty until the MusicBrainz card lands. */
+  suggest: (trackId: number) => unwrap(window.oscine.tags.suggest(trackId))
+}
+
 export const playlists = {
   list: () => unwrap(window.oscine.playlists.list()),
   create: (name: string) => unwrap(window.oscine.playlists.create(name)),

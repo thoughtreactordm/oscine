@@ -18,6 +18,7 @@ import type { SearchService } from '../search/service'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
 import type { StatsService } from '../stats/service'
+import type { TagStore } from '../tags/store'
 import type { ArtistBiographyService, ArtistImageService } from '../wikipedia'
 import { assertEveryChannelHandled, handle } from './registry'
 import {
@@ -80,7 +81,12 @@ import {
   assertArtistFavoriteStateRequest,
   assertListFavoriteArtistsQuery,
   assertSearchQuery,
-  assertRecentlyAddedAlbumsRequest
+  assertRecentlyAddedAlbumsRequest,
+  assertTrackTagsRequest,
+  assertAddTagsRequest,
+  assertRemoveTagRequest,
+  assertRenameTagRequest,
+  assertSuggestTagsRequest
 } from './validate'
 
 /**
@@ -106,7 +112,8 @@ export function registerIpcHandlers(
   relations: ArtistRelationsService,
   images: ArtistImageService,
   links: ArtistLinksService,
-  search: SearchService
+  search: SearchService,
+  tags: TagStore
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -315,6 +322,38 @@ export function registerIpcHandlers(
   handle('favorites.listArtists', (request) =>
     favorites.listArtists(assertListFavoriteArtistsQuery(request).limit)
   )
+
+  // W15 — the user-tag surface. The store is the service here: these handlers are
+  // the same thin validate-delegate-return, straight onto `TagStore`, with no
+  // network arrangement to wrap because a tag is a local fact end to end.
+  handle('tags.list', () => tags.listTags())
+
+  handle('tags.forTrack', (request) => tags.tagsForTrack(assertTrackTagsRequest(request).trackId))
+
+  // `'user'` is fixed, not taken from the request: everything the renderer adds
+  // is the operator's own, and the `'suggested'` source is the suggestion
+  // pipeline's to write once it exists, never a caller's to claim.
+  handle('tags.add', (request) => {
+    const { trackIds, label } = assertAddTagsRequest(request)
+    return tags.addTag(trackIds, label, 'user')
+  })
+
+  handle('tags.remove', (request) => {
+    const { trackIds, tagId } = assertRemoveTagRequest(request)
+    return tags.removeTag(trackIds, tagId)
+  })
+
+  handle('tags.rename', (request) => {
+    const { tagId, label } = assertRenameTagRequest(request)
+    return tags.renameTag(tagId, label)
+  })
+
+  // Stubbed until the MusicBrainz card lands: the request is validated so the
+  // channel is real, and the answer is empty because this build fetches nothing.
+  handle('tags.suggest', (request) => {
+    assertSuggestTagsRequest(request)
+    return []
+  })
 
   // D23 — one grouped, ranked pass over every local entity type. The service
   // owns the ranking so a new searchable kind is not another round trip to

@@ -45,45 +45,28 @@ import { normalizeLabel } from '@shared/genre'
  * the operator un-coining a tag they built and may reapply.
  */
 
-/** Whether an assignment was authored by the operator or offered by a suggestion (D14). */
-export type TagSource = 'user' | 'suggested'
-
-/** A vocabulary row: the tag's identity and how it is spelled. */
-export interface Tag {
-  id: number
-  key: string
-  label: string
-}
-
-/** A vocabulary row with how many tracks currently carry it. */
-export interface TagSummary extends Tag {
-  trackCount: number
-}
-
-/** One user tag as it sits on a track. */
-export interface TrackTagAssignment {
-  id: number
-  label: string
-  source: TagSource
-}
-
 /**
- * A track's tags, the two vocabularies kept apart.
- *
- * `file` is read-only display spelling out of `track_genres` — what the file
- * says, which the operator changes by retagging and rescanning, not here.
- * `user` is this module's own, editable.
+ * The wire shapes moved to `src/shared/tags` — the only cross-process contract —
+ * so the renderer that draws these rows and the main process that mints them
+ * import one definition and cannot drift. Re-exported here so this store's own
+ * callers (and its tests) need not know they moved.
  */
-export interface TrackTagView {
-  file: string[]
-  user: TrackTagAssignment[]
-}
-
-/** What `removeTag` did: how many assignments it took, and whether it retired the tag. */
-export interface RemoveTagResult {
-  removed: number
-  pruned: boolean
-}
+export type {
+  TagSource,
+  Tag,
+  TagSummary,
+  TrackTagAssignment,
+  TrackTagView,
+  RemoveTagResult
+} from '@shared/tags'
+import type {
+  TagSource,
+  Tag,
+  TagSummary,
+  TrackTagAssignment,
+  TrackTagView,
+  RemoveTagResult
+} from '@shared/tags'
 
 export class TagStore {
   private readonly statements: {
