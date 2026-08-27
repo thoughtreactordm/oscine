@@ -25,6 +25,7 @@ import {
   type ScanSummary,
   type Track,
   type TrackAudioMetadata,
+  type TrackFacets,
   type TrackFormatDetail
 } from '@shared/library'
 import type { RelatedQuery, RelatedResult } from '@shared/related'
@@ -261,6 +262,10 @@ export class SqliteLibraryService implements LibraryService {
 
   async getTracksByIds(query: GetTracksByIdsQuery): Promise<Track[]> {
     return this.store.getTracksByIds(query)
+  }
+
+  async trackFacets(trackId: number): Promise<TrackFacets> {
+    return this.store.trackFacets(trackId)
   }
 
   async recentlyAddedAlbums(limit: number): Promise<AlbumCard[]> {

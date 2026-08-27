@@ -347,6 +347,23 @@ export interface OrderTrackIdsQuery {
 }
 
 /**
+ * The album and album-artist a track belongs to — the Tunedeck Tags pane's
+ * batch scope (**W15-3**).
+ *
+ * Both ids are in the browse dimension's own space, so they feed straight back
+ * into `listTrackIds`: `albumId` is `t.album_id`, and `artistId` is the Artist
+ * browser's `COALESCE(album_artist_id, artist_id)` — which is what makes
+ * `listTrackIds({ artistIds: [artistId] })` select the same set the Artist
+ * facet would, the track it came from included. Either is `null` for a loose
+ * track that names neither, which the pane reads as "that batch option does not
+ * apply" rather than as an error.
+ */
+export interface TrackFacets {
+  albumId: number | null
+  artistId: number | null
+}
+
+/**
  * One album's run of consecutive rows in the track list.
  *
  * Only meaningful under an album-major ordering, which is why the query accepts

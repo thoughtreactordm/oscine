@@ -17,11 +17,13 @@ import LoudnessPane from './LoudnessPane.vue'
 import NeighbourhoodPane from './NeighbourhoodPane.vue'
 import OutboundLinksPane from './OutboundLinksPane.vue'
 import RelationsPane from './RelationsPane.vue'
+import TagsPane from './TagsPane.vue'
 import TrackIdentityHeader from './TrackIdentityHeader.vue'
 import TrailPane from './TrailPane.vue'
 import UpNextPane from './UpNextPane.vue'
 import { countLinks } from './artistLinks'
 import { countOwnedRelations } from './relationRows'
+import { countUserTags } from './userTags'
 import { createTunedeckRegistry } from './tunedeckPanes'
 import { useArtistFavoritesStore } from '@renderer/stores/artistFavorites'
 import { useArtistLinksStore } from '@renderer/stores/artistLinks'
@@ -30,6 +32,7 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { useRelatedStore } from '@renderer/stores/related'
+import { useTagsStore } from '@renderer/stores/tags'
 import { useTrackStatsStore } from '@renderer/stores/trackStats'
 
 /**
@@ -269,6 +272,28 @@ export const tunedeckRegistry = createTunedeckRegistry([
         icon: 'i-tabler-cpu',
         hint: 'Whether this track was decoded into memory or streamed past the cap. A streamed track cannot be gapless.',
         component: DecodePathPane
+      },
+      // Last under this tab, and a sibling of the file-describing three above it
+      // rather than one of them. Format, ReplayGain and Decode describe what was
+      // encoded; this describes what the operator has said about it — the same
+      // operator's-own-record category as the Favorite songs group under Artist,
+      // and drawn here for the same reason it is: seeded by the track, answered
+      // from SQLite, so it renders and edits with every online lookup declined.
+      //
+      // `i-tabler-tags` — the plural — because `i-tabler-tag` names the
+      // Neighbourhood group two tabs over, which matches on a genre rather than
+      // holding the operator's own. The badge counts the user tags only; the
+      // file's genres are the file's record and D7 keeps them read-only, so they
+      // are shown but never counted as something the operator put there. See
+      // `TagsPane` and `countUserTags`.
+      {
+        id: 'track-tags',
+        title: 'Tags',
+        icon: 'i-tabler-tags',
+        hint: 'Your own labels on this track, and the genres already written into the file for reference. The file’s genres cannot be changed here — Oscine never writes tags back to disk (D7). Adding applies to whatever “Add to” is set to — this track, its album, or everything by its artist; removing a tag only ever touches this track. Local: it works with online lookups off.',
+        badge: () =>
+          countUserTags(useTagsStore().forTrack(usePlaybackStore().nowPlaying?.id ?? -1)),
+        component: TagsPane
       }
     ]
   },

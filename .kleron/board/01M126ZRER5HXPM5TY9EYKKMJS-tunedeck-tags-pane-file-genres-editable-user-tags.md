@@ -3,7 +3,7 @@ taskId: 01M126ZRER5HXPM5TY9EYKKMJS
 title: >-
   Tunedeck "Tags" pane: file genres + editable user tags, with album/artist
   batch apply
-status: todo
+status: in-progress
 priority: medium
 labels: []
 workstream: W15
@@ -12,9 +12,9 @@ workstreamDependsOn:
   - W7
 dependsOn:
   - 01M126ZBGXQZ8QTJ9W6E5N2CBS
-order: 2
+order: 0
 created: '2026-08-27T18:16:18.136Z'
-updated: '2026-08-27T19:12:24.931Z'
+updated: '2026-08-27T19:38:04.520Z'
 ---
 The edit surface, as a new group under the Track tab in the Tunedeck registry (`src/renderer/panels/tunedeck/panes.ts`).
 

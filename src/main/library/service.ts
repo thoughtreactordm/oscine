@@ -17,6 +17,7 @@ import type {
   ScanSummary,
   Track,
   TrackAudioMetadata,
+  TrackFacets,
   TrackFormatDetail
 } from '@shared/library'
 import type { RelatedQuery, RelatedResult } from '@shared/related'
@@ -69,6 +70,8 @@ export interface LibraryService {
   orderTrackIds(query: OrderTrackIdsQuery): Promise<number[]>
   /** Display rows for an id list the caller already ordered. */
   getTracksByIds(query: GetTracksByIdsQuery): Promise<Track[]>
+  /** The album and album-artist a track sits in — the Tags pane's batch scope. */
+  trackFacets(trackId: number): Promise<TrackFacets>
   /**
    * Albums by arrival, newest first — the Quick Menu's Recent Additions
    * (**D25/D26**). Ordered by `MAX(indexed_at)` over each album's tracks and

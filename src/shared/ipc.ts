@@ -71,6 +71,7 @@ import type {
   ScanSummary,
   Track,
   TrackAudioMetadata,
+  TrackFacets,
   TrackFormatDetail
 } from './library'
 import type { CancelNetScopeRequest, CancelNetScopeResult, NetResult } from './net'
@@ -241,6 +242,15 @@ export interface IpcContract {
    * `FavoriteBias` for what the other two values promise.
    */
   'library.getRelated': { request: RelatedQuery; response: RelatedResult | null }
+  /**
+   * The album and album-artist a track sits in, so a batch tag edit can scope
+   * to "this album" or "everything by this artist" from the playing track —
+   * W15-3. A pair of ids in the browse facet's own space (see `TrackFacets`),
+   * fed straight back into `library.listTrackIds`. Reads the local index only,
+   * so it answers with the network unplugged; a track that has left the library
+   * comes back as two `null`s rather than an error.
+   */
+  'library.trackFacets': { request: { trackId: number }; response: TrackFacets }
   /**
    * Supplies only the fields needed to price a decode. This is deliberately a
    * separate metadata request: the R1 guard must decide before it fetches any
@@ -1069,6 +1079,7 @@ export const IPC_CHANNELS = [
   'library.orderTrackIds',
   'library.getTracksByIds',
   'library.getRelated',
+  'library.trackFacets',
   'library.removeRoot',
   'library.getTrackAudioMetadata',
   'library.getTrackFormatDetail',

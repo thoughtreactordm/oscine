@@ -89,6 +89,8 @@ export const library = {
     unwrap(window.oscine.library.getTracksByIds(query)),
   /** Catalog and neighbourhood relations for one track. Local index only. */
   getRelated: (trackId: number) => unwrap(window.oscine.library.getRelated(trackId)),
+  /** The album and album-artist a track sits in — the Tags pane's batch scope. */
+  trackFacets: (trackId: number) => unwrap(window.oscine.library.trackFacets(trackId)),
   getTrackAudioMetadata: (trackId: number) =>
     unwrap(window.oscine.library.getTrackAudioMetadata(trackId)),
   getTrackFormatDetail: (trackId: number) =>
