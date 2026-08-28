@@ -27,6 +27,7 @@ import type { AlbumCard } from '@shared/albums'
 import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
 import type { OverrideEditState, OverrideField, OverridePatch } from '@shared/overrides'
 import type { WritebackField } from '@shared/tagWriteback'
+import type { ArtworkRef } from '@shared/artwork'
 
 /**
  * Everything the IPC layer needs from the library, and nothing more.
@@ -108,6 +109,29 @@ export interface LibraryService {
   discardAllOverrides(): Promise<void>
   /** Retires a track's just-flushed override columns after a write-back (W16-6/7). */
   retireWrittenOverrides(trackId: number, fields: readonly WritebackField[]): Promise<void>
+  /**
+   * Ingests a cover the operator picks from a native dialog — **W16-10**.
+   *
+   * Opens the OS image picker, reads the chosen file, validates and stores it,
+   * and writes one `set` override per track (Decision C). `null` when the
+   * operator cancels the dialog; a typed error when the file is not a usable
+   * image. No image bytes ever reach the renderer.
+   */
+  setArtworkFromDialog(trackIds: readonly number[]): Promise<ArtworkRef | null>
+  /**
+   * Ingests operator-supplied image bytes from a drag/drop/paste gesture —
+   * **W16-10**. The identical validate-store-fan-out path as the dialog; the
+   * declared `mime` is advisory and re-sniffed from the bytes in main.
+   */
+  setArtworkFromBytes(
+    trackIds: readonly number[],
+    bytes: Uint8Array,
+    mime: string
+  ): Promise<ArtworkRef>
+  /** Sets the tri-state clear (cover removed on flush) on a batch — **W16-10**. */
+  clearArtwork(trackIds: readonly number[]): Promise<void>
+  /** Drops the artwork override on a batch — back to the file's cover (W16-10). */
+  revertArtwork(trackIds: readonly number[]): Promise<void>
   /**
    * Albums by arrival, newest first — the Quick Menu's Recent Additions
    * (**D25/D26**). Ordered by `MAX(indexed_at)` over each album's tracks and

@@ -93,6 +93,27 @@ async function pickMusicFolder(): Promise<string | null> {
 }
 
 /**
+ * W16-10's cover ingest picker. Main opens it, reads and validates the chosen
+ * file, and stores it — the renderer never sees the path or the bytes.
+ */
+async function pickCoverImage(): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    title: 'Choose cover image',
+    buttonLabel: 'Set cover',
+    filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png'] }],
+    properties: ['openFile', 'dontAddToRecent']
+  }
+
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options)
+
+  // Cancelling is an ordinary outcome, not an error — the contract says so.
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+}
+
+/**
  * D12's export dialog, and the only file Oscine writes outside its own data
  * directory.
  *
@@ -565,6 +586,7 @@ if (!app.requestSingleInstanceLock()) {
       // late-bound hole.
       externalArtworkReferences: () => images.referencedHashes(),
       pickFolder: pickMusicFolder,
+      pickImageFile: pickCoverImage,
       onProgress: broadcastScanProgress,
       onNotice: broadcastLibraryNotice,
       onReplayGainProgress: broadcastReplayGainProgress,

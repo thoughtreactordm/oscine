@@ -53,6 +53,7 @@ import {
   type OverrideField,
   type OverridePatch
 } from '@shared/overrides'
+import { MAX_ARTWORK_INGEST_BYTES } from '@shared/artwork'
 import {
   MAX_STATS_BUCKETS,
   MAX_STATS_ROWS,
@@ -546,6 +547,41 @@ export function assertClearOverridesRequest(value: unknown): {
     seen.add(field as OverrideField)
   }
   return { trackIds: assertOverrideTrackIds(raw.trackIds), fields: [...seen] }
+}
+
+/**
+ * The target of a cover ingest-from-dialog, clear or revert — **W16-10**. A
+ * non-empty, capped track set, reusing the editor's fan-out ceiling.
+ */
+export function assertArtworkTargetRequest(value: unknown): { trackIds: number[] } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds'])
+  return { trackIds: assertOverrideTrackIds(raw.trackIds) }
+}
+
+/**
+ * The drag/drop/paste ingest payload — **W16-10**. The track set, the raw image
+ * bytes, and the renderer's declared MIME (advisory; main re-sniffs it). The
+ * byte ceiling turns a pathological payload away at the seam before the service
+ * decodes anything.
+ */
+export function assertArtworkFromBytesRequest(value: unknown): {
+  trackIds: number[]
+  bytes: Uint8Array
+  mime: string
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds', 'bytes', 'mime'])
+  const trackIds = assertOverrideTrackIds(raw.trackIds)
+  const bytes = raw.bytes
+  if (!(bytes instanceof Uint8Array)) invalid('bytes must be a Uint8Array.')
+  if (bytes.byteLength === 0) invalid('bytes must not be empty.')
+  if (bytes.byteLength > MAX_ARTWORK_INGEST_BYTES) {
+    invalid('bytes must not exceed the maximum cover size.')
+  }
+  if (typeof raw.mime !== 'string') invalid('mime must be a string.')
+  if (raw.mime.length > 255) invalid('mime must not exceed 255 characters.')
+  return { trackIds, bytes, mime: raw.mime }
 }
 
 /** The reviewed batch to flush — a non-empty, capped list of selections (W16-6). */

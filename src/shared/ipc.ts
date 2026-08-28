@@ -148,6 +148,7 @@ import type {
   WritebackSelection
 } from './tagWriteback'
 import type { OverrideEditState, OverrideField, OverridePatch } from './overrides'
+import type { ArtworkRef } from './artwork'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -396,6 +397,47 @@ export interface IpcContract {
    * outcomes for the files it reached. A no-op when nothing is running.
    */
   'tagWriteback.cancelApply': { request: null; response: null }
+  /**
+   * Ingests a cover the operator picks from a native file dialog — **W16-10**,
+   * design authority Decision A/B/C.
+   *
+   * The renderer never touches the filesystem, so this is the required ingest
+   * path: main opens `dialog.showOpenDialog` (image filter), reads the chosen
+   * file, validates it decodes as a JPEG or PNG (refusing an undecodable or
+   * oversize file with a typed error and storing nothing), keeps the
+   * full-resolution original, and writes one `set` override row per track
+   * (Decision C's album fan-out). **No image bytes cross into the renderer** —
+   * the answer is an {@link ArtworkRef}, and `null` when the operator cancels
+   * the dialog, the ordinary outcome `library.addRoot` also reports that way.
+   */
+  'artwork.setFromDialog': {
+    request: { trackIds: number[] }
+    response: ArtworkRef | null
+  }
+  /**
+   * The drag/drop/paste ingest — **W16-10**, the stretch half of the same card.
+   *
+   * A dropped or pasted image is a user *gesture*, not filesystem access, so the
+   * renderer may read the `Blob`'s bytes and ship them **one way** to main here.
+   * Main runs the identical validate-store-fan-out path `artwork.setFromDialog`
+   * does; the declared `mime` is advisory only, re-sniffed from the bytes and
+   * never trusted. Bytes travel renderer→main and never back.
+   */
+  'artwork.setFromBytes': {
+    request: { trackIds: number[]; bytes: Uint8Array; mime: string }
+    response: ArtworkRef
+  }
+  /**
+   * Sets the tri-state *clear* on a batch — **W16-10**. Each track gains a
+   * NULL-hash override: no cover now, and the flush strips the front cover.
+   * Distinct from `revert`, which forgets the correction entirely.
+   */
+  'artwork.clear': { request: { trackIds: number[] }; response: null }
+  /**
+   * Drops the cover override on a batch — **W16-10**, back to the file's own
+   * cover (*absent*). The escape hatch from both a set and a clear.
+   */
+  'artwork.revert': { request: { trackIds: number[] }; response: null }
   /**
    * Appends one play to the trail. Main stamps the time; see the service.
    *
@@ -1224,6 +1266,10 @@ export const IPC_CHANNELS = [
   'tagWriteback.pending',
   'tagWriteback.apply',
   'tagWriteback.cancelApply',
+  'artwork.setFromDialog',
+  'artwork.setFromBytes',
+  'artwork.clear',
+  'artwork.revert',
   'history.record',
   'history.list',
   'history.clear',

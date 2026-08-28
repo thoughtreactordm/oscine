@@ -1,7 +1,7 @@
 ---
 taskId: 01M14AAX89PCX250PBPVDN7QGK
 title: Artwork override layer
-status: in-progress
+status: in-review
 priority: low
 labels:
   - phase-3
@@ -13,9 +13,9 @@ workstreamId: W16-9
 dependsOn:
   - 01M12VEX19HRHTZDD2BQWT1Q0C
   - 01M12VGDC5BYX59D9WKH9TAWDY
-order: 1
+order: 3
 created: '2026-08-28T13:53:18.088Z'
-updated: '2026-08-28T13:59:50.484Z'
+updated: '2026-08-28T14:29:42.827Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Embedded artwork & custom frames" (Decision A) + "Schema → Migration 020". First slice of the W16-8 artwork split.
 

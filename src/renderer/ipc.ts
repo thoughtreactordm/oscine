@@ -150,6 +150,24 @@ export const tagWriteback = {
     window.oscine.tagWriteback.onApplyProgress(listener)
 }
 
+/**
+ * Cover ingest — **W16-10**. Image bytes only ever travel renderer→main; every
+ * result is an {@link ArtworkRef} the renderer re-addresses through `oscine://`,
+ * never the bytes themselves.
+ */
+export const artwork = {
+  /** Open the OS image picker in main and set the chosen cover on a batch. */
+  setFromDialog: (trackIds: readonly number[]) =>
+    unwrap(window.oscine.artwork.setFromDialog(trackIds)),
+  /** Ship a dropped/pasted image's bytes one way to main and set it on a batch. */
+  setFromBytes: (trackIds: readonly number[], bytes: Uint8Array, mime: string) =>
+    unwrap(window.oscine.artwork.setFromBytes(trackIds, bytes, mime)),
+  /** Set the tri-state clear (cover removed on flush) on a batch. */
+  clear: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.clear(trackIds)),
+  /** Drop the override on a batch — back to the file's own cover. */
+  revert: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.revert(trackIds))
+}
+
 export const history = {
   record: (trackId: number) => unwrap(window.oscine.history.record(trackId)),
   list: (limit: number) => unwrap(window.oscine.history.list(limit)),

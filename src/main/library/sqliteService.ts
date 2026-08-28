@@ -1,7 +1,8 @@
 import type Database from 'better-sqlite3'
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { OscineError } from '@shared/errors'
+import type { ArtworkRef } from '@shared/artwork'
 import {
   MAX_TRACK_ID_PAGE,
   type GetTracksByIdsQuery,
@@ -73,6 +74,13 @@ export interface SqliteLibraryDeps {
   db: Database.Database
   /** Opens the OS folder picker. Resolves `null` when the user cancels. */
   pickFolder: () => Promise<string | null>
+  /**
+   * Opens the OS image picker for a cover ingest — **W16-10**. Resolves the
+   * chosen absolute path, or `null` when the operator cancels. Injected like
+   * `pickFolder` so this file stays Electron-free and testable against a temp
+   * directory; `src/main/index.ts` supplies the real one.
+   */
+  pickImageFile?: () => Promise<string | null>
   /** Pushes a progress event at the renderer. */
   onProgress: (progress: ScanProgress) => void
   /** Pushes durable ReplayGain job progress at the renderer. */
@@ -332,6 +340,49 @@ export class SqliteLibraryService implements LibraryService {
 
   async retireWrittenOverrides(trackId: number, fields: readonly WritebackField[]): Promise<void> {
     this.store.retireWrittenOverrides(trackId, fields, Date.now())
+  }
+
+  async setArtworkFromDialog(trackIds: readonly number[]): Promise<ArtworkRef | null> {
+    const artwork = this.requireArtwork()
+    const picked = this.deps.pickImageFile ? await this.deps.pickImageFile() : null
+    // Cancelling is an ordinary outcome, not an error — the contract says so.
+    if (picked === null) return null
+    let bytes: Uint8Array
+    try {
+      bytes = await readFile(picked)
+    } catch {
+      // The abs path never crosses the wire (renderer-never-sees-abs-path); the
+      // detail is dropped here and the operator gets a safe, generic message.
+      throw new OscineError('io-error', 'That image could not be read.')
+    }
+    return artwork.setCover(trackIds, bytes)
+  }
+
+  async setArtworkFromBytes(
+    trackIds: readonly number[],
+    bytes: Uint8Array,
+    // The renderer's declared type is advisory: `setCover` re-sniffs the real
+    // one from the bytes and never trusts this. Kept on the signature so the
+    // one-way drag/drop/paste payload matches the bridge surface.
+    _mime: string
+  ): Promise<ArtworkRef> {
+    return this.requireArtwork().setCover(trackIds, bytes)
+  }
+
+  async clearArtwork(trackIds: readonly number[]): Promise<void> {
+    await this.requireArtwork().clearCover(trackIds)
+  }
+
+  async revertArtwork(trackIds: readonly number[]): Promise<void> {
+    await this.requireArtwork().revertCover(trackIds)
+  }
+
+  /** The artwork service, or a typed failure on a library wired without one. */
+  private requireArtwork(): ArtworkCacheService {
+    if (!this.artwork) {
+      throw new OscineError('internal', 'Artwork is unavailable on this library.')
+    }
+    return this.artwork
   }
 
   async recentlyAddedAlbums(limit: number): Promise<AlbumCard[]> {
