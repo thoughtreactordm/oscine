@@ -18,6 +18,7 @@ import { quickAccess } from './016-quick-access'
 import { podcastAutoDownload } from './017-podcast-auto-download'
 import { userTags } from './018-user-tags'
 import { trackOverridesGenreYear } from './019-track-overrides-genre-year'
+import { genreAliases } from './020-genre-aliases'
 
 /**
  * Every migration, in order.
@@ -47,5 +48,6 @@ export const MIGRATIONS: readonly Migration[] = [
   quickAccess,
   podcastAutoDownload,
   userTags,
-  trackOverridesGenreYear
+  trackOverridesGenreYear,
+  genreAliases
 ]

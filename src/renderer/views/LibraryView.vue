@@ -6,6 +6,7 @@ import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
 import { trackMenuItems } from '@renderer/panels/trackMenu'
+import { editMetadataMenuItem } from '@renderer/panels/metadataMenu'
 import { useTrackActions } from '@renderer/panels/useTrackActions'
 import { useTrackActivation } from '@renderer/panels/useTrackActivation'
 import type {
@@ -144,7 +145,8 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
       addToPlaylist: addToPlaylist.menuItem({ count, trackIds: trackIdsFor(index) }),
       viewArtist: trackActions.viewArtist(trackActions.artistOf(track)),
       viewAlbum: trackActions.viewAlbum(track.album),
-      trackInfo: trackActions.showInfo(track)
+      trackInfo: trackActions.showInfo(track),
+      editMetadata: trackActions.editTrack(track)
     })
   }
   return [
@@ -161,7 +163,9 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
     { type: 'separator' },
     // No suggested name: a track selection has nothing to call itself, and the
     // one row case would suggest a song title for a playlist.
-    addToPlaylist.menuItem({ count, trackIds: trackIdsFor(index) })
+    addToPlaylist.menuItem({ count, trackIds: trackIdsFor(index) }),
+    { type: 'separator' },
+    editMetadataMenuItem(trackActions.editTracks(count, trackIdsFor(index)))
   ]
 }
 
@@ -193,7 +197,9 @@ const groupMenu: TrackListGroupMenu = (run): ContextMenuItem[] => {
       onSelect: () => void trackIds().then((ids) => queue.addToQueue(queueIds(ids)))
     },
     { type: 'separator' },
-    addToPlaylist.menuItem({ count, trackIds, suggestedName: album })
+    addToPlaylist.menuItem({ count, trackIds, suggestedName: album }),
+    { type: 'separator' },
+    editMetadataMenuItem(trackActions.editTracks(count, trackIds, album))
   ]
 }
 

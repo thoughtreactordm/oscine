@@ -58,6 +58,7 @@ function syntheticLibrary(total = LIBRARY_SIZE) {
         playCount: 0,
         lastPlayedAt: null,
         favorite: false,
+        modified: false,
         artwork: {
           small: 'oscine://artwork/missing/small',
           large: 'oscine://artwork/missing/large'

@@ -1,6 +1,6 @@
 import { extname } from 'node:path'
 import type { File as TagFile } from 'node-taglib-sharp'
-import type { GenreValue, PendingWrite } from '@shared/tagWriteback'
+import type { FieldDiff, GenreValue, PendingWrite, WritebackField } from '@shared/tagWriteback'
 
 /**
  * The per-codec tag writer — **W16-3**, design authority `oscine-tag-writeback`
@@ -142,4 +142,62 @@ export function writableTagsFromPending(pending: PendingWrite): WritableTags {
     year: pending.year.proposed,
     genres: pending.genres.proposed
   }
+}
+
+/** Whether one scalar field's key is selected: `proposed` if so, else `current`. */
+function pick<T extends string | number>(
+  field: WritebackField,
+  diff: FieldDiff<T>,
+  selected: ReadonlySet<WritebackField>
+): T | null {
+  return selected.has(field) ? diff.proposed : diff.current
+}
+
+/**
+ * A flush target honouring the review's per-field selection — **W16-6**.
+ *
+ * The engine rewrites the whole tag block, so a deselected field cannot simply
+ * be omitted: it is written back at its *current* value, which the file already
+ * holds, so the write is a content no-op for it and every unmodelled tag it
+ * carries survives untouched. Only the selected fields take their `proposed`
+ * value. `current` here is the field's fresh read from the pending write the
+ * flush re-derived at apply time (R7), never a value the renderer supplied — so
+ * a field the operator left unchecked keeps whatever the file holds now, even if
+ * another tool changed it since the diff was reviewed.
+ */
+export function writableTagsFromSelection(
+  pending: PendingWrite,
+  selected: ReadonlySet<WritebackField>
+): WritableTags {
+  return {
+    title: pick('title', pending.title, selected),
+    artist: pick('artist', pending.artist, selected),
+    album: pick('album', pending.album, selected),
+    trackNo: pick('trackNo', pending.trackNo, selected),
+    discNo: pick('discNo', pending.discNo, selected),
+    year: pick('year', pending.year, selected),
+    genres: selected.has('genres') ? pending.genres.proposed : pending.genres.current
+  }
+}
+
+/**
+ * Whether a selection still changes anything against a freshly re-derived diff.
+ *
+ * True when at least one selected field is genuinely changed in `pending`. False
+ * is the flush's "skip this file" signal: every selected field already matches
+ * the bytes on disk — either the file always did, or an out-of-band edit made it
+ * so since review — so writing would be a no-op and the report says `skipped`.
+ */
+export function selectionChangesFile(
+  pending: PendingWrite,
+  selected: ReadonlySet<WritebackField>
+): boolean {
+  if (selected.has('title') && pending.title.changed) return true
+  if (selected.has('artist') && pending.artist.changed) return true
+  if (selected.has('album') && pending.album.changed) return true
+  if (selected.has('trackNo') && pending.trackNo.changed) return true
+  if (selected.has('discNo') && pending.discNo.changed) return true
+  if (selected.has('year') && pending.year.changed) return true
+  if (selected.has('genres') && pending.genres.changed) return true
+  return false
 }

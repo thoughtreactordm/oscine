@@ -4,6 +4,7 @@ import { trackUrl } from '@shared/ipc'
 import type { FavoriteService } from '../favorites/service'
 import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
+import type { TagWritebackService } from '../library/writeback/service'
 import type { ListenService } from '../listens/service'
 import type { PlaylistService } from '../library/playlists/service'
 import type {
@@ -21,9 +22,14 @@ import type { SettingsService } from '../settings/service'
 import type { StatsService } from '../stats/service'
 import type { TagStore } from '../tags/store'
 import type { ArtistBiographyService, ArtistImageService } from '../wikipedia'
-import { assertEveryChannelHandled, handle } from './registry'
+import { assertEveryChannelHandled, emit, handle } from './registry'
 import {
   assertAddTracksRequest,
+  assertWritebackApplyRequest,
+  assertWritebackPreviewRequest,
+  assertOverrideEditStateRequest,
+  assertSetOverridesRequest,
+  assertClearOverridesRequest,
   assertCancelNetScopeRequest,
   assertScrobbleTargetRequest,
   assertClearArtistMbidRequest,
@@ -118,7 +124,8 @@ export function registerIpcHandlers(
   links: ArtistLinksService,
   search: SearchService,
   tags: TagStore,
-  tagSuggestions: TagSuggestionService
+  tagSuggestions: TagSuggestionService,
+  tagWriteback: TagWritebackService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -256,6 +263,49 @@ export function registerIpcHandlers(
   handle('library.resumeReplayGain', (request) => {
     const { jobId } = assertRecord(request, 'request')
     return library.resumeReplayGain(assertPositiveInt(jobId, 'jobId'))
+  })
+
+  handle('overrides.getEditState', (request) => {
+    const { trackIds } = assertOverrideEditStateRequest(request)
+    return library.getOverrideEditState(trackIds)
+  })
+
+  handle('overrides.set', async (request) => {
+    const { trackIds, patch } = assertSetOverridesRequest(request)
+    await library.setOverrides({ trackIds, patch })
+    return null
+  })
+
+  handle('overrides.clear', async (request) => {
+    const { trackIds, fields } = assertClearOverridesRequest(request)
+    await library.clearOverrides({ trackIds, fields })
+    return null
+  })
+
+  handle('overrides.discardAll', async () => {
+    await library.discardAllOverrides()
+    return null
+  })
+
+  handle('tagWriteback.preview', (request) => {
+    const { trackIds } = assertWritebackPreviewRequest(request)
+    return tagWriteback.preview(trackIds)
+  })
+
+  handle('tagWriteback.pending', () => tagWriteback.previewPending())
+
+  handle('tagWriteback.apply', (request, event) => {
+    const { selections } = assertWritebackApplyRequest(request)
+    // Progress goes only to the renderer that started the flush — one operator,
+    // one review surface, so a broadcast would just be noise to every other view.
+    return tagWriteback.apply(selections, (progress) =>
+      emit(event.sender, 'tagWriteback.applyProgress', progress)
+    )
+  })
+
+  handle('tagWriteback.cancelApply', () => {
+    tagWriteback.cancel()
+    return null
   })
 
   handle('history.record', (request) => {

@@ -200,6 +200,15 @@ export const useLibraryRootsStore = defineStore('libraryRoots', () => {
     stopNotice = null
   }
 
+  /**
+   * The rows behind every list have changed without a scan — a metadata edit
+   * (W16). Bumps the same `version` a finished scan does, so the track list and
+   * the facets reload through the watchers they already have.
+   */
+  function markChanged(): void {
+    version.value += 1
+  }
+
   return {
     roots,
     adding,
@@ -209,6 +218,7 @@ export const useLibraryRootsStore = defineStore('libraryRoots', () => {
     scan,
     notice,
     version,
+    markChanged,
     refresh,
     addFolder,
     rescan,

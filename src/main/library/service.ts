@@ -25,6 +25,8 @@ import type {
 import type { RelatedQuery, RelatedResult } from '@shared/related'
 import type { AlbumCard } from '@shared/albums'
 import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
+import type { OverrideEditState, OverrideField, OverridePatch } from '@shared/overrides'
+import type { WritebackField } from '@shared/tagWriteback'
 
 /**
  * Everything the IPC layer needs from the library, and nothing more.
@@ -79,6 +81,33 @@ export interface LibraryService {
   getTracksByIds(query: GetTracksByIdsQuery): Promise<Track[]>
   /** The album and album-artist a track sits in — the Tags pane's batch scope. */
   trackFacets(trackId: number): Promise<TrackFacets>
+  /**
+   * The metadata editor's prefill for a batch of tracks — **W16 (editor)**.
+   *
+   * Each field's effective value across the selection, folded to a shared value
+   * or "mixed", plus whether a correction already stands on it.
+   */
+  getOverrideEditState(trackIds: readonly number[]): Promise<OverrideEditState>
+  /**
+   * Applies a metadata edit — D7's correction layer, made live.
+   *
+   * Materialises each changed field into the display rows (so the edit shows at
+   * once, and a corrected artist/album re-groups and re-facets the browse) and
+   * records it in `track_overrides` for the write-back review and flush. Never
+   * touches a file.
+   */
+  setOverrides(request: { trackIds: readonly number[]; patch: OverridePatch }): Promise<void>
+  /** Reverts the named fields on a batch to what the files currently hold. */
+  clearOverrides(request: {
+    trackIds: readonly number[]
+    fields: readonly OverrideField[]
+  }): Promise<void>
+  /** The tracks with an unwritten correction — the write-back's pending set (W16). */
+  pendingWritebackTrackIds(): Promise<number[]>
+  /** Reverts every pending edit to what the files hold — the "discard all" gate (W16). */
+  discardAllOverrides(): Promise<void>
+  /** Retires a track's just-flushed override columns after a write-back (W16-6/7). */
+  retireWrittenOverrides(trackId: number, fields: readonly WritebackField[]): Promise<void>
   /**
    * Albums by arrival, newest first — the Quick Menu's Recent Additions
    * (**D25/D26**). Ordered by `MAX(indexed_at)` over each album's tracks and

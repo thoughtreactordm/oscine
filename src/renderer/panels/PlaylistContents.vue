@@ -9,6 +9,7 @@ import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover
 import TrackList from '@renderer/panels/TrackList.vue'
 import { activeRowDrag, beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
 import { trackMenuItems } from '@renderer/panels/trackMenu'
+import { editMetadataMenuItem } from '@renderer/panels/metadataMenu'
 import { useTrackActions } from '@renderer/panels/useTrackActions'
 import { useTrackActivation } from '@renderer/panels/useTrackActivation'
 import { FAVORITES_TAB } from '@renderer/panels/playlistTabs'
@@ -285,7 +286,8 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
         addToPlaylist: addToPlaylist.menuItem({ count, trackIds: () => trackIdsFor(index) }),
         viewArtist: trackActions.viewArtist(trackActions.artistOf(track)),
         viewAlbum: trackActions.viewAlbum(track.album),
-        trackInfo: trackActions.showInfo(track)
+        trackInfo: trackActions.showInfo(track),
+        editMetadata: trackActions.editTrack(track)
       }),
       { type: 'separator' },
       remove
@@ -310,6 +312,8 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
     },
     { type: 'separator' },
     addToPlaylist.menuItem({ count, trackIds: () => trackIdsFor(index) }),
+    { type: 'separator' },
+    editMetadataMenuItem(trackActions.editTracks(count, () => trackIdsFor(index))),
     { type: 'separator' },
     remove
   ]

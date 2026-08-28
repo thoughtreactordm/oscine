@@ -170,6 +170,17 @@ function cellMark(row: TrackTableRow, columnKey: TrackColumnKey): NowPlayingMark
   return markAt(row.index)
 }
 
+/**
+ * Whether to draw the "edited, not yet written" mark on this cell — **W16**.
+ *
+ * Leading column only, like {@link cellMark}: a track with an unwritten
+ * correction gets one dot at the start of the row, not one per column.
+ */
+function cellModified(row: TrackTableRow, columnKey: TrackColumnKey): boolean {
+  if (row.run !== null || columnKey !== leadingColumnKey.value) return false
+  return trackAt(row)?.modified ?? false
+}
+
 function alignClass(column: TrackColumnSpec, playing = false): string {
   const tone = playing
     ? 'text-primary'
@@ -1167,6 +1178,17 @@ onMounted(() => props.source.ensureRange(0, 30))
                   nowPlayingLabel(cellMark(row.original, column.key))
                 }}</span>
               </span>
+              <!--
+              The "edited, not yet written" mark (W16): a track carrying an
+              unwritten correction shows one dot at the head of the row. The
+              Tools → Tag write-back tool is where these are flushed to disk.
+            -->
+              <span
+                v-if="cellModified(row.original, column.key)"
+                class="me-1.5 inline-block size-1.5 shrink-0 rounded-full bg-primary align-middle"
+                title="Edited — not yet written to the file"
+                aria-label="Modified"
+              />
               <!--
               The heart, which is a control rather than a value and so gets its
               own branch. Nothing is drawn until the page arrives — a skeleton

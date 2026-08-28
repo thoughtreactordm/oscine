@@ -1,5 +1,6 @@
 import type { ContextMenuItem } from '@nuxt/ui'
 import { queueCommandLabel } from '@renderer/playback/queueCommands'
+import { editMetadataMenuItem } from '@renderer/panels/metadataMenu'
 
 /**
  * The one single-track context menu, as data — **G8**.
@@ -43,6 +44,8 @@ export interface TrackMenuActions {
   viewAlbum: (() => void) | null
   /** Open the Track Info dialog. */
   trackInfo: () => void
+  /** Open the metadata editor scoped to this track (**W16 editor**). */
+  editMetadata: () => void
 }
 
 /** Flattens groups into one list, separated only between non-empty groups. */
@@ -93,6 +96,7 @@ export function trackMenuItems(actions: TrackMenuActions): ContextMenuItem[] {
         onSelect: actions.viewAlbum ?? undefined
       }
     ],
-    [{ label: 'Track info', icon: 'i-tabler-info-circle', onSelect: actions.trackInfo }]
+    [{ label: 'Track info', icon: 'i-tabler-info-circle', onSelect: actions.trackInfo }],
+    [editMetadataMenuItem(actions.editMetadata)]
   ])
 }

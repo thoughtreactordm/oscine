@@ -66,6 +66,7 @@ function track(overrides: Partial<Track> = {}): Track {
     playCount: 0,
     lastPlayedAt: null,
     favorite: false,
+    modified: false,
     artwork: { small: 'oscine://artwork/1/small', large: 'oscine://artwork/1/large' },
     rgTrackGainDb: null,
     rgTrackPeak: null,

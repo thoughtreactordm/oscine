@@ -134,7 +134,8 @@ const songMenu = computed<DropdownMenuItem[]>(() => {
     }),
     viewArtist: trackActions.viewArtist(trackActions.artistOf(track)),
     viewAlbum: trackActions.viewAlbum(track.album),
-    trackInfo: trackActions.showInfo(track)
+    trackInfo: trackActions.showInfo(track),
+    editMetadata: trackActions.editTrack(track)
   }) as DropdownMenuItem[]
 })
 

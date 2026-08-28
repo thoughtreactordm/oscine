@@ -6,6 +6,7 @@ import CommandPalette from '@renderer/panels/CommandPalette.vue'
 import NewPlaylistModal from '@renderer/panels/NewPlaylistModal.vue'
 import NowPlaying from '@renderer/panels/NowPlaying.vue'
 import TrackInfoModal from '@renderer/panels/TrackInfoModal.vue'
+import TrackMetadataEditor from '@renderer/panels/TrackMetadataEditor.vue'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
 import { shellTabs } from '@renderer/shell/routes'
 import { useGlobalShortcuts } from '@renderer/shell/useGlobalShortcuts'
@@ -293,6 +294,9 @@ onUnmounted(() => {
       right-click in a list or on a card, both of which a tab change unmounts.
     -->
     <TrackInfoModal />
+
+    <!-- The metadata editor (W16), mounted with the frame for TrackInfoModal's reason. -->
+    <TrackMetadataEditor />
 
     <!--
       The command palette, mounted with the frame for the reason the playlist

@@ -141,6 +141,13 @@ import type {
   StatsSummary,
   StatsSummaryQuery
 } from './stats'
+import type {
+  PendingWrite,
+  WritebackProgress,
+  WritebackReport,
+  WritebackSelection
+} from './tagWriteback'
+import type { OverrideEditState, OverrideField, OverridePatch } from './overrides'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -301,6 +308,94 @@ export interface IpcContract {
     request: { jobId: number }
     response: ReplayGainJobProgress
   }
+  /**
+   * The metadata editor's prefill for a set of tracks — **W16 (editor)**.
+   *
+   * The effective value of each field across the selection, folded to a shared
+   * value or "mixed", plus whether a correction already stands. Read-only.
+   */
+  'overrides.getEditState': {
+    request: { trackIds: number[] }
+    response: OverrideEditState
+  }
+  /**
+   * Applies a metadata edit — D7's correction layer, made live.
+   *
+   * Materialises each changed field into the display rows (so the edit shows at
+   * once, and a corrected artist/album re-groups and re-facets the browse) and
+   * records it in `track_overrides` for the write-back review and flush. Never
+   * writes a file. The renderer reloads the browse afterwards, the same way a
+   * scan does.
+   */
+  'overrides.set': {
+    request: { trackIds: number[]; patch: OverridePatch }
+    response: null
+  }
+  /** Reverts the named fields on a batch to what the files currently hold. */
+  'overrides.clear': {
+    request: { trackIds: number[]; fields: OverrideField[] }
+    response: null
+  }
+  /**
+   * Discards every pending edit — reverts all corrected tracks to their files.
+   *
+   * The escape hatch: one deliberate action to clear the whole correction layer.
+   * Destructive, and gated behind a confirmation in the renderer.
+   */
+  'overrides.discardAll': { request: null; response: null }
+  /**
+   * The staged tag write-back review's data side — **W16-6**, design authority
+   * D28. The renderer scopes a review to a set of tracks (a song, or the tracks
+   * an album/artist/multiselection resolves to) and gets back the pending writes
+   * worth reviewing: one {@link PendingWrite} per track whose file does not
+   * already match its corrections. Tracks with no changes are dropped here rather
+   * than shown, so the diff the operator scrolls is only the diff.
+   *
+   * The read is live — main reads each file fresh at merge time (R7), so a batch
+   * of thousands of tracks is thousands of file reads. That is the cost of a
+   * before/after diff and is paid once, when the operator asks to review.
+   */
+  'tagWriteback.preview': {
+    request: { trackIds: number[] }
+    response: PendingWrite[]
+  }
+  /**
+   * The review's default set — every track with an unwritten correction.
+   *
+   * No scope: edits accumulate in `track_overrides` (and W15's tag layer), and
+   * this is the whole of them, so the operator writes the changes they have made
+   * rather than reassembling a scope by hand. Changed-only, like `preview`.
+   */
+  'tagWriteback.pending': {
+    request: null
+    response: PendingWrite[]
+  }
+  /**
+   * Flushes the reviewed batch to disk through the W16-2/W16-4 engine.
+   *
+   * Each {@link WritebackSelection} names a track and the fields the operator
+   * approved; main re-derives that track's diff against a *fresh* read (R7) and
+   * writes only the selected fields, atomically and per file, so one file's
+   * failure never aborts the batch. Live progress arrives on
+   * `tagWriteback.applyProgress`; the resolved {@link WritebackReport} is the
+   * per-file summary, complete even if a coalesced progress event was missed.
+   *
+   * Rejects `conflict` if a flush is already running — there is one operator and
+   * one review surface, so a second concurrent flush is a bug, not a queue.
+   */
+  'tagWriteback.apply': {
+    request: { selections: WritebackSelection[] }
+    response: WritebackReport
+  }
+  /**
+   * Stops the running flush between files.
+   *
+   * Cooperative, not a kill: the file being written finishes atomically (its
+   * backup is never left dangling), and the batch stops before the next one. The
+   * awaited `tagWriteback.apply` still resolves — with `cancelled: true` and the
+   * outcomes for the files it reached. A no-op when nothing is running.
+   */
+  'tagWriteback.cancelApply': { request: null; response: null }
   /**
    * Appends one play to the trail. Main stamps the time; see the service.
    *
@@ -1039,6 +1134,8 @@ export interface IpcEventContract {
   'library.notice': LibraryNotice
   'library.replayGainProgress': ReplayGainJobProgress
   'podcasts.downloadProgress': EpisodeDownloadProgress
+  /** Cumulative progress of a running tag write-back flush — **W16-6**. */
+  'tagWriteback.applyProgress': WritebackProgress
   /**
    * Durable keys that just changed, and their new values.
    *
@@ -1119,6 +1216,14 @@ export const IPC_CHANNELS = [
   'library.getReplayGainJob',
   'library.cancelReplayGain',
   'library.resumeReplayGain',
+  'overrides.getEditState',
+  'overrides.set',
+  'overrides.clear',
+  'overrides.discardAll',
+  'tagWriteback.preview',
+  'tagWriteback.pending',
+  'tagWriteback.apply',
+  'tagWriteback.cancelApply',
   'history.record',
   'history.list',
   'history.clear',
@@ -1214,6 +1319,7 @@ export const IPC_EVENT_CHANNELS = [
   'library.notice',
   'library.replayGainProgress',
   'podcasts.downloadProgress',
+  'tagWriteback.applyProgress',
   'settings.changed',
   'listens.flushRequested',
   'scrobble.statusChanged'

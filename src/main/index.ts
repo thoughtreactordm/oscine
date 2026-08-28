@@ -26,6 +26,8 @@ import { createDerivedArtworkStore } from './library/derivedArtwork'
 import { SqliteLibraryService } from './library/sqliteService'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
+import { TagWritebackDiffer } from './library/writeback/differ'
+import { TagWritebackService, trackPathResolver } from './library/writeback/service'
 import { SqlitePodcastService } from './podcasts/service'
 import {
   createArtistIdentityService,
@@ -636,6 +638,21 @@ if (!app.requestSingleInstanceLock()) {
     // whole networked half is silent when consent is off.
     const tagSuggestions = createTagSuggestionService({ db, client: net.client, cache, tags })
 
+    // W16-6 — the staged tag write-back review's main half. It flushes the
+    // correction layers `tags` and the override rows own back into the actual
+    // file tags through the atomic engine (W16-2/W16-4), reading each file fresh
+    // so the diff and the write both reconcile out-of-band edits rather than
+    // clobber them (R7). The renderer scopes a review to a track set and never
+    // sees a path.
+    const tagWriteback = new TagWritebackService({
+      differ: new TagWritebackDiffer(db),
+      resolvePath: trackPathResolver(db),
+      // The review's default is every unwritten correction (W16-6), and a flush
+      // retires the overrides it lands so the track leaves the list.
+      pendingTrackIds: () => library.pendingWritebackTrackIds(),
+      retire: (trackId, fields) => library.retireWrittenOverrides(trackId, fields)
+    })
+
     // The command palette's finder (D23). Same connection, no tables of its own
     // and no network: it reuses `tracks_fts` for tracks and a light LIKE over
     // the small entity sets, and reaches nothing but this database.
@@ -736,7 +753,8 @@ if (!app.requestSingleInstanceLock()) {
       links,
       search,
       tags,
-      tagSuggestions
+      tagSuggestions,
+      tagWriteback
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

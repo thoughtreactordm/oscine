@@ -35,6 +35,7 @@ function track(id: number): Track {
     playCount: 0,
     lastPlayedAt: null,
     favorite: true,
+    modified: false,
     artwork: { small: '', large: '' },
     rgTrackGainDb: null,
     rgTrackPeak: null,

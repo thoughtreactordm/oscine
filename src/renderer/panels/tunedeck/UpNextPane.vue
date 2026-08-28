@@ -180,7 +180,8 @@ function queueMenu(entry: QueueEntry): ContextMenuItem[] {
       }),
       viewArtist: trackActions.viewArtist(trackActions.artistOf(entry.track)),
       viewAlbum: trackActions.viewAlbum(entry.track.album),
-      trackInfo: trackActions.showInfo(entry.track)
+      trackInfo: trackActions.showInfo(entry.track),
+      editMetadata: trackActions.editTrack(entry.track)
     }),
     { type: 'separator' },
     {

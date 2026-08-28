@@ -55,6 +55,8 @@ import type {
   SettingsChange
 } from '@shared/settings'
 import type { SearchQuery } from '@shared/search'
+import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
+import type { OverrideField, OverridePatch } from '@shared/overrides'
 
 /**
  * The entire main/renderer seam.
@@ -160,6 +162,44 @@ const api = {
     onNotice: (listener: (notice: LibraryNotice) => void) => subscribe('library.notice', listener),
     onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
       subscribe('library.replayGainProgress', listener)
+  },
+  /**
+   * Track-metadata editing — **W16 (editor)**. Records corrections in
+   * `track_overrides` and materialises them into the live rows; never a file.
+   */
+  overrides: {
+    /** The editor's prefill for a set of tracks. */
+    getEditState: (trackIds: readonly number[]) =>
+      request('overrides.getEditState', { trackIds: [...trackIds] }),
+    /** Apply a metadata edit to a batch. */
+    set: (trackIds: readonly number[], patch: OverridePatch) =>
+      request('overrides.set', { trackIds: [...trackIds], patch }),
+    /** Revert the named fields on a batch to what the files hold. */
+    clear: (trackIds: readonly number[], fields: readonly OverrideField[]) =>
+      request('overrides.clear', { trackIds: [...trackIds], fields: [...fields] }),
+    /** Discard every pending edit — revert the whole correction layer to the files. */
+    discardAll: () => request('overrides.discardAll', null)
+  },
+  /**
+   * Staged tag write-back review — **W16-6**, and the one place in this bridge
+   * that flushes corrections to disk. It cannot name a file: the scope in and the
+   * report out are track ids and typed codes, never a path, so there is no
+   * careful version of this that leaks one.
+   */
+  tagWriteback: {
+    /** The pending writes worth reviewing for a set of tracks — changed only. */
+    preview: (trackIds: readonly number[]) =>
+      request('tagWriteback.preview', { trackIds: [...trackIds] }),
+    /** Every track with an unwritten correction — the review's default set. */
+    pending: () => request('tagWriteback.pending', null),
+    /** Flush the reviewed batch; live progress arrives on `onApplyProgress`. */
+    apply: (selections: readonly WritebackSelection[]) =>
+      request('tagWriteback.apply', { selections: [...selections] }),
+    /** Stop the running flush between files. Resolves the in-flight apply cancelled. */
+    cancelApply: () => request('tagWriteback.cancelApply', null),
+    /** Returns an unsubscribe function. Call it on unmount. */
+    onApplyProgress: (listener: (progress: WritebackProgress) => void) =>
+      subscribe('tagWriteback.applyProgress', listener)
   },
   history: {
     /** One play, at the moment the transport committed to it. Main stamps the time. */
