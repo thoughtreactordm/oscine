@@ -24,6 +24,8 @@ import type { NetScope } from '@shared/net'
 import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
 import type { DiscoverRecipeId } from '@shared/discover'
 import type { SearchQuery } from '@shared/search'
+import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
+import type { OverrideField, OverridePatch } from '@shared/overrides'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -109,6 +111,43 @@ export const library = {
   onNotice: (listener: (notice: LibraryNotice) => void) => window.oscine.library.onNotice(listener),
   onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
     window.oscine.library.onReplayGainProgress(listener)
+}
+
+/**
+ * Track-metadata editing — **W16 (editor)**. Corrections land in
+ * `track_overrides` and materialise into the live rows; no file is touched.
+ */
+export const overrides = {
+  /** The editor's prefill for a set of tracks. */
+  getEditState: (trackIds: readonly number[]) =>
+    unwrap(window.oscine.overrides.getEditState(trackIds)),
+  /** Apply a metadata edit to a batch. */
+  set: (trackIds: readonly number[], patch: OverridePatch) =>
+    unwrap(window.oscine.overrides.set(trackIds, patch)),
+  /** Revert the named fields on a batch to what the files hold. */
+  clear: (trackIds: readonly number[], fields: readonly OverrideField[]) =>
+    unwrap(window.oscine.overrides.clear(trackIds, fields)),
+  /** Discard every pending edit — revert the whole correction layer to the files. */
+  discardAll: () => unwrap(window.oscine.overrides.discardAll())
+}
+
+/**
+ * Staged tag write-back review — **W16-6**. Scope in and report out are track
+ * ids and typed codes; this half of the boundary never sees a path.
+ */
+export const tagWriteback = {
+  /** The pending writes worth reviewing for a set of tracks — changed only. */
+  preview: (trackIds: readonly number[]) => unwrap(window.oscine.tagWriteback.preview(trackIds)),
+  /** Every track with an unwritten correction — the review's default set. */
+  pending: () => unwrap(window.oscine.tagWriteback.pending()),
+  /** Flush the reviewed batch; subscribe to `onApplyProgress` for live progress. */
+  apply: (selections: readonly WritebackSelection[]) =>
+    unwrap(window.oscine.tagWriteback.apply(selections)),
+  /** Stop the running flush between files. The awaited `apply` resolves cancelled. */
+  cancelApply: () => unwrap(window.oscine.tagWriteback.cancelApply()),
+  /** Returns an unsubscribe function. Call it on unmount. */
+  onApplyProgress: (listener: (progress: WritebackProgress) => void) =>
+    window.oscine.tagWriteback.onApplyProgress(listener)
 }
 
 export const history = {

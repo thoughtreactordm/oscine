@@ -250,7 +250,8 @@ function itemMenu(item: DiscoverItem): ContextMenuItem[] {
     }),
     viewArtist: trackActions.viewArtist(item.artist),
     viewAlbum: trackActions.viewAlbum(item.albumTitle),
-    trackInfo: () => void showTrackInfo(item)
+    trackInfo: () => void showTrackInfo(item),
+    editMetadata: trackActions.editTracks(1, () => Promise.resolve([item.trackId]), item.title)
   })
 }
 

@@ -8,6 +8,7 @@ import FacetList from '@renderer/panels/FacetList.vue'
 import GenreFacetList from '@renderer/panels/GenreFacetList.vue'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
+import { editMetadataMenuItem } from '@renderer/panels/metadataMenu'
 import { queueCommandLabel, queueIds } from '@renderer/playback/queueCommands'
 import { useSettings } from '@renderer/settings'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
@@ -20,6 +21,7 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { useShellStore } from '@renderer/stores/shell'
+import { useTrackEditStore } from '@renderer/stores/trackEdit'
 import { useTrackListStore } from '@renderer/stores/trackList'
 import { MAX_SEARCH_LENGTH, type AlbumFacet, type ArtistFacet } from '@shared/library'
 
@@ -58,6 +60,7 @@ const playback = usePlaybackStore()
 const playlists = usePlaylistsStore()
 const trackList = useTrackListStore()
 const artistFavorites = useArtistFavorites()
+const trackEdit = useTrackEditStore()
 
 /**
  * The Artists/Albums divide, dragged and remembered.
@@ -262,7 +265,15 @@ function facetPane<T extends { id: number }>(spec: FacetPaneSpec<T>) {
         onSelect: () => void target.trackIds().then((ids) => queue.addToQueue(queueIds(ids)))
       },
       { type: 'separator' },
-      addToPlaylist.menuItem(target)
+      addToPlaylist.menuItem(target),
+      { type: 'separator' },
+      editMetadataMenuItem(
+        () =>
+          void trackEdit.edit(
+            target.suggestedName ?? `${target.count} ${spec.unit}`,
+            target.trackIds
+          )
+      )
     ]
 
     // The star acts on the one row under the pointer, not the selection: a

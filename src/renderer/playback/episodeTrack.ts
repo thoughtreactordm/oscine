@@ -37,6 +37,7 @@ export function episodeAsTrack(episode: Episode, podcast: Podcast): Track {
     // and the transport's heart both read this and both draw nothing, which is
     // the correct answer until W9 decides what favoriting an episode means.
     favorite: false,
+    modified: false,
     artwork: podcast.artwork,
     rgTrackGainDb: null,
     rgTrackPeak: null,

@@ -54,6 +54,7 @@ function track(id: number): Track {
     playCount: 0,
     lastPlayedAt: null,
     favorite: true,
+    modified: false,
     artwork: { small: 'oscine://artwork/missing/small', large: 'oscine://artwork/missing/large' },
     rgTrackGainDb: null,
     rgTrackPeak: null,

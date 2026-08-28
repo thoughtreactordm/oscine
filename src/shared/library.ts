@@ -106,6 +106,15 @@ export interface Track extends TrackReplayGain {
    * see `@shared/favorites`.
    */
   favorite: boolean
+  /**
+   * Whether the track carries an unwritten correction — **W16 (editor)**.
+   *
+   * True when a `track_overrides` row stands for it: a metadata edit has been
+   * made in the app but not yet flushed to the file. Lists show a mark for it, and
+   * the flush clears it. Resolved with the page like `favorite`, for the same
+   * reason — a virtualized list cannot afford a second probe per row.
+   */
+  modified: boolean
   artwork: ArtworkUrls
 }
 

@@ -42,6 +42,18 @@ import {
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
 import type { RecordListenRequest } from '@shared/listens'
 import {
+  MAX_WRITEBACK_TRACKS,
+  WRITEBACK_FIELDS,
+  type WritebackField,
+  type WritebackSelection
+} from '@shared/tagWriteback'
+import {
+  MAX_OVERRIDE_TRACKS,
+  OVERRIDE_FIELDS,
+  type OverrideField,
+  type OverridePatch
+} from '@shared/overrides'
+import {
   MAX_STATS_BUCKETS,
   MAX_STATS_ROWS,
   STATS_BUCKET_MS,
@@ -401,6 +413,154 @@ export function assertGetTracksByIdsQuery(value: unknown): GetTracksByIdsQuery {
   for (const id of ids) assertPositiveInt(id, 'ids entry')
 
   return { ids: ids as number[] }
+}
+
+/** The writable field keys, as a set — the allowed contents of a selection. */
+const WRITEBACK_FIELD_SET: ReadonlySet<string> = new Set(WRITEBACK_FIELDS)
+
+/** The tracks to compute a review diff for — a non-empty, capped id set (W16-6). */
+export function assertWritebackPreviewRequest(value: unknown): { trackIds: number[] } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds'])
+
+  const trackIds = raw.trackIds
+  if (!Array.isArray(trackIds)) invalid('trackIds must be an array.')
+  if (trackIds.length === 0) invalid('trackIds must not be empty.')
+  if (trackIds.length > MAX_WRITEBACK_TRACKS) {
+    invalid(`trackIds must not exceed ${MAX_WRITEBACK_TRACKS} entries.`)
+  }
+  for (const id of trackIds) assertPositiveInt(id, 'trackIds entry')
+
+  return { trackIds: trackIds as number[] }
+}
+
+/** One track's approved fields — a positive id and a non-empty, deduped field subset. */
+function assertWritebackSelection(value: unknown): WritebackSelection {
+  const raw = assertRecord(value, 'selection')
+  assertOnlyKeys(raw, ['trackId', 'fields'])
+
+  const trackId = assertPositiveInt(raw.trackId, 'trackId')
+
+  const fields = raw.fields
+  if (!Array.isArray(fields)) invalid('fields must be an array.')
+  if (fields.length === 0) invalid('fields must not be empty.')
+  if (fields.length > WRITEBACK_FIELDS.length) {
+    invalid(`fields must not exceed ${WRITEBACK_FIELDS.length} entries.`)
+  }
+  const seen = new Set<WritebackField>()
+  for (const field of fields) {
+    if (typeof field !== 'string' || !WRITEBACK_FIELD_SET.has(field)) {
+      invalid(`fields entry must be one of: ${WRITEBACK_FIELDS.join(', ')}.`)
+    }
+    seen.add(field as WritebackField)
+  }
+
+  return { trackId, fields: [...seen] }
+}
+
+/** The editable field keys, as a set — the allowed contents of a clear request. */
+const OVERRIDE_FIELD_SET: ReadonlySet<string> = new Set(OVERRIDE_FIELDS)
+
+/** A non-empty, capped track-id set for a metadata edit (W16 editor). */
+function assertOverrideTrackIds(value: unknown): number[] {
+  if (!Array.isArray(value)) invalid('trackIds must be an array.')
+  if (value.length === 0) invalid('trackIds must not be empty.')
+  if (value.length > MAX_OVERRIDE_TRACKS) {
+    invalid(`trackIds must not exceed ${MAX_OVERRIDE_TRACKS} entries.`)
+  }
+  for (const id of value) assertPositiveInt(id, 'trackIds entry')
+  return value as number[]
+}
+
+/** A tag string — any content up to a sane cap; `''` is a deliberate clear. */
+function assertTagText(value: unknown, field: string): string {
+  if (typeof value !== 'string') invalid(`${field} must be a string.`)
+  if (value.length > 1000) invalid(`${field} must not exceed 1000 characters.`)
+  return value
+}
+
+/** A four-digit year. */
+function assertYear(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 9999) {
+    invalid('year must be an integer between 1 and 9999.')
+  }
+  return value
+}
+
+/** One metadata edit's changes — only the fields present are validated and kept. */
+function assertOverridePatch(value: unknown): OverridePatch {
+  const raw = assertRecord(value, 'patch')
+  assertOnlyKeys(raw, OVERRIDE_FIELDS)
+  const patch: {
+    title?: string
+    artist?: string
+    album?: string
+    trackNo?: number
+    discNo?: number
+    year?: number
+    genre?: string
+  } = {}
+  if ('title' in raw) patch.title = assertTagText(raw.title, 'title')
+  if ('artist' in raw) patch.artist = assertTagText(raw.artist, 'artist')
+  if ('album' in raw) patch.album = assertTagText(raw.album, 'album')
+  if ('trackNo' in raw) patch.trackNo = assertPositiveInt(raw.trackNo, 'trackNo')
+  if ('discNo' in raw) patch.discNo = assertPositiveInt(raw.discNo, 'discNo')
+  if ('year' in raw) patch.year = assertYear(raw.year)
+  if ('genre' in raw) patch.genre = assertTagText(raw.genre, 'genre')
+  if (Object.keys(patch).length === 0) invalid('patch must set at least one field.')
+  return patch
+}
+
+/** The tracks to prefill the editor for — a non-empty, capped id set (W16 editor). */
+export function assertOverrideEditStateRequest(value: unknown): { trackIds: number[] } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds'])
+  return { trackIds: assertOverrideTrackIds(raw.trackIds) }
+}
+
+/** A metadata edit: the tracks to touch and the field changes to apply. */
+export function assertSetOverridesRequest(value: unknown): {
+  trackIds: number[]
+  patch: OverridePatch
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds', 'patch'])
+  return { trackIds: assertOverrideTrackIds(raw.trackIds), patch: assertOverridePatch(raw.patch) }
+}
+
+/** A revert: the tracks and which fields to restore to what the files hold. */
+export function assertClearOverridesRequest(value: unknown): {
+  trackIds: number[]
+  fields: OverrideField[]
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds', 'fields'])
+  const fields = raw.fields
+  if (!Array.isArray(fields)) invalid('fields must be an array.')
+  if (fields.length === 0) invalid('fields must not be empty.')
+  const seen = new Set<OverrideField>()
+  for (const field of fields) {
+    if (typeof field !== 'string' || !OVERRIDE_FIELD_SET.has(field)) {
+      invalid(`fields entry must be one of: ${OVERRIDE_FIELDS.join(', ')}.`)
+    }
+    seen.add(field as OverrideField)
+  }
+  return { trackIds: assertOverrideTrackIds(raw.trackIds), fields: [...seen] }
+}
+
+/** The reviewed batch to flush — a non-empty, capped list of selections (W16-6). */
+export function assertWritebackApplyRequest(value: unknown): { selections: WritebackSelection[] } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['selections'])
+
+  const selections = raw.selections
+  if (!Array.isArray(selections)) invalid('selections must be an array.')
+  if (selections.length === 0) invalid('selections must not be empty.')
+  if (selections.length > MAX_WRITEBACK_TRACKS) {
+    invalid(`selections must not exceed ${MAX_WRITEBACK_TRACKS} entries.`)
+  }
+
+  return { selections: selections.map(assertWritebackSelection) }
 }
 
 /**

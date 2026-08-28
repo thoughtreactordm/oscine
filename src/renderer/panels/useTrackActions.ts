@@ -2,6 +2,7 @@ import { useRouter } from 'vue-router'
 import type { Track } from '@shared/library'
 import { useBrowseStore } from '@renderer/stores/browse'
 import { useTrackInfoStore } from '@renderer/stores/trackInfo'
+import { useTrackEditStore } from '@renderer/stores/trackEdit'
 
 /**
  * The identity half of the shared track menu (**G8**): View artist, View album,
@@ -21,6 +22,7 @@ export function useTrackActions() {
   const browse = useBrowseStore()
   const router = useRouter()
   const trackInfo = useTrackInfoStore()
+  const trackEdit = useTrackEditStore()
 
   async function reveal(text: string): Promise<void> {
     browse.revealSearch(text)
@@ -44,5 +46,28 @@ export function useTrackActions() {
     return () => trackInfo.show(track)
   }
 
-  return { reveal, viewArtist, viewAlbum, artistOf, showInfo }
+  /** Opens the metadata editor over one track. */
+  function editTrack(track: Track): () => void {
+    return () => void trackEdit.edit(track.title ?? 'Track', () => Promise.resolve([track.id]))
+  }
+
+  /** Opens the metadata editor over a resolved id set — a selection or facet. */
+  function editTracks(
+    count: number,
+    resolveIds: () => Promise<readonly number[]>,
+    label?: string
+  ): () => void {
+    const text = label ?? (count === 1 ? '1 track' : `${count} tracks`)
+    return () => void trackEdit.edit(text, resolveIds)
+  }
+
+  return {
+    reveal,
+    viewArtist,
+    viewAlbum,
+    artistOf,
+    showInfo,
+    editTrack,
+    editTracks
+  }
 }

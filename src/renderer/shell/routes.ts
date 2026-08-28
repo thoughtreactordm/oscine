@@ -11,6 +11,8 @@ import PodcastsView from '@renderer/views/PodcastsView.vue'
 import SettingsView from '@renderer/views/SettingsView.vue'
 import StageView from '@renderer/views/StageView.vue'
 import StatsView from '@renderer/views/StatsView.vue'
+import ToolsView from '@renderer/views/ToolsView.vue'
+import ToolsRail from '@renderer/panels/tools/ToolsRail.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -101,6 +103,21 @@ const TABS: ShellTab[] = [
     label: 'Stats',
     icon: 'i-tabler-chart-histogram',
     view: StatsView,
+    trailing: true
+  },
+  /**
+   * Tools — W16-6's home for library-wide operations that are not places within
+   * the library, starting with the tag write-back review. Trailing, with Stats
+   * and Settings, for the same reason they are: a utility about the library, not
+   * a destination in it. Its rail is the shelf the next tool lands on.
+   */
+  {
+    name: 'tools',
+    path: 'tools',
+    label: 'Tools',
+    icon: 'i-tabler-tools',
+    view: ToolsView,
+    sidebar: ToolsRail,
     trailing: true
   },
   {

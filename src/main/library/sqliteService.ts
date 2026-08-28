@@ -33,13 +33,21 @@ import {
 import type { RelatedQuery, RelatedResult } from '@shared/related'
 import type { AlbumCard } from '@shared/albums'
 import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
+import {
+  OVERRIDE_FIELDS,
+  type OverrideEditState,
+  type OverrideField,
+  type OverridePatch
+} from '@shared/overrides'
+import type { WritebackField } from '@shared/tagWriteback'
 import { buildRelated } from './related'
 import { DiscoverEngine, expandShelfTrackIds, snapshotShelf } from './discover'
 import {
   readTrackFormatDetail,
   readTrackTags,
   type FormatDetailReader,
-  type MetadataReader
+  type MetadataReader,
+  type TrackTags
 } from './metadata'
 import type { EmbeddedArtworkReader } from './metadata'
 import { reconcilePaths, scanRoot } from './scanner'
@@ -268,6 +276,52 @@ export class SqliteLibraryService implements LibraryService {
 
   async trackFacets(trackId: number): Promise<TrackFacets> {
     return this.store.trackFacets(trackId)
+  }
+
+  async getOverrideEditState(trackIds: readonly number[]): Promise<OverrideEditState> {
+    return this.store.overrideEditState(trackIds)
+  }
+
+  async setOverrides(request: {
+    trackIds: readonly number[]
+    patch: OverridePatch
+  }): Promise<void> {
+    this.store.setOverrides(request.trackIds, request.patch, Date.now())
+  }
+
+  async clearOverrides(request: {
+    trackIds: readonly number[]
+    fields: readonly OverrideField[]
+  }): Promise<void> {
+    // Reverting needs the file's current tags; main reads them here and the store
+    // re-materialises them. A file that cannot be read keeps its correction.
+    const entries: { trackId: number; file: TrackTags }[] = []
+    for (const trackId of new Set(request.trackIds)) {
+      const absPath = this.store.resolveTrackPath(trackId)
+      if (absPath === null) continue
+      try {
+        entries.push({ trackId, file: await this.readMetadata(absPath) })
+      } catch {
+        // Unreadable file — leave its override in place rather than guess a revert.
+      }
+    }
+    this.store.revertOverrides(entries, request.fields, Date.now())
+  }
+
+  async pendingWritebackTrackIds(): Promise<number[]> {
+    return this.store.pendingWritebackTrackIds()
+  }
+
+  async discardAllOverrides(): Promise<void> {
+    const trackIds = this.store.pendingWritebackTrackIds()
+    if (trackIds.length === 0) return
+    // Reverting every field of every edited track re-reads each file and restores
+    // it — a deliberate, bounded cost for a deliberate destructive action.
+    await this.clearOverrides({ trackIds, fields: OVERRIDE_FIELDS })
+  }
+
+  async retireWrittenOverrides(trackId: number, fields: readonly WritebackField[]): Promise<void> {
+    this.store.retireWrittenOverrides(trackId, fields, Date.now())
   }
 
   async recentlyAddedAlbums(limit: number): Promise<AlbumCard[]> {

@@ -27,9 +27,38 @@ import type {
 import type { AlbumCard } from '@shared/albums'
 import { normalizeLabel, splitGenres } from '@shared/genre'
 import { artworkUrl } from '@shared/ipc'
+import type { OverrideEditState, OverrideField, OverridePatch } from '@shared/overrides'
+import type { WritebackField } from '@shared/tagWriteback'
 import type { FavoriteBias, RelatedAlbum } from '@shared/related'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
 import type { TrackTags } from './metadata'
+import { buildOverrideEditState, type OverrideEditRow } from './overrides/editState'
+
+/** The `track_overrides` columns a metadata edit writes. A fixed whitelist. */
+type OverrideColumn =
+  'title' | 'artist_name' | 'album_title' | 'track_no' | 'disc_no' | 'year' | 'genre'
+
+/** Trims a tag string to the reader's rule: whitespace-only is absent. */
+function normText(value: string): string | null {
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+/** Which `track_overrides` column each write-back field's flush retires. */
+const WRITEBACK_TO_OVERRIDE_COLUMN: Record<WritebackField, OverrideColumn> = {
+  title: 'title',
+  artist: 'artist_name',
+  album: 'album_title',
+  trackNo: 'track_no',
+  discNo: 'disc_no',
+  year: 'year',
+  genres: 'genre'
+}
+
+/** True once no correction column on a `track_overrides` row is set. */
+const OVERRIDE_ROW_EMPTY =
+  'title IS NULL AND artist_name IS NULL AND album_title IS NULL' +
+  ' AND track_no IS NULL AND disc_no IS NULL AND year IS NULL AND genre IS NULL'
 import type { RelatedQueries, RelatedSeed } from './related'
 import { fileStem, type AudioFile } from './walk'
 
@@ -251,6 +280,7 @@ export const TRACK_JOINS = `
   LEFT JOIN albums  al ON al.id = t.album_id
   LEFT JOIN artists aa ON aa.id = al.album_artist_id
   LEFT JOIN track_favorites fav ON fav.track_id = t.id
+  LEFT JOIN track_overrides ovr ON ovr.track_id = t.id
 `
 
 /**
@@ -287,6 +317,9 @@ export const TRACK_PROJECTION = `
   -- D18's heart, resolved with the page rather than fetched after it. SQLite has
   -- no boolean, so this arrives as 0 or 1 and toTrack is where it becomes one.
   fav.track_id IS NOT NULL AS favorite,
+  -- W16: an unwritten correction stands for this track. One PK-probe per row, as
+  -- fav above; SQLite drops the join for the id-only queries that never read it.
+  ovr.track_id IS NOT NULL AS modified,
   al.artwork_hash AS artworkHash,
   t.rg_track_gain AS rgTrackGain,
   t.rg_track_peak AS rgTrackPeak,
@@ -315,6 +348,7 @@ export interface TrackRow {
   lastPlayedAt: number | null
   /** 0 or 1 — SQLite has no boolean type. */
   favorite: number
+  modified: number
   artworkHash: string | null
   rgTrackGain: number | null
   rgTrackPeak: number | null
@@ -1729,6 +1763,255 @@ export class LibraryStore {
   }
 
   /**
+   * The metadata editor's prefill for a set of tracks — **W16 (editor)**.
+   *
+   * Reads each track's *effective* (materialised) value per field, plus whether
+   * a correction already stands, and folds the batch into one form state. Genre
+   * is the effective string — the override when set, the file's own otherwise.
+   */
+  overrideEditState(trackIds: readonly number[]): OverrideEditState {
+    const unique = [...new Set(trackIds)]
+    if (unique.length === 0) return buildOverrideEditState([])
+    const rows = this.db
+      .prepare(
+        `SELECT
+           t.title  AS title,
+           ar.name  AS artist,
+           al.title AS album,
+           t.track_no AS trackNo,
+           t.disc_no  AS discNo,
+           al.year    AS year,
+           COALESCE(o.genre, t.genre) AS genre,
+           (o.title       IS NOT NULL) AS ovTitle,
+           (o.artist_name IS NOT NULL) AS ovArtist,
+           (o.album_title IS NOT NULL) AS ovAlbum,
+           (o.track_no    IS NOT NULL) AS ovTrackNo,
+           (o.disc_no     IS NOT NULL) AS ovDiscNo,
+           (o.year        IS NOT NULL) AS ovYear,
+           (o.genre       IS NOT NULL) AS ovGenre
+         FROM json_each(@ids) page
+         JOIN tracks t          ON t.id = page.value
+         LEFT JOIN artists ar   ON ar.id = t.artist_id
+         LEFT JOIN albums  al   ON al.id = t.album_id
+         LEFT JOIN track_overrides o ON o.track_id = t.id`
+      )
+      .all({ ids: JSON.stringify(unique) }) as OverrideEditRow[]
+    return buildOverrideEditState(rows)
+  }
+
+  /**
+   * Applies one edit to a batch — **W16 (editor)**, D7's correction layer.
+   *
+   * Each field is *materialised* into the live display (the `tracks` row, its
+   * artist/album links, the album's year) so the edit shows at once everywhere a
+   * row is drawn, and *recorded* in `track_overrides` so the write-back review
+   * and flush know what to write to the file. Artist and album resolve to real
+   * entity ids through the same find-or-create the scanner uses, which is what
+   * lets a corrected artist/album re-group and re-facet the browse immediately.
+   * The FTS triggers on `tracks` keep search consistent for free.
+   */
+  setOverrides(trackIds: readonly number[], patch: OverridePatch, now: number): void {
+    const unique = [...new Set(trackIds)]
+    if (unique.length === 0) return
+    const write = this.db.transaction(() => {
+      for (const trackId of unique) this.applyOverride(trackId, patch, now)
+    })
+    write()
+  }
+
+  private applyOverride(trackId: number, patch: OverridePatch, now: number): void {
+    const base = this.db
+      .prepare(
+        `SELECT t.artist_id AS artistId, t.album_id AS albumId, al.album_artist_id AS albumArtistId
+         FROM tracks t LEFT JOIN albums al ON al.id = t.album_id WHERE t.id = ?`
+      )
+      .get(trackId) as
+      { artistId: number | null; albumId: number | null; albumArtistId: number | null } | undefined
+    if (base === undefined) return
+
+    let artistId = base.artistId
+
+    if (patch.title !== undefined) {
+      this.db
+        .prepare('UPDATE tracks SET title = ? WHERE id = ?')
+        .run(normText(patch.title), trackId)
+      this.setOverrideColumn(trackId, 'title', patch.title, now)
+    }
+    if (patch.trackNo !== undefined) {
+      this.db.prepare('UPDATE tracks SET track_no = ? WHERE id = ?').run(patch.trackNo, trackId)
+      this.setOverrideColumn(trackId, 'track_no', patch.trackNo, now)
+    }
+    if (patch.discNo !== undefined) {
+      this.db.prepare('UPDATE tracks SET disc_no = ? WHERE id = ?').run(patch.discNo, trackId)
+      this.setOverrideColumn(trackId, 'disc_no', patch.discNo, now)
+    }
+    if (patch.artist !== undefined) {
+      const name = normText(patch.artist)
+      artistId = name === null ? null : this.upsertArtist(name)
+      this.db.prepare('UPDATE tracks SET artist_id = ? WHERE id = ?').run(artistId, trackId)
+      this.setOverrideColumn(trackId, 'artist_name', patch.artist, now)
+    }
+    if (patch.album !== undefined) {
+      const title = normText(patch.album)
+      // Keep the album's own artist where it has one; otherwise the performer.
+      const albumArtistId = base.albumArtistId ?? artistId
+      const albumId =
+        title === null ? null : this.upsertAlbum(title, albumArtistId, patch.year ?? null)
+      this.db.prepare('UPDATE tracks SET album_id = ? WHERE id = ?').run(albumId, trackId)
+      this.setOverrideColumn(trackId, 'album_title', patch.album, now)
+    }
+    if (patch.year !== undefined) {
+      // Year is album-level in the schema — materialise onto the track's album.
+      const albumId = this.trackAlbumId(trackId)
+      if (albumId !== null)
+        this.db.prepare('UPDATE albums SET year = ? WHERE id = ?').run(patch.year, albumId)
+      this.setOverrideColumn(trackId, 'year', patch.year, now)
+    }
+    if (patch.genre !== undefined) {
+      // Genre feeds the write-back review and flush; browse genre stays W15's.
+      this.setOverrideColumn(trackId, 'genre', patch.genre, now)
+    }
+  }
+
+  /**
+   * Reverts fields to what the file holds — the undo half of {@link setOverrides}.
+   *
+   * The caller resolves each track's fresh file tags (main reads the file; the
+   * store does not); this re-materialises those values and drops the correction
+   * columns, deleting the override row once nothing is corrected on it any more.
+   */
+  revertOverrides(
+    entries: readonly { trackId: number; file: TrackTags }[],
+    fields: readonly OverrideField[],
+    now: number
+  ): void {
+    if (entries.length === 0 || fields.length === 0) return
+    const write = this.db.transaction(() => {
+      for (const entry of entries) this.revertOverride(entry.trackId, entry.file, fields, now)
+    })
+    write()
+  }
+
+  private revertOverride(
+    trackId: number,
+    file: TrackTags,
+    fields: readonly OverrideField[],
+    now: number
+  ): void {
+    const has = (field: OverrideField): boolean => fields.includes(field)
+    const base = this.db
+      .prepare(
+        `SELECT t.album_id AS albumId, al.album_artist_id AS albumArtistId
+         FROM tracks t LEFT JOIN albums al ON al.id = t.album_id WHERE t.id = ?`
+      )
+      .get(trackId) as { albumId: number | null; albumArtistId: number | null } | undefined
+    if (base === undefined) return
+
+    let artistId: number | null = null
+    if (has('title')) {
+      this.db.prepare('UPDATE tracks SET title = ? WHERE id = ?').run(file.title, trackId)
+      this.clearOverrideColumn(trackId, 'title', now)
+    }
+    if (has('trackNo')) {
+      this.db.prepare('UPDATE tracks SET track_no = ? WHERE id = ?').run(file.trackNo, trackId)
+      this.clearOverrideColumn(trackId, 'track_no', now)
+    }
+    if (has('discNo')) {
+      this.db.prepare('UPDATE tracks SET disc_no = ? WHERE id = ?').run(file.discNo, trackId)
+      this.clearOverrideColumn(trackId, 'disc_no', now)
+    }
+    if (has('artist')) {
+      artistId = file.artist ? this.upsertArtist(file.artist) : null
+      this.db.prepare('UPDATE tracks SET artist_id = ? WHERE id = ?').run(artistId, trackId)
+      this.clearOverrideColumn(trackId, 'artist_name', now)
+    }
+    if (has('album')) {
+      const albumArtistId = base.albumArtistId ?? artistId
+      const albumId = file.album ? this.upsertAlbum(file.album, albumArtistId, file.year) : null
+      this.db.prepare('UPDATE tracks SET album_id = ? WHERE id = ?').run(albumId, trackId)
+      this.clearOverrideColumn(trackId, 'album_title', now)
+    }
+    if (has('year')) {
+      const albumId = this.trackAlbumId(trackId)
+      if (albumId !== null)
+        this.db.prepare('UPDATE albums SET year = ? WHERE id = ?').run(file.year, albumId)
+      this.clearOverrideColumn(trackId, 'year', now)
+    }
+    if (has('genre')) this.clearOverrideColumn(trackId, 'genre', now)
+
+    this.db
+      .prepare(`DELETE FROM track_overrides WHERE track_id = ? AND ${OVERRIDE_ROW_EMPTY}`)
+      .run(trackId)
+  }
+
+  private trackAlbumId(trackId: number): number | null {
+    const row = this.db.prepare('SELECT album_id AS id FROM tracks WHERE id = ?').get(trackId) as
+      { id: number | null } | undefined
+    return row?.id ?? null
+  }
+
+  /** Upserts one override column, minting the row on first touch. Whitelisted column. */
+  private setOverrideColumn(
+    trackId: number,
+    column: OverrideColumn,
+    value: string | number | null,
+    now: number
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO track_overrides (track_id, ${column}, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(track_id) DO UPDATE SET ${column} = excluded.${column}, updated_at = excluded.updated_at`
+      )
+      .run(trackId, value, now)
+  }
+
+  /** Nulls one override column. A no-op when the track has no override row. */
+  private clearOverrideColumn(trackId: number, column: OverrideColumn, now: number): void {
+    this.db
+      .prepare(`UPDATE track_overrides SET ${column} = NULL, updated_at = ? WHERE track_id = ?`)
+      .run(now, trackId)
+  }
+
+  /**
+   * The tracks carrying an unwritten correction — the write-back's pending set.
+   *
+   * Deliberate edits only: every track with a `track_overrides` row. W15's
+   * free-form tag layer (including auto *suggestions*) is *not* swept in here —
+   * it would flood the review with genres the operator never chose to flush, and
+   * it is the same set the "modified" mark counts, so the list and the marks
+   * agree. The review still merges a track's user tags into its genre write; this
+   * only decides which tracks appear by default.
+   */
+  pendingWritebackTrackIds(): number[] {
+    const rows = this.db
+      .prepare('SELECT track_id AS id FROM track_overrides ORDER BY track_id')
+      .all() as Array<{ id: number }>
+    return rows.map((row) => row.id)
+  }
+
+  /**
+   * Retires the override columns for fields just flushed — **W16-6 / W16-7**.
+   *
+   * After a successful write the file holds the correction, so the override for
+   * those fields has done its job: it is cleared, and the row dropped once
+   * nothing is corrected on it any more. That is what takes the track off the
+   * pending list and clears its "modified" mark; fields left unflushed keep
+   * their override and stay pending.
+   */
+  retireWrittenOverrides(trackId: number, fields: readonly WritebackField[], now: number): void {
+    if (fields.length === 0) return
+    const retire = this.db.transaction(() => {
+      for (const field of fields) {
+        this.clearOverrideColumn(trackId, WRITEBACK_TO_OVERRIDE_COLUMN[field], now)
+      }
+      this.db
+        .prepare(`DELETE FROM track_overrides WHERE track_id = ? AND ${OVERRIDE_ROW_EMPTY}`)
+        .run(trackId)
+    })
+    retire()
+  }
+
+  /**
    * Candidate tracks are ordered by stored root id and POSIX relative path.
    * Reconciliation uses this order for embedded and folder-art discovery.
    */
@@ -1950,6 +2233,7 @@ export function toTrack(row: TrackRow): Track {
     // selecting this column becomes `false` — the state that renders nothing —
     // instead of `undefined` leaking into a `v-if`.
     favorite: row.favorite === 1,
+    modified: row.modified === 1,
     artwork: artworkUrls(row.artworkHash),
     rgTrackGainDb: row.rgTrackGain,
     rgTrackPeak: row.rgTrackPeak,

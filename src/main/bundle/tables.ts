@@ -248,6 +248,18 @@ export const BUNDLE_TABLES: readonly BundleTable[] = [
       '`playlist_entries` are and the tag named by its `key`. `source` is local colour a merge ' +
       'would resolve toward `user`. All of that is the exporter card’s design, not this ' +
       'migration’s.'
+  },
+  {
+    name: 'genre_aliases',
+    side: 'open',
+    why:
+      'Operator-authored canonicalization rules (W16-5), a statement about the library on the ' +
+      'same footing as an override or a tag — so by the `track_overrides`/`tags` argument the ' +
+      'ruleset is a candidate to carry, and both sides of a rule are already the portable ' +
+      'casefold `key` a bundle could re-key on directly. But W16-5 only adds the table; the D11 ' +
+      'exporter card (W10-13) has not ruled, and unlike a per-track statement these rules are ' +
+      'global — an importer would union them into its own ruleset rather than name a track, a ' +
+      'merge the exporter card designs. Do not read the resemblance to `track_overrides` as a ruling.'
   }
 ]
 

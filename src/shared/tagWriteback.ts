@@ -101,3 +101,117 @@ export interface PendingWrite {
   /** True when at least one field's `changed` is set. */
   readonly hasChanges: boolean
 }
+
+/**
+ * The staged review surface — **W16-6**, design authority D28 → "Staged review UI".
+ *
+ * Everything below is the wire between the review surface (renderer) and the
+ * flush (main): the field keys the operator selects, the batch they approve, and
+ * the outcome each file comes back with. It sits in `src/shared` for the same
+ * reason the diff above does — the review draws it, main flushes it, and the two
+ * cannot be allowed to disagree about the shape.
+ */
+
+/**
+ * The writable fields of a pending write, as keys — the unit the review selects
+ * and deselects and the flush applies one at a time.
+ *
+ * The same names {@link PendingWrite} carries, minus its identity and summary
+ * fields. A selection is a subset of these per track; the flush writes a field's
+ * `proposed` value only when its key is selected, and keeps the file's current
+ * value for the rest.
+ */
+export type WritebackField = 'title' | 'artist' | 'album' | 'trackNo' | 'discNo' | 'year' | 'genres'
+
+/** Every writable field, in the order the review surface lays them out. */
+export const WRITEBACK_FIELDS: readonly WritebackField[] = [
+  'title',
+  'artist',
+  'album',
+  'trackNo',
+  'discNo',
+  'year',
+  'genres'
+]
+
+/**
+ * The most tracks one preview or flush request may carry.
+ *
+ * Generous enough for the "multi-thousand-track" batch the review is built for —
+ * and for an album/artist/whole-selection scope — while bounding the fresh file
+ * reads a single request can trigger. A caller with more chunks against it.
+ */
+export const MAX_WRITEBACK_TRACKS = 50_000
+
+/**
+ * One track's approved fields to flush — the subset of {@link WRITEBACK_FIELDS}
+ * the operator left checked after reviewing its diff.
+ *
+ * A field absent from `fields` keeps the file's current value even where its
+ * diff changed. A track the operator deselected entirely is not sent at all —
+ * the batch carries only the writes that were asked for.
+ */
+export interface WritebackSelection {
+  readonly trackId: number
+  readonly fields: readonly WritebackField[]
+}
+
+/**
+ * Why a flush did not write one file — the renderer-safe mirror of the engine's
+ * failure code.
+ *
+ * The engine's own `WriteOutcome` carries a `reason` string and the absolute
+ * `path`, and neither crosses the boundary: the reason can quote an OS error
+ * that names the file, and an absolute path never reaches the renderer by
+ * standing invariant. Only the typed code survives — the part the report
+ * branches on — and the detail is logged in main.
+ */
+export type WritebackFailureCode = 'unsupported-format' | 'write-failed' | 'verify-failed'
+
+/**
+ * One file's result, keyed by track for the renderer.
+ *
+ * `written` is a completed atomic write; `skipped` is a track whose selected
+ * fields needed no change against a fresh read (the file already matched, or a
+ * diff that changed at review time no longer does); `failed` carries only the
+ * typed {@link WritebackFailureCode}. No path, no raw reason — see that type.
+ */
+export type WritebackOutcome =
+  | { readonly trackId: number; readonly status: 'written' }
+  | { readonly trackId: number; readonly status: 'skipped' }
+  | { readonly trackId: number; readonly status: 'failed'; readonly code: WritebackFailureCode }
+
+/**
+ * Cumulative progress of a flush, pushed as it runs — the live half of the
+ * review's feedback.
+ *
+ * Counts rather than per-file rows: the event is coalesced in main so a
+ * multi-thousand batch cannot flood the renderer (the frozen-Cancel failure
+ * mode), and the per-file detail lands once in the final {@link WritebackReport}.
+ * `done` equals `written + skipped + failed`.
+ */
+export interface WritebackProgress {
+  readonly done: number
+  readonly total: number
+  readonly written: number
+  readonly skipped: number
+  readonly failed: number
+}
+
+/**
+ * The complete result of a flush — the per-file summary the review shows when
+ * the batch finishes.
+ *
+ * Returned by `tagWriteback.apply` so a renderer that missed a coalesced
+ * progress event still has every outcome. `total` is the number of selections
+ * the batch was asked to write; `cancelled` is true when the operator stopped it
+ * mid-batch, in which case `outcomes` covers only the files it reached.
+ */
+export interface WritebackReport {
+  readonly total: number
+  readonly written: number
+  readonly skipped: number
+  readonly failed: number
+  readonly cancelled: boolean
+  readonly outcomes: readonly WritebackOutcome[]
+}

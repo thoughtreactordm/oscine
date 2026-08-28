@@ -3,6 +3,7 @@ import { copyFile, open, rename, unlink } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 import { File as TagFile } from 'node-taglib-sharp'
 import { splitGenres } from '@shared/genre'
+import type { WritebackFailureCode } from '@shared/tagWriteback'
 import { readTrackTags, type MetadataReader, type TrackTags } from '../metadata'
 import {
   applyWritableTags,
@@ -47,8 +48,13 @@ import {
  * durability step the platforms disagree on (a directory `fsync`) is best-effort.
  */
 
-/** Why a write did not complete. Each maps to a distinct per-file report line. */
-export type WriteFailureCode = 'unsupported-format' | 'write-failed' | 'verify-failed'
+/**
+ * Why a write did not complete. Each maps to a distinct per-file report line.
+ *
+ * Sourced from `@shared/tagWriteback` so the engine's codes and the review's
+ * renderer-safe {@link WritebackFailureCode} are one union, not two that drift.
+ */
+export type WriteFailureCode = WritebackFailureCode
 
 /** The result of writing one file: a success with its codec, or a typed failure. */
 export type WriteOutcome =
