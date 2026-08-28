@@ -37,7 +37,9 @@
     "probe:replaygain": "node scripts/replaygain-worker-probe-run.mjs",
     "probe:media-session": "node scripts/media-session-probe.mjs",
     "probe:fixture": "node scripts/make-probe-fixture.mjs",
-    "probe:m2-fixture": "node scripts/make-m2-probe-fixture.mjs"
+    "probe:m2-fixture": "node scripts/make-m2-probe-fixture.mjs",
+    "probe:writeback-corpus": "node scripts/writeback-corpus-probe.mjs",
+    "probe:writeback-fixture": "node scripts/make-writeback-corpus.mjs"
   },
   "dependencies": {
     "@fontsource-variable/roboto": "^5.3.0",
@@ -63,6 +65,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-vue": "^10.10.0",
     "globals": "^17.8.0",
+    "node-taglib-sharp": "^6.0.3",
     "pinia": "^3.0.3",
     "prettier": "^3.9.6",
     "tailwindcss": "^4.3.3",

@@ -38,6 +38,7 @@ W5 Playlists & Queue, W6 Packaging & Ops, W7 Tunedeck, W8 Settings, W9 Podcasts.
 | Native ABI check | `npm run verify:native` |
 | Seed test library | `npm run seed:synthetic` |
 | Mixed-format fixture | `npm run probe:fixture` (needs ffmpeg) |
+| Tag write-back corpus gate | `npm run probe:writeback-corpus` (needs ffmpeg) · `npm run probe:writeback-fixture` to build it for inspection |
 | OS media session | `npm run probe:media-session` (Linux; needs `busctl` and `playerctl`) |
 | M1 exit gate | `npm run probe:m1-exit` |
 | M2 exit gate | `npm run probe:m2-exit` (needs ffmpeg) |
