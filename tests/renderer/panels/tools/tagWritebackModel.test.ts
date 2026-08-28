@@ -6,9 +6,12 @@ import type {
   PendingWrite,
   WritebackField
 } from '../../../../src/shared/tagWriteback'
+import { ABSENT_ARTWORK } from '../../../../src/shared/artwork'
 import {
   buildSelections,
   changedFields,
+  fieldText,
+  formatArtwork,
   initialSelection,
   overallState,
   rowLabel,
@@ -50,7 +53,8 @@ function pending(
     trackNo: parts.trackNo ?? unchanged(1),
     discNo: parts.discNo ?? unchanged(1),
     year: parts.year ?? unchanged(2020),
-    genres: parts.genres ?? genres([], [], false)
+    genres: parts.genres ?? genres([], [], false),
+    artwork: parts.artwork ?? { current: ABSENT_ARTWORK, proposed: ABSENT_ARTWORK, changed: false }
   }
   const hasChanges =
     p.title.changed ||
@@ -59,7 +63,8 @@ function pending(
     p.trackNo.changed ||
     p.discNo.changed ||
     p.year.changed ||
-    p.genres.changed
+    p.genres.changed ||
+    p.artwork.changed
   return { trackId, ...p, hasChanges }
 }
 
@@ -71,6 +76,17 @@ describe('changedFields', () => {
       genres: genres([], [{ key: 'x', label: 'X' }], true)
     })
     expect(changedFields(p)).toEqual(['title', 'year', 'genres'])
+  })
+
+  it('includes artwork among the changed fields', () => {
+    const p = pending(1, {
+      artwork: {
+        current: ABSENT_ARTWORK,
+        proposed: { present: true, hash: 'abc', mime: 'image/png' },
+        changed: true
+      }
+    })
+    expect(changedFields(p)).toEqual(['artwork'])
   })
 })
 
@@ -152,5 +168,22 @@ describe('rowLabel', () => {
   it('falls back to the track id when there is no title at all', () => {
     const p = pending(7, { title: unchanged<string>(null), artist: unchanged<string>(null) })
     expect(rowLabel(p)).toEqual({ primary: 'Track 7', secondary: '' })
+  })
+})
+
+describe('formatArtwork / fieldText artwork', () => {
+  const cover = { present: true, hash: 'aa', mime: 'image/jpeg' } as const
+
+  it('renders none, a proposed remove, and a mime for a present cover', () => {
+    expect(formatArtwork(ABSENT_ARTWORK, 'current', cover)).toBe('—')
+    expect(formatArtwork(ABSENT_ARTWORK, 'proposed', cover)).toBe('✕ remove')
+    expect(formatArtwork(cover, 'proposed', ABSENT_ARTWORK)).toBe('image/jpeg')
+  })
+
+  it('feeds those strings through fieldText', () => {
+    const p = pending(1, {
+      artwork: { current: cover, proposed: ABSENT_ARTWORK, changed: true }
+    })
+    expect(fieldText(p, 'artwork')).toEqual({ current: 'image/jpeg', proposed: '✕ remove' })
   })
 })

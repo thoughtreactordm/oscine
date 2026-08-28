@@ -1,3 +1,7 @@
+import type { ArtworkRef } from './artwork'
+
+export type { ArtworkRef } from './artwork'
+
 /**
  * The pending-write diff model — **W16-1**, design authority D28.
  *
@@ -80,14 +84,30 @@ export interface GenreDiff {
 }
 
 /**
+ * The cover field's before/after — **W16-12**.
+ *
+ * Both sides are an {@link ArtworkRef}: a hash the renderer re-addresses as an
+ * `oscine://` thumbnail, never the image bytes. A batch is thousands of tracks,
+ * so inline payloads cannot cross this seam. `present: false` is "— none" on
+ * the current side and "✕ remove" on the proposed side when the file had a
+ * cover; `changed` is the same precomputed verdict every other field carries.
+ */
+export interface ArtworkDiff {
+  readonly current: ArtworkRef
+  readonly proposed: ArtworkRef
+  readonly changed: boolean
+}
+
+/**
  * A track's complete pending write — every writable field's diff, plus the one
  * summary flag the review and flush both branch on.
  *
  * The fields are named rather than a list so each keeps its own value type and no
- * consumer has to narrow a union to read a track number. `hasChanges` is true
- * when any field changed: a pending write with `hasChanges: false` is a track
- * whose file already matches its corrections, kept in the batch so the report can
- * say "nothing to do" rather than dropped and made invisible.
+ * consumer has to narrow a union to read a track number. Artwork is a
+ * {@link ArtworkDiff} of references, never bytes. `hasChanges` is true when any
+ * field changed: a pending write with `hasChanges: false` is a track whose file
+ * already matches its corrections, kept in the batch so the report can say
+ * "nothing to do" rather than dropped and made invisible.
  */
 export interface PendingWrite {
   readonly trackId: number
@@ -98,6 +118,7 @@ export interface PendingWrite {
   readonly discNo: FieldDiff<number>
   readonly year: FieldDiff<number>
   readonly genres: GenreDiff
+  readonly artwork: ArtworkDiff
   /** True when at least one field's `changed` is set. */
   readonly hasChanges: boolean
 }
@@ -121,7 +142,8 @@ export interface PendingWrite {
  * `proposed` value only when its key is selected, and keeps the file's current
  * value for the rest.
  */
-export type WritebackField = 'title' | 'artist' | 'album' | 'trackNo' | 'discNo' | 'year' | 'genres'
+export type WritebackField =
+  'title' | 'artist' | 'album' | 'trackNo' | 'discNo' | 'year' | 'genres' | 'artwork'
 
 /** Every writable field, in the order the review surface lays them out. */
 export const WRITEBACK_FIELDS: readonly WritebackField[] = [
@@ -131,7 +153,8 @@ export const WRITEBACK_FIELDS: readonly WritebackField[] = [
   'trackNo',
   'discNo',
   'year',
-  'genres'
+  'genres',
+  'artwork'
 ]
 
 /**

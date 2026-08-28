@@ -2,12 +2,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { PendingWrite, WritebackField, WritebackOutcome } from '@shared/tagWriteback'
 import { WRITEBACK_FIELDS } from '@shared/tagWriteback'
+import type { ArtworkRef } from '@shared/artwork'
+import { artworkUrl } from '@shared/ipc'
 import { visibleRange } from '@renderer/panels/listViewport'
 import TriCheck from '@renderer/panels/tools/TriCheck.vue'
 import {
   FIELD_LABELS,
   fieldChanged,
   fieldText,
+  formatArtwork,
   rowLabel,
   rowState,
   type CheckState
@@ -37,7 +40,8 @@ const FIELD_WIDTH: Record<WritebackField, string> = {
   trackNo: '84px',
   discNo: '84px',
   year: '92px',
-  genres: '208px'
+  genres: '208px',
+  artwork: '148px'
 }
 const gridColumns = `44px 240px ${WRITEBACK_FIELDS.map((f) => FIELD_WIDTH[f]).join(' ')} 116px`
 
@@ -114,6 +118,14 @@ function rowCheck(pending: PendingWrite): CheckState {
 }
 function outcomeFor(trackId: number): WritebackOutcome | undefined {
   return store.outcomeByTrack.get(trackId)
+}
+
+function coverSrc(ref: ArtworkRef): string {
+  return artworkUrl(ref.hash, 'small')
+}
+
+function artworkCaption(ref: ArtworkRef, role: 'current' | 'proposed', other: ArtworkRef): string {
+  return formatArtwork(ref, role, other)
 }
 
 function failLabel(code: 'unsupported-format' | 'write-failed' | 'verify-failed'): string {
@@ -329,7 +341,49 @@ function discard(): void {
                 :aria-label="`${FIELD_LABELS[field]} for ${rowLabel(pending).primary}`"
                 @toggle="store.toggleField(pending.trackId, field)"
               />
-              <div class="min-w-0">
+              <div
+                v-if="field === 'artwork'"
+                class="flex min-w-0 items-center gap-1.5"
+                :title="`${fieldText(pending, field).current} → ${fieldText(pending, field).proposed}`"
+              >
+                <img
+                  v-if="pending.artwork.current.present"
+                  :src="coverSrc(pending.artwork.current)"
+                  alt=""
+                  class="size-9 shrink-0 rounded-sm object-cover"
+                />
+                <span
+                  v-else
+                  class="grid size-9 shrink-0 place-items-center rounded-sm bg-elevated text-[11px] text-dimmed"
+                  :title="
+                    artworkCaption(pending.artwork.current, 'current', pending.artwork.proposed)
+                  "
+                >
+                  —
+                </span>
+                <UIcon name="i-tabler-arrow-right" class="size-3 shrink-0 text-dimmed" />
+                <img
+                  v-if="pending.artwork.proposed.present"
+                  :src="coverSrc(pending.artwork.proposed)"
+                  alt=""
+                  class="size-9 shrink-0 rounded-sm object-cover ring-1 ring-primary/40"
+                />
+                <span
+                  v-else
+                  class="grid size-9 shrink-0 place-items-center rounded-sm bg-elevated text-primary"
+                  :title="
+                    artworkCaption(pending.artwork.proposed, 'proposed', pending.artwork.current)
+                  "
+                >
+                  <UIcon
+                    v-if="pending.artwork.current.present"
+                    name="i-tabler-x"
+                    class="size-3.5"
+                  />
+                  <span v-else class="text-[11px] text-dimmed">—</span>
+                </span>
+              </div>
+              <div v-else class="min-w-0">
                 <p
                   class="truncate text-xs text-primary"
                   :title="fieldText(pending, field).proposed"

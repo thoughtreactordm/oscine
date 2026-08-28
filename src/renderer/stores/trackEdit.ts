@@ -1,12 +1,13 @@
 import { defineStore } from 'pinia'
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import {
   OVERRIDE_FIELDS,
   type OverrideEditState,
   type OverrideField,
   type OverridePatch
 } from '@shared/overrides'
-import { overrides } from '@renderer/ipc'
+import type { ArtworkRef } from '@shared/artwork'
+import { artwork, overrides } from '@renderer/ipc'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 
 /**
@@ -19,6 +20,10 @@ import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
  * changed" signal a scan does, so the track list and facets reload and the
  * correction shows at once. Scope travels through here, not the route.
  */
+
+function absentCover(): ArtworkRef {
+  return { present: false, hash: null, mime: null }
+}
 
 type Fields = Record<OverrideField, string>
 
@@ -53,12 +58,34 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
   const initial = reactive<Fields>(emptyFields())
   const reverting = reactive<Record<OverrideField, boolean>>(emptyFlags())
 
+  // Cover is its own correction layer (W16-9/10): actions apply immediately
+  // through the ingest IPC, not on Save, so the library shows the new cover
+  // before any flush. Mixed is a compilation whose tracks disagree.
+  const artworkRef = ref<ArtworkRef>(absentCover())
+  const artworkMixed = ref(false)
+  const artworkOverridden = ref(false)
+  const artworkBusy = ref(false)
+  // Cover actions write the override immediately (Decision A), but Save is
+  // still the editor's confirm — without this, a cover-only session leaves
+  // the button disabled because no text field changed.
+  const artworkDirty = ref(false)
+
   const libraryRoots = useLibraryRootsStore()
 
   function resetForm(): void {
     Object.assign(values, emptyFields())
     Object.assign(initial, emptyFields())
     Object.assign(reverting, emptyFlags())
+    artworkRef.value = absentCover()
+    artworkMixed.value = false
+    artworkOverridden.value = false
+    artworkDirty.value = false
+  }
+
+  function applyArtworkState(state: OverrideEditState): void {
+    artworkMixed.value = state.artwork.mixed
+    artworkOverridden.value = state.artwork.overridden
+    artworkRef.value = state.artwork.value ?? absentCover()
   }
 
   function fieldString(state: OverrideEditState, field: OverrideField): string {
@@ -88,6 +115,7 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
       }
       const state = await overrides.getEditState(ids)
       editState.value = state
+      applyArtworkState(state)
       for (const field of OVERRIDE_FIELDS) {
         const text = fieldString(state, field)
         values[field] = text
@@ -135,10 +163,80 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
     return patch
   }
 
-  const canSave = (): boolean =>
-    trackIds.value.length > 0 &&
-    (OVERRIDE_FIELDS.some((field) => reverting[field]) ||
-      OVERRIDE_FIELDS.some((field) => changed(field)))
+  const canSave = computed(
+    () =>
+      trackIds.value.length > 0 &&
+      (artworkDirty.value ||
+        OVERRIDE_FIELDS.some((field) => reverting[field]) ||
+        OVERRIDE_FIELDS.some((field) => changed(field)))
+  )
+
+  async function refreshArtwork(): Promise<void> {
+    if (trackIds.value.length === 0) return
+    const state = await overrides.getEditState([...trackIds.value])
+    if (editState.value) {
+      editState.value = { ...editState.value, artwork: state.artwork }
+    }
+    applyArtworkState(state)
+    libraryRoots.markChanged()
+  }
+
+  /** Opens the OS image picker in main and sets the cover on the whole selection. */
+  async function setCover(): Promise<void> {
+    if (artworkBusy.value || trackIds.value.length === 0) return
+    artworkBusy.value = true
+    errorMessage.value = null
+    try {
+      const result = await artwork.setFromDialog([...trackIds.value])
+      if (result === null) return
+      artworkRef.value = result
+      artworkMixed.value = false
+      artworkOverridden.value = true
+      artworkDirty.value = true
+      libraryRoots.markChanged()
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : 'The cover could not be set.'
+    } finally {
+      artworkBusy.value = false
+    }
+  }
+
+  /** Tri-state clear: no cover now, and the flush strips the front cover. */
+  async function removeCover(): Promise<void> {
+    if (artworkBusy.value || trackIds.value.length === 0) return
+    artworkBusy.value = true
+    errorMessage.value = null
+    try {
+      await artwork.clear([...trackIds.value])
+      artworkRef.value = absentCover()
+      artworkMixed.value = false
+      artworkOverridden.value = true
+      artworkDirty.value = true
+      libraryRoots.markChanged()
+    } catch (error) {
+      errorMessage.value =
+        error instanceof Error ? error.message : 'The cover could not be removed.'
+    } finally {
+      artworkBusy.value = false
+    }
+  }
+
+  /** Drops the override — back to the file's own cover. */
+  async function revertCover(): Promise<void> {
+    if (artworkBusy.value || trackIds.value.length === 0) return
+    artworkBusy.value = true
+    errorMessage.value = null
+    try {
+      await artwork.revert([...trackIds.value])
+      artworkDirty.value = true
+      await refreshArtwork()
+    } catch (error) {
+      errorMessage.value =
+        error instanceof Error ? error.message : 'The cover could not be reverted.'
+    } finally {
+      artworkBusy.value = false
+    }
+  }
 
   async function save(): Promise<void> {
     if (saving.value || trackIds.value.length === 0) return
@@ -180,11 +278,18 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
     editState,
     values,
     reverting,
+    artworkRef,
+    artworkMixed,
+    artworkOverridden,
+    artworkBusy,
     edit,
     toggleRevert,
     changed,
     canSave,
     save,
+    setCover,
+    removeCover,
+    revertCover,
     close
   }
 })

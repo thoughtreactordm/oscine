@@ -426,5 +426,40 @@ describe('track overrides', () => {
       // Rejoined from (root path, rel_path); the root here is '/synthetic'.
       expect(targets[0].absPath).toBe('/synthetic/Album/01.flac')
     })
+
+    it('marks an artwork-only track modified and pending until the cover is retired', () => {
+      const track = insertTrack('a.flac', { title: 'Song' })
+      expect(trackById(track).modified).toBe(false)
+
+      store.setArtworkOverride(track, HASH_A, 'image/jpeg', NOW)
+      expect(trackById(track).modified).toBe(true)
+      expect(store.pendingWritebackTrackIds()).toContain(track)
+
+      store.retireWrittenOverrides(track, ['artwork'], NOW)
+      expect(store.getArtworkOverride(track)).toBeNull()
+      expect(trackById(track).modified).toBe(false)
+      expect(store.pendingWritebackTrackIds()).not.toContain(track)
+    })
+
+    it('folds a shared cover and a mixed compilation in the editor prefill', () => {
+      const artist = insertArtist('Artist')
+      const album = insertAlbum('Album', artist, 2001)
+      const t1 = insertTrack('a.flac', { title: 'One', artistId: artist, albumId: album })
+      const t2 = insertTrack('b.flac', { title: 'Two', artistId: artist, albumId: album })
+      store.setAlbumArtwork(album, ALBUM_HASH)
+
+      const same = store.overrideEditState([t1, t2])
+      expect(same.artwork).toMatchObject({
+        mixed: false,
+        overridden: false,
+        value: { present: true, hash: ALBUM_HASH, mime: null }
+      })
+
+      store.setArtworkOverride(t1, HASH_A, 'image/jpeg', NOW)
+      const mixed = store.overrideEditState([t1, t2])
+      expect(mixed.artwork.mixed).toBe(true)
+      expect(mixed.artwork.overridden).toBe(true)
+      expect(mixed.artwork.value).toBeNull()
+    })
   })
 })

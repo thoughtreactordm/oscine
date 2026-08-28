@@ -238,8 +238,8 @@ export function writableTagsFromPending(pending: PendingWrite): WritableTags {
     discNo: pending.discNo.proposed,
     year: pending.year.proposed,
     genres: pending.genres.proposed,
-    // W16-12 maps a selected artwork field through {@link resolveArtworkIntent};
-    // until that field exists the engine input is a no-op for pictures.
+    // Artwork bytes never live on the pending write; the apply path overlays
+    // a freshly resolved intent when the `artwork` field is selected (W16-12).
     artwork: ARTWORK_UNCHANGED
   }
 }
@@ -277,6 +277,8 @@ export function writableTagsFromSelection(
     discNo: pick('discNo', pending.discNo, selected),
     year: pick('year', pending.year, selected),
     genres: selected.has('genres') ? pending.genres.proposed : pending.genres.current,
+    // Artwork bytes are resolved at apply time from the override store (R7),
+    // and only when the review selected the field — see {@link TagWritebackService}.
     artwork: ARTWORK_UNCHANGED
   }
 }
@@ -300,5 +302,6 @@ export function selectionChangesFile(
   if (selected.has('discNo') && pending.discNo.changed) return true
   if (selected.has('year') && pending.year.changed) return true
   if (selected.has('genres') && pending.genres.changed) return true
+  if (selected.has('artwork') && pending.artwork.changed) return true
   return false
 }

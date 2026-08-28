@@ -23,6 +23,19 @@ export interface ArtworkRef {
   hash: string | null
   /** The image's media type, or null when cleared. */
   mime: string | null
+  /** Pixel width, when known. Never required to address the thumbnail. */
+  width?: number
+  /** Pixel height, when known. Never required to address the thumbnail. */
+  height?: number
+}
+
+/** No cover — the file has none, or a clear-on-flush override has removed it. */
+export const ABSENT_ARTWORK: ArtworkRef = { present: false, hash: null, mime: null }
+
+/** An {@link ArtworkRef} for a hash, or an absent ref when there is none. */
+export function artworkRef(hash: string | null, mime: string | null = null): ArtworkRef {
+  if (hash === null) return { present: false, hash: null, mime: null }
+  return { present: true, hash, mime }
 }
 
 /**
