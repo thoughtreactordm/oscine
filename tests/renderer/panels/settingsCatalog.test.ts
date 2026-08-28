@@ -4,6 +4,7 @@ import {
   defineSetting,
   enumValue,
   integerValue,
+  ONBOARDING_COMPLETED_KEY,
   SETTINGS_REGISTRY,
   type SettingDescriptor
 } from '@shared/settings'
@@ -127,6 +128,16 @@ describe('generated from descriptors', () => {
     // And not merely hidden — the section does not count it either, or the
     // advanced disclosure would offer to reveal a row that cannot be drawn.
     expect(catalog.sections[0]?.total).toBe(3)
+  })
+
+  it('keeps interface.onboardingCompleted off the surface, even as a changed key', () => {
+    const catalog = buildSettingsCatalog(SETTINGS_REGISTRY, {
+      changed: new Set([ONBOARDING_COMPLETED_KEY]),
+      changedOnly: true
+    })
+
+    expect(catalog.rows.map((row) => row.key)).not.toContain(ONBOARDING_COMPLETED_KEY)
+    expect(catalog.changedTotal).toBe(0)
   })
 
   it('orders by category, then by the descriptor’s own order', () => {

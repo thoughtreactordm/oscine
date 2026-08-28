@@ -20,12 +20,14 @@ import Tunedeck from '@renderer/panels/Tunedeck.vue'
 import { TUNEDECK_PANE } from '@renderer/panels/tunedeck/tunedeckPanes'
 import { useBrowseStore } from '@renderer/stores/browse'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
+import { useOnboardingStore } from '@renderer/stores/onboarding'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { useShellStore } from '@renderer/stores/shell'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
 import { useZenStore } from '@renderer/stores/zen'
 import { useSettings } from '@renderer/settings'
+import { maybeOpenOnboardingWizard } from '@renderer/shell/onboardingGate'
 import { TAB_NAV_BAR_KEY } from '@shared/settings'
 
 /**
@@ -57,6 +59,7 @@ const playlists = usePlaylistsStore()
 const shell = useShellStore()
 const tunedeck = useTunedeckStore()
 const zen = useZenStore()
+const onboarding = useOnboardingStore()
 const settings = useSettings()
 
 /**
@@ -202,6 +205,14 @@ watch(
 onMounted(() => {
   roots.start()
   void playlists.refresh()
+  // After hydration, not before: until `settings.getAll` lands the surface
+  // holds the done-key's default (`false`) and would open the wizard on every
+  // launch, including upgrades main has already backfilled.
+  void maybeOpenOnboardingWizard({
+    ready: settings.ready,
+    get: settings.get,
+    openWizard: onboarding.openWizard
+  })
 })
 
 onUnmounted(() => {

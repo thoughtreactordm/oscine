@@ -226,6 +226,7 @@ describe('buildSettingsProfile', () => {
     // nothing. `audio.outputDevice` names hardware and every view key is about
     // this window.
     expect(profile.settings['audio.outputDevice']).toBeUndefined()
+    expect(profile.settings['interface.onboardingCompleted']).toBeUndefined()
     expect(SETTINGS_REGISTRY.some((descriptor) => descriptor.scope === 'view')).toBe(true)
     expect(Object.keys(profile.settings).length).toBeGreaterThan(0)
   })

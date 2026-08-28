@@ -159,5 +159,6 @@ describe('buildSettingsCommands', () => {
     })
     expect(commands.length).toBeGreaterThan(0)
     expect(commands.every((c) => c.id.startsWith('setting:'))).toBe(true)
+    expect(commands.map((c) => c.id)).not.toContain('setting:interface.onboardingCompleted')
   })
 })
