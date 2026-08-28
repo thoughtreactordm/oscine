@@ -411,9 +411,9 @@ function onSeekInput(value: number | undefined): void {
           its place rather than sliding to centre — the operator asked to see the
           art bigger, not to have the title move house.
         -->
-        <div class="flex min-w-0 flex-col justify-center">
+        <div class="flex min-w-48 max-w-72 flex-col justify-center">
           <MarqueeText
-            class="max-w-60 text-sm font-medium text-highlighted"
+            class="text-sm font-medium text-highlighted"
             :text="playback.nowPlaying?.title ?? 'Nothing playing'"
           />
           <MarqueeText class="text-xs text-muted">
