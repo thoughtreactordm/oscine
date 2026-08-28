@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { TagFacetWindow } from '@renderer/panels/tagFacetWindow'
+import { selectionIntent } from '@renderer/panels/indexedSelection'
 
 /**
  * The genre/tag browse pane — **W15-5**.
@@ -12,10 +13,10 @@ import type { TagFacetWindow } from '@renderer/panels/tagFacetWindow'
  * asks for it, even though the genre/tag vocabulary is far smaller than the
  * artist or album ones.
  *
- * Simpler than `FacetList`: selection here is a `Set<string>` of keys toggled one
- * at a time, not an anchored range over numeric ids, so there is no shared
- * `indexedSelection` and no context-menu verbs — a click toggles a key, and the
- * pane narrows the library to whatever is ticked.
+ * Simpler than `FacetList`: selection here is a `Set<string>` of keys, not an
+ * anchored range over numeric ids, so there is no shared `indexedSelection` and
+ * no context-menu verbs. A plain click replaces, Ctrl+click toggles — matching
+ * the modifier contract every other pane uses.
  */
 const props = defineProps<{
   model: TagFacetWindow
@@ -84,11 +85,14 @@ function scrollIndexIntoView(index: number): void {
   scrollTop.value = element.scrollTop
 }
 
-function toggleAt(index: number): void {
+function clickAt(index: number, event: MouseEvent): void {
+  if (event.button !== 0) return
   const item = props.model.rowAt(index)
   if (!item) return
   focusIndex.value = index
-  props.model.toggle(item.key)
+  const intent = selectionIntent(event)
+  if (intent === 'toggle') props.model.toggle(item.key)
+  else props.model.selectOnly(item.key)
 }
 
 // Keep a keyboard-moved focus on a row that still exists after the list changes.
@@ -112,8 +116,10 @@ function onKeydown(event: KeyboardEvent): void {
 
   if (event.key === 'Enter' || event.key === ' ') {
     if (focusIndex.value === null) return
+    const item = props.model.rowAt(focusIndex.value)
+    if (!item) return
     event.preventDefault()
-    toggleAt(focusIndex.value)
+    props.model.toggle(item.key)
     return
   }
 
@@ -155,7 +161,7 @@ function onKeydown(event: KeyboardEvent): void {
           'text-dimmed': !row.item
         }"
         :style="{ top: `${row.index * rowHeight}px`, height: `${rowHeight}px` }"
-        @mousedown.left="toggleAt(row.index)"
+        @mousedown="clickAt(row.index, $event)"
       >
         <template v-if="row.item">
           <!--
