@@ -1,16 +1,16 @@
 ---
 taskId: 01KYWX1BZ78YGCGAMVF506EQCS
 title: First-run setup and onboarding
-status: backlog
+status: todo
 priority: low
 labels: []
 workstream: W8
 workstreamId: W8-14
 dependsOn:
   - 01KYWWY6TM6XQA3NB7YHQWZZG4
-order: 5
+order: 2
 created: '2026-07-31T20:14:49.317Z'
-updated: '2026-08-25T22:23:18.156Z'
+updated: '2026-08-28T17:33:16.561Z'
 ---
 The registry rendered as a wizard. Cheap once everything above exists, and currently owned by nobody — a first launch today drops the operator into an empty shell with no root and no indication that adding one is the next move.
 

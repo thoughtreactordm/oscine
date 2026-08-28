@@ -11,9 +11,9 @@ workstream: W10
 workstreamId: W10-14
 dependsOn:
   - 01KZ40NGY6GCWYGQSSSBE5QTJ7
-order: 7
+order: 0
 created: '2026-08-03T14:33:29.326Z'
-updated: '2026-08-25T22:23:18.181Z'
+updated: '2026-08-28T17:33:25.204Z'
 ---
 **A specification card. Produces a wiki document, not code.**
 

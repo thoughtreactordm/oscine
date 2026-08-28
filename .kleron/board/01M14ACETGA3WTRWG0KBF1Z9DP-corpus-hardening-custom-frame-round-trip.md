@@ -1,7 +1,7 @@
 ---
 taskId: 01M14ACETGA3WTRWG0KBF1Z9DP
 title: Corpus hardening + custom-frame round-trip
-status: in-progress
+status: in-review
 priority: low
 labels:
   - phase-3
@@ -12,9 +12,9 @@ workstreamId: W16-13
 dependsOn:
   - 01M12VF3AAEPVY8JQ0GCW2N3JG
   - 01M14ABNB9PG2QS6934W1MHZ9E
-order: 1
+order: 0
 created: '2026-08-28T13:54:08.847Z'
-updated: '2026-08-28T16:28:11.124Z'
+updated: '2026-08-28T17:32:59.247Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Test corpus (W16-3)" (extension) + "Embedded artwork & custom frames". Widens the W16-3 gate so the preservation guarantee still holds once the engine *writes* pictures instead of only reading past them.
 

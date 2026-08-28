@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40P09R6PGFPAS3VYPD7F1S
 title: D11 — carry the listens log and favorites in the export bundle
-status: backlog
+status: todo
 priority: medium
 labels:
   - D11
@@ -12,9 +12,9 @@ workstreamId: W10-13
 dependsOn:
   - 01KZ40JR89PBK931CC7W55QFMT
   - 01KZ40K4S52HJ267CZEWGD7QH1
-order: 6
+order: 3
 created: '2026-08-03T14:33:12.248Z'
-updated: '2026-08-25T22:23:18.172Z'
+updated: '2026-08-28T17:33:21.062Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → Amendments → D11.
 

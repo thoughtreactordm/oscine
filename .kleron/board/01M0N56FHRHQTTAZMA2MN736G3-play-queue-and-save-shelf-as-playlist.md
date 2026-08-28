@@ -1,7 +1,7 @@
 ---
 taskId: 01M0N56FHRHQTTAZMA2MN736G3
 title: 'Play, queue, and save shelf as playlist'
-status: backlog
+status: todo
 priority: high
 labels:
   - ui
@@ -12,9 +12,9 @@ workstreamId: W12-5
 dependsOn:
   - 01M0N564GA0Y4AVY2QPN8D6ABC
   - 01M0N554FR56WRJ0B85AES6HF1
-order: 1
+order: 0
 created: '2026-08-22T16:34:53.623Z'
-updated: '2026-08-25T22:23:06.293Z'
+updated: '2026-08-28T17:33:08.302Z'
 ---
 Spec: wiki `fermata-discover-1-0` → Play actions, `discover.saveShelf`.
 
