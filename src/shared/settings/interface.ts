@@ -95,6 +95,7 @@ export const FACET_ACTIVATION_KEY = 'interface.facetActivation'
 export const CONFIRM_PLAYLIST_DELETE_KEY = 'interface.confirmPlaylistDelete'
 export const CONFIRM_ENTRY_REMOVAL_KEY = 'interface.confirmEntryRemoval'
 export const NOW_PLAYING_WAVEFORM_KEY = 'interface.nowPlayingWaveform'
+export const NOW_PLAYING_STAGE_TRANSPORT_KEY = 'interface.nowPlayingStageTransport'
 export const NOW_PLAYING_IDLE_AUTOSHOW_KEY = 'interface.nowPlayingIdleAutoShow'
 export const COMMAND_PALETTE_AFFORDANCE_KEY = 'interface.commandPaletteAffordance'
 export const TAB_NAV_BAR_KEY = 'interface.tabNavBar'
@@ -344,6 +345,27 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'A live trace of the audible track, along the bottom of the view. Off costs nothing; on costs one animation frame while a track is sounding.',
     keywords: ['waveform', 'visualizer', 'visualisation', 'now playing', 'animation', 'ribbon'],
     order: 110
+  }),
+
+  /**
+   * The Zen stage layout without Zen mode. On the Now Playing view only, the
+   * bottom transport bar is dropped and its controls move into the view — the
+   * same shared `panels/transport/*` set the Zen stage composes — so a look at
+   * Now Playing is the record and its controls, nothing else. It is not Zen: no
+   * fullscreen, and the title bar and tab row stay; every other view keeps the
+   * bar, since it is their only transport. Off by default.
+   */
+  defineSetting<boolean>({
+    key: NOW_PLAYING_STAGE_TRANSPORT_KEY,
+    scope: 'durable',
+    default: false,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'interface',
+    label: 'Merge the player into the Now Playing view',
+    help: 'On the Now Playing view, hide the bottom player bar and place its controls in the view itself. Every other view keeps the bar.',
+    keywords: ['now playing', 'transport', 'player bar', 'stage', 'merge', 'controls', 'zen'],
+    order: 112
   }),
 
   /**

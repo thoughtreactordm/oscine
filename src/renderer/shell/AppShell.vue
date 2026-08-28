@@ -11,6 +11,7 @@ import PaneResizer from '@renderer/shell/PaneResizer.vue'
 import { shellTabs } from '@renderer/shell/routes'
 import { useGlobalShortcuts } from '@renderer/shell/useGlobalShortcuts'
 import { useIdleAutoShow } from '@renderer/shell/useIdleAutoShow'
+import { useStageTransport } from '@renderer/shell/useStageTransport'
 import { useZenMode } from '@renderer/shell/useZenMode'
 import { SIDEBAR_PANE } from '@renderer/shell/shellLayout'
 import ShellSidebar from '@renderer/shell/ShellSidebar.vue'
@@ -67,13 +68,28 @@ const settings = useSettings()
 const tabNavBar = computed(() => settings.get<boolean>(TAB_NAV_BAR_KEY))
 
 /**
+ * Whether the Now Playing stage is carrying the transport instead of the bar —
+ * always in Zen, and on the Now Playing view when the operator has merged the
+ * player into it. Either way the bar's row goes; the difference is only how much
+ * else does, which the grid below decides.
+ */
+const stageOwnsTransport = useStageTransport()
+
+/**
  * Zen mode overrides the frame's shape rather than any one setting. It collapses
  * to a single body row — no title bar, no tab row, no transport — so the Now
- * Playing stage is the whole window. The tab-bar preference is not touched, only
- * outvoted: it returns exactly as it was on the way out.
+ * Playing stage is the whole window. The merged Now Playing view is the gentler
+ * version: it keeps the title bar and tab row and drops only the transport row,
+ * since the stage carries the transport there. The tab-bar preference is not
+ * touched by either, only outvoted, and returns as it was on the way out.
  */
 const gridRows = computed(() => {
   if (zen.active) return 'grid-rows-[minmax(0,1fr)]'
+  if (stageOwnsTransport.value) {
+    return tabNavBar.value
+      ? 'grid-rows-[2.25rem_2.25rem_minmax(0,1fr)]'
+      : 'grid-rows-[2.25rem_minmax(0,1fr)]'
+  }
   return tabNavBar.value
     ? 'grid-rows-[2.25rem_2.25rem_minmax(0,1fr)_5rem]'
     : 'grid-rows-[2.25rem_minmax(0,1fr)_5rem]'
@@ -296,10 +312,12 @@ onUnmounted(() => {
     </div>
 
     <!--
-      The transport bar — dropped entirely in Zen mode, not merely hidden: the
-      grid loses its row and the Now Playing stage carries the controls instead.
+      The transport bar — dropped, not merely hidden, whenever the stage carries
+      the transport instead: always in Zen, and on the merged Now Playing view.
+      The grid loses its row so the stage takes the height. On every other view,
+      and with the merge off, the bar is here as it always was.
     -->
-    <div v-if="!zen.active" class="min-h-0 border-t border-default bg-default">
+    <div v-if="!stageOwnsTransport" class="min-h-0 border-t border-default bg-default">
       <NowPlaying />
     </div>
 

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useZenStore } from '@renderer/stores/zen'
+import { useStageTransport } from '@renderer/shell/useStageTransport'
 import QuickMenu from '@renderer/panels/QuickMenu.vue'
 import NowPlayingActions from '@renderer/panels/transport/NowPlayingActions.vue'
 import PlaybackModeButtons from '@renderer/panels/transport/PlaybackModeButtons.vue'
@@ -28,6 +29,13 @@ import WaveformRibbon from '@renderer/panels/WaveformRibbon.vue'
 const playback = usePlaybackStore()
 const zen = useZenStore()
 
+/**
+ * Whether this view is carrying the transport itself — in Zen, or when the
+ * operator has merged the player into Now Playing. Both draw the same in-stage
+ * controls; only Zen also hides the frame and offers an in-view way out.
+ */
+const stageOwnsTransport = useStageTransport()
+
 const cover = computed(() => playback.nowPlaying?.artwork.large ?? null)
 
 /** Alt text describes the record, not the file: an empty alt for no record. */
@@ -47,7 +55,7 @@ const byline = computed(() => {
 <template>
   <section
     class="relative flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden bg-default"
-    :class="{ 'stage-zen': zen.active }"
+    :class="{ 'stage-immersive': stageOwnsTransport }"
     aria-label="Now playing"
   >
     <!--
@@ -87,7 +95,7 @@ const byline = computed(() => {
 
     <div
       class="relative flex min-h-0 flex-col items-center gap-6 p-8"
-      :class="{ 'pb-28': zen.active }"
+      :class="{ 'pb-28': stageOwnsTransport }"
     >
       <!--
         Sized by height here, not width: the stage is as wide as the window and
@@ -138,7 +146,7 @@ const byline = computed(() => {
       standing modes flank them. Absolutely positioned so the record above stays
       centred in the window whether or not this is here.
     -->
-    <div v-if="zen.active" class="stage-transport" aria-label="Now playing controls">
+    <div v-if="stageOwnsTransport" class="stage-transport" aria-label="Now playing controls">
       <SeekBar />
       <div class="flex items-center justify-between gap-6 px-8 py-4">
         <NowPlayingActions class="min-w-0 flex-1" />
@@ -150,24 +158,25 @@ const byline = computed(() => {
       </div>
     </div>
 
-    <!-- The Quick Menu, scoped to Now Playing (D26). In Zen the stage owns it, since the bar that normally carries it is not mounted. -->
-    <QuickMenu v-if="zen.active" />
+    <!-- The Quick Menu, scoped to Now Playing (D26). When the stage carries the transport the bar that normally carries the drawer is not mounted, so the stage owns it. -->
+    <QuickMenu v-if="stageOwnsTransport" />
   </section>
 </template>
 
 <style scoped>
 /*
- * Zen dials the waveform ribbon up. In its normal home the ribbon is faint
+ * When the stage carries the transport — Zen, or the merged Now Playing view —
+ * the waveform ribbon is dialled up. In its normal home the ribbon is faint
  * atmosphere rising from behind a footer in a row of its own; here the footer is
  * the floating transport over the foot of this stage, and left as-is the ribbon's
  * bright baseline sits directly under the transport's scrim and washes out. So it
  * is lifted clear of the transport — the centre line onto the bar's top edge, the
  * way the normal view reads — and brightened, with the blur eased back, for a
- * screen watched from across a room. The three custom properties are the
- * ribbon's own overrides; it stays ignorant of Zen. The lift tracks the
- * transport's own height, so a taller bar keeps the ribbon sitting on top of it.
+ * screen watched from across a room. The three custom properties are the ribbon's
+ * own overrides; it stays ignorant of what layout put them there. The lift tracks
+ * the transport's height, so a taller bar keeps the ribbon sitting on top of it.
  */
-.stage-zen {
+.stage-immersive {
   --waveform-ribbon-lift: 6.5rem;
   --waveform-ribbon-opacity: 0.5;
   --waveform-ribbon-blur: 14px;
