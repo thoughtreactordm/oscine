@@ -18,6 +18,9 @@ npm-debug.log*
 .env
 .env.local
 
+# Cursor / editor local state (MCP server URLs, etc.)
+.cursor/
+
 # OS cruft
 .DS_Store
 Thumbs.db
