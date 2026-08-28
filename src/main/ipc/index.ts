@@ -151,6 +151,18 @@ export function registerIpcHandlers(
     return null
   })
 
+  handle('window.setFullScreen', (request, event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) return false
+    const { on } = assertRecord(request, 'request')
+    window.setFullScreen(on === true)
+    return window.isFullScreen()
+  })
+
+  handle('window.isFullScreen', (_request, event) => {
+    return BrowserWindow.fromWebContents(event.sender)?.isFullScreen() ?? false
+  })
+
   handle('app.getVersion', () => app.getVersion())
 
   handle('app.openExternal', (request) => {

@@ -23,6 +23,8 @@ export interface ActionCommandDeps {
   cycleRepeat: () => void
   /** Clears both tiers of the up-next queue. */
   clearQueue: () => void
+  /** Enters or leaves Zen / Kiosk mode. */
+  toggleZen: () => void
   /** The D22 confirmation toast. */
   notify: (message: string) => void
   /** Dismiss the palette — D22, an action dispatches and the modal is gone. */
@@ -95,6 +97,16 @@ export function buildActionCommands(deps: ActionCommandDeps): Command[] {
       run: () => {
         deps.clearQueue()
         finish('Cleared the queue')
+      }
+    },
+    {
+      id: 'action:zenMode',
+      label: 'Toggle Zen mode',
+      icon: 'i-tabler-focus-2',
+      keywords: ['zen', 'kiosk', 'fullscreen', 'minimal', 'tv', 'focus', 'display'],
+      run: () => {
+        deps.toggleZen()
+        finish('Toggled Zen mode')
       }
     }
   ]

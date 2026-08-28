@@ -173,6 +173,13 @@ export interface IpcContract {
   'window.toggleMaximize': { request: null; response: boolean }
   'window.isMaximized': { request: null; response: boolean }
   'window.close': { request: null; response: null }
+  /**
+   * Enters or leaves OS fullscreen, and answers with the state that took — Zen
+   * mode's one reach into the window. Returns the resolved `isFullScreen()`
+   * rather than echoing the request so a refusal is visible to the caller.
+   */
+  'window.setFullScreen': { request: { on: boolean }; response: boolean }
+  'window.isFullScreen': { request: null; response: boolean }
   /** The running application version, for the About dialog. */
   'app.getVersion': { request: null; response: string }
   /**
@@ -1172,6 +1179,8 @@ export type IpcResponse<C extends IpcChannel> = IpcContract[C]['response']
  */
 export interface IpcEventContract {
   'window.maximizedChange': boolean
+  /** OS fullscreen entered or left — including out-of-band (F11, Esc), so Zen mode can follow. */
+  'window.fullScreenChange': boolean
   'library.scanProgress': ScanProgress
   'library.notice': LibraryNotice
   'library.replayGainProgress': ReplayGainJobProgress
@@ -1233,6 +1242,8 @@ export const IPC_CHANNELS = [
   'window.toggleMaximize',
   'window.isMaximized',
   'window.close',
+  'window.setFullScreen',
+  'window.isFullScreen',
   'app.getVersion',
   'app.openExternal',
   'library.addRoot',
@@ -1361,6 +1372,7 @@ export const IPC_CHANNELS = [
 
 export const IPC_EVENT_CHANNELS = [
   'window.maximizedChange',
+  'window.fullScreenChange',
   'library.scanProgress',
   'library.notice',
   'library.replayGainProgress',

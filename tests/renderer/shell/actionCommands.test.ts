@@ -20,6 +20,7 @@ function deps(overrides: Partial<ActionCommandDeps> = {}): ActionCommandDeps {
     toggleShuffle: vi.fn(),
     cycleRepeat: vi.fn(),
     clearQueue: vi.fn(),
+    toggleZen: vi.fn(),
     notify: vi.fn(),
     close: vi.fn(),
     ...overrides
@@ -41,7 +42,8 @@ describe('buildActionCommands', () => {
       'action:previous',
       'action:shuffle',
       'action:repeat',
-      'action:clearQueue'
+      'action:clearQueue',
+      'action:zenMode'
     ])
     for (const c of commands) expect(c.keywords.length).toBeGreaterThan(0)
   })
@@ -63,6 +65,14 @@ describe('buildActionCommands', () => {
     const d = deps()
     await command(buildActionCommands(d), 'action:clearQueue').run()
     expect(d.clearQueue).toHaveBeenCalledOnce()
+    expect(d.close).toHaveBeenCalledOnce()
+  })
+
+  it('toggles Zen mode through the zen verb', async () => {
+    const d = deps()
+    await command(buildActionCommands(d), 'action:zenMode').run()
+    expect(d.toggleZen).toHaveBeenCalledOnce()
+    expect(d.notify).toHaveBeenCalledOnce()
     expect(d.close).toHaveBeenCalledOnce()
   })
 

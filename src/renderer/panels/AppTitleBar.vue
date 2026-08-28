@@ -11,9 +11,14 @@ import { usePaletteStore } from '@renderer/stores/palette'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
+import { useZenStore } from '@renderer/stores/zen'
 import { OPEN_SOURCE_CREDITS } from '@renderer/panels/openSourceCredits'
 import { useSettings } from '@renderer/settings'
-import { COLOR_MODE_TOGGLE_KEY, COMMAND_PALETTE_AFFORDANCE_KEY } from '@shared/settings'
+import {
+  COLOR_MODE_TOGGLE_KEY,
+  COMMAND_PALETTE_AFFORDANCE_KEY,
+  ZEN_MODE_TOGGLE_BUTTON_KEY
+} from '@shared/settings'
 import type { ColorModeToggle } from '@shared/settings'
 
 /**
@@ -26,6 +31,7 @@ const palette = usePaletteStore()
 const playback = usePlaybackStore()
 const shell = useShellStore()
 const tunedeck = useTunedeckStore()
+const zen = useZenStore()
 const router = useRouter()
 const settings = useSettings()
 const maximized = ref(false)
@@ -37,6 +43,13 @@ const maximized = ref(false)
  */
 const paletteAffordance = computed(() => settings.get<boolean>(COMMAND_PALETTE_AFFORDANCE_KEY))
 const colorModeToggle = computed(() => settings.get<ColorModeToggle>(COLOR_MODE_TOGGLE_KEY))
+
+/**
+ * The Zen mode button in the chrome, an opt-in like the color-mode toggle beside
+ * it. Off by default — the mode is still reachable from the View menu, the
+ * palette and Ctrl/Cmd+Shift+Z whether or not this is shown.
+ */
+const zenModeButton = computed(() => settings.get<boolean>(ZEN_MODE_TOGGLE_BUTTON_KEY))
 
 /**
  * The About dialog and the Open Source dialog, opened from the Help menu and
@@ -293,6 +306,17 @@ const viewItems = computed<DropdownMenuItem[][]>(() => [
         shell.requestQuickMenu()
       }
     }
+  ],
+  [
+    {
+      // A checkbox, because Zen is a state the menu can both enter and report:
+      // the tick says whether the window is in Zen now, and toggling it leaves.
+      label: 'Zen mode',
+      icon: 'i-tabler-focus-2',
+      type: 'checkbox',
+      checked: zen.active,
+      onUpdateChecked: () => zen.toggle()
+    }
   ]
 ])
 
@@ -431,6 +455,22 @@ async function toggleMaximize(): Promise<void> {
     </div>
 
     <div class="app-no-drag flex h-full shrink-0 items-center" aria-label="Window controls">
+      <!--
+        Zen mode, an opt-in affordance to the left of the window controls like the
+        color-mode toggle beside it. Lit while the mode is on so it reads as a
+        toggle rather than only a way in; the mode hides this whole bar, so the way
+        back out is the stage, the palette and the shortcut.
+      -->
+      <UTooltip v-if="zenModeButton" :text="zen.active ? 'Exit Zen mode' : 'Enter Zen mode'">
+        <UButton
+          icon="i-tabler-focus-2"
+          :color="zen.active ? 'primary' : 'neutral'"
+          variant="ghost"
+          :aria-pressed="zen.active"
+          aria-label="Zen mode"
+          @click="zen.toggle()"
+        />
+      </UTooltip>
       <UColorModeSwitch v-if="colorModeToggle === 'switch'" />
       <UColorModeButton v-else-if="colorModeToggle === 'button'" color="neutral" variant="ghost" />
       <UButton

@@ -404,8 +404,12 @@ export const windowControls = {
   toggleMaximize: () => unwrap(window.oscine.windowControls.toggleMaximize()),
   isMaximized: () => unwrap(window.oscine.windowControls.isMaximized()),
   close: () => unwrap(window.oscine.windowControls.close()),
+  setFullScreen: (on: boolean) => unwrap(window.oscine.windowControls.setFullScreen(on)),
+  isFullScreen: () => unwrap(window.oscine.windowControls.isFullScreen()),
   onMaximizedChange: (listener: (maximized: boolean) => void) =>
-    window.oscine.windowControls.onMaximizedChange(listener)
+    window.oscine.windowControls.onMaximizedChange(listener),
+  onFullScreenChange: (listener: (fullscreen: boolean) => void) =>
+    window.oscine.windowControls.onFullScreenChange(listener)
 }
 
 export const appInfo = {

@@ -11,6 +11,7 @@ import PaneResizer from '@renderer/shell/PaneResizer.vue'
 import { shellTabs } from '@renderer/shell/routes'
 import { useGlobalShortcuts } from '@renderer/shell/useGlobalShortcuts'
 import { useIdleAutoShow } from '@renderer/shell/useIdleAutoShow'
+import { useZenMode } from '@renderer/shell/useZenMode'
 import { SIDEBAR_PANE } from '@renderer/shell/shellLayout'
 import ShellSidebar from '@renderer/shell/ShellSidebar.vue'
 import ShellTabs from '@renderer/shell/ShellTabs.vue'
@@ -22,6 +23,7 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { useShellStore } from '@renderer/stores/shell'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
+import { useZenStore } from '@renderer/stores/zen'
 import { useSettings } from '@renderer/settings'
 import { TAB_NAV_BAR_KEY } from '@shared/settings'
 
@@ -53,6 +55,7 @@ const playback = usePlaybackStore()
 const playlists = usePlaylistsStore()
 const shell = useShellStore()
 const tunedeck = useTunedeckStore()
+const zen = useZenStore()
 const settings = useSettings()
 
 /**
@@ -62,11 +65,19 @@ const settings = useSettings()
  * bar, body, transport) are fixed; only the second track changes.
  */
 const tabNavBar = computed(() => settings.get<boolean>(TAB_NAV_BAR_KEY))
-const gridRows = computed(() =>
-  tabNavBar.value
+
+/**
+ * Zen mode overrides the frame's shape rather than any one setting. It collapses
+ * to a single body row — no title bar, no tab row, no transport — so the Now
+ * Playing stage is the whole window. The tab-bar preference is not touched, only
+ * outvoted: it returns exactly as it was on the way out.
+ */
+const gridRows = computed(() => {
+  if (zen.active) return 'grid-rows-[minmax(0,1fr)]'
+  return tabNavBar.value
     ? 'grid-rows-[2.25rem_2.25rem_minmax(0,1fr)_5rem]'
     : 'grid-rows-[2.25rem_minmax(0,1fr)_5rem]'
-)
+})
 
 /**
  * Instantiated here, not in `Sources`.
@@ -92,6 +103,12 @@ useGlobalShortcuts()
  * and moves between them, so it cannot live under a view a tab change unmounts.
  */
 useIdleAutoShow()
+
+/**
+ * Zen mode's frame half — the navigation and the fullscreen subscription the
+ * store leaves to the frame, mounted once here for the reason the two above are.
+ */
+useZenMode()
 
 const sidebarWidth = shell.paneSize(SIDEBAR_PANE)
 
@@ -179,9 +196,9 @@ onUnmounted(() => {
 
 <template>
   <main class="grid h-screen overflow-hidden bg-default text-default" :class="gridRows">
-    <AppTitleBar />
+    <AppTitleBar v-if="!zen.active" />
 
-    <ShellTabs v-if="tabNavBar" />
+    <ShellTabs v-if="tabNavBar && !zen.active" />
 
     <div class="flex min-h-0 min-w-0 overflow-hidden">
       <!--
@@ -278,7 +295,11 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="min-h-0 border-t border-default bg-default">
+    <!--
+      The transport bar — dropped entirely in Zen mode, not merely hidden: the
+      grid loses its row and the Now Playing stage carries the controls instead.
+    -->
+    <div v-if="!zen.active" class="min-h-0 border-t border-default bg-default">
       <NowPlaying />
     </div>
 

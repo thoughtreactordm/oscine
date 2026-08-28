@@ -4,6 +4,7 @@ import { resolveShortcut, type ShortcutAction } from '@renderer/shell/globalShor
 import { shellTabs } from '@renderer/shell/routes'
 import { usePaletteStore } from '@renderer/stores/palette'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useZenStore } from '@renderer/stores/zen'
 
 /**
  * Controls that treat Space (or the pointer) as activation, so Space stands down
@@ -66,6 +67,7 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 export function useGlobalShortcuts(): void {
   const palette = usePaletteStore()
   const playback = usePlaybackStore()
+  const zen = useZenStore()
   const router = useRouter()
 
   /** Runs an action and reports whether it claimed the key. */
@@ -103,6 +105,9 @@ export function useGlobalShortcuts(): void {
         void router.push({ name: tab.name })
         return true
       }
+      case 'zen':
+        zen.toggle()
+        return true
     }
   }
 

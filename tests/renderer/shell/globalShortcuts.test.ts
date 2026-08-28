@@ -163,6 +163,31 @@ describe('resolveShortcut — navigation', () => {
   })
 })
 
+describe('resolveShortcut — zen mode', () => {
+  it('toggles on a bare F11 — the fullscreen key', () => {
+    expect(resolveShortcut(chord({ key: 'F11' }))).toEqual({ kind: 'zen', action: 'toggle' })
+  })
+
+  it('also toggles on Ctrl/Cmd + Shift + Z, case-insensitively', () => {
+    expect(resolveShortcut(chord({ key: 'z', ctrlKey: true, shiftKey: true }))).toEqual({
+      kind: 'zen',
+      action: 'toggle'
+    })
+    expect(resolveShortcut(chord({ key: 'Z', metaKey: true, shiftKey: true }))).toEqual({
+      kind: 'zen',
+      action: 'toggle'
+    })
+  })
+
+  it('needs the Shift — Ctrl+Z alone is not Zen', () => {
+    expect(resolveShortcut(chord({ key: 'z', ctrlKey: true }))).toBeNull()
+  })
+
+  it('stands down while a text control is focused', () => {
+    expect(resolveShortcut(chord({ key: 'F11', editable: true }))).toBeNull()
+  })
+})
+
 describe('resolveShortcut — misses', () => {
   it('ignores every unbound key', () => {
     expect(resolveShortcut(chord({ key: 'a', ctrlKey: true }))).toBeNull()

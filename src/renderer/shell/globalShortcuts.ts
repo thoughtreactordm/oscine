@@ -32,6 +32,7 @@ export type ShortcutAction =
   | { readonly kind: 'seek'; readonly deltaSeconds: number }
   | { readonly kind: 'volume'; readonly delta: number }
   | { readonly kind: 'navigate'; readonly tabIndex: number }
+  | { readonly kind: 'zen'; readonly action: 'toggle' }
 
 export interface ShortcutChord {
   readonly key: string
@@ -208,6 +209,27 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     keys: ['escape'],
     match: (chord) =>
       bare(chord) && chord.key === 'Escape' ? { kind: 'palette', action: 'close' } : null
+  },
+  {
+    // F11 is the fullscreen key everyone reaches for, and Zen *is* fullscreen
+    // with the chrome gone — so it drives the mode rather than a bare fullscreen
+    // toggle. Ctrl/⌘+Shift+Z is the second way in, for keyboards where F11 is
+    // spoken for by the OS. Leaving fullscreen by any route stands the mode down
+    // (see the window subscription in `useZenMode`), so the pair can only ever
+    // enter here; the exit is the same key doing the same thing.
+    id: 'zenMode',
+    category: 'Navigation',
+    description: 'Toggle Zen mode',
+    keys: ['F11'],
+    match: (chord) => {
+      const f11 = bare(chord) && chord.key === 'F11'
+      const modShiftZ =
+        (chord.ctrlKey || chord.metaKey) &&
+        chord.shiftKey &&
+        !chord.altKey &&
+        chord.key.toLowerCase() === 'z'
+      return f11 || modShiftZ ? { kind: 'zen', action: 'toggle' } : null
+    }
   }
 ]
 

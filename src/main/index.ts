@@ -801,6 +801,12 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow.on('unmaximize', () => {
       if (mainWindow) emit(mainWindow.webContents, 'window.maximizedChange', false)
     })
+    mainWindow.on('enter-full-screen', () => {
+      if (mainWindow) emit(mainWindow.webContents, 'window.fullScreenChange', true)
+    })
+    mainWindow.on('leave-full-screen', () => {
+      if (mainWindow) emit(mainWindow.webContents, 'window.fullScreenChange', false)
+    })
     void library.initialize().catch((error: unknown) => {
       console.error('[scan] startup reconciliation failed:', error)
     })
