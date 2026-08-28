@@ -1,7 +1,7 @@
 ---
 taskId: 01M14ABB9S41XF5NR34GV3C4AN
 title: Artwork ingest
-status: in-review
+status: done
 priority: low
 labels:
   - phase-3
@@ -11,9 +11,9 @@ workstream: W16
 workstreamId: W16-10
 dependsOn:
   - 01M14AAX89PCX250PBPVDN7QGK
-order: 2
+order: 12
 created: '2026-08-28T13:53:32.472Z'
-updated: '2026-08-28T15:03:39.436Z'
+updated: '2026-08-28T19:48:16.327Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Embedded artwork & custom frames → Ingest" + Decision C (album granularity). Feeds the W16-9 override layer.
 

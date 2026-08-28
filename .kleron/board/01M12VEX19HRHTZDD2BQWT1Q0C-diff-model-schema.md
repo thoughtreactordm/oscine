@@ -1,7 +1,7 @@
 ---
 taskId: 01M12VEX19HRHTZDD2BQWT1Q0C
 title: Diff model & schema
-status: in-review
+status: done
 priority: high
 labels:
   - phase-1
@@ -9,9 +9,9 @@ labels:
   - main
 workstream: W16
 workstreamId: W16-1
-order: 0
+order: 4
 created: '2026-08-28T00:14:05.864Z'
-updated: '2026-08-28T00:56:44.117Z'
+updated: '2026-08-28T19:48:16.239Z'
 ---
 Design authority: wiki `oscine-tag-writeback` (D28) → "The diff model" + "Schema".
 

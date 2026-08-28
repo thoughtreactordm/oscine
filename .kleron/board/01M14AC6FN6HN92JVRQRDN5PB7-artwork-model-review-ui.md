@@ -1,7 +1,7 @@
 ---
 taskId: 01M14AC6FN6HN92JVRQRDN5PB7
 title: Artwork model + review UI
-status: in-review
+status: done
 priority: low
 labels:
   - phase-3
@@ -14,9 +14,9 @@ dependsOn:
   - 01M12VG7FZX6TVP55TGSG4BW1H
   - 01M14AAX89PCX250PBPVDN7QGK
   - 01M14ABB9S41XF5NR34GV3C4AN
-order: 2
+order: 14
 created: '2026-08-28T13:54:00.308Z'
-updated: '2026-08-28T16:13:03.476Z'
+updated: '2026-08-28T19:48:16.357Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Embedded artwork & custom frames" + "Staged review UI". The operator-facing half of the artwork split.
 
