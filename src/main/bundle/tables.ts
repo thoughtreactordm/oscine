@@ -260,6 +260,19 @@ export const BUNDLE_TABLES: readonly BundleTable[] = [
       'exporter card (W10-13) has not ruled, and unlike a per-track statement these rules are ' +
       'global — an importer would union them into its own ruleset rather than name a track, a ' +
       'merge the exporter card designs. Do not read the resemblance to `track_overrides` as a ruling.'
+  },
+  {
+    name: 'artwork_overrides',
+    side: 'open',
+    why:
+      'W16-9’s cover correction, a per-track statement about a track on the same footing as ' +
+      '`track_overrides` — and unruled for the same reason: the D11 exporter card (W10-13) has ' +
+      'not named it. A sharper edge than the text override, though: the row is only a hash and a ' +
+      'mime, and the cover bytes it names live in the `artwork-originals-v1` artifact, which is ' +
+      '`derived` and never travels (the bundle carries no file bytes). So even were the row ruled ' +
+      'to carry, the exporter would first need a way to carry the image the hash points at, which ' +
+      'the bundle does not have. The exporter card decides both. Do not read the resemblance to ' +
+      '`track_overrides` as a ruling.'
   }
 ]
 

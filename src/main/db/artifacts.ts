@@ -66,6 +66,31 @@ export const ARTWORK_CACHE_ARTIFACT: UserDataArtifact = {
   why: 'Thumbnails re-extracted from the audio files and folder images they came from.'
 }
 
+/**
+ * W16-9's override-originals store: full-resolution cover bytes the operator
+ * chose but has not yet flushed into the file, content-addressed by SHA-256 the
+ * same way {@link ARTWORK_CACHE_ARTIFACT} keys its thumbnails.
+ *
+ * On the `derived` side, but the label is doing something subtler here than for
+ * the thumbnail cache, and it is worth being explicit that the usual reason does
+ * not apply. This is *not* reconstructible from the files on disk: until a flush
+ * writes it back, this directory is the only copy of the pending cover. It is
+ * `derived` for the *other* thing the kind controls — export exclusion. D11's
+ * bundle carries statements about tracks and has never carried whole files, so a
+ * bundle advertised as playlists and play counts must not ship a user's
+ * un-flushed cover bytes. `derived` is what keeps its name out of the bundle;
+ * the pending choice's real safety net is the flush, and W16-9's originals-store
+ * GC releases each hash the moment no override row references it.
+ */
+export const ARTWORK_ORIGINALS_ARTIFACT: UserDataArtifact = {
+  name: 'artwork-originals-v1',
+  kind: 'derived',
+  why:
+    'Full-resolution covers the operator set but has not flushed (W16-9). Excluded from the ' +
+    'D11 bundle because it never carries file bytes — not because it is recoverable; until a ' +
+    'flush writes it back this is the only copy. Refcounted over artwork_overrides.image_hash.'
+}
+
 export const PODCASTS_ARTIFACT: UserDataArtifact = {
   name: 'podcasts',
   kind: 'derived',
@@ -105,6 +130,7 @@ export const USER_DATA_ARTIFACTS: readonly UserDataArtifact[] = [
   LIBRARY_DATABASE_ARTIFACT,
   CACHE_DATABASE_ARTIFACT,
   ARTWORK_CACHE_ARTIFACT,
+  ARTWORK_ORIGINALS_ARTIFACT,
   PODCASTS_ARTIFACT,
   SCROBBLE_CREDENTIALS_ARTIFACT
 ]

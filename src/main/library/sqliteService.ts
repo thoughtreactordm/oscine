@@ -53,6 +53,7 @@ import type { EmbeddedArtworkReader } from './metadata'
 import { reconcilePaths, scanRoot } from './scanner'
 import { LibraryStore, type RootConflict, type RootRow } from './store'
 import { ArtworkCacheService, isArtworkSidecarPath } from './artwork'
+import { createArtworkOriginalsStore } from './artworkOriginals'
 import type { ArtworkImageProcessor } from './artworkProcessor'
 import { RootDirectoryWatcher, type DirectoryWatchAdapter, type WatchMode } from './watcher'
 import type { LibraryService } from './service'
@@ -84,6 +85,12 @@ export interface SqliteLibraryDeps {
   readFormatDetail?: FormatDetailReader
   /** Enables the derived artwork service. Omitted by tests that do not exercise it. */
   artworkCacheDir?: string
+  /**
+   * Enables W16-9's override-originals store, held alongside the reconcile pass
+   * so a satisfied artwork override retires and its bytes are GC'd. Omitted and
+   * the artwork override reconcile is skipped.
+   */
+  artworkOriginalsDir?: string
   readArtwork?: EmbeddedArtworkReader
   artworkProcessor?: ArtworkImageProcessor
   /**
@@ -169,6 +176,9 @@ export class SqliteLibraryService implements LibraryService {
       ? new ArtworkCacheService({
           store: this.store,
           cacheDir: deps.artworkCacheDir,
+          ...(deps.artworkOriginalsDir
+            ? { originals: createArtworkOriginalsStore({ dir: deps.artworkOriginalsDir }) }
+            : {}),
           ...(deps.readArtwork ? { readArtwork: deps.readArtwork } : {}),
           ...(deps.artworkProcessor ? { processor: deps.artworkProcessor } : {}),
           ...(deps.externalArtworkReferences

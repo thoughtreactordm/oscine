@@ -215,4 +215,216 @@ describe('track overrides', () => {
       overridden: true
     })
   })
+
+  /**
+   * Re-scan reconciliation — **W16-7**, design authority D28.
+   *
+   * The counterpart to the flush-driven retire above: an override retires once a
+   * re-scan reads the correction back off the file, by whatever route it got
+   * there — a flush, or an out-of-band edit by another tagger. Driven through the
+   * real scan upsert (`writeTracks`) so the retire fires exactly where a live
+   * re-scan would.
+   */
+  describe('re-scan reconciliation', () => {
+    function rescan(rel: string, over: Partial<TrackTags>): number {
+      store.writeTracks(
+        rootId,
+        [
+          {
+            file: { absPath: `/synthetic/${rel}`, relPath: rel, mtime: 1, size: 1 },
+            tags: fileTags(over)
+          }
+        ],
+        NOW
+      )
+      return (
+        opened.db.prepare('SELECT id FROM tracks WHERE rel_path = ?').get(rel) as { id: number }
+      ).id
+    }
+
+    function overrideCount(track: number): number {
+      return (
+        opened.db
+          .prepare('SELECT COUNT(*) AS n FROM track_overrides WHERE track_id = ?')
+          .get(track) as { n: number }
+      ).n
+    }
+
+    it('retires an override the re-scan finds the file already holds', () => {
+      const track = rescan('a.flac', { title: 'Old' })
+      store.setOverrides([track], { title: 'New' }, NOW)
+      expect(trackById(track).modified).toBe(true)
+
+      // Another tagger wrote the correction to the file; the re-scan reads it back.
+      rescan('a.flac', { title: 'New' })
+
+      expect(overrideCount(track)).toBe(0)
+      expect(trackById(track).modified).toBe(false)
+      expect(store.pendingWritebackTrackIds()).not.toContain(track)
+      // The library reads the correction from the file alone.
+      expect(trackById(track).title).toBe('New')
+    })
+
+    it('keeps an override the re-scanned file still contradicts', () => {
+      const track = rescan('a.flac', { title: 'Old' })
+      store.setOverrides([track], { title: 'New' }, NOW)
+
+      // The file is unchanged: the correction is still unwritten.
+      rescan('a.flac', { title: 'Old' })
+
+      expect(overrideCount(track)).toBe(1)
+      expect(trackById(track).modified).toBe(true)
+      expect(store.pendingWritebackTrackIds()).toContain(track)
+      // The override still stands over the file's stale value.
+      expect(trackById(track).title).toBe('New')
+    })
+
+    it('retires only the columns the file has caught up to', () => {
+      const track = rescan('a.flac', { title: 'Old', trackNo: 1 })
+      store.setOverrides([track], { title: 'New', trackNo: 5 }, NOW)
+
+      // The file gained the title but not the track number.
+      rescan('a.flac', { title: 'New', trackNo: 1 })
+
+      expect(overrideCount(track)).toBe(1)
+      expect(trackById(track).modified).toBe(true)
+      const state = store.overrideEditState([track])
+      expect(state.title.overridden).toBe(false)
+      expect(state.trackNo).toMatchObject({ value: 5, overridden: true })
+    })
+
+    it('retires a genre override once the file frames the same genres', () => {
+      const track = rescan('a.flac', { title: 'Song', genre: 'Rock' })
+      store.setOverrides([track], { genre: 'Jazz' }, NOW)
+      expect(store.overrideEditState([track]).genre).toMatchObject({ overridden: true })
+
+      rescan('a.flac', { title: 'Song', genre: 'Jazz' })
+
+      expect(overrideCount(track)).toBe(0)
+      expect(store.overrideEditState([track]).genre.overridden).toBe(false)
+    })
+
+    it('reproduces the corrected library from files alone after a wipe and re-scan', () => {
+      // scan → correct → the correction reaches the file → wipe → re-scan.
+      const track = rescan('a.flac', { title: 'Old', artist: 'Old' })
+      store.setOverrides([track], { title: 'New', artist: 'New' }, NOW)
+
+      // Wipe every library row the way a fresh index would start.
+      opened.db.exec('DELETE FROM track_overrides; DELETE FROM tracks')
+
+      // Re-scan the file, which now carries the flushed correction.
+      const rescanned = rescan('a.flac', { title: 'New', artist: 'New' })
+
+      expect(trackById(rescanned).title).toBe('New')
+      expect(trackById(rescanned).artist).toBe('New')
+      expect(overrideCount(rescanned)).toBe(0)
+      expect(store.pendingWritebackTrackIds()).toEqual([])
+    })
+  })
+
+  /**
+   * The artwork override layer — **W16-9**, design authority D28 / Decision A.
+   *
+   * A cover is a persistent correction like every text field: tri-state (set /
+   * clear / absent), resolved through the same `oscine://` path so it shows the
+   * moment it is set, and refcounted so the originals GC can release it.
+   */
+  describe('artwork overrides', () => {
+    const HASH_A = 'a'.repeat(64)
+    const HASH_B = 'b'.repeat(64)
+    const ALBUM_HASH = 'c'.repeat(64)
+
+    function coverHashOf(track: number): string {
+      // The `oscine://artwork/<hash>/small` the renderer draws — the override-aware
+      // resolution collapses to the hash in the URL.
+      const match = /artwork\/([^/]+)\/small$/.exec(trackById(track).artwork.small)
+      return match![1]
+    }
+
+    it('sets, reads and removes a per-track cover override', () => {
+      const track = insertTrack('a.flac', { title: 'Song' })
+
+      expect(store.getArtworkOverride(track)).toBeNull()
+
+      store.setArtworkOverride(track, HASH_A, 'image/jpeg', NOW)
+      expect(store.getArtworkOverride(track)).toEqual({ imageHash: HASH_A, mime: 'image/jpeg' })
+
+      store.removeArtworkOverride(track)
+      expect(store.getArtworkOverride(track)).toBeNull()
+    })
+
+    it('distinguishes a clear (row, null hash) from absent (no row)', () => {
+      const track = insertTrack('a.flac', { title: 'Song' })
+
+      store.clearArtworkOverride(track, NOW)
+      expect(store.getArtworkOverride(track)).toEqual({ imageHash: null, mime: null })
+
+      const rows = opened.db
+        .prepare('SELECT COUNT(*) AS n FROM artwork_overrides WHERE track_id = ?')
+        .get(track) as { n: number }
+      expect(rows.n).toBe(1)
+    })
+
+    it('resolves the track cover to a set override, then back to the album on remove', () => {
+      const artist = insertArtist('Artist')
+      const album = insertAlbum('Album', artist, 2001)
+      const track = insertTrack('a.flac', { title: 'Song', artistId: artist, albumId: album })
+      store.setAlbumArtwork(album, ALBUM_HASH)
+
+      expect(coverHashOf(track)).toBe(ALBUM_HASH)
+
+      store.setArtworkOverride(track, HASH_B, 'image/png', NOW)
+      expect(coverHashOf(track)).toBe(HASH_B)
+
+      store.removeArtworkOverride(track)
+      expect(coverHashOf(track)).toBe(ALBUM_HASH)
+    })
+
+    it('resolves a cleared cover to no art, over the album that has some', () => {
+      const artist = insertArtist('Artist')
+      const album = insertAlbum('Album', artist, 2001)
+      const track = insertTrack('a.flac', { title: 'Song', artistId: artist, albumId: album })
+      store.setAlbumArtwork(album, ALBUM_HASH)
+
+      store.clearArtworkOverride(track, NOW)
+
+      // The 'missing' sentinel from `artworkUrl(null)` — the cover is blank now,
+      // not the album's own art.
+      expect(coverHashOf(track)).toBe('missing')
+    })
+
+    it('re-choosing a cover replaces the hash in place', () => {
+      const track = insertTrack('a.flac', { title: 'Song' })
+      store.setArtworkOverride(track, HASH_A, 'image/jpeg', NOW)
+      store.setArtworkOverride(track, HASH_B, 'image/png', NOW + 1)
+
+      expect(store.getArtworkOverride(track)).toEqual({ imageHash: HASH_B, mime: 'image/png' })
+      const rows = opened.db
+        .prepare('SELECT COUNT(*) AS n FROM artwork_overrides WHERE track_id = ?')
+        .get(track) as { n: number }
+      expect(rows.n).toBe(1)
+    })
+
+    it('reports only set hashes as referenced — a clear releases its bytes', () => {
+      const t1 = insertTrack('a.flac', { title: 'One' })
+      const t2 = insertTrack('b.flac', { title: 'Two' })
+      const t3 = insertTrack('c.flac', { title: 'Three' })
+      store.setArtworkOverride(t1, HASH_A, 'image/jpeg', NOW)
+      store.setArtworkOverride(t2, HASH_A, 'image/jpeg', NOW) // shared album cover, one hash
+      store.clearArtworkOverride(t3, NOW)
+
+      expect(store.listReferencedOverrideImageHashes()).toEqual(new Set([HASH_A]))
+    })
+
+    it('lists reconcile targets with rejoined absolute paths and no stored abs path', () => {
+      const track = insertTrack('Album/01.flac', { title: 'Song' })
+      store.setArtworkOverride(track, HASH_A, 'image/jpeg', NOW)
+
+      const targets = store.listArtworkOverrideTargets()
+      expect(targets).toHaveLength(1)
+      expect(targets[0]).toMatchObject({ trackId: track, imageHash: HASH_A })
+      // Rejoined from (root path, rel_path); the root here is '/synthetic'.
+      expect(targets[0].absPath).toBe('/synthetic/Album/01.flac')
+    })
+  })
 })

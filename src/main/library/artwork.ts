@@ -1,10 +1,11 @@
 import { readFile, readdir, rm, stat } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { readEmbeddedArtwork, type EmbeddedArtworkReader } from './metadata'
+import { readEmbeddedArtwork, type EmbeddedArtwork, type EmbeddedArtworkReader } from './metadata'
 import { WorkerArtworkImageProcessor, type ArtworkImageProcessor } from './artworkProcessor'
-import { createDerivedArtworkStore, type StoredArtwork } from './derivedArtwork'
-import type { ArtworkAlbum, LibraryStore } from './store'
+import { artworkHash, createDerivedArtworkStore, type StoredArtwork } from './derivedArtwork'
+import type { ArtworkOriginalsStore } from './artworkOriginals'
+import type { ArtworkAlbum, ArtworkOverrideTarget, LibraryStore } from './store'
 
 const RECONCILE_CONCURRENCY = 2
 const CACHE_FILE = /^([a-f0-9]{64})-(small|large)\.webp$/
@@ -34,6 +35,10 @@ export interface ArtworkCacheMetrics {
   cacheFiles: number
   cacheBytes: number
   prunedFiles: number
+  /** W16-9: artwork overrides retired because the file caught up to them. */
+  artworkOverridesRetired: number
+  /** W16-9: originals dropped by the refcount GC after this reconcile. */
+  originalsPruned: number
   elapsedMs: number
   concurrency: number
 }
@@ -43,6 +48,13 @@ export interface ArtworkCacheDeps {
   cacheDir: string
   readArtwork?: EmbeddedArtworkReader
   processor?: ArtworkImageProcessor
+  /**
+   * W16-9's override-originals store. When present, `reconcile` also retires
+   * artwork overrides the file has caught up to and GCs the originals no live
+   * override references. Absent (e.g. a library with no user-data dir wired) and
+   * the pass is skipped — text reconciliation is unaffected.
+   */
+  originals?: ArtworkOriginalsStore
   now?: () => number
   /**
    * Hashes referenced by something outside `library.db`.
@@ -74,6 +86,7 @@ export class ArtworkCacheService {
   private readonly readArtwork: EmbeddedArtworkReader
   private readonly processor: ArtworkImageProcessor
   private readonly derived: ReturnType<typeof createDerivedArtworkStore>
+  private readonly originals: ArtworkOriginalsStore | null
   private readonly now: () => number
   private readonly externalReferences: () => Iterable<string>
 
@@ -83,6 +96,7 @@ export class ArtworkCacheService {
     this.readArtwork = deps.readArtwork ?? readEmbeddedArtwork
     this.processor = deps.processor ?? new WorkerArtworkImageProcessor()
     this.derived = createDerivedArtworkStore({ cacheDir: this.cacheDir, processor: this.processor })
+    this.originals = deps.originals ?? null
     this.now = deps.now ?? Date.now
     this.externalReferences = deps.externalReferences ?? (() => [])
   }
@@ -121,6 +135,13 @@ export class ArtworkCacheService {
       this.store.setAlbumArtwork(album.albumId, selected.hash)
     })
 
+    // W16-9: settle artwork overrides against the files as they are now, before
+    // pruning. A file that has caught up to its chosen cover (a flush, or another
+    // tool writing the same image) retires the override; a released hash then
+    // drops from the originals store on the GC below.
+    const { retired: artworkOverridesRetired, pruned: originalsPruned } =
+      await this.reconcileArtworkOverrides()
+
     const prunedFiles = await this.prune()
     const { files: cacheFiles, bytes: cacheBytes } = await cacheTotals(this.cacheDir)
     const metrics: ArtworkCacheMetrics = {
@@ -131,6 +152,8 @@ export class ArtworkCacheService {
       cacheFiles,
       cacheBytes,
       prunedFiles,
+      artworkOverridesRetired,
+      originalsPruned,
       elapsedMs: this.now() - started,
       concurrency: RECONCILE_CONCURRENCY
     }
@@ -181,6 +204,49 @@ export class ArtworkCacheService {
       if (selected) return selected
     }
     return null
+  }
+
+  /**
+   * Re-scan reconciliation for artwork overrides — **W16-9**, design authority
+   * D28, extending W16-7's retire-on-match pass to the cover layer it never knew
+   * about.
+   *
+   * Text reconciliation rides the scan's write transaction off the tags already
+   * in hand (`LibraryStore.reconcileOverride`), but the scan reads no covers on
+   * purpose (`skipCovers` — a large library's embedded art will not fit in RAM).
+   * So artwork settles here, where covers are already being read, and only for
+   * the few tracks that carry an override: each one's file front cover is read
+   * fresh (R7), and the override retired the moment the file holds what it asked
+   * for — a chosen image the file now carries, or a clear whose front cover is
+   * gone. The originals GC then releases every hash no surviving override names
+   * (R8), so a set-cover → flush → wipe → re-scan round trip ends with both
+   * `artwork_overrides` and the originals store empty.
+   */
+  private async reconcileArtworkOverrides(): Promise<{ retired: number; pruned: number }> {
+    if (!this.originals) return { retired: 0, pruned: 0 }
+
+    let retired = 0
+    for (const target of this.store.listArtworkOverrideTargets()) {
+      let pictures: EmbeddedArtwork[]
+      try {
+        pictures = await this.readArtwork(target.absPath)
+      } catch (error) {
+        // A file that cannot be read now offers no fresh read to reconcile
+        // against; leave the override pending, as an incremental scan would.
+        console.warn(
+          `[artwork] override reconcile skipped track ${target.trackId}: ${describe(error)}`
+        )
+        continue
+      }
+      if (overrideSatisfied(target, pictures)) {
+        this.store.removeArtworkOverride(target.trackId)
+        retired++
+      }
+      await yieldToEventLoop()
+    }
+
+    const pruned = await this.originals.gc(this.store.listReferencedOverrideImageHashes())
+    return { retired, pruned }
   }
 
   /**
@@ -288,6 +354,37 @@ function compareSidecars(left: string, right: string): number {
     SIDECAR_EXTENSION_RANK.get(leftExtension)! - SIDECAR_EXTENSION_RANK.get(rightExtension)! ||
     left.localeCompare(right, 'en')
   )
+}
+
+/**
+ * The file's front-cover picture, or `null` — the frame Decision B writes and
+ * clears. A typed front cover wins; failing that, a file carrying exactly one
+ * *untyped* picture treats it as the de-facto front (the common single-cover
+ * case, and what a flush would have replaced). A lone picture that is explicitly
+ * typed something else — a back cover, a disc label — is not a front cover, so a
+ * file left with only that reads as having no front cover to match.
+ */
+function resolveFrontCover(pictures: readonly EmbeddedArtwork[]): EmbeddedArtwork | null {
+  const typed = pictures.find((picture) => (picture.type ?? '').toLowerCase().includes('front'))
+  if (typed) return typed
+  return pictures.length === 1 && (pictures[0].type ?? '') === '' ? pictures[0] : null
+}
+
+/**
+ * Whether the file has caught up to a track's artwork override — the retire test.
+ *
+ * A chosen cover (`imageHash` set) is satisfied once the file's front cover *is*
+ * those exact bytes, hashed by the same SHA-256 the originals store keyed them
+ * under. A clear (`imageHash` null) is satisfied once the file has no front cover
+ * left. Symmetric with Decision B, which writes and strips only that one frame.
+ */
+function overrideSatisfied(
+  target: ArtworkOverrideTarget,
+  pictures: readonly EmbeddedArtwork[]
+): boolean {
+  const front = resolveFrontCover(pictures)
+  if (target.imageHash === null) return front === null
+  return front !== null && artworkHash(front.bytes) === target.imageHash
 }
 
 async function mapPool<T>(

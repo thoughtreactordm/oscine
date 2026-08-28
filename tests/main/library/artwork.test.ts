@@ -7,6 +7,7 @@ import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openDatabase } from '../../../src/main/db'
 import { ArtworkCacheService } from '../../../src/main/library/artwork'
+import { createArtworkOriginalsStore } from '../../../src/main/library/artworkOriginals'
 import type { ArtworkImageProcessor } from '../../../src/main/library/artworkProcessor'
 import type {
   EmbeddedArtwork,
@@ -352,5 +353,117 @@ describe('artwork shared with the metadata cache', () => {
 
     expect(await processor.validate(cacheDir, hash('album-cover'))).toBe(false)
     expect(await processor.validate(cacheDir, artistHash)).toBe(true)
+  })
+})
+
+/**
+ * Artwork override reconciliation — **W16-9**, extending W16-7's retire-on-match
+ * to the cover layer. An override retires once the file's front cover has caught
+ * up to it (a flush, or another tool writing the same image), and the released
+ * hash then drops from the originals store — the round trip the card gates on.
+ */
+describe('artwork override reconciliation', () => {
+  function trackIdOf(rel: string): number {
+    return (db.prepare('SELECT id FROM tracks WHERE rel_path = ?').get(rel) as { id: number }).id
+  }
+
+  function nonFront(value: string): EmbeddedArtwork {
+    return {
+      index: 0,
+      format: 'image/png',
+      type: 'Media (e.g. label side of CD)',
+      bytes: Buffer.from(value)
+    }
+  }
+
+  it('retires a set override the file caught up to and GCs its original', async () => {
+    const abs = addTrack('Album/01.flac', 'Album', 'Artist')
+    const track = trackIdOf('Album/01.flac')
+    const originals = createArtworkOriginalsStore({ dir: join(dir, 'originals') })
+    const coverHash = await originals.put(Buffer.from('chosen-cover'))
+    store.setArtworkOverride(track, coverHash, 'image/png', Date.now())
+
+    // The file now carries the chosen cover as its front picture — a flush ran.
+    const service = new ArtworkCacheService({
+      store,
+      cacheDir,
+      originals,
+      processor: new FakeProcessor(),
+      readArtwork: reader(new Map([[abs, [picture('chosen-cover')]]]))
+    })
+    const metrics = await service.reconcile(undefined, true)
+
+    expect(metrics.artworkOverridesRetired).toBe(1)
+    expect(metrics.originalsPruned).toBe(1)
+    expect(store.getArtworkOverride(track)).toBeNull()
+    expect(store.listArtworkOverrideTargets()).toEqual([])
+    expect(await originals.has(coverHash)).toBe(false)
+  })
+
+  it('keeps a set override whose file still shows a different front cover', async () => {
+    const abs = addTrack('Album/01.flac', 'Album', 'Artist')
+    const track = trackIdOf('Album/01.flac')
+    const originals = createArtworkOriginalsStore({ dir: join(dir, 'originals') })
+    const coverHash = await originals.put(Buffer.from('chosen-cover'))
+    store.setArtworkOverride(track, coverHash, 'image/png', Date.now())
+
+    const service = new ArtworkCacheService({
+      store,
+      cacheDir,
+      originals,
+      processor: new FakeProcessor(),
+      readArtwork: reader(new Map([[abs, [picture('the-old-cover')]]]))
+    })
+    const metrics = await service.reconcile(undefined, true)
+
+    expect(metrics.artworkOverridesRetired).toBe(0)
+    expect(store.getArtworkOverride(track)).toEqual({ imageHash: coverHash, mime: 'image/png' })
+    expect(await originals.has(coverHash)).toBe(true)
+  })
+
+  it('retires a clear once the file has no front cover, but keeps it while one remains', async () => {
+    const cleared = addTrack('A/01.flac', 'A', 'Artist')
+    const stillCovered = addTrack('B/01.flac', 'B', 'Artist')
+    const clearedId = trackIdOf('A/01.flac')
+    const coveredId = trackIdOf('B/01.flac')
+    const originals = createArtworkOriginalsStore({ dir: join(dir, 'originals') })
+    store.clearArtworkOverride(clearedId, Date.now())
+    store.clearArtworkOverride(coveredId, Date.now())
+
+    const service = new ArtworkCacheService({
+      store,
+      cacheDir,
+      originals,
+      processor: new FakeProcessor(),
+      // The cleared file has only a non-front image left; the other still has its front cover.
+      readArtwork: reader(
+        new Map([
+          [cleared, [nonFront('back-cover')]],
+          [stillCovered, [picture('front-still-here')]]
+        ])
+      )
+    })
+    const metrics = await service.reconcile(undefined, true)
+
+    expect(metrics.artworkOverridesRetired).toBe(1)
+    expect(store.getArtworkOverride(clearedId)).toBeNull()
+    expect(store.getArtworkOverride(coveredId)).toEqual({ imageHash: null, mime: null })
+  })
+
+  it('leaves overrides untouched when no originals store is wired', async () => {
+    const abs = addTrack('Album/01.flac', 'Album', 'Artist')
+    const track = trackIdOf('Album/01.flac')
+    store.setArtworkOverride(track, hash('chosen-cover'), 'image/png', Date.now())
+
+    const service = new ArtworkCacheService({
+      store,
+      cacheDir,
+      processor: new FakeProcessor(),
+      readArtwork: reader(new Map([[abs, [picture('chosen-cover')]]]))
+    })
+    const metrics = await service.reconcile(undefined, true)
+
+    expect(metrics.artworkOverridesRetired).toBe(0)
+    expect(store.getArtworkOverride(track)).not.toBeNull()
   })
 })

@@ -184,3 +184,47 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
     hasChanges
   }
 }
+
+/** A `track_overrides` column name a re-scan can retire. */
+export type ReconcilableOverrideColumn = keyof TrackOverrideRow
+
+/**
+ * Re-scan reconciliation — **W16-7**, design authority D28.
+ *
+ * The set override columns whose value a freshly-scanned file now already holds,
+ * and which a re-scan therefore retires: once the source reads back the
+ * correction, the override has done its job, and a wiped-and-re-scanned library
+ * must read clean with an empty `track_overrides`.
+ *
+ * "File == override" is decided column by column with the *same* equality
+ * {@link computePendingWrite} uses — scalar identity, and genre by framed set
+ * (key and spelling, order-sensitive) — so what a re-scan retires is exactly what
+ * the review would show as no pending change, and the two can never disagree
+ * about a field. A column with no override set is never returned: only a
+ * correction the file has caught up to is redundant, never the file's own value.
+ *
+ * Note genre is compared against the override's frame alone, ignoring the
+ * user/suggested tag layer: those union *on top* of the base either way, so an
+ * override genre the file already carries is redundant regardless of them —
+ * retiring it leaves the merged write unchanged.
+ */
+export function redundantOverrideColumns(
+  file: TrackTags,
+  override: TrackOverrideRow
+): ReconcilableOverrideColumn[] {
+  const redundant: ReconcilableOverrideColumn[] = []
+  if (override.title !== null && override.title === file.title) redundant.push('title')
+  if (override.artist_name !== null && override.artist_name === file.artist) {
+    redundant.push('artist_name')
+  }
+  if (override.album_title !== null && override.album_title === file.album) {
+    redundant.push('album_title')
+  }
+  if (override.track_no !== null && override.track_no === file.trackNo) redundant.push('track_no')
+  if (override.disc_no !== null && override.disc_no === file.discNo) redundant.push('disc_no')
+  if (override.year !== null && override.year === file.year) redundant.push('year')
+  if (override.genre !== null && !genreFramesDiffer(frame(override.genre), frame(file.genre))) {
+    redundant.push('genre')
+  }
+  return redundant
+}

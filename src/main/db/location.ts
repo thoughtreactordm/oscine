@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { join } from 'node:path'
 import {
   ARTWORK_CACHE_ARTIFACT,
+  ARTWORK_ORIGINALS_ARTIFACT,
   CACHE_DATABASE_ARTIFACT,
   LIBRARY_DATABASE_ARTIFACT,
   PODCASTS_ARTIFACT,
@@ -15,6 +16,7 @@ import {
 export const DATABASE_FILENAME = LIBRARY_DATABASE_ARTIFACT.name
 export const CACHE_DATABASE_FILENAME = CACHE_DATABASE_ARTIFACT.name
 export const ARTWORK_CACHE_DIRECTORY = ARTWORK_CACHE_ARTIFACT.name
+export const ARTWORK_ORIGINALS_DIRECTORY = ARTWORK_ORIGINALS_ARTIFACT.name
 export const PODCASTS_DIRECTORY = PODCASTS_ARTIFACT.name
 export const SCROBBLE_CREDENTIALS_FILENAME = SCROBBLE_CREDENTIALS_ARTIFACT.name
 
@@ -47,6 +49,17 @@ export function cacheDatabasePath(): string {
 /** Derived, disposable display thumbnails; never exposed as a renderer path. */
 export function artworkCachePath(): string {
   return join(app.getPath('userData'), ARTWORK_CACHE_DIRECTORY)
+}
+
+/**
+ * W16-9's override-originals: full-resolution covers the operator set but has
+ * not flushed. Kept apart from the thumbnail cache so the two have independent
+ * lifetimes — the thumbnails are re-derivable and swept on every reconcile,
+ * these are the only copy of a pending pick and released only when no
+ * `artwork_overrides` row references their hash.
+ */
+export function artworkOriginalsPath(): string {
+  return join(app.getPath('userData'), ARTWORK_ORIGINALS_DIRECTORY)
 }
 
 /**

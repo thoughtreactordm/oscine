@@ -1,7 +1,7 @@
 ---
 title: Oscine — Tag Write-Back
 created: '2026-08-28T00:13:28.408Z'
-updated: '2026-08-28T00:16:05.241Z'
+updated: '2026-08-28T13:59:23.120Z'
 ---
 # Oscine — Tag Write-Back
 
@@ -57,8 +57,11 @@ largest edge-case surface ships last:
 - **Core text tags** — title, artist, album, track no, disc no, **genre**, year.
 - **Genre normalization** — a library-wide canonicalization/alias engine (D28 sub-surface),
   because the pain is *bulk* junk, not one-off typos.
-- **Embedded artwork** — APIC (ID3) / METADATA_BLOCK_PICTURE (Vorbis/FLAC).
-- **Arbitrary/custom frames** — round-tripped, not dropped, when present.
+- **Embedded artwork** — APIC (ID3) / METADATA_BLOCK_PICTURE (Vorbis/FLAC). Written through a
+  persistent correction layer, replacing only the front cover — see "Embedded artwork & custom
+  frames" below for the settled decisions.
+- **Arbitrary/custom frames** — round-tripped, not dropped, when present. Already true of the
+  W16-2 engine (in-place tag edit) and gated by W16-3; W16-13 hardens the coverage.
 
 Codec coverage is the v1 set and no more: `flac | mp3 | vorbis | opus | aac`. ID3v2 backs
 mp3/aac; Vorbis comments back flac/vorbis/opus. Anything else is out of scope and the write
@@ -97,6 +100,12 @@ port, writes ID3 + Vorbis + FLAC + pictures) is the leading candidate for that r
 card confirms it round-trips all five codecs on both platforms before it is adopted. Note the
 existing `music-metadata` parser is read-only and cannot be the writer.
 
+The engine edits the tag **in place** — it opens the container with taglib, mutates only the
+modelled setters, and re-serialises the tag taglib already parsed. Frames the model never
+touches (artwork, custom/arbitrary frames, ReplayGain) therefore survive any scalar write by
+construction, not by explicit copy. This is what makes custom-frame round-tripping a
+test-hardening job (W16-13) rather than new engine logic.
+
 ### Atomic write + backup + rollback (W16-2 / W16-4)
 
 The literal discharge of D7's "atomic-write handling" precondition:
@@ -110,12 +119,67 @@ The literal discharge of D7's "atomic-write handling" precondition:
 - Cross-platform: temp-and-rename respects the relative-path/root rules; no backslash literals,
   no platform branches.
 
+### Embedded artwork & custom frames (W16-9 – W16-13)
+
+W16-8's investigation settled three questions the scope left open. The *preservation* half is
+already done — the W16-2 engine edits tags in place, so artwork and unknown frames survive any
+scalar write, and the W16-3 corpus already gates `preserved:artwork` / `preserved:custom-frame`.
+What remained is *writing* artwork, which unlike every text field has no app-side source layer.
+
+**Decision A — artwork gets a persistent correction layer, like every other field.** A chosen
+cover is stored app-side, not held transiently in the review session. This keeps the flush a
+stateless projection of the correction layers (D28) and the R7 fresh-read discipline intact, and
+it makes a set cover show *instantly everywhere* — Now Playing, the library grid — not only after
+a flush+rescan. Rejected: a transient pick staged only inside the review session; it diverges
+from D28, shows nothing until flushed, and is lost if never applied.
+
+**Decision B — replace the front cover, preserve the rest.** A write replaces only the
+front-cover picture (ID3 APIC type 3 / the front-cover `METADATA_BLOCK_PICTURE`); back covers,
+booklet scans and artist images are left untouched, and a *remove* clears only the front cover.
+Rejected: normalize-to-one, which silently destroys curated secondary art in a poweruser library.
+
+**Decision C — the cover is set at album granularity.** Setting a cover on a multi-track
+selection fans out to one per-track override row each; storage stays per-track (uniform with
+`track_overrides` and W16-7's per-track reconciliation), and the editor's existing `mixed` state
+covers compilations whose tracks disagree.
+
+**Where the cover lives.** A new `artwork_overrides` table (migration 021 — 020 was taken by the
+genre-alias table before this landed) carries a tri-state
+per track, mirroring how a text override distinguishes *clear* from *absent*: no row → leave the
+file's own cover; a row with an `image_hash` → set to that image; a row with `image_hash IS NULL`
+→ clear the cover on flush. The full-resolution original bytes live in a content-addressed
+override-originals store (a new user-data artifact, the same pattern as the thumbnail cache),
+keyed by hash so a shared album cover dedupes and GC is a refcount over the hash. Library
+cover-resolution coalesces `override.image_hash ?? tracks.artwork_hash` — this is what makes a set
+cover visible before it is ever flushed, and it is the one read-path change the feature requires.
+
+**Ingest** is main-process only (the renderer never touches the filesystem). A file-dialog path
+(renderer asks main to open `dialog.showOpenDialog`; main reads, validates with sharp, stores,
+returns a reference) is required; a drag/drop/paste path that ships a user-provided `Blob`'s bytes
+one-way to main is a stretch. Bytes never enter a `PendingWrite` or a report — artwork crosses the
+diff as an `ArtworkRef` (present + hash + mime, resolved to an `oscine://` thumbnail), never
+inline, because a batch is thousands of tracks.
+
+**Engine.** `WritableTags` gains an artwork intent (`unchanged` / `clear` / `set` with
+bytes+mime), resolved fresh from the override store at apply time (same R7 discipline as text).
+`applyWritableTags` replaces or removes only the front-cover picture, leaving all other pictures
+in place. Verify-after-write (W16-4) extends to confirm the written cover bytes read back by hash
+— R6 now covers a binary payload; the tag-block backup already captures pictures, so rollback is
+free.
+
+**W16-7 interaction — owned by W16-9, not a W16-7 follow-up.** W16-7's retire-on-match
+reconciliation is already built, for `track_overrides` only. Because `artwork_overrides` does not
+exist yet, W16-9 reaches into that completed pass and adds the artwork case: retire a satisfied
+`artwork_overrides` row (the file's front cover matches the override image) and decrement the
+originals-store refcount, or the override cache grows without bound (R8).
+
 ### Staged review UI (W16-6)
 
 Pending writes accumulate and are surfaced as a review diff — old → new, per field, per track —
 with per-row and per-field select/deselect. Apply runs the batch with live progress and a
 per-file success/failure summary. This is a W4 panel-island surface and inherits the
-virtualization invariant (the batch can be thousands of tracks).
+virtualization invariant (the batch can be thousands of tracks). Artwork joins as one more
+selectable field (W16-12): an old-thumbnail → new-thumbnail row with the same select/deselect.
 
 ### Re-scan reconciliation (W16-7)
 
@@ -125,7 +189,9 @@ retire the override once `file == override` (the index rebuilds identically from
 source), versus retaining it as an audit trail. Default lean: **retire on match**, because the
 whole point of D28 is that the source no longer needs an override — a wiped, re-scanned library
 must read clean with an empty `track_overrides`. Whatever is chosen is tested against a
-scan → correct → flush → wipe → re-scan round trip.
+scan → correct → flush → wipe → re-scan round trip. This pass is built for text overrides; **the
+artwork case is added by W16-9**, which extends the same retirement to release `artwork_overrides`
+rows and their originals-store refcount (see artwork above).
 
 ### Genre canonicalization engine (W16-5)
 
@@ -148,16 +214,31 @@ Migration 017 (next free; W13 reached 016):
   correction layers, held in the renderer for the review session. A durable audit of *what was
   flushed and when* is a W16-7 option, not a v1 requirement.
 
+Migration 021 (artwork, W16-9 — the artwork migration landed as 021, after 020 genre-aliases):
+
+- **`artwork_overrides`** — a per-track tri-state cover override: no row → the file's own cover;
+  `image_hash` set → set to that image; `image_hash IS NULL` → clear the cover on flush. Carries
+  `mime` and `created_at`.
+- **Override-originals store** — a new content-addressed user-data artifact holding
+  full-resolution cover bytes keyed by hash (the flush writes these into the file; thumbnails
+  will not do). Refcounted over `image_hash`; GC on override retire/discard.
+
 ## Risks
 
 - **R6 — tag-write corruption (high, architectural, new).** Writing into a container is the one
   operation in Oscine that can destroy an operator's file. Mitigation is the whole atomic +
   backup + verify + rollback chain (W16-2/W16-4) and the test corpus (W16-3); it is why D7
   deferred this until the library layer matured. Nothing flushes until round-trip verification
-  passes on all five codecs on both platforms.
+  passes on all five codecs on both platforms. **Artwork (W16-11) brings a binary payload under
+  the same chain — verify-after-write compares the written cover bytes by hash.**
 - **R7 — out-of-band file drift (medium).** Another tool edits a file between scan and flush.
   Mitigated by diffing against a fresh file read (W16-1), not the cached row, and by
   verify-after-write.
+- **R8 — artwork override-store growth (low, new).** The persistent artwork correction layer
+  retains full-resolution originals; without a refcount GC tied to the override lifecycle
+  (W16-9 extends W16-7's retire-on-match, plus discard), the originals store grows unbounded.
+  Mitigation: a content-addressed store refcounted over `image_hash`, released the moment no
+  override row references a hash.
 - **R3 (existing) interaction.** A flush touches files the watcher watches; the resulting
   change events must be recognised as self-inflicted and not trigger a redundant rescan storm.
 
@@ -168,7 +249,10 @@ codecs, embedded artwork, and at least one custom frame, plus round-trip write �
 tests. It follows the existing fixture-synthesis discipline (`probe:fixture`,
 `seed:synthetic`): generated, not scavenged, so both platforms measure the same thing. The M-gate
 philosophy applies — this is a gate, and anything it flags becomes a triage card rather than a
-quiet fix folded into the flush path.
+quiet fix folded into the flush path. **W16-13 extends it** with multiple pictures (front + back),
+a binary custom frame and a multi-instance custom frame, and the matching `written:artwork` /
+`preserved:back-cover` / `removed:artwork` / `preserved:custom-frame` checks — round-tripped
+through both taglib and the app's `music-metadata` reader.
 
 ## Card map
 
@@ -179,7 +263,17 @@ quiet fix folded into the flush path.
 - **W16-5** Genre canonicalization engine (`genre_aliases`, casefold-unified with W15)
 - **W16-6** Staged batch review UI (diff old→new, select/apply, per-file reporting)
 - **W16-7** Re-scan reconciliation (override lifecycle; scan→correct→flush→wipe→rescan round trip)
-- **W16-8** Artwork & custom frames (APIC / METADATA_BLOCK_PICTURE; round-trip arbitrary frames)
+- **W16-8** Artwork & custom frames — *epic; investigation done, split into W16-9 – W16-13*
+- **W16-9** Artwork override layer (migration 021; tri-state `artwork_overrides`; content-addressed
+  originals store; override-aware cover resolution; refcount GC; extends W16-7 retirement)
+- **W16-10** Artwork ingest (main-process `dialog.showOpenDialog` + one-way `setFromBytes`; sharp
+  validation; per-album fan-out)
+- **W16-11** Engine picture write + byte-level verify (replace-front-cover-preserve-rest; artwork
+  under the backup/rollback chain)
+- **W16-12** Artwork model + review UI (`ArtworkDiff`, `WritebackField` += `artwork`; editor cover
+  panel; review artwork row)
+- **W16-13** Corpus hardening + custom-frame round-trip (multi-picture + binary/multi-instance
+  frames; new gate checks)
 
 ## Non-goals
 
@@ -187,3 +281,5 @@ quiet fix folded into the flush path.
 - Writing formats outside the v1 codec set.
 - A second tag taxonomy divorced from genre (W15 already unified them).
 - Rewriting audio stream bytes for any reason (transcode, re-gain-in-file, etc.).
+- Re-encoding or downscaling the operator's chosen cover on write — the original bytes are
+  preserved; ingest validates and caps, it does not transcode.
