@@ -33,6 +33,7 @@ import type { FavoriteBias, RelatedAlbum } from '@shared/related'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
 import type { TrackTags } from './metadata'
 import { buildOverrideEditState, type OverrideEditRow } from './overrides/editState'
+import { redundantOverrideColumns, type TrackOverrideRow } from './writeback/diff'
 
 /** The `track_overrides` columns a metadata edit writes. A fixed whitelist. */
 type OverrideColumn =
@@ -59,6 +60,34 @@ const WRITEBACK_TO_OVERRIDE_COLUMN: Record<WritebackField, OverrideColumn> = {
 const OVERRIDE_ROW_EMPTY =
   'title IS NULL AND artist_name IS NULL AND album_title IS NULL' +
   ' AND track_no IS NULL AND disc_no IS NULL AND year IS NULL AND genre IS NULL'
+
+/**
+ * The corrections a re-scan must re-materialise: the still-set override columns
+ * once the redundant ones are retired, mapped onto an {@link OverridePatch} the
+ * editor's materialiser understands. `null` when nothing survives, so the caller
+ * skips re-materialisation. See `LibraryStore.reconcileOverride`.
+ */
+function survivingOverridePatch(
+  override: TrackOverrideRow,
+  redundant: ReadonlySet<OverrideColumn>
+): OverridePatch | null {
+  const kept = <T extends string | number>(
+    column: OverrideColumn,
+    value: T | null
+  ): T | undefined => (value !== null && !redundant.has(column) ? value : undefined)
+
+  const patch: OverridePatch = {
+    title: kept('title', override.title),
+    artist: kept('artist_name', override.artist_name),
+    album: kept('album_title', override.album_title),
+    trackNo: kept('track_no', override.track_no),
+    discNo: kept('disc_no', override.disc_no),
+    year: kept('year', override.year),
+    genre: kept('genre', override.genre)
+  }
+  const survives = Object.values(patch).some((value) => value !== undefined)
+  return survives ? patch : null
+}
 import type { RelatedQueries, RelatedSeed } from './related'
 import { fileStem, type AudioFile } from './walk'
 
@@ -103,6 +132,22 @@ export interface ArtworkAlbum {
   albumId: number
   artworkHash: string | null
   tracks: Array<{ trackId: number; absPath: string }>
+}
+
+/** A track's cover correction — **W16-9**. `null` `imageHash` is a clear-on-flush. */
+export interface ArtworkOverride {
+  imageHash: string | null
+  mime: string | null
+}
+
+/**
+ * One artwork override the re-scan reconcile pass must settle against the file,
+ * carrying the abs path parts it rejoins to read the file's front cover fresh.
+ */
+export interface ArtworkOverrideTarget {
+  trackId: number
+  imageHash: string | null
+  absPath: string
 }
 
 export interface RootConflict {
@@ -281,6 +326,7 @@ export const TRACK_JOINS = `
   LEFT JOIN artists aa ON aa.id = al.album_artist_id
   LEFT JOIN track_favorites fav ON fav.track_id = t.id
   LEFT JOIN track_overrides ovr ON ovr.track_id = t.id
+  LEFT JOIN artwork_overrides awo ON awo.track_id = t.id
 `
 
 /**
@@ -320,7 +366,13 @@ export const TRACK_PROJECTION = `
   -- W16: an unwritten correction stands for this track. One PK-probe per row, as
   -- fav above; SQLite drops the join for the id-only queries that never read it.
   ovr.track_id IS NOT NULL AS modified,
-  al.artwork_hash AS artworkHash,
+  -- W16-9: the override-aware cover. A tri-state artwork_overrides row wins over
+  -- the album's own art -- set to its image_hash, or blank when the row clears
+  -- the cover (NULL hash) -- so a chosen cover resolves through the same oscine
+  -- thumbnail path everywhere the moment it is set, before any flush. No row (the
+  -- overwhelming majority) falls through to al.artwork_hash unchanged, and the
+  -- PK-unique join drops out of the id-only queries that never read it.
+  CASE WHEN awo.track_id IS NOT NULL THEN awo.image_hash ELSE al.artwork_hash END AS artworkHash,
   t.rg_track_gain AS rgTrackGain,
   t.rg_track_peak AS rgTrackPeak,
   t.rg_album_gain AS rgAlbumGain,
@@ -603,6 +655,48 @@ function prepareStatements(db: Database.Database) {
     clearTrackGenres: db.prepare('DELETE FROM track_genres WHERE track_id = ?'),
     insertTrackGenre: db.prepare(
       'INSERT INTO track_genres (track_id, genre_key, genre) VALUES (?, ?, ?)'
+    ),
+
+    // W16-7 re-scan reconciliation: read once per scanned track to decide
+    // whether the file has caught up to any correction. Pre-prepared like the
+    // rest of the scan hot loop — one indexed probe per row that returns nothing
+    // for the overwhelming majority of tracks that carry no override.
+    findOverrideRow: db.prepare(
+      `SELECT title, artist_name, album_title, track_no, disc_no, genre, year
+       FROM track_overrides WHERE track_id = ?`
+    ),
+    deleteEmptyOverride: db.prepare(
+      `DELETE FROM track_overrides WHERE track_id = ? AND ${OVERRIDE_ROW_EMPTY}`
+    ),
+
+    // W16-9 artwork override layer. The row is tri-state: `image_hash` set is a
+    // chosen cover, `image_hash IS NULL` is a clear-on-flush, no row is absent.
+    upsertArtworkOverride: db.prepare(
+      `INSERT INTO artwork_overrides (track_id, image_hash, mime, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(track_id) DO UPDATE SET
+         image_hash = excluded.image_hash, mime = excluded.mime, created_at = excluded.created_at`
+    ),
+    findArtworkOverride: db.prepare(
+      'SELECT image_hash AS imageHash, mime FROM artwork_overrides WHERE track_id = ?'
+    ),
+    deleteArtworkOverride: db.prepare('DELETE FROM artwork_overrides WHERE track_id = ?'),
+    // Every override, with the abs-path parts the reconcile pass needs to read
+    // the file's front cover fresh (R7). Joined to roots so the path is rejoined
+    // per-platform on read — never an absolute path stored on the row.
+    listArtworkOverrideTargets: db.prepare(`
+      SELECT ao.track_id AS trackId,
+             ao.image_hash AS imageHash,
+             r.path AS rootPath,
+             t.rel_path AS relPath
+      FROM artwork_overrides ao
+      JOIN tracks t ON t.id = ao.track_id
+      JOIN roots r ON r.id = t.root_id
+      ORDER BY ao.track_id
+    `),
+    // The refcount source for the originals-store GC: the hashes a live override
+    // still names. A clear row (NULL hash) references nothing.
+    listReferencedOverrideImageHashes: db.prepare(
+      'SELECT DISTINCT image_hash AS imageHash FROM artwork_overrides WHERE image_hash IS NOT NULL'
     ),
 
     resolveTrack: db.prepare(`
@@ -1141,9 +1235,51 @@ export class LibraryStore {
       this.statements.insertTrackGenre.run(trackId, key, genre)
     }
 
+    // W16-7: the re-scan that just read these tags is where an override retires.
+    // Runs in the scan's write transaction, off the raw tags in hand — a file an
+    // incremental scan skips (mtime/size unchanged) is never reconciled, having
+    // offered no fresh read to reconcile against.
+    this.reconcileOverride(trackId, tags, indexedAt)
+
     // Migration 4's metadata triggers update FTS in the same transaction as
     // this row. Keeping it in SQL also covers direct deletes and root cascades.
     return affected
+  }
+
+  /**
+   * Re-scan reconciliation — **W16-7**, design authority D28.
+   *
+   * A re-scan reads a file's tags fresh and (in {@link writeTrack}) has just
+   * stamped them onto the track's display row. This settles the override against
+   * that read, in both directions:
+   *
+   * - **Retire** every override column the file now already holds — by whatever
+   *   route it got there: a flush, an out-of-band edit by another tagger, or a
+   *   correction set to a value the file already carried. The row is dropped once
+   *   nothing is corrected on it, so a wiped-and-re-scanned library reproduces the
+   *   corrected library from the files alone with an empty `track_overrides`. This
+   *   is the counterpart to {@link retireWrittenOverrides}, which retires because
+   *   *we* wrote the file; here the file simply caught up.
+   * - **Re-materialise** every override column that survives. The scan upsert just
+   *   overwrote the display row with the file's tag, so a still-pending correction
+   *   would silently revert to the value the operator overrode unless it is
+   *   re-stamped — the correction stays visible and pending until it is actually
+   *   flushed.
+   *
+   * Equality is {@link redundantOverrideColumns}, shared with the write-back
+   * differ, so a re-scan retires exactly the corrections the review would show as
+   * already satisfied.
+   */
+  private reconcileOverride(trackId: number, tags: TrackTags, now: number): void {
+    const override = this.statements.findOverrideRow.get(trackId) as TrackOverrideRow | undefined
+    if (override === undefined) return
+
+    const redundant = new Set<OverrideColumn>(redundantOverrideColumns(tags, override))
+    for (const column of redundant) this.clearOverrideColumn(trackId, column, now)
+    if (redundant.size > 0) this.statements.deleteEmptyOverride.run(trackId)
+
+    const survivors = survivingOverridePatch(override, redundant)
+    if (survivors !== null) this.applyOverride(trackId, survivors, now)
   }
 
   private upsertArtist(name: string): number {
@@ -2009,6 +2145,76 @@ export class LibraryStore {
         .run(trackId)
     })
     retire()
+  }
+
+  /**
+   * Sets a track's cover override to a chosen image — **W16-9**, Decision A.
+   *
+   * `imageHash` is the SHA-256 the override-originals store keyed the full-res
+   * bytes under, and `mime` their media type; the pair is what a flush needs to
+   * write the front-cover frame. Upserts the row, so re-choosing a cover on a
+   * track that already has one replaces it — the old hash is released by the next
+   * originals-store GC once nothing references it. Album-granularity fan-out
+   * (Decision C) is the caller's: it calls this once per selected track.
+   */
+  setArtworkOverride(trackId: number, imageHash: string, mime: string | null, now: number): void {
+    this.statements.upsertArtworkOverride.run(trackId, imageHash, mime, now)
+  }
+
+  /**
+   * Clears a track's cover on flush — **W16-9**, the tri-state's NULL-hash row.
+   *
+   * A present row with no `image_hash`: distinct from *absent* (no row, leave the
+   * file's own cover) exactly as a text override distinguishes clear from absent.
+   * Resolves to no cover now, and instructs the flush to strip the front cover.
+   */
+  clearArtworkOverride(trackId: number, now: number): void {
+    this.statements.upsertArtworkOverride.run(trackId, null, null, now)
+  }
+
+  /** Drops the override row entirely — back to *absent*, the file's own cover. */
+  removeArtworkOverride(trackId: number): void {
+    this.statements.deleteArtworkOverride.run(trackId)
+  }
+
+  /** A track's cover override, or `null` when it has none (absent). */
+  getArtworkOverride(trackId: number): ArtworkOverride | null {
+    const row = this.statements.findArtworkOverride.get(trackId) as
+      { imageHash: string | null; mime: string | null } | undefined
+    return row ?? null
+  }
+
+  /**
+   * Every artwork override with the abs path the reconcile pass reads its file's
+   * front cover from — **W16-9**. Bounded to override-carrying tracks (few), so
+   * the reconcile reads covers only where one might have caught up.
+   */
+  listArtworkOverrideTargets(): ArtworkOverrideTarget[] {
+    const rows = this.statements.listArtworkOverrideTargets.all() as Array<{
+      trackId: number
+      imageHash: string | null
+      rootPath: string
+      relPath: string
+    }>
+    const targets: ArtworkOverrideTarget[] = []
+    for (const row of rows) {
+      const absPath = toAbsPath(row.rootPath, row.relPath)
+      if (absPath === null) continue
+      targets.push({ trackId: row.trackId, imageHash: row.imageHash, absPath })
+    }
+    return targets
+  }
+
+  /**
+   * The hashes a live override still names — the refcount source for the
+   * originals-store GC. A clear row (NULL hash) references nothing, so a retired
+   * or cleared override releases its bytes on the next sweep.
+   */
+  listReferencedOverrideImageHashes(): Set<string> {
+    const rows = this.statements.listReferencedOverrideImageHashes.all() as Array<{
+      imageHash: string
+    }>
+    return new Set(rows.map((row) => row.imageHash))
   }
 
   /**

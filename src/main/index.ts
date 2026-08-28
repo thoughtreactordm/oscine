@@ -8,6 +8,7 @@ import { openCacheService } from './cache'
 import { openDatabase } from './db'
 import {
   artworkCachePath,
+  artworkOriginalsPath,
   cacheDatabasePath,
   libraryDatabasePath,
   podcastsDirectoryPath,
@@ -555,6 +556,7 @@ if (!app.requestSingleInstanceLock()) {
     const library = new SqliteLibraryService({
       db,
       artworkCacheDir: artworkCachePath(),
+      artworkOriginalsDir: artworkOriginalsPath(),
       artworkProcessor,
       // The half of the arrangement above that the library owns: its prune
       // walks the thumbnail directory and deletes what nothing references, and

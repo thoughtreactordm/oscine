@@ -72,7 +72,8 @@ describe('openDatabase', () => {
         'podcast-auto-download',
         'user-tags',
         'track-overrides-genre-year',
-        'genre-aliases'
+        'genre-aliases',
+        'artwork-overrides'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -123,7 +124,8 @@ describe('openDatabase', () => {
         'podcast-auto-download',
         'user-tags',
         'track-overrides-genre-year',
-        'genre-aliases'
+        'genre-aliases',
+        'artwork-overrides'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -163,7 +165,8 @@ describe('openDatabase', () => {
         'podcast-auto-download',
         'user-tags',
         'track-overrides-genre-year',
-        'genre-aliases'
+        'genre-aliases',
+        'artwork-overrides'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
