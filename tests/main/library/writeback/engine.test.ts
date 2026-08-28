@@ -7,6 +7,7 @@ import { splitGenres } from '@shared/genre'
 import {
   readEmbeddedArtwork,
   readTrackTags,
+  resolveFrontCover,
   type MetadataReader,
   type TrackTags
 } from '../../../../src/main/library/metadata'
@@ -359,13 +360,35 @@ roundTrip('writeTags — five-codec round-trip on the corpus (needs ffmpeg)', ()
         track.id
       ).toEqual(['Ambient', 'Electronic'])
 
-      // Unmodelled data survives the scalar write: the cover is present, unchanged.
+      // Unmodelled data survives the scalar write: the front cover is unchanged,
+      // and a typed back cover (every codec except AAC) is still there. Apple
+      // `covr` has no picture-type field, so both seeded pictures survive as
+      // untyped and `resolveFrontCover` cannot pick a front among two.
       const artwork = await readEmbeddedArtwork(track.path)
-      expect(artwork.length, track.id).toBe(1)
-      expect(
-        Buffer.from(artwork[0].bytes).equals(Buffer.from(manifest.cover.bytes)),
-        track.id
-      ).toBe(true)
+      if (track.id === 'aac') {
+        expect(artwork.length, track.id).toBe(2)
+        const blobs = artwork.map((picture) => Buffer.from(picture.bytes))
+        expect(
+          blobs.some((bytes) => bytes.equals(Buffer.from(manifest.cover.bytes))),
+          track.id
+        ).toBe(true)
+        expect(
+          blobs.some((bytes) => bytes.equals(Buffer.from(manifest.backCover.bytes))),
+          track.id
+        ).toBe(true)
+      } else {
+        const front = resolveFrontCover(artwork)
+        expect(front, track.id).not.toBeNull()
+        expect(Buffer.from(front!.bytes).equals(Buffer.from(manifest.cover.bytes)), track.id).toBe(
+          true
+        )
+        const back = artwork.find((picture) => (picture.type ?? '').toLowerCase().includes('back'))
+        expect(back, track.id).not.toBeNull()
+        expect(
+          Buffer.from(back!.bytes).equals(Buffer.from(manifest.backCover.bytes)),
+          track.id
+        ).toBe(true)
+      }
     }
 
     // Atomicity leaves nothing staged behind.

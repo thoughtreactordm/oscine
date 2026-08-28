@@ -1,7 +1,7 @@
 ---
 taskId: 01M14ACETGA3WTRWG0KBF1Z9DP
 title: Corpus hardening + custom-frame round-trip
-status: todo
+status: in-progress
 priority: low
 labels:
   - phase-3
@@ -12,9 +12,9 @@ workstreamId: W16-13
 dependsOn:
   - 01M12VF3AAEPVY8JQ0GCW2N3JG
   - 01M14ABNB9PG2QS6934W1MHZ9E
-order: 12
+order: 1
 created: '2026-08-28T13:54:08.847Z'
-updated: '2026-08-28T13:54:08.847Z'
+updated: '2026-08-28T16:28:11.124Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Test corpus (W16-3)" (extension) + "Embedded artwork & custom frames". Widens the W16-3 gate so the preservation guarantee still holds once the engine *writes* pictures instead of only reading past them.
 
@@ -31,3 +31,7 @@ The current corpus proves only the easy case: **one** seeded picture and **one**
 Gate philosophy (matches M1/M2): anything it flags becomes a triage card, never a quiet fix folded into the flush path.
 
 Acceptance: the extended fixture builds identically on both platforms; all new checks are green across every applicable codec through both readers.
+
+---
+
+**Landed.** Corpus v2 seeds front+back covers, a text custom frame, a binary frame (ID3 `PRIV` / Xiph+Apple `OSCINE_BIN` base64), and a multi-instance frame (ID3 two `COMM` by description; Xiph/Apple two values of `OSCINE_MULTI`). `verifyRoundTrip` then does scalar write → set front → clear front. Apple `covr` has no picture type, so typed `preserved:back-cover` after a picture write skips AAC (same limit as the W16-11 engine tests); AAC still seeds two pictures and gates `written:artwork` / `removed:artwork`. `npm run probe:writeback-corpus` is 147/147 on linux.
