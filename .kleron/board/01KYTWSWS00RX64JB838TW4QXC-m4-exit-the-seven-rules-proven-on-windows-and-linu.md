@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTWSWS00RX64JB838TW4QXC
 title: 'M4 exit: the seven rules, proven on Windows and Linux'
-status: backlog
+status: in-review
 priority: medium
 labels:
   - M4
@@ -17,7 +17,7 @@ dependsOn:
   - 01KYW6Q1F7HZ80SYG5XHDXXMMY
 order: 0
 created: '2026-07-31T01:32:15.518Z'
-updated: '2026-08-25T22:22:37.343Z'
+updated: '2026-08-28T17:33:02.201Z'
 ---
 ## Scope
 
