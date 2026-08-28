@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openDatabase, type OpenDatabaseResult } from '../../../src/main/db'
+import { toAbsPath } from '../../../src/main/db/paths'
 import { LibraryStore } from '../../../src/main/library/store'
 import type { TrackTags } from '../../../src/main/library/metadata'
 
@@ -423,8 +424,8 @@ describe('track overrides', () => {
       const targets = store.listArtworkOverrideTargets()
       expect(targets).toHaveLength(1)
       expect(targets[0]).toMatchObject({ trackId: track, imageHash: HASH_A })
-      // Rejoined from (root path, rel_path); the root here is '/synthetic'.
-      expect(targets[0].absPath).toBe('/synthetic/Album/01.flac')
+      // Rejoined from (root path, rel_path) with this platform's separator.
+      expect(targets[0].absPath).toBe(toAbsPath('/synthetic', 'Album/01.flac'))
     })
 
     it('marks an artwork-only track modified and pending until the cover is retired', () => {
