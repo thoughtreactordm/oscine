@@ -3,16 +3,22 @@ import {
   bindTransportPreferences,
   defaultTransportPreferences,
   TRANSPORT_REPEAT_KEY,
-  TRANSPORT_SHUFFLE_KEY
+  TRANSPORT_SHUFFLE_KEY,
+  TRANSPORT_VOLUME_KEY,
+  type TransportBinding
 } from '../../../src/renderer/playback/transportPreferences'
 import { storedValue, viewSettingsFixture } from '../settings/fixture'
 
+function snapshot(b: TransportBinding) {
+  return { repeat: b.repeat.value, shuffle: b.shuffle.value, volume: b.volume.value }
+}
+
 /**
- * Shuffle and repeat are two view-scoped keys now rather than one blob, so the
- * degrading this file used to prove field by field is proved by the descriptors
- * instead — see `tests/shared/settings`. What remains is the shape the
- * controller wants them in, the promise that a shuffle *sequence* is not among
- * them, and — since W8-4 — that the shape is a binding rather than a copy.
+ * Shuffle, repeat and volume are view-scoped keys, so the degrading this file
+ * used to prove field by field is proved by the descriptors instead — see
+ * `tests/shared/settings`. What remains is the shape the controller wants them
+ * in, the promise that a shuffle *sequence* is not among them, and — since
+ * W8-4 — that the shape is a binding rather than a copy.
  */
 describe('transport preferences', () => {
   it('survives a round trip', () => {
@@ -20,34 +26,25 @@ describe('transport preferences', () => {
     const before = bindTransportPreferences(settings)
     before.repeat.value = 'one'
     before.shuffle.value = true
+    before.volume.value = 0.6
 
     // A second binding over the same store is what a relaunch amounts to.
     const after = bindTransportPreferences(settings)
-    expect({ repeat: after.repeat.value, shuffle: after.shuffle.value }).toEqual({
-      repeat: 'one',
-      shuffle: true
-    })
+    expect(snapshot(after)).toEqual({ repeat: 'one', shuffle: true, volume: 0.6 })
   })
 
   it('defaults to off with nothing stored', () => {
     const bound = bindTransportPreferences(viewSettingsFixture().settings)
-    expect({ repeat: bound.repeat.value, shuffle: bound.shuffle.value }).toEqual({
-      repeat: 'off',
-      shuffle: false
-    })
+    expect(snapshot(bound)).toEqual({ repeat: 'off', shuffle: false, volume: 1 })
 
     const unbound = bindTransportPreferences()
-    expect({ repeat: unbound.repeat.value, shuffle: unbound.shuffle.value }).toEqual(
-      defaultTransportPreferences()
-    )
+    expect(snapshot(unbound)).toEqual(defaultTransportPreferences())
   })
 
-  /** Not a copy of the two defaults — the registry is where they are stated. */
+  /** Not a copy of the defaults — the registry is where they are stated. */
   it('takes its defaults from the registry', () => {
     const bound = bindTransportPreferences(viewSettingsFixture().settings)
-    expect({ repeat: bound.repeat.value, shuffle: bound.shuffle.value }).toEqual(
-      defaultTransportPreferences()
-    )
+    expect(snapshot(bound)).toEqual(defaultTransportPreferences())
   })
 
   it('records no shuffle sequence', () => {
@@ -58,10 +55,12 @@ describe('transport preferences', () => {
     const transport = bindTransportPreferences(settings)
     transport.repeat.value = 'all'
     transport.shuffle.value = true
+    transport.volume.value = 0.5
 
     expect(storedValue(storage, TRANSPORT_REPEAT_KEY)).toBe('all')
     expect(storedValue(storage, TRANSPORT_SHUFFLE_KEY)).toBe(true)
-    expect(storage.entries.size).toBe(2)
+    expect(storedValue(storage, TRANSPORT_VOLUME_KEY)).toBe(0.5)
+    expect(storage.entries.size).toBe(3)
   })
 
   /**
@@ -72,25 +71,22 @@ describe('transport preferences', () => {
   it('degrades field by field rather than discarding the lot', () => {
     const { settings } = viewSettingsFixture({
       [TRANSPORT_REPEAT_KEY]: 'sideways',
-      [TRANSPORT_SHUFFLE_KEY]: true
+      [TRANSPORT_SHUFFLE_KEY]: true,
+      [TRANSPORT_VOLUME_KEY]: 0.7
     })
     const transport = bindTransportPreferences(settings)
-    expect({ repeat: transport.repeat.value, shuffle: transport.shuffle.value }).toEqual({
-      repeat: 'off',
-      shuffle: true
-    })
+    expect(snapshot(transport)).toEqual({ repeat: 'off', shuffle: true, volume: 0.7 })
   })
 
   it('survives storage that is not preferences at all', () => {
     for (const stored of [null, 42, [], 'off', { repeat: 'one' }]) {
       const { settings } = viewSettingsFixture({
         [TRANSPORT_REPEAT_KEY]: stored,
-        [TRANSPORT_SHUFFLE_KEY]: stored
+        [TRANSPORT_SHUFFLE_KEY]: stored,
+        [TRANSPORT_VOLUME_KEY]: stored
       })
       const transport = bindTransportPreferences(settings)
-      expect({ repeat: transport.repeat.value, shuffle: transport.shuffle.value }).toEqual(
-        defaultTransportPreferences()
-      )
+      expect(snapshot(transport)).toEqual(defaultTransportPreferences())
     }
   })
 
@@ -108,9 +104,11 @@ describe('transport preferences', () => {
 
     settings.set(TRANSPORT_REPEAT_KEY, 'all')
     settings.set(TRANSPORT_SHUFFLE_KEY, true)
+    settings.set(TRANSPORT_VOLUME_KEY, 0.3)
 
     expect(transport.repeat.value).toBe('all')
     expect(transport.shuffle.value).toBe(true)
+    expect(transport.volume.value).toBe(0.3)
   })
 
   it('runs unbound', () => {

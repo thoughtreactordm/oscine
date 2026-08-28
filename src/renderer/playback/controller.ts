@@ -314,7 +314,6 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   const status = ref<PlaybackStatus>('idle')
   const currentTime = ref(0)
   const duration = ref(0)
-  const volume = ref(1)
   /**
    * Bumped once each time the order plays through to its natural end — the
    * scheduler's `orderended`. A monotonic tick rather than a flag because what
@@ -439,9 +438,13 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    */
   const playingPlaylistId = ref<number | null>(null)
 
-  // Bound rather than read: assigning either one persists it, and a change made
+  // Bound rather than read: assigning any one persists it, and a change made
   // anywhere else arrives here without anything having to be told about it.
-  const { repeat: repeatMode, shuffle: shuffleEnabled } = bindTransportPreferences(deps.settings)
+  const {
+    repeat: repeatMode,
+    shuffle: shuffleEnabled,
+    volume
+  } = bindTransportPreferences(deps.settings)
 
   /**
    * How many positions the playing order has, or `null` when unknown — which

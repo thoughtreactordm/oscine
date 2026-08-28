@@ -75,6 +75,7 @@ export {
   MIB,
   PLAYBACK_REPEAT,
   PLAYBACK_SHUFFLE,
+  PLAYBACK_VOLUME,
   boundaryPolicy,
   clampSetting
 } from './settings/audio'

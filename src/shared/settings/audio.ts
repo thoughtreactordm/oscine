@@ -333,6 +333,27 @@ export const PLAYBACK_SHUFFLE = defineSetting<boolean>({
   order: 20
 })
 
+/**
+ * View-scoped for the same reason shuffle and repeat are: how loud the
+ * transport was is a fact about this window on this machine, not a
+ * preference worth carrying to another one.
+ *
+ * Internal because the slider on the transport is the only control — a
+ * second one on the settings pane would create two ways to set the same
+ * thing, and the transport's is better because it is beside the music.
+ */
+export const PLAYBACK_VOLUME = defineSetting<number>({
+  key: 'playback.volume',
+  scope: 'view',
+  default: 1,
+  validate: numberValue({ min: 0, max: 1 }),
+  category: 'playback',
+  label: 'Volume',
+  help: 'Restored when the window reopens.',
+  internal: true,
+  order: 30
+})
+
 export const AUDIO_SETTINGS: readonly SettingDescriptor[] = [
   AUDIO_CROSSFADE_MS,
   AUDIO_REPLAY_GAIN_MODE,
@@ -344,7 +365,8 @@ export const AUDIO_SETTINGS: readonly SettingDescriptor[] = [
   AUDIO_DECODE_RESIDENCY_BUDGET_MB,
   AUDIO_PREFETCH_DEPTH,
   PLAYBACK_REPEAT,
-  PLAYBACK_SHUFFLE
+  PLAYBACK_SHUFFLE,
+  PLAYBACK_VOLUME
 ]
 
 /**
