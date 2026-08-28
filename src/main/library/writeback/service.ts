@@ -11,7 +11,12 @@ import type {
 import { toAbsPath } from '../../db/paths'
 import type { GenreCanonicalizer } from './diff'
 import { writeTags, type WriteOutcome } from './engine'
-import { selectionChangesFile, writableTagsFromSelection, type WritableTags } from './writer'
+import {
+  selectionChangesFile,
+  writableTagsFromSelection,
+  type ArtworkWriteIntent,
+  type WritableTags
+} from './writer'
 
 /**
  * The staged review's main-process orchestrator — **W16-6**, design authority
@@ -63,6 +68,14 @@ export interface TagWritebackServiceDeps {
   readonly retire?: (trackId: number, fields: readonly WritebackField[]) => void | Promise<void>
   /** Genre canonicalization (W16-5), applied identically to preview and apply. */
   readonly canonicalize?: GenreCanonicalizer
+  /**
+   * Artwork intent, resolved fresh from the W16-9 override store at apply time
+   * (R7). Absent and every flush is `unchanged` for pictures — the engine
+   * default, and what a test that is not exercising artwork wants. W16-12 will
+   * gate this on the selected `artwork` field; until then a flush of a track
+   * with an override writes the cover alongside the selected text fields.
+   */
+  readonly resolveArtwork?: (trackId: number) => Promise<ArtworkWriteIntent>
   /** Clock for progress throttling. Defaults to `Date.now`. */
   readonly now?: () => number
   /** Minimum gap between progress emissions, in ms. Defaults to 50. */
@@ -103,6 +116,7 @@ export class TagWritebackService {
     fields: readonly WritebackField[]
   ) => void | Promise<void>
   private readonly canonicalize?: GenreCanonicalizer
+  private readonly resolveArtwork?: (trackId: number) => Promise<ArtworkWriteIntent>
   private readonly now: () => number
   private readonly throttleMs: number
 
@@ -116,6 +130,7 @@ export class TagWritebackService {
     this.pendingTrackIds = deps.pendingTrackIds ?? (() => [])
     this.retire = deps.retire ?? (() => {})
     this.canonicalize = deps.canonicalize
+    this.resolveArtwork = deps.resolveArtwork
     this.now = deps.now ?? Date.now
     this.throttleMs = deps.throttleMs ?? PROGRESS_THROTTLE_MS
   }
@@ -244,9 +259,23 @@ export class TagWritebackService {
     }
 
     const selected = new Set(selection.fields)
-    if (!selectionChangesFile(pending, selected)) return { trackId, status: 'skipped' }
 
-    const outcome = await this.write(absPath, writableTagsFromSelection(pending, selected))
+    let artwork: ArtworkWriteIntent
+    try {
+      artwork = this.resolveArtwork ? await this.resolveArtwork(trackId) : { kind: 'unchanged' }
+    } catch (error) {
+      console.warn(`[writeback] track ${trackId} could not resolve artwork for flush:`, error)
+      return { trackId, status: 'failed', code: 'write-failed' }
+    }
+
+    if (!selectionChangesFile(pending, selected) && artwork.kind === 'unchanged') {
+      return { trackId, status: 'skipped' }
+    }
+
+    const outcome = await this.write(absPath, {
+      ...writableTagsFromSelection(pending, selected),
+      artwork
+    })
     if (outcome.ok) return { trackId, status: 'written' }
 
     console.warn(`[writeback] track ${trackId} failed (${outcome.code}): ${outcome.reason}`)

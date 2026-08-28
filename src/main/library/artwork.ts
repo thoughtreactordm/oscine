@@ -1,7 +1,12 @@
 import { readFile, readdir, rm, stat } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { readEmbeddedArtwork, type EmbeddedArtwork, type EmbeddedArtworkReader } from './metadata'
+import {
+  readEmbeddedArtwork,
+  resolveFrontCover,
+  type EmbeddedArtwork,
+  type EmbeddedArtworkReader
+} from './metadata'
 import { WorkerArtworkImageProcessor, type ArtworkImageProcessor } from './artworkProcessor'
 import { artworkHash, createDerivedArtworkStore, type StoredArtwork } from './derivedArtwork'
 import type { ArtworkOriginalsStore } from './artworkOriginals'
@@ -427,20 +432,6 @@ function compareSidecars(left: string, right: string): number {
     SIDECAR_EXTENSION_RANK.get(leftExtension)! - SIDECAR_EXTENSION_RANK.get(rightExtension)! ||
     left.localeCompare(right, 'en')
   )
-}
-
-/**
- * The file's front-cover picture, or `null` — the frame Decision B writes and
- * clears. A typed front cover wins; failing that, a file carrying exactly one
- * *untyped* picture treats it as the de-facto front (the common single-cover
- * case, and what a flush would have replaced). A lone picture that is explicitly
- * typed something else — a back cover, a disc label — is not a front cover, so a
- * file left with only that reads as having no front cover to match.
- */
-function resolveFrontCover(pictures: readonly EmbeddedArtwork[]): EmbeddedArtwork | null {
-  const typed = pictures.find((picture) => (picture.type ?? '').toLowerCase().includes('front'))
-  if (typed) return typed
-  return pictures.length === 1 && (pictures[0].type ?? '') === '' ? pictures[0] : null
 }
 
 /**

@@ -674,7 +674,10 @@ if (!app.requestSingleInstanceLock()) {
       // The review's default is every unwritten correction (W16-6), and a flush
       // retires the overrides it lands so the track leaves the list.
       pendingTrackIds: () => library.pendingWritebackTrackIds(),
-      retire: (trackId, fields) => library.retireWrittenOverrides(trackId, fields)
+      retire: (trackId, fields) => library.retireWrittenOverrides(trackId, fields),
+      // W16-11: the cover is resolved from the override store at apply time,
+      // never from bytes the review held (R7, same discipline as the text fields).
+      resolveArtwork: (trackId) => library.artworkWriteIntent(trackId)
     })
 
     // The command palette's finder (D23). Same connection, no tables of its own
