@@ -1,5 +1,12 @@
 import { extname } from 'node:path'
-import type { File as TagFile } from 'node-taglib-sharp'
+import {
+  ByteVector,
+  Picture,
+  PictureType,
+  type File as TagFile,
+  type IPicture
+} from 'node-taglib-sharp'
+import { sniffImageMime } from '@shared/artwork'
 import type { FieldDiff, GenreValue, PendingWrite, WritebackField } from '@shared/tagWriteback'
 
 /**
@@ -25,9 +32,11 @@ import type { FieldDiff, GenreValue, PendingWrite, WritebackField } from '@share
  *      explicitly" is a literal acceptance criterion — a `.wav` or a `.wma` must
  *      never reach the container.
  *   2. **The field mapping.** {@link applyWritableTags} sets exactly the scalar
- *      fields the diff models and *nothing else*, so artwork, custom frames and
- *      every unmodelled tag survive the write untouched — the corpus's
- *      `preserved:*` checks.
+ *      fields the diff models, plus the artwork intent when it is not
+ *      `unchanged`. Custom frames, album artist, ReplayGain and every other
+ *      unmodelled tag survive the write untouched — the corpus's `preserved:*`
+ *      checks. Pictures follow Decision B: replace or clear only the front
+ *      cover, leave the rest.
  *
  * The `tagFamily` each writer declares is documentation of the routing above and
  * the label a per-file report names; the bytes are written through the container
@@ -77,6 +86,22 @@ export function resolveCodecWriter(absPath: string): CodecWriter | null {
   return BY_EXTENSION.get(extname(absPath).toLowerCase()) ?? null
 }
 
+/**
+ * What a flush does to the front-cover picture — **W16-11**, Decision B.
+ *
+ * Bytes live here, on the engine input, never on a `PendingWrite`: the review
+ * carries an `ArtworkRef` (W16-12) and the apply path resolves the override
+ * store fresh (R7) into this intent. `unchanged` is the default and the only
+ * value that must not even assign `tag.pictures`.
+ */
+export type ArtworkWriteIntent =
+  | { readonly kind: 'unchanged' }
+  | { readonly kind: 'clear' }
+  | { readonly kind: 'set'; readonly bytes: Uint8Array; readonly mime: string }
+
+/** The no-op artwork intent — omit pictures entirely. */
+export const ARTWORK_UNCHANGED: ArtworkWriteIntent = { kind: 'unchanged' }
+
 /** The resolved target values a flush writes into a file's tags. */
 export interface WritableTags {
   readonly title: string | null
@@ -87,6 +112,8 @@ export interface WritableTags {
   readonly year: number | null
   /** The proposed genre frame, written as one delimited string. */
   readonly genres: readonly GenreValue[]
+  /** Front-cover intent, resolved from the override store at apply time. */
+  readonly artwork: ArtworkWriteIntent
 }
 
 /**
@@ -104,15 +131,18 @@ export function writtenGenreValue(genres: readonly GenreValue[]): string[] {
 }
 
 /**
- * Sets exactly the modelled scalar fields on an opened file's tag, nothing else.
+ * Sets the modelled scalar fields and, when asked, the front-cover picture.
  *
- * Every proposed field is written unconditionally — an unchanged field is
+ * Every proposed scalar is written unconditionally — an unchanged field is
  * re-written to its own value, which is a no-op in content — so the file ends
  * holding the full merged state. A `null` proposal clears the field: an empty
  * string or list, or `0`, are node-taglib-sharp's "unset" for these, and the app
- * reader normalises a blank read back to `null` besides. Fields the diff does not
- * model — album artist, ReplayGain, artwork, any custom frame — are never
- * touched here, which is what preserves them across the save.
+ * reader normalises a blank read back to `null` besides. Artwork is the one
+ * modelled field that is *not* rewritten unconditionally: {@link ARTWORK_UNCHANGED}
+ * never assigns `tag.pictures`, so back covers, booklet scans and artist images
+ * survive a scalar-only flush by construction. `set` / `clear` replace or remove
+ * only the front-cover slot (Decision B). Album artist, ReplayGain and any
+ * custom frame remain unmodelled and untouched.
  */
 export function applyWritableTags(file: TagFile, desired: WritableTags): void {
   const tag = file.tag
@@ -123,6 +153,73 @@ export function applyWritableTags(file: TagFile, desired: WritableTags): void {
   tag.year = desired.year ?? 0
   tag.track = desired.trackNo ?? 0
   tag.disc = desired.discNo ?? 0
+  applyArtwork(tag, desired.artwork)
+}
+
+/**
+ * The front-cover slot Decision B writes and clears.
+ *
+ * A typed {@link PictureType.FrontCover} (ID3 APIC type 3 / Vorbis picture type
+ * 3) always counts. A file carrying exactly one {@link PictureType.Other}
+ * picture treats it as the de-facto front — the common single-cover case an
+ * older tagger left untyped, and the same rule the read-path front-cover
+ * resolver uses. A lone picture typed something else (back cover, disc
+ * label) is not a front cover and is left alone.
+ */
+function isFrontCoverSlot(picture: IPicture, all: readonly IPicture[]): boolean {
+  if (picture.type === PictureType.FrontCover) return true
+  return all.length === 1 && picture.type === PictureType.Other
+}
+
+/** Decision B: replace or remove only the front-cover slot; never assign on `unchanged`. */
+function applyArtwork(tag: { pictures: IPicture[] }, intent: ArtworkWriteIntent): void {
+  if (intent.kind === 'unchanged') return
+
+  const existing = tag.pictures ?? []
+  const kept = existing.filter((picture) => !isFrontCoverSlot(picture, existing))
+
+  if (intent.kind === 'clear') {
+    tag.pictures = kept
+    return
+  }
+
+  const front = Picture.fromFullData(
+    ByteVector.fromByteArray(intent.bytes),
+    PictureType.FrontCover,
+    intent.mime,
+    'cover'
+  )
+  tag.pictures = [front, ...kept]
+}
+
+/**
+ * Maps a W16-9 artwork override (or its absence) onto an engine intent.
+ *
+ * This is the R7 fresh-read for the binary payload: the apply path asks the
+ * override row and the originals store *now*, never bytes the review held.
+ * No row is `unchanged`; a row with `imageHash === null` is `clear`; a row
+ * with a hash is `set` once the original bytes are in hand. A missing original
+ * throws rather than skipping — writing the file without the cover the operator
+ * chose would pass scalar verify and silently drop the correction.
+ */
+export async function resolveArtworkIntent(input: {
+  readonly override: { readonly imageHash: string | null; readonly mime: string | null } | null
+  readonly readOriginal: (hash: string) => Promise<Uint8Array | null>
+}): Promise<ArtworkWriteIntent> {
+  if (input.override === null) return ARTWORK_UNCHANGED
+  if (input.override.imageHash === null) return { kind: 'clear' }
+
+  const bytes = await input.readOriginal(input.override.imageHash)
+  if (bytes === null || bytes.byteLength === 0) {
+    throw new Error(
+      `artwork original ${input.override.imageHash} is missing from the override store`
+    )
+  }
+  const mime = input.override.mime ?? sniffImageMime(bytes)
+  if (mime === null) {
+    throw new Error(`artwork original ${input.override.imageHash} has no usable MIME type`)
+  }
+  return { kind: 'set', bytes, mime }
 }
 
 /**
@@ -140,7 +237,10 @@ export function writableTagsFromPending(pending: PendingWrite): WritableTags {
     trackNo: pending.trackNo.proposed,
     discNo: pending.discNo.proposed,
     year: pending.year.proposed,
-    genres: pending.genres.proposed
+    genres: pending.genres.proposed,
+    // W16-12 maps a selected artwork field through {@link resolveArtworkIntent};
+    // until that field exists the engine input is a no-op for pictures.
+    artwork: ARTWORK_UNCHANGED
   }
 }
 
@@ -176,7 +276,8 @@ export function writableTagsFromSelection(
     trackNo: pick('trackNo', pending.trackNo, selected),
     discNo: pick('discNo', pending.discNo, selected),
     year: pick('year', pending.year, selected),
-    genres: selected.has('genres') ? pending.genres.proposed : pending.genres.current
+    genres: selected.has('genres') ? pending.genres.proposed : pending.genres.current,
+    artwork: ARTWORK_UNCHANGED
   }
 }
 

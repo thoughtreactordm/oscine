@@ -413,10 +413,72 @@ describe('writableTagsFromSelection / selectionChangesFile', () => {
     expect(desired.title).toBe('New')
     expect(desired.genres).toEqual([{ key: 'b', label: 'B' }])
     expect(desired.year).toBe(2019) // deselected → current
+    expect(desired.artwork).toEqual({ kind: 'unchanged' })
   })
 
   it('reports whether the selection still changes the file', () => {
     expect(selectionChangesFile(pending, new Set<WritebackField>(['year']))).toBe(true)
     expect(selectionChangesFile(pending, new Set<WritebackField>(['artist']))).toBe(false)
+  })
+})
+
+describe('TagWritebackService.apply — artwork intent at flush time', () => {
+  it('overlays a freshly resolved artwork intent rather than the selection default', async () => {
+    const pending = makePending(1, { title: changed('Old', 'New') })
+    const { source } = differFrom(new Map([[1, pending]]))
+    const { write, calls } = recordingWrite()
+    const bytes = Buffer.from('chosen-cover')
+    const service = new TagWritebackService({
+      differ: source,
+      resolvePath: resolveSimple,
+      write,
+      resolveArtwork: async () => ({ kind: 'set', bytes, mime: 'image/png' })
+    })
+
+    await service.apply([{ trackId: 1, fields: ['title'] }], noProgress)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].desired.title).toBe('New')
+    expect(calls[0].desired.artwork).toEqual({ kind: 'set', bytes, mime: 'image/png' })
+  })
+
+  it('still writes when only the artwork intent changes', async () => {
+    const pending = makePending(1) // no text field changed
+    const { source } = differFrom(new Map([[1, pending]]))
+    const { write, calls } = recordingWrite()
+    const service = new TagWritebackService({
+      differ: source,
+      resolvePath: resolveSimple,
+      write,
+      resolveArtwork: async () => ({ kind: 'clear' })
+    })
+
+    const report = await service.apply([{ trackId: 1, fields: ['title'] }], noProgress)
+
+    expect(report).toMatchObject({ written: 1, skipped: 0, failed: 0 })
+    expect(calls).toHaveLength(1)
+    expect(calls[0].desired.artwork).toEqual({ kind: 'clear' })
+  })
+
+  it('maps a missing original to a failed outcome without writing', async () => {
+    const pending = makePending(1, { title: changed('a', 'b') })
+    const { source } = differFrom(new Map([[1, pending]]))
+    const { write, calls } = recordingWrite()
+    const service = new TagWritebackService({
+      differ: source,
+      resolvePath: resolveSimple,
+      write,
+      resolveArtwork: async () => {
+        throw new Error('artwork original missing from the override store')
+      }
+    })
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const report = await service.apply([{ trackId: 1, fields: ['title'] }], noProgress)
+    warn.mockRestore()
+
+    expect(report).toMatchObject({ written: 0, skipped: 0, failed: 1 })
+    expect(report.outcomes[0]).toEqual({ trackId: 1, status: 'failed', code: 'write-failed' })
+    expect(calls).toHaveLength(0)
   })
 })

@@ -54,8 +54,9 @@ import type { EmbeddedArtworkReader } from './metadata'
 import { reconcilePaths, scanRoot } from './scanner'
 import { LibraryStore, type RootConflict, type RootRow } from './store'
 import { ArtworkCacheService, isArtworkSidecarPath } from './artwork'
-import { createArtworkOriginalsStore } from './artworkOriginals'
+import { createArtworkOriginalsStore, type ArtworkOriginalsStore } from './artworkOriginals'
 import type { ArtworkImageProcessor } from './artworkProcessor'
+import { resolveArtworkIntent, type ArtworkWriteIntent } from './writeback/writer'
 import { RootDirectoryWatcher, type DirectoryWatchAdapter, type WatchMode } from './watcher'
 import type { LibraryService } from './service'
 import type { ReplayGainAnalyzer } from '../replaygain/analyzer'
@@ -156,6 +157,7 @@ export class SqliteLibraryService implements LibraryService {
   private readonly replayGain: ReplayGainJobService
   private readonly watcher: RootDirectoryWatcher
   private readonly artwork: ArtworkCacheService | null
+  private readonly originals: ArtworkOriginalsStore | null
   private readonly discover: DiscoverEngine
   private readonly watchModes = new Map<number, LibraryWatchMode>()
   private readonly degradedRoots = new Set<number>()
@@ -180,13 +182,14 @@ export class SqliteLibraryService implements LibraryService {
     this.discover = new DiscoverEngine(deps.db)
     this.readMetadata = deps.readMetadata ?? readTrackTags
     this.readFormatDetail = deps.readFormatDetail ?? readTrackFormatDetail
+    this.originals = deps.artworkOriginalsDir
+      ? createArtworkOriginalsStore({ dir: deps.artworkOriginalsDir })
+      : null
     this.artwork = deps.artworkCacheDir
       ? new ArtworkCacheService({
           store: this.store,
           cacheDir: deps.artworkCacheDir,
-          ...(deps.artworkOriginalsDir
-            ? { originals: createArtworkOriginalsStore({ dir: deps.artworkOriginalsDir }) }
-            : {}),
+          ...(this.originals ? { originals: this.originals } : {}),
           ...(deps.readArtwork ? { readArtwork: deps.readArtwork } : {}),
           ...(deps.artworkProcessor ? { processor: deps.artworkProcessor } : {}),
           ...(deps.externalArtworkReferences
@@ -340,6 +343,21 @@ export class SqliteLibraryService implements LibraryService {
 
   async retireWrittenOverrides(trackId: number, fields: readonly WritebackField[]): Promise<void> {
     this.store.retireWrittenOverrides(trackId, fields, Date.now())
+  }
+
+  /**
+   * The front-cover intent a flush should write, resolved from the override
+   * store and the originals bytes *now* — **W16-11**, R7. No override is
+   * `unchanged`; a missing originals store (tests that never wired one) is the
+   * same, so a scalar flush cannot fail for want of a cover it cannot load.
+   */
+  async artworkWriteIntent(trackId: number): Promise<ArtworkWriteIntent> {
+    const originals = this.originals
+    if (originals === null) return { kind: 'unchanged' }
+    return resolveArtworkIntent({
+      override: this.store.getArtworkOverride(trackId),
+      readOriginal: (hash) => originals.read(hash)
+    })
   }
 
   async setArtworkFromDialog(trackIds: readonly number[]): Promise<ArtworkRef | null> {

@@ -4,10 +4,20 @@ import { basename, dirname, extname, join } from 'node:path'
 import { File as TagFile } from 'node-taglib-sharp'
 import { splitGenres } from '@shared/genre'
 import type { WritebackFailureCode } from '@shared/tagWriteback'
-import { readTrackTags, type MetadataReader, type TrackTags } from '../metadata'
+import { artworkHash } from '../derivedArtwork'
+import {
+  readEmbeddedArtwork,
+  readTrackTags,
+  resolveFrontCover,
+  type EmbeddedArtwork,
+  type EmbeddedArtworkReader,
+  type MetadataReader,
+  type TrackTags
+} from '../metadata'
 import {
   applyWritableTags,
   resolveCodecWriter,
+  type ArtworkWriteIntent,
   type WritableTags,
   type WritebackCodec
 } from './writer'
@@ -31,9 +41,11 @@ import {
  *      into its place. The backup is a same-directory rename — metadata moves, so
  *      a large FLAC is never copied a second time — and the untouched original
  *      survives there byte-identical until the verify clears or restores it.
- *   5. Re-read the file and verify the tags read back as intended. On any mismatch
- *      or read failure, rename the backup back over the write so the file is left
- *      byte-identical, and report the file failed; on success, drop the backup.
+ *   5. Re-read the file and verify the tags read back as intended. A `set` or
+ *      `clear` artwork intent extends that check to the front-cover bytes,
+ *      compared by hash (R6's binary payload). On any mismatch or read failure,
+ *      rename the backup back over the write so the file is left byte-identical,
+ *      and report the file failed; on success, drop the backup.
  *
  * The backup-and-rollback in steps 4–5 is the recoverability half of R6's
  * mitigation (**W16-4**). Any failure *before* the original is moved aside removes
@@ -72,13 +84,16 @@ export type WriteOutcome =
  * `applyTags` is the container write (default: node-taglib-sharp on the temp
  * copy); `read` is the verification read (default: the same `readTrackTags` the
  * diff mints `current` from, so the write is verified through the exact reader
- * the app will re-scan it with). Both are injected for the same reason the differ
- * injects its reader: the atomic mechanics can then be exercised without a real
- * audio file or a native tag library.
+ * the app will re-scan it with). `readArtwork` is the binary half of that verify
+ * (default: `readEmbeddedArtwork`) and is only consulted when the intent is
+ * `set` or `clear` — an `unchanged` flush must not pay to decode covers.
+ * All three are injected so the atomic mechanics can run without a real audio
+ * file or a native tag library.
  */
 export interface WriteEngineDeps {
   readonly applyTags?: (tempPath: string, desired: WritableTags) => void
   readonly read?: MetadataReader
+  readonly readArtwork?: EmbeddedArtworkReader
 }
 
 /** The default container write: open the temp copy, set the fields, save, close. */
@@ -215,6 +230,35 @@ function verify(after: TrackTags, desired: WritableTags): string | null {
   return null
 }
 
+/**
+ * Whether the flushed front cover matches the intent, compared by hash.
+ *
+ * Presence is not enough: a short-written or swapped cover still *is* a front
+ * cover, and R6 for a binary payload is that the bytes that landed are the
+ * bytes that were asked for. `clear` is the symmetric check — no front cover
+ * remains, other pictures may. `unchanged` is a no-op so a scalar-only flush
+ * never opens the pictures.
+ */
+function verifyArtwork(
+  pictures: readonly EmbeddedArtwork[],
+  intent: ArtworkWriteIntent
+): string | null {
+  if (intent.kind === 'unchanged') return null
+  const front = resolveFrontCover(pictures)
+  if (intent.kind === 'clear') {
+    return front === null ? null : 'artwork: expected no front cover but file holds one'
+  }
+  if (front === null) {
+    return 'artwork: expected front cover but file has none'
+  }
+  const got = artworkHash(front.bytes)
+  const want = artworkHash(intent.bytes)
+  if (got !== want) {
+    return `artwork: expected hash ${want} but file holds ${got}`
+  }
+  return null
+}
+
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -246,6 +290,7 @@ export async function writeTags(
 
   const apply = deps.applyTags ?? applyViaTaglib
   const read = deps.read ?? readTrackTags
+  const readArtwork = deps.readArtwork ?? readEmbeddedArtwork
   const temp = hiddenSibling(absPath, 'tmp')
   const backup = hiddenSibling(absPath, 'bak')
 
@@ -285,6 +330,9 @@ export async function writeTags(
   let mismatch: string | null
   try {
     mismatch = verify(await read(absPath), desired)
+    if (mismatch === null && desired.artwork.kind !== 'unchanged') {
+      mismatch = verifyArtwork(await readArtwork(absPath), desired.artwork)
+    }
   } catch (error) {
     await rollback(backup, absPath)
     return { ok: false, code: 'verify-failed', reason: message(error), path: absPath }

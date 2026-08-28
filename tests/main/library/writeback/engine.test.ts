@@ -11,7 +11,9 @@ import {
   type TrackTags
 } from '../../../../src/main/library/metadata'
 import { writeTags, type WriteOutcome } from '../../../../src/main/library/writeback/engine'
-import type { WritableTags } from '../../../../src/main/library/writeback/writer'
+import { ARTWORK_UNCHANGED, type WritableTags } from '../../../../src/main/library/writeback/writer'
+import { artworkHash } from '../../../../src/main/library/derivedArtwork'
+import { ByteVector, File as TagFile, Picture, PictureType } from 'node-taglib-sharp'
 import {
   buildWritebackCorpus,
   CORRECTED,
@@ -37,7 +39,8 @@ const A_TAGS: WritableTags = {
   trackNo: 4,
   discNo: 1,
   year: 2026,
-  genres: [{ key: 'ambient', label: 'Ambient' }]
+  genres: [{ key: 'ambient', label: 'Ambient' }],
+  artwork: ARTWORK_UNCHANGED
 }
 
 /** A full `TrackTags` reading back exactly what {@link A_TAGS} proposed. */
@@ -202,6 +205,112 @@ describe('writeTags — atomic mechanics (injected seams)', () => {
     expect(readFileSync(paths[2], 'utf8')).toBe('WRITTEN')
     expect(readdirSync(dir).sort()).toEqual(['a.flac', 'b.mp3', 'c.opus'])
   })
+
+  it('does not read pictures when the artwork intent is unchanged', async () => {
+    const path = join(dir, 'song.flac')
+    writeFileSync(path, 'ORIGINAL')
+
+    const outcome = await writeTags(path, A_TAGS, {
+      applyTags: stamp('WRITTEN'),
+      read: async () => matchingRead(),
+      readArtwork: async () => {
+        throw new Error('should not read artwork')
+      }
+    })
+
+    expect(outcome).toEqual({ ok: true, codec: 'flac', path })
+  })
+
+  it('accepts a set cover whose hash matches the write', async () => {
+    const path = join(dir, 'song.flac')
+    writeFileSync(path, 'ORIGINAL')
+    const bytes = Buffer.from('new-cover')
+
+    const outcome = await writeTags(
+      path,
+      { ...A_TAGS, artwork: { kind: 'set', bytes, mime: 'image/png' } },
+      {
+        applyTags: stamp('WRITTEN'),
+        read: async () => matchingRead(),
+        readArtwork: async () => [{ index: 0, format: 'image/png', type: 'Cover (front)', bytes }]
+      }
+    )
+
+    expect(outcome).toEqual({ ok: true, codec: 'flac', path })
+    expect(readFileSync(path, 'utf8')).toBe('WRITTEN')
+  })
+
+  it('compares cover bytes by hash, not by presence, and rolls back byte-identical', async () => {
+    const path = join(dir, 'song.mp3')
+    writeFileSync(path, 'ORIGINAL')
+    const intended = Buffer.from('intended-cover')
+    const shortWritten = Buffer.from('short')
+
+    const outcome = await writeTags(
+      path,
+      { ...A_TAGS, artwork: { kind: 'set', bytes: intended, mime: 'image/png' } },
+      {
+        applyTags: stamp('CORRUPT'),
+        read: async () => matchingRead(),
+        readArtwork: async () => [
+          { index: 0, format: 'image/png', type: 'Cover (front)', bytes: shortWritten }
+        ]
+      }
+    )
+
+    expect(outcome).toMatchObject({ ok: false, code: 'verify-failed' })
+    expect(outcome.ok === false && outcome.reason).toContain('artwork')
+    expect(outcome.ok === false && outcome.reason).toContain(artworkHash(intended))
+    // W16-4: the backup already contains the pictures, so artwork rollback is
+    // the same rename as a scalar mismatch — the file is byte-identical.
+    expect(readFileSync(path, 'utf8')).toBe('ORIGINAL')
+    expect(readdirSync(dir)).toEqual(['song.mp3'])
+  })
+
+  it('rolls back when a clear leaves a front cover behind', async () => {
+    const path = join(dir, 'song.opus')
+    writeFileSync(path, 'ORIGINAL')
+
+    const outcome = await writeTags(
+      path,
+      { ...A_TAGS, artwork: { kind: 'clear' } },
+      {
+        applyTags: stamp('STILL-HAS-COVER'),
+        read: async () => matchingRead(),
+        readArtwork: async () => [
+          {
+            index: 0,
+            format: 'image/png',
+            type: 'Cover (front)',
+            bytes: Buffer.from('left-behind')
+          }
+        ]
+      }
+    )
+
+    expect(outcome).toMatchObject({ ok: false, code: 'verify-failed' })
+    expect(outcome.ok === false && outcome.reason).toContain('artwork')
+    expect(readFileSync(path, 'utf8')).toBe('ORIGINAL')
+  })
+
+  it('accepts a clear whose file no longer has a front cover', async () => {
+    const path = join(dir, 'song.flac')
+    writeFileSync(path, 'ORIGINAL')
+
+    const outcome = await writeTags(
+      path,
+      { ...A_TAGS, artwork: { kind: 'clear' } },
+      {
+        applyTags: stamp('WRITTEN'),
+        read: async () => matchingRead(),
+        readArtwork: async () => [
+          { index: 0, format: 'image/png', type: 'Cover (back)', bytes: Buffer.from('back') }
+        ]
+      }
+    )
+
+    expect(outcome).toEqual({ ok: true, codec: 'flac', path })
+  })
 })
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0
@@ -230,7 +339,8 @@ roundTrip('writeTags — five-codec round-trip on the corpus (needs ffmpeg)', ()
       genres: [
         { key: 'ambient', label: 'Ambient' },
         { key: 'electronic', label: 'Electronic' }
-      ]
+      ],
+      artwork: ARTWORK_UNCHANGED
     }
 
     for (const track of manifest.tracks) {
@@ -263,4 +373,114 @@ roundTrip('writeTags — five-codec round-trip on the corpus (needs ffmpeg)', ()
       []
     )
   }, 120_000)
+
+  it('replaces the front cover by hash on every codec and leaves a back cover byte-identical', async () => {
+    // Apple `covr` has no picture-type field, so AAC cannot preserve a typed
+    // back cover across a write — Decision B applies to the four codecs whose
+    // containers actually distinguish front from the rest.
+    const typed = manifest.tracks.filter((track) => track.id !== 'aac')
+    const newCover = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
+      'base64'
+    )
+    const backCover = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC',
+      'base64'
+    )
+
+    for (const track of typed) {
+      embedPictures(track.path, [
+        { type: PictureType.FrontCover, bytes: manifest.cover.bytes },
+        { type: PictureType.BackCover, bytes: backCover }
+      ])
+
+      const outcome = await writeTags(track.path, {
+        ...A_TAGS,
+        artwork: { kind: 'set', bytes: newCover, mime: 'image/png' }
+      })
+      expect(outcome, track.id).toMatchObject({ ok: true, codec: track.id })
+
+      const pictures = await readEmbeddedArtwork(track.path)
+      const front = pictures.find((p) => (p.type ?? '').toLowerCase().includes('front'))
+      const back = pictures.find((p) => (p.type ?? '').toLowerCase().includes('back'))
+      expect(front, track.id).toBeDefined()
+      expect(artworkHash(front!.bytes), track.id).toBe(artworkHash(newCover))
+      expect(back, track.id).toBeDefined()
+      expect(Buffer.from(back!.bytes).equals(backCover), track.id).toBe(true)
+    }
+  }, 120_000)
+
+  it('clears only the front cover and leaves the back cover on every typed codec', async () => {
+    const typed = manifest.tracks.filter((track) => track.id !== 'aac')
+    const backCover = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC',
+      'base64'
+    )
+
+    for (const track of typed) {
+      embedPictures(track.path, [
+        { type: PictureType.FrontCover, bytes: manifest.cover.bytes },
+        { type: PictureType.BackCover, bytes: backCover }
+      ])
+
+      const outcome = await writeTags(track.path, { ...A_TAGS, artwork: { kind: 'clear' } })
+      expect(outcome, track.id).toMatchObject({ ok: true, codec: track.id })
+
+      const pictures = await readEmbeddedArtwork(track.path)
+      const front = pictures.find((p) => (p.type ?? '').toLowerCase().includes('front'))
+      const back = pictures.find((p) => (p.type ?? '').toLowerCase().includes('back'))
+      expect(front, track.id).toBeUndefined()
+      expect(back, track.id).toBeDefined()
+      expect(Buffer.from(back!.bytes).equals(backCover), track.id).toBe(true)
+    }
+  }, 120_000)
+
+  it('sets and clears the sole front cover on every codec including AAC', async () => {
+    const newCover = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
+      'base64'
+    )
+
+    for (const track of manifest.tracks) {
+      const setOutcome = await writeTags(track.path, {
+        ...A_TAGS,
+        artwork: { kind: 'set', bytes: newCover, mime: 'image/png' }
+      })
+      expect(setOutcome, track.id).toMatchObject({ ok: true, codec: track.id })
+      const afterSet = await readEmbeddedArtwork(track.path)
+      const front =
+        afterSet.find((p) => (p.type ?? '').toLowerCase().includes('front')) ??
+        (afterSet.length === 1 ? afterSet[0] : undefined)
+      expect(front, track.id).toBeDefined()
+      expect(artworkHash(front!.bytes), track.id).toBe(artworkHash(newCover))
+
+      const clearOutcome = await writeTags(track.path, { ...A_TAGS, artwork: { kind: 'clear' } })
+      expect(clearOutcome, track.id).toMatchObject({ ok: true, codec: track.id })
+      const afterClear = await readEmbeddedArtwork(track.path)
+      const stillFront =
+        afterClear.find((p) => (p.type ?? '').toLowerCase().includes('front')) ??
+        (afterClear.length === 1 && (afterClear[0].type ?? '') === '' ? afterClear[0] : undefined)
+      expect(stillFront, track.id).toBeUndefined()
+    }
+  }, 120_000)
 })
+
+function embedPictures(
+  absPath: string,
+  frames: Array<{ type: PictureType; bytes: Uint8Array }>
+): void {
+  const file = TagFile.createFromPath(absPath)
+  try {
+    file.tag.pictures = frames.map((frame) =>
+      Picture.fromFullData(
+        ByteVector.fromByteArray(frame.bytes),
+        frame.type,
+        'image/png',
+        frame.type === PictureType.FrontCover ? 'cover' : 'back'
+      )
+    )
+    file.save()
+  } finally {
+    file.dispose()
+  }
+}
