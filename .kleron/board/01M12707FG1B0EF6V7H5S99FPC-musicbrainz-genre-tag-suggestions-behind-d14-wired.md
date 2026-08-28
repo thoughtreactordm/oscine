@@ -1,7 +1,7 @@
 ---
 taskId: 01M12707FG1B0EF6V7H5S99FPC
 title: 'MusicBrainz genre/tag suggestions behind D14, wired into tags.suggest'
-status: in-review
+status: done
 priority: medium
 labels: []
 workstream: W15
@@ -10,9 +10,9 @@ workstreamDependsOn:
   - W7
 dependsOn:
   - 01M126ZRER5HXPM5TY9EYKKMJS
-order: 1
+order: 2
 created: '2026-08-27T18:16:33.519Z'
-updated: '2026-08-27T21:01:34.434Z'
+updated: '2026-08-28T00:56:42.095Z'
 ---
 The networked suggestion path — Oscine's use of the D14 net/cache layer W7 already shipped, not a second HTTP stack.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01M1270NDY9ZT7B0JBZEBZMZ05
 title: TrackList tag/genre column and browse-by-tag surface
-status: in-review
+status: done
 priority: low
 labels: []
 workstream: W15
@@ -10,9 +10,9 @@ workstreamDependsOn:
   - W4
 dependsOn:
   - 01M126ZBGXQZ8QTJ9W6E5N2CBS
-order: 1
+order: 3
 created: '2026-08-27T18:16:47.805Z'
-updated: '2026-08-27T22:11:56.829Z'
+updated: '2026-08-28T00:56:42.103Z'
 ---
 Make tags visible and browsable in the main library, closing two gaps: genre is not shown in `TrackList`/`ColumnChooser` today, and there is no way to browse by it.
 
