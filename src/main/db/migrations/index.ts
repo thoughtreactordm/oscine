@@ -17,6 +17,7 @@ import { favorites } from './015-favorites'
 import { quickAccess } from './016-quick-access'
 import { podcastAutoDownload } from './017-podcast-auto-download'
 import { userTags } from './018-user-tags'
+import { trackOverridesGenreYear } from './019-track-overrides-genre-year'
 
 /**
  * Every migration, in order.
@@ -45,5 +46,6 @@ export const MIGRATIONS: readonly Migration[] = [
   favorites,
   quickAccess,
   podcastAutoDownload,
-  userTags
+  userTags,
+  trackOverridesGenreYear
 ]
