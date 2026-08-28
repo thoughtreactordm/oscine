@@ -110,9 +110,9 @@ describe('getRelated at the scale target', () => {
       pickFolder: async () => null,
       onProgress: () => {}
     })
-    // Building the 100k-row fixture is filesystem-bound and the Windows CI runner
-    // is slow enough to blow a 15s hook budget; give the seed room on both.
-  }, 60_000)
+    // 100k-row seed is filesystem-bound. CI's hookTimeout in vitest.config.ts
+    // is the budget — a shorter per-hook timeout here is what flakes Windows.
+  })
 
   afterAll(() => {
     opened.db.close()
