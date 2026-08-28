@@ -331,6 +331,22 @@ function queueSessionValue(): SettingValidator<QueueSession> {
 
 export const VIEW_SETTINGS: readonly SettingDescriptor[] = [
   /**
+   * Whether the sidebar is showing the full-size cover below its facets.
+   *
+   * Persisted so the cover stays where the operator left it across sessions.
+   */
+  defineSetting<boolean>({
+    key: 'view.coverExpanded',
+    scope: 'view',
+    default: false,
+    validate: booleanValue(),
+    category: 'interface',
+    label: 'Cover art expanded',
+    help: 'Whether the sidebar cover art is showing on this machine.',
+    internal: true
+  }),
+
+  /**
    * Pane sizes in CSS pixels, keyed by `PaneSpec.key`.
    *
    * One record rather than a key per pane, which is what this file first tried.

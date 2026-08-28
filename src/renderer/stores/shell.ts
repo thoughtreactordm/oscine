@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, type Ref } from 'vue'
 import { useViewSettings } from '@renderer/settings'
 import {
   createScrollMemory,
@@ -27,18 +27,19 @@ import {
  * nothing of Pinia or of storage; this is the one place the real view store is
  * bolted on, exactly as `trackColumns` does it.
  */
+const COVER_EXPANDED_KEY = 'view.coverExpanded'
+
 export const useShellStore = defineStore('shell', () => {
-  const layout = createShellLayout({ settings: useViewSettings() })
+  const settings = useViewSettings()
+  const layout = createShellLayout({ settings })
   const scroll = createScrollMemory()
 
   /**
    * Whether the sidebar is showing the full-size cover below its facets.
    *
-   * Deliberately outside the persisted layout, where the pane sizes now live:
-   * an expanded cover is a glance rather than a layout the user built, and it
-   * is the one piece of frame state that should start closed every session.
+   * Persisted so the operator finds the cover where they left it on restart.
    */
-  const coverExpanded = ref(false)
+  const coverExpanded: Ref<boolean> = settings.value<boolean>(COVER_EXPANDED_KEY)
 
   function toggleCover(): void {
     coverExpanded.value = !coverExpanded.value
