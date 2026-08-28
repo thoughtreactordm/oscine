@@ -356,7 +356,7 @@ async function toggleMaximize(): Promise<void> {
     aria-label="Application toolbar"
   >
     <div class="flex h-full shrink-0 items-center gap-2 px-3" aria-label="Oscine">
-      <AppLogo class="size-5" />
+      <AppLogo class="size-6" />
       <span class="app-logo text-sm font-semibold tracking-wide text-highlighted">oscine</span>
     </div>
 
@@ -486,15 +486,28 @@ async function toggleMaximize(): Promise<void> {
     -->
     <UModal v-model:open="aboutOpen" title="About Oscine">
       <template #body>
-        <div class="flex flex-col items-center gap-4 py-4 text-center">
-          <AppLogo class="size-16" />
-          <div class="flex flex-col items-center gap-1">
+        <div class="flex flex-col items-center gap-2 py-4 text-center">
+          <AppLogo class="size-24" />
+          <div class="flex flex-col items-center gap-4">
             <span class="app-logo text-2xl font-semibold tracking-wide text-highlighted">
               oscine
             </span>
-            <span class="text-sm text-muted">Version {{ version || '—' }}</span>
+
+            <p class="text-muted text-sm italic font-light mb-4">
+              A music player that takes pride in ownership and building connections with one's
+              music. Subscriptions, advertisements, and corporate whims should not hold you back
+              from a modern and intelligent listening experience.
+            </p>
+
+            <p class="text-muted text-sm italic font-light mb-4">
+              Please support <strong>real human musicians</strong> by purchasing music as directly
+              from them as you can. Oscine attempts to make this as easy as possible without being
+              an actual storefront.
+            </p>
+
+            <span class="text-sm text-muted font-semibold">Version {{ version || '—' }}</span>
           </div>
-          <p class="text-sm text-muted">Created with love by Michael DeLally</p>
+          <p class="text-sm text-dimmed">Created with ❤️ by Michael DeLally</p>
         </div>
       </template>
     </UModal>
