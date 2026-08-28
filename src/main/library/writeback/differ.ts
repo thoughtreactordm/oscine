@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { artworkRef } from '@shared/artwork'
 import type { PendingWrite } from '@shared/tagWriteback'
 import { toAbsPath } from '../../db/paths'
 import type { MetadataReader } from '../metadata'
@@ -61,8 +62,27 @@ export class TagWritebackDiffer {
     const override =
       (this.statements.override.get(trackId) as TrackOverrideRow | undefined) ?? NO_OVERRIDE
     const userTags = this.statements.userTags.all(trackId) as WritebackUserTag[]
+    const artworkRow = this.statements.artwork.get(trackId) as
+      | {
+          fileHash: string | null
+          overrideHash: string | null
+          overrideMime: string | null
+          hasOverride: number
+        }
+      | undefined
 
-    return computePendingWrite({ trackId, file, override, userTags, canonicalize })
+    return computePendingWrite({
+      trackId,
+      file,
+      override,
+      userTags,
+      canonicalize,
+      fileArtwork: artworkRef(artworkRow?.fileHash ?? null),
+      artworkOverride:
+        artworkRow !== undefined && artworkRow.hasOverride === 1
+          ? { imageHash: artworkRow.overrideHash, mime: artworkRow.overrideMime }
+          : null
+    })
   }
 }
 
@@ -88,6 +108,20 @@ function prepareStatements(db: Database.Database) {
       JOIN tags t ON t.id = tt.tag_id
       WHERE tt.track_id = ? AND tt.source IN ('user', 'suggested')
       ORDER BY t.label COLLATE NOCASE, t.id
+    `),
+    // W16-12: the file's last-known cover (album hash the thumbnail cache
+    // already holds) and the override row. `hasOverride` distinguishes a
+    // clear (row, NULL hash) from absent (no row) — the CASE on image_hash
+    // alone cannot, because both look like NULL.
+    artwork: db.prepare(`
+      SELECT al.artwork_hash AS fileHash,
+             awo.image_hash AS overrideHash,
+             awo.mime AS overrideMime,
+             awo.track_id IS NOT NULL AS hasOverride
+      FROM tracks t
+      LEFT JOIN albums al ON al.id = t.album_id
+      LEFT JOIN artwork_overrides awo ON awo.track_id = t.id
+      WHERE t.id = ?
     `)
   }
 }

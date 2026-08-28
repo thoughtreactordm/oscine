@@ -1,6 +1,13 @@
+import { ABSENT_ARTWORK, artworkRef, type ArtworkRef } from '@shared/artwork'
 import { normalizeLabel, splitGenres } from '@shared/genre'
 import type { TagSource } from '@shared/tags'
-import type { FieldDiff, GenreDiff, GenreValue, PendingWrite } from '@shared/tagWriteback'
+import type {
+  ArtworkDiff,
+  FieldDiff,
+  GenreDiff,
+  GenreValue,
+  PendingWrite
+} from '@shared/tagWriteback'
 import type { TrackTags } from '../metadata'
 
 /**
@@ -95,6 +102,21 @@ export interface PendingWriteInput {
   readonly override: TrackOverrideRow
   /** The track's `user`/`suggested` tag assignments. */
   readonly userTags: readonly WritebackUserTag[]
+  /**
+   * The file's current front cover as a reference — **W16-12**. The hash the
+   * thumbnail cache already holds for this album, so the review can address an
+   * `oscine://` thumbnail without a second picture parse of every file in a
+   * multi-thousand batch. Absent when the library has no cover for the album.
+   */
+  readonly fileArtwork?: ArtworkRef
+  /**
+   * The W16-9 artwork override row, or `null` when the track has none. A row
+   * with `imageHash === null` is the tri-state *clear*.
+   */
+  readonly artworkOverride?: {
+    readonly imageHash: string | null
+    readonly mime: string | null
+  } | null
   /** Genre canonicalization (W16-5); defaults to identity. */
   readonly canonicalize?: GenreCanonicalizer
 }
@@ -147,6 +169,27 @@ function genreDiff(input: PendingWriteInput): GenreDiff {
 }
 
 /**
+ * The cover field: the override wins when present (set or clear), otherwise
+ * the file's own cover stands. Compared by hash, not mime — the same image
+ * bytes are the same cover regardless of how a tagger labelled them.
+ */
+function artworkDiff(
+  file: ArtworkRef,
+  override: { readonly imageHash: string | null; readonly mime: string | null } | null | undefined
+): ArtworkDiff {
+  const current = file
+  const proposed =
+    override === null || override === undefined
+      ? current
+      : artworkRef(override.imageHash, override.mime)
+  return {
+    current,
+    proposed,
+    changed: current.present !== proposed.present || current.hash !== proposed.hash
+  }
+}
+
+/**
  * Merges one track's correction layers into its pending write.
  *
  * The single entry point: every field's diff, plus the `hasChanges` summary the
@@ -162,6 +205,7 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
   const discNo = scalarDiff(file.discNo, override.disc_no)
   const year = scalarDiff(file.year, override.year)
   const genres = genreDiff(input)
+  const artwork = artworkDiff(input.fileArtwork ?? ABSENT_ARTWORK, input.artworkOverride)
 
   const hasChanges =
     title.changed ||
@@ -170,7 +214,8 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
     trackNo.changed ||
     discNo.changed ||
     year.changed ||
-    genres.changed
+    genres.changed ||
+    artwork.changed
 
   return {
     trackId: input.trackId,
@@ -181,6 +226,7 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
     discNo,
     year,
     genres,
+    artwork,
     hasChanges
   }
 }

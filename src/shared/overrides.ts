@@ -1,3 +1,5 @@
+import type { ArtworkRef } from './artwork'
+
 /**
  * The track-metadata edit surface — **W16 (editor)**, design authority D7/D28.
  *
@@ -72,4 +74,12 @@ export interface OverrideEditState {
   readonly discNo: OverrideFieldState<number>
   readonly year: OverrideFieldState<number>
   readonly genre: OverrideFieldState<string>
+  /**
+   * The cover as it currently resolves (override-aware, W16-9). `value` is the
+   * shared {@link ArtworkRef} when every selected track agrees; `mixed` is a
+   * compilation whose tracks disagree. Artwork is not an {@link OverrideField}
+   * — it has its own ingest IPC (W16-10) and does not travel through `set` /
+   * `clear`.
+   */
+  readonly artwork: OverrideFieldState<ArtworkRef>
 }

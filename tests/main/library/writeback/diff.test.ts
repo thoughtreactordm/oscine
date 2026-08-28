@@ -257,6 +257,68 @@ describe('computePendingWrite — genre merge', () => {
   })
 })
 
+describe('computePendingWrite — artwork', () => {
+  const FILE = { present: true, hash: 'file'.padEnd(64, '0'), mime: 'image/jpeg' } as const
+  const CHOSEN = { imageHash: 'new'.padEnd(64, '0'), mime: 'image/png' }
+
+  it('proposes the file cover and reports no change when there is no override', () => {
+    const pw = computePendingWrite({
+      trackId: 1,
+      file: fileTags(),
+      override: override(),
+      userTags: [],
+      fileArtwork: FILE
+    })
+    expect(pw.artwork).toEqual({ current: FILE, proposed: FILE, changed: false })
+    expect(pw.hasChanges).toBe(false)
+  })
+
+  it('proposes a set override as the new cover', () => {
+    const pw = computePendingWrite({
+      trackId: 1,
+      file: fileTags(),
+      override: override(),
+      userTags: [],
+      fileArtwork: FILE,
+      artworkOverride: CHOSEN
+    })
+    expect(pw.artwork.current).toEqual(FILE)
+    expect(pw.artwork.proposed).toEqual({
+      present: true,
+      hash: CHOSEN.imageHash,
+      mime: CHOSEN.mime
+    })
+    expect(pw.artwork.changed).toBe(true)
+    expect(pw.hasChanges).toBe(true)
+  })
+
+  it('proposes a clear override as absent', () => {
+    const pw = computePendingWrite({
+      trackId: 1,
+      file: fileTags(),
+      override: override(),
+      userTags: [],
+      fileArtwork: FILE,
+      artworkOverride: { imageHash: null, mime: null }
+    })
+    expect(pw.artwork.proposed).toEqual({ present: false, hash: null, mime: null })
+    expect(pw.artwork.changed).toBe(true)
+  })
+
+  it('does not count a same-hash override as a change', () => {
+    const pw = computePendingWrite({
+      trackId: 1,
+      file: fileTags(),
+      override: override(),
+      userTags: [],
+      fileArtwork: FILE,
+      artworkOverride: { imageHash: FILE.hash, mime: 'image/png' }
+    })
+    expect(pw.artwork.changed).toBe(false)
+    expect(pw.hasChanges).toBe(false)
+  })
+})
+
 describe('TagWritebackDiffer — fresh file read (R7)', () => {
   let dir: string
   let opened: OpenDatabaseResult
@@ -335,5 +397,24 @@ describe('TagWritebackDiffer — fresh file read (R7)', () => {
   it('returns null for a track that does not exist', async () => {
     const differ = new TagWritebackDiffer(db, async () => fileTags())
     expect(await differ.pendingWrite(99999)).toBeNull()
+  })
+
+  it('diffs artwork against the album cover and the override row', async () => {
+    const fileHash = 'f'.repeat(64)
+    const chosenHash = 'c'.repeat(64)
+    const trackId = seedTrack(fileTags())
+    const albumId = (
+      db.prepare('SELECT album_id AS id FROM tracks WHERE id = ?').get(trackId) as { id: number }
+    ).id
+    library.setAlbumArtwork(albumId, fileHash)
+    library.setArtworkOverride(trackId, chosenHash, 'image/png', 1)
+
+    const differ = new TagWritebackDiffer(db, async () => fileTags())
+    const pw = await differ.pendingWrite(trackId)
+
+    expect(pw?.artwork.current).toEqual({ present: true, hash: fileHash, mime: null })
+    expect(pw?.artwork.proposed).toEqual({ present: true, hash: chosenHash, mime: 'image/png' })
+    expect(pw?.artwork.changed).toBe(true)
+    expect(pw?.hasChanges).toBe(true)
   })
 })

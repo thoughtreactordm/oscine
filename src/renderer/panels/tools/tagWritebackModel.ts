@@ -1,5 +1,6 @@
 import type { GenreValue, PendingWrite, WritebackSelection } from '@shared/tagWriteback'
 import { WRITEBACK_FIELDS, type WritebackField } from '@shared/tagWriteback'
+import type { ArtworkRef } from '@shared/artwork'
 
 /**
  * The staged review's selection model — **W16-6**, the pure half.
@@ -22,7 +23,8 @@ export const FIELD_LABELS: Record<WritebackField, string> = {
   trackNo: 'Track №',
   discNo: 'Disc №',
   year: 'Year',
-  genres: 'Genres'
+  genres: 'Genres',
+  artwork: 'Cover'
 }
 
 /** Whether one field of a pending write differs from the file — the `changed` flag. */
@@ -42,6 +44,8 @@ export function fieldChanged(pending: PendingWrite, field: WritebackField): bool
       return pending.year.changed
     case 'genres':
       return pending.genres.changed
+    case 'artwork':
+      return pending.artwork.changed
   }
 }
 
@@ -160,6 +164,22 @@ export function formatGenres(values: readonly GenreValue[]): string {
   return values.length === 0 ? '—' : values.map((value) => value.label).join(', ')
 }
 
+/**
+ * A cover reference's display when there is no thumbnail to draw.
+ *
+ * `—` is none (the file has no cover). `✕ remove` is a proposed clear: the
+ * file has a cover and the override strips it.
+ */
+export function formatArtwork(
+  ref: ArtworkRef,
+  role: 'current' | 'proposed',
+  other: ArtworkRef
+): string {
+  if (ref.present) return ref.mime ?? 'cover'
+  if (role === 'proposed' && other.present) return '✕ remove'
+  return '—'
+}
+
 /** One field's before/after as display strings, for a diff cell. */
 export interface FieldText {
   readonly current: string
@@ -202,6 +222,11 @@ export function fieldText(pending: PendingWrite, field: WritebackField): FieldTe
       return {
         current: formatGenres(pending.genres.current),
         proposed: formatGenres(pending.genres.proposed)
+      }
+    case 'artwork':
+      return {
+        current: formatArtwork(pending.artwork.current, 'current', pending.artwork.proposed),
+        proposed: formatArtwork(pending.artwork.proposed, 'proposed', pending.artwork.current)
       }
   }
 }

@@ -70,10 +70,10 @@ export interface TagWritebackServiceDeps {
   readonly canonicalize?: GenreCanonicalizer
   /**
    * Artwork intent, resolved fresh from the W16-9 override store at apply time
-   * (R7). Absent and every flush is `unchanged` for pictures — the engine
-   * default, and what a test that is not exercising artwork wants. W16-12 will
-   * gate this on the selected `artwork` field; until then a flush of a track
-   * with an override writes the cover alongside the selected text fields.
+   * (R7) *and only when the operator selected the `artwork` field*. Absent, or
+   * a flush whose selection omitted artwork, is `unchanged` for pictures — the
+   * engine default, and what a test that is not exercising artwork wants. A
+   * deselected cover is left on the file even when an override stands.
    */
   readonly resolveArtwork?: (trackId: number) => Promise<ArtworkWriteIntent>
   /** Clock for progress throttling. Defaults to `Date.now`. */
@@ -260,12 +260,14 @@ export class TagWritebackService {
 
     const selected = new Set(selection.fields)
 
-    let artwork: ArtworkWriteIntent
-    try {
-      artwork = this.resolveArtwork ? await this.resolveArtwork(trackId) : { kind: 'unchanged' }
-    } catch (error) {
-      console.warn(`[writeback] track ${trackId} could not resolve artwork for flush:`, error)
-      return { trackId, status: 'failed', code: 'write-failed' }
+    let artwork: ArtworkWriteIntent = { kind: 'unchanged' }
+    if (selected.has('artwork') && pending.artwork.changed) {
+      try {
+        artwork = this.resolveArtwork ? await this.resolveArtwork(trackId) : { kind: 'unchanged' }
+      } catch (error) {
+        console.warn(`[writeback] track ${trackId} could not resolve artwork for flush:`, error)
+        return { trackId, status: 'failed', code: 'write-failed' }
+      }
     }
 
     if (!selectionChangesFile(pending, selected) && artwork.kind === 'unchanged') {

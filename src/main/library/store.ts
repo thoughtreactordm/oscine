@@ -45,8 +45,10 @@ function normText(value: string): string | null {
   return trimmed === '' ? null : trimmed
 }
 
-/** Which `track_overrides` column each write-back field's flush retires. */
-const WRITEBACK_TO_OVERRIDE_COLUMN: Record<WritebackField, OverrideColumn> = {
+/** Which `track_overrides` column each text write-back field's flush retires. */
+const WRITEBACK_TO_OVERRIDE_COLUMN: {
+  [K in Exclude<WritebackField, 'artwork'>]: OverrideColumn
+} = {
   title: 'title',
   artist: 'artist_name',
   album: 'album_title',
@@ -363,9 +365,11 @@ export const TRACK_PROJECTION = `
   -- D18's heart, resolved with the page rather than fetched after it. SQLite has
   -- no boolean, so this arrives as 0 or 1 and toTrack is where it becomes one.
   fav.track_id IS NOT NULL AS favorite,
-  -- W16: an unwritten correction stands for this track. One PK-probe per row, as
-  -- fav above; SQLite drops the join for the id-only queries that never read it.
-  ovr.track_id IS NOT NULL AS modified,
+  -- W16: an unwritten correction stands for this track. Text overrides *or*
+  -- an artwork override (W16-12): both are the pending set the review flushes,
+  -- so the mark and the pending list agree. SQLite drops the joins for the
+  -- id-only queries that never read it.
+  (ovr.track_id IS NOT NULL OR awo.track_id IS NOT NULL) AS modified,
   -- W16-9: the override-aware cover. A tri-state artwork_overrides row wins over
   -- the album's own art -- set to its image_hash, or blank when the row clears
   -- the cover (NULL hash) -- so a chosen cover resolves through the same oscine
@@ -1924,12 +1928,16 @@ export class LibraryStore {
            (o.track_no    IS NOT NULL) AS ovTrackNo,
            (o.disc_no     IS NOT NULL) AS ovDiscNo,
            (o.year        IS NOT NULL) AS ovYear,
-           (o.genre       IS NOT NULL) AS ovGenre
+           (o.genre       IS NOT NULL) AS ovGenre,
+           CASE WHEN awo.track_id IS NOT NULL THEN awo.image_hash ELSE al.artwork_hash END AS artworkHash,
+           CASE WHEN awo.track_id IS NOT NULL THEN awo.mime ELSE NULL END AS artworkMime,
+           (awo.track_id IS NOT NULL) AS ovArtwork
          FROM json_each(@ids) page
          JOIN tracks t          ON t.id = page.value
          LEFT JOIN artists ar   ON ar.id = t.artist_id
          LEFT JOIN albums  al   ON al.id = t.album_id
-         LEFT JOIN track_overrides o ON o.track_id = t.id`
+         LEFT JOIN track_overrides o ON o.track_id = t.id
+         LEFT JOIN artwork_overrides awo ON awo.track_id = t.id`
       )
       .all({ ids: JSON.stringify(unique) }) as OverrideEditRow[]
     return buildOverrideEditState(rows)
@@ -2111,16 +2119,22 @@ export class LibraryStore {
   /**
    * The tracks carrying an unwritten correction — the write-back's pending set.
    *
-   * Deliberate edits only: every track with a `track_overrides` row. W15's
-   * free-form tag layer (including auto *suggestions*) is *not* swept in here —
-   * it would flood the review with genres the operator never chose to flush, and
-   * it is the same set the "modified" mark counts, so the list and the marks
-   * agree. The review still merges a track's user tags into its genre write; this
-   * only decides which tracks appear by default.
+   * Deliberate edits only: every track with a `track_overrides` row *or* an
+   * `artwork_overrides` row. W15's free-form tag layer (including auto
+   * *suggestions*) is *not* swept in here — it would flood the review with
+   * genres the operator never chose to flush, and it is the same set the
+   * "modified" mark counts, so the list and the marks agree. The review still
+   * merges a track's user tags into its genre write; this only decides which
+   * tracks appear by default.
    */
   pendingWritebackTrackIds(): number[] {
     const rows = this.db
-      .prepare('SELECT track_id AS id FROM track_overrides ORDER BY track_id')
+      .prepare(
+        `SELECT track_id AS id FROM track_overrides
+         UNION
+         SELECT track_id AS id FROM artwork_overrides
+         ORDER BY id`
+      )
       .all() as Array<{ id: number }>
     return rows.map((row) => row.id)
   }
@@ -2138,6 +2152,10 @@ export class LibraryStore {
     if (fields.length === 0) return
     const retire = this.db.transaction(() => {
       for (const field of fields) {
+        if (field === 'artwork') {
+          this.removeArtworkOverride(trackId)
+          continue
+        }
         this.clearOverrideColumn(trackId, WRITEBACK_TO_OVERRIDE_COLUMN[field], now)
       }
       this.db

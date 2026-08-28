@@ -1,3 +1,4 @@
+import { artworkRef, type ArtworkRef } from '@shared/artwork'
 import type { OverrideEditState, OverrideFieldState } from '@shared/overrides'
 
 /**
@@ -24,6 +25,10 @@ export interface OverrideEditRow {
   readonly ovDiscNo: number
   readonly ovYear: number
   readonly ovGenre: number
+  /** Override-aware cover hash (W16-9); null when cleared or the album has none. */
+  readonly artworkHash: string | null
+  readonly artworkMime: string | null
+  readonly ovArtwork: number
 }
 
 /** One field folded across the batch: shared value or `mixed`, plus overridden. */
@@ -70,6 +75,19 @@ export function buildOverrideEditState(rows: readonly OverrideEditRow[]): Overri
     genre: fold(
       rows.map((r) => r.genre),
       rows.map((r) => r.ovGenre)
-    )
+    ),
+    artwork: foldArtwork(rows)
+  }
+}
+
+function foldArtwork(rows: readonly OverrideEditRow[]): OverrideFieldState<ArtworkRef> {
+  const hashes = rows.map((r) => r.artworkHash)
+  const first = hashes.length > 0 ? hashes[0] : null
+  const mixed = hashes.some((hash) => hash !== first)
+  const mime = mixed || rows.length === 0 ? null : rows[0].artworkMime
+  return {
+    value: mixed ? null : artworkRef(first ?? null, mime),
+    mixed,
+    overridden: rows.some((row) => row.ovArtwork === 1)
   }
 }

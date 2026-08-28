@@ -339,10 +339,19 @@ export class SqliteLibraryService implements LibraryService {
     // Reverting every field of every edited track re-reads each file and restores
     // it — a deliberate, bounded cost for a deliberate destructive action.
     await this.clearOverrides({ trackIds, fields: OVERRIDE_FIELDS })
+    this.store.removeArtworkOverrides(trackIds)
+    await this.gcArtworkOriginals()
   }
 
   async retireWrittenOverrides(trackId: number, fields: readonly WritebackField[]): Promise<void> {
     this.store.retireWrittenOverrides(trackId, fields, Date.now())
+    if (fields.includes('artwork')) await this.gcArtworkOriginals()
+  }
+
+  /** Releases originals no live artwork override still names (R8). */
+  private async gcArtworkOriginals(): Promise<void> {
+    if (!this.originals) return
+    await this.originals.gc(this.store.listReferencedOverrideImageHashes())
   }
 
   /**

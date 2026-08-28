@@ -6,6 +6,7 @@ import type {
   PendingWrite,
   WritebackProgress
 } from '../../../../src/shared/tagWriteback'
+import { ABSENT_ARTWORK } from '../../../../src/shared/artwork'
 import type { WriteOutcome } from '../../../../src/main/library/writeback/engine'
 import {
   TagWritebackService,
@@ -53,6 +54,7 @@ interface PendingParts {
   discNo: FieldDiff<number>
   year: FieldDiff<number>
   genres: GenreDiff
+  artwork: PendingWrite['artwork']
 }
 
 function makePending(trackId: number, parts: Partial<PendingParts> = {}): PendingWrite {
@@ -63,7 +65,12 @@ function makePending(trackId: number, parts: Partial<PendingParts> = {}): Pendin
     trackNo: parts.trackNo ?? unchanged(1),
     discNo: parts.discNo ?? unchanged(1),
     year: parts.year ?? unchanged(2020),
-    genres: parts.genres ?? genreDiff([], [], false)
+    genres: parts.genres ?? genreDiff([], [], false),
+    artwork: parts.artwork ?? {
+      current: ABSENT_ARTWORK,
+      proposed: ABSENT_ARTWORK,
+      changed: false
+    }
   }
   const hasChanges =
     p.title.changed ||
@@ -72,7 +79,8 @@ function makePending(trackId: number, parts: Partial<PendingParts> = {}): Pendin
     p.trackNo.changed ||
     p.discNo.changed ||
     p.year.changed ||
-    p.genres.changed
+    p.genres.changed ||
+    p.artwork.changed
   return { trackId, ...p, hasChanges }
 }
 
@@ -419,12 +427,54 @@ describe('writableTagsFromSelection / selectionChangesFile', () => {
   it('reports whether the selection still changes the file', () => {
     expect(selectionChangesFile(pending, new Set<WritebackField>(['year']))).toBe(true)
     expect(selectionChangesFile(pending, new Set<WritebackField>(['artist']))).toBe(false)
+    expect(selectionChangesFile(pending, new Set<WritebackField>(['artwork']))).toBe(false)
+  })
+
+  it('treats a selected artwork change as changing the file', () => {
+    const withArt = makePending(1, {
+      artwork: {
+        current: ABSENT_ARTWORK,
+        proposed: { present: true, hash: 'aa', mime: 'image/png' },
+        changed: true
+      }
+    })
+    expect(selectionChangesFile(withArt, new Set<WritebackField>(['artwork']))).toBe(true)
+    expect(selectionChangesFile(withArt, new Set<WritebackField>(['title']))).toBe(false)
   })
 })
 
 describe('TagWritebackService.apply — artwork intent at flush time', () => {
-  it('overlays a freshly resolved artwork intent rather than the selection default', async () => {
-    const pending = makePending(1, { title: changed('Old', 'New') })
+  const coverChange: PendingWrite['artwork'] = {
+    current: ABSENT_ARTWORK,
+    proposed: { present: true, hash: 'aa', mime: 'image/png' },
+    changed: true
+  }
+
+  it('leaves pictures unchanged when the artwork field is not selected', async () => {
+    const pending = makePending(1, { title: changed('Old', 'New'), artwork: coverChange })
+    const { source } = differFrom(new Map([[1, pending]]))
+    const { write, calls } = recordingWrite()
+    const bytes = Buffer.from('chosen-cover')
+    const resolveArtwork = vi.fn(async () => ({
+      kind: 'set' as const,
+      bytes,
+      mime: 'image/png'
+    }))
+    const service = new TagWritebackService({
+      differ: source,
+      resolvePath: resolveSimple,
+      write,
+      resolveArtwork
+    })
+
+    await service.apply([{ trackId: 1, fields: ['title'] }], noProgress)
+
+    expect(resolveArtwork).not.toHaveBeenCalled()
+    expect(calls[0].desired.artwork).toEqual({ kind: 'unchanged' })
+  })
+
+  it('overlays a freshly resolved artwork intent when the field is selected', async () => {
+    const pending = makePending(1, { title: changed('Old', 'New'), artwork: coverChange })
     const { source } = differFrom(new Map([[1, pending]]))
     const { write, calls } = recordingWrite()
     const bytes = Buffer.from('chosen-cover')
@@ -435,15 +485,15 @@ describe('TagWritebackService.apply — artwork intent at flush time', () => {
       resolveArtwork: async () => ({ kind: 'set', bytes, mime: 'image/png' })
     })
 
-    await service.apply([{ trackId: 1, fields: ['title'] }], noProgress)
+    await service.apply([{ trackId: 1, fields: ['title', 'artwork'] }], noProgress)
 
     expect(calls).toHaveLength(1)
     expect(calls[0].desired.title).toBe('New')
     expect(calls[0].desired.artwork).toEqual({ kind: 'set', bytes, mime: 'image/png' })
   })
 
-  it('still writes when only the artwork intent changes', async () => {
-    const pending = makePending(1) // no text field changed
+  it('still writes when only the artwork field is selected', async () => {
+    const pending = makePending(1, { artwork: coverChange })
     const { source } = differFrom(new Map([[1, pending]]))
     const { write, calls } = recordingWrite()
     const service = new TagWritebackService({
@@ -453,7 +503,7 @@ describe('TagWritebackService.apply — artwork intent at flush time', () => {
       resolveArtwork: async () => ({ kind: 'clear' })
     })
 
-    const report = await service.apply([{ trackId: 1, fields: ['title'] }], noProgress)
+    const report = await service.apply([{ trackId: 1, fields: ['artwork'] }], noProgress)
 
     expect(report).toMatchObject({ written: 1, skipped: 0, failed: 0 })
     expect(calls).toHaveLength(1)
@@ -461,7 +511,7 @@ describe('TagWritebackService.apply — artwork intent at flush time', () => {
   })
 
   it('maps a missing original to a failed outcome without writing', async () => {
-    const pending = makePending(1, { title: changed('a', 'b') })
+    const pending = makePending(1, { artwork: coverChange })
     const { source } = differFrom(new Map([[1, pending]]))
     const { write, calls } = recordingWrite()
     const service = new TagWritebackService({
@@ -474,7 +524,7 @@ describe('TagWritebackService.apply — artwork intent at flush time', () => {
     })
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const report = await service.apply([{ trackId: 1, fields: ['title'] }], noProgress)
+    const report = await service.apply([{ trackId: 1, fields: ['artwork'] }], noProgress)
     warn.mockRestore()
 
     expect(report).toMatchObject({ written: 0, skipped: 0, failed: 1 })

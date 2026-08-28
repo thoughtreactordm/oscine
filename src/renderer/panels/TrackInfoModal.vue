@@ -22,6 +22,12 @@ import { useTrackInfoStore } from '@renderer/stores/trackInfo'
  * of it. The only thing new here is the identity block, which the deck has no
  * room for and a details dialog is exactly the place for.
  *
+ * The cover sits in its own left-hand sleeve, large enough to look at, with
+ * the transport's blurred bleed on the upper left when art is present — the
+ * same treatment the metadata editor wears, so the two dialogs read as a pair.
+ * The chrome header is overlaid and unpainted so that wash can sit behind the
+ * close control rather than stopping at a solid band.
+ *
  * Mounted once by the frame; opened by the shared track menu on any surface. See
  * `stores/trackInfo` for why it is state and not a component the list owns.
  */
@@ -136,59 +142,103 @@ const subtitle = computed(() => {
     :open="open"
     title="Track info"
     :description="store.track?.title ?? ''"
-    :ui="{ description: 'sr-only', title: 'sr-only', body: 'sm:p-0' }"
+    :ui="{
+      description: 'sr-only',
+      title: 'sr-only',
+      content: 'sm:max-w-3xl overflow-hidden divide-y-0',
+      header: 'absolute inset-x-0 top-0 z-10 bg-transparent pointer-events-none',
+      close: 'pointer-events-auto',
+      body: 'sm:p-0'
+    }"
     @update:open="(value: boolean) => !value && store.close()"
   >
     <template #body>
-      <div v-if="store.track !== null" class="flex flex-col">
+      <div v-if="store.track !== null" class="relative isolate overflow-hidden">
         <!--
-          The head reads like a card: artwork, then the title and the one line a
-          person recognises the track by. The body's own padding is off (`sm:p-0`
-          above) so this can bleed to the modal edges and the sections below keep
-          their own gutter.
+          The transport's cover bleed, cropped to the upper left so the readout
+          does not have to fight it. Token blur and bleed, no drift: a details
+          dialog is something you read, not something that should be moving.
         -->
-        <header class="flex items-center gap-4 border-b border-default p-4">
-          <div
-            class="size-16 shrink-0 overflow-hidden rounded-md border border-default bg-elevated/60"
-          >
-            <img
-              v-if="artwork !== null"
-              :src="artwork"
-              alt=""
-              aria-hidden="true"
-              class="size-full object-cover"
-            />
-            <div v-else class="flex size-full items-center justify-center">
-              <UIcon name="i-tabler-vinyl" class="size-7 text-dimmed/40" aria-hidden="true" />
-            </div>
-          </div>
-          <div class="min-w-0 flex-1">
-            <h2 class="truncate text-base font-semibold text-highlighted">
-              {{ store.track.title }}
-            </h2>
-            <p v-if="subtitle" class="truncate text-sm text-muted">{{ subtitle }}</p>
-          </div>
-        </header>
+        <div v-if="artwork !== null" class="cover-bleed" aria-hidden="true">
+          <div class="cover-bleed-art" :style="{ backgroundImage: `url('${artwork}')` }" />
+        </div>
 
-        <div class="flex flex-col gap-4 p-4">
-          <section v-for="group in sections" :key="group.key" class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-semibold uppercase tracking-wide text-dimmed">
-              {{ group.title }}
-            </h3>
-            <dl class="m-0 flex flex-col gap-1">
-              <div v-for="row in group.rows" :key="row.key" class="flex items-baseline gap-2">
-                <dt class="shrink-0 text-xs text-dimmed">{{ row.label }}</dt>
-                <dd
-                  class="m-0 ml-auto flex min-w-0 items-baseline gap-1.5 text-right text-xs tabular-nums text-default"
-                >
-                  <span class="truncate">{{ row.value }}</span>
-                  <span v-if="row.note" class="shrink-0 text-dimmed">{{ row.note }}</span>
-                </dd>
+        <div class="flex min-h-0">
+          <aside class="flex w-64 shrink-0 flex-col p-4">
+            <div
+              class="aspect-square w-full overflow-hidden rounded-md border border-default bg-elevated/60"
+            >
+              <img
+                v-if="artwork !== null"
+                :src="artwork"
+                alt=""
+                aria-hidden="true"
+                class="size-full object-cover"
+                draggable="false"
+              />
+              <div v-else class="flex size-full items-center justify-center">
+                <UIcon name="i-tabler-vinyl" class="size-12 text-dimmed/40" aria-hidden="true" />
               </div>
-            </dl>
-          </section>
+            </div>
+          </aside>
+
+          <div class="flex min-w-0 flex-1 flex-col gap-4 p-4 pl-2 pr-12">
+            <header class="min-w-0">
+              <h2 class="truncate text-base font-semibold text-highlighted">
+                {{ store.track.title }}
+              </h2>
+              <p v-if="subtitle" class="truncate text-sm text-muted">{{ subtitle }}</p>
+            </header>
+
+            <section v-for="group in sections" :key="group.key" class="flex flex-col gap-1.5">
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-dimmed">
+                {{ group.title }}
+              </h3>
+              <dl class="m-0 flex flex-col gap-1">
+                <div v-for="row in group.rows" :key="row.key" class="flex items-baseline gap-2">
+                  <dt class="shrink-0 text-xs text-dimmed">{{ row.label }}</dt>
+                  <dd
+                    class="m-0 ml-auto flex min-w-0 items-baseline gap-1.5 text-right text-xs tabular-nums text-default"
+                  >
+                    <span class="truncate">{{ row.value }}</span>
+                    <span v-if="row.note" class="shrink-0 text-dimmed">{{ row.note }}</span>
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          </div>
         </div>
       </div>
     </template>
   </UModal>
 </template>
+
+<style scoped>
+/*
+ * Same treatment as the transport bar (`NowPlaying.vue`) and the metadata
+ * editor: the theme's blur and bleed, overscaled so the blur does not show a
+ * hard edge. Masked to the upper left so it is atmosphere around the sleeve,
+ * not a wash over the readout.
+ */
+.cover-bleed {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: calc(var(--oscine-cover-bleed) * 0.65);
+  mask-image: radial-gradient(77% 70% at 0% 0%, black 0%, black 22%, transparent 52%);
+}
+
+.cover-bleed-art {
+  position: absolute;
+  top: -21%;
+  left: -20%;
+  width: 63%;
+  height: 77%;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  filter: blur(var(--oscine-cover-blur)) saturate(3.6);
+  transform: scale(1.45);
+}
+</style>

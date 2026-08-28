@@ -165,6 +165,11 @@ describe('writableTagsFromPending — the diff→engine bridge', () => {
         proposed: [AMBIENT, ELECTRONIC],
         changed: true
       },
+      artwork: {
+        current: { present: false, hash: null, mime: null },
+        proposed: { present: false, hash: null, mime: null },
+        changed: false
+      },
       hasChanges: true
     }
     expect(writableTagsFromPending(pending)).toEqual({

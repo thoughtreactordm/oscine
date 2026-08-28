@@ -1,7 +1,7 @@
 ---
 taskId: 01M14ABNB9PG2QS6934W1MHZ9E
 title: Engine picture write + byte-level verify
-status: in-progress
+status: in-review
 priority: low
 labels:
   - phase-3
@@ -13,9 +13,9 @@ dependsOn:
   - 01M12VFDD0R4ZKBG1JKTT96BGK
   - 01M12VFNNDVX875TM1VFTMTPQG
   - 01M14AAX89PCX250PBPVDN7QGK
-order: 1
+order: 2
 created: '2026-08-28T13:53:42.760Z'
-updated: '2026-08-28T15:03:41.049Z'
+updated: '2026-08-28T15:29:42.580Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Embedded artwork & custom frames → Engine" + Decision B (replace front, preserve rest). Extends the W16-2 engine and the W16-4 verify/rollback chain.
 
