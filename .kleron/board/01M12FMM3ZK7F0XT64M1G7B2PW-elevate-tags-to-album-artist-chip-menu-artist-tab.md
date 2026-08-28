@@ -3,7 +3,7 @@ taskId: 01M12FMM3ZK7F0XT64M1G7B2PW
 title: >-
   Elevate tags to album/artist: chip menu + Artist-tab Tags pane
   (union+coverage)
-status: in-review
+status: done
 priority: low
 labels: []
 workstream: W15
@@ -13,9 +13,9 @@ workstreamDependsOn:
 dependsOn:
   - 01M126ZRER5HXPM5TY9EYKKMJS
   - 01M126ZBGXQZ8QTJ9W6E5N2CBS
-order: 4
+order: 6
 created: '2026-08-27T20:47:30.431Z'
-updated: '2026-08-27T21:01:38.150Z'
+updated: '2026-08-28T00:56:42.135Z'
 ---
 Raise a tag's altitude: from the one track it was applied to, up to the containing album or the whole artist — and give the Artist tab its own view of what the operator has tagged across a catalog. Two sizes of one feature; built together.
 
