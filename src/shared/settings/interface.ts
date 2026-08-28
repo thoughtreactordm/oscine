@@ -101,6 +101,7 @@ export const COMMAND_PALETTE_AFFORDANCE_KEY = 'interface.commandPaletteAffordanc
 export const TAB_NAV_BAR_KEY = 'interface.tabNavBar'
 export const COLOR_MODE_TOGGLE_KEY = 'interface.colorModeToggle'
 export const ZEN_MODE_TOGGLE_BUTTON_KEY = 'interface.zenModeToggleButton'
+export const ONBOARDING_COMPLETED_KEY = 'interface.onboardingCompleted'
 
 export type ColorModeToggle = 'none' | 'switch' | 'button'
 
@@ -474,5 +475,26 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'Show a button in the title bar that enters Zen mode — a minimal, fullscreen Now Playing view for TVs and secondary displays. Zen mode is also on the View menu and Ctrl/Cmd+Shift+Z.',
     keywords: ['zen', 'kiosk', 'fullscreen', 'minimal', 'tv', 'toggle', 'title bar', 'chrome'],
     order: 129
+  }),
+
+  /**
+   * D-ONB-7's done-key. Default `false` is the fresh-install answer; main's
+   * startup backfill writes `true` on an existing profile so an upgrade never
+   * drops the operator into the wizard. `internal` keeps it off the settings
+   * rail, the changed-from-default filter and the palette's generated commands;
+   * `portable: false` so importing a profile cannot suppress the wizard on a
+   * machine that has not run it, and completing it here cannot un-onboard a
+   * machine the profile is later imported into.
+   */
+  defineSetting<boolean>({
+    key: ONBOARDING_COMPLETED_KEY,
+    scope: 'durable',
+    portable: false,
+    default: false,
+    validate: booleanValue(),
+    category: 'interface',
+    label: 'First-run setup completed',
+    help: 'Set once the first-run wizard has been finished or dismissed. Not shown in Settings.',
+    internal: true
   })
 ]

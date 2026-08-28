@@ -49,7 +49,7 @@ import { createScrobbleStatusService, type ScrobbleStatusService } from './scrob
 import { createLastfmTarget } from './scrobble/lastfm/target'
 import { createLastfmTransport } from './scrobble/lastfm/transport'
 import { resolveLastfmAppKey } from './scrobble/lastfm/appKey'
-import { SqliteSettingsService } from './settings'
+import { backfillOnboardingCompleted, SqliteSettingsService } from './settings'
 import { createArtistBiographyService, createArtistImageService } from './wikipedia'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
@@ -418,6 +418,11 @@ if (!app.requestSingleInstanceLock()) {
     for (const notice of settings.loadNotices()) {
       console.warn(`[settings] ${notice.key}: ${notice.reason}`)
     }
+
+    // D-ONB-7: an existing install must not be dropped into the wizard. Runs
+    // while the key is still unset, and only writes `true` — a fresh directory
+    // is left at the default `false`. See `settings/onboarding.ts`.
+    backfillOnboardingCompleted(db, settings)
 
     // Built from `settings` rather than given a copy of the consent flag: the
     // gate reads it live, so switching it off stops fetching without a restart
