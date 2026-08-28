@@ -129,8 +129,9 @@ describe('a successful request', () => {
     const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
     const headers = init.headers as Record<string, string>
     // MusicBrainz requires an identifying agent; a version-less or absent one
-    // is what gets a client blocked.
-    expect(headers['user-agent']).toMatch(/^Oscine\/\d+\.\d+\.\d+ /)
+    // is what gets a client blocked. A semver prerelease suffix (e.g. -rc.1)
+    // is allowed — it is still a real, parseable version.
+    expect(headers['user-agent']).toMatch(/^Oscine\/\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)? /)
     expect(headers.accept).toBe('application/json')
   })
 
