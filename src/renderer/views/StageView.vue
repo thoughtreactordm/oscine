@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useZenStore } from '@renderer/stores/zen'
+import QuickMenu from '@renderer/panels/QuickMenu.vue'
+import NowPlayingActions from '@renderer/panels/transport/NowPlayingActions.vue'
+import PlaybackModeButtons from '@renderer/panels/transport/PlaybackModeButtons.vue'
+import SeekBar from '@renderer/panels/transport/SeekBar.vue'
+import TransportButtons from '@renderer/panels/transport/TransportButtons.vue'
+import VolumeControl from '@renderer/panels/transport/VolumeControl.vue'
 import WaveformRibbon from '@renderer/panels/WaveformRibbon.vue'
 
 /**
@@ -10,10 +17,16 @@ import WaveformRibbon from '@renderer/panels/WaveformRibbon.vue'
  * — nothing to browse, nothing to choose, just what is playing — so it declares
  * `sidebar: false` in the route table and gets the full width.
  *
- * Transport stays where it always is, in the bar below. A second set of
- * controls here would be a second source of truth for the same three buttons.
+ * Transport normally stays where it always is, in the bar below — a second set of
+ * controls here would be a second source of truth for the same three buttons. In
+ * Zen mode there is no bar below: the frame has dropped it along with the title
+ * bar and the tab row, so the stage carries the transport itself. It does so with
+ * the *same* `panels/transport/*` components the bar composes, which is what
+ * makes this a relocation rather than a second copy — the objection this comment
+ * used to record no longer applies once the controls are shared.
  */
 const playback = usePlaybackStore()
+const zen = useZenStore()
 
 const cover = computed(() => playback.nowPlaying?.artwork.large ?? null)
 
@@ -34,6 +47,7 @@ const byline = computed(() => {
 <template>
   <section
     class="relative flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden bg-default"
+    :class="{ 'stage-zen': zen.active }"
     aria-label="Now playing"
   >
     <!--
@@ -53,7 +67,28 @@ const byline = computed(() => {
       />
     </Transition>
 
-    <div class="relative flex min-h-0 flex-col items-center gap-6 p-8">
+    <!--
+      Exit affordance — the one always-reachable way out when Zen has hidden the
+      title bar, the tab row and the transport. Fades in on approach so it does
+      not sit over the art the mode exists to show; the palette, Ctrl/Cmd+Shift+Z
+      and Esc are the others.
+    -->
+    <div v-if="zen.active" class="stage-exit">
+      <UTooltip text="Exit Zen mode">
+        <UButton
+          icon="i-tabler-minimize"
+          color="neutral"
+          variant="ghost"
+          aria-label="Exit Zen mode"
+          @click="zen.exit()"
+        />
+      </UTooltip>
+    </div>
+
+    <div
+      class="relative flex min-h-0 flex-col items-center gap-6 p-8"
+      :class="{ 'pb-28': zen.active }"
+    >
       <!--
         Sized by height here, not width: the stage is as wide as the window and
         the constraint that actually bites is the one between the tab row and
@@ -95,10 +130,91 @@ const byline = computed(() => {
       the component's lifetime, and leaving the tab is what stops it.
     -->
     <WaveformRibbon />
+
+    <!--
+      The Zen transport. The bar the frame dropped, rebuilt from the same shared
+      controls and laid out for a screen watched from across a room: the seek line
+      spans the foot, the verbs sit centred over it, and the song actions and the
+      standing modes flank them. Absolutely positioned so the record above stays
+      centred in the window whether or not this is here.
+    -->
+    <div v-if="zen.active" class="stage-transport" aria-label="Now playing controls">
+      <SeekBar />
+      <div class="flex items-center justify-between gap-6 px-8 py-4">
+        <NowPlayingActions class="min-w-0 flex-1" />
+        <TransportButtons class="shrink-0" />
+        <div class="flex min-w-0 flex-1 items-center justify-end gap-3">
+          <VolumeControl />
+          <PlaybackModeButtons />
+        </div>
+      </div>
+    </div>
+
+    <!-- The Quick Menu, scoped to Now Playing (D26). In Zen the stage owns it, since the bar that normally carries it is not mounted. -->
+    <QuickMenu v-if="zen.active" />
   </section>
 </template>
 
 <style scoped>
+/*
+ * Zen dials the waveform ribbon up. In its normal home the ribbon is faint
+ * atmosphere rising from behind a footer in a row of its own; here the footer is
+ * the floating transport over the foot of this stage, and left as-is the ribbon's
+ * bright baseline sits directly under the transport's scrim and washes out. So it
+ * is lifted clear of the transport — the centre line onto the bar's top edge, the
+ * way the normal view reads — and brightened, with the blur eased back, for a
+ * screen watched from across a room. The three custom properties are the
+ * ribbon's own overrides; it stays ignorant of Zen. The lift tracks the
+ * transport's own height, so a taller bar keeps the ribbon sitting on top of it.
+ */
+.stage-zen {
+  --waveform-ribbon-lift: 6.5rem;
+  --waveform-ribbon-opacity: 0.5;
+  --waveform-ribbon-blur: 14px;
+}
+
+/*
+ * The Zen transport, pinned to the foot of the window. A scrim behind it lifts
+ * the controls off whatever artwork is behind, top-feathered so it reads as the
+ * bar dissolving into the stage rather than a hard edge across it.
+ */
+.stage-transport {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 10;
+  background: linear-gradient(
+    to top,
+    color-mix(in oklab, var(--ui-bg) 88%, transparent),
+    transparent
+  );
+}
+
+/*
+ * The exit control only shows on approach — a chromeless mode with a button
+ * always burning in the corner is not chromeless. Revealed by hovering the stage
+ * or focusing the button, so the keyboard can reach it too.
+ */
+.stage-exit {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 20;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+section:hover .stage-exit,
+.stage-exit:focus-within {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-exit {
+    transition-duration: 0ms;
+  }
+}
+
 .stage-art-enter-active,
 .stage-art-leave-active,
 .stage-wash-enter-active,

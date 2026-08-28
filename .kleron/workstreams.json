@@ -160,7 +160,7 @@
       "description": "The cross-cutting refinement pass that turns the milestone build into a 1.0: podcast QoL, navigation and Now Playing lifecycle, two power-user Interface toggles, the first (fixed) keyboard-shortcut set, title-menu View/Help with About and Open-Source modals, and editorial/tooltip/context-menu consistency sweeps. Specified in the wiki page `1-0-polish-and-qol`, which records the settled 2026-08-25 design decisions each card references (P1–P4, G1–G10, B1).\n\nOwns no new schema or process boundary — it reaches across W4 (UI shell, tab nav, Now Playing bar, context menus), W8 (Interface settings for the auto-show and visibility toggles), W9 (podcast show page and subscription rail), W10 (the Listening->Stats rename and its scroll bug), and W13 (the Command Palette affordance the toggle governs, and the shortcut seam D27 sketched). Depends on those streams for reuse and surface, not for permission.\n\nDeliberately does NOT build a rebindable keyboard-shortcut subsystem (G6 ships a fixed set; remapping is post-1.0 and still belongs to W8), and does NOT extend the context-menu pass to podcast episodes or rail items (G8 scope is track rows and album/artist cards only).",
       "color": "yellow",
       "order": 13,
-      "cardCounter": 15,
+      "cardCounter": 16,
       "dependsOn": [
         "W4",
         "W8",

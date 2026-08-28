@@ -99,6 +99,7 @@ export const NOW_PLAYING_IDLE_AUTOSHOW_KEY = 'interface.nowPlayingIdleAutoShow'
 export const COMMAND_PALETTE_AFFORDANCE_KEY = 'interface.commandPaletteAffordance'
 export const TAB_NAV_BAR_KEY = 'interface.tabNavBar'
 export const COLOR_MODE_TOGGLE_KEY = 'interface.colorModeToggle'
+export const ZEN_MODE_TOGGLE_BUTTON_KEY = 'interface.zenModeToggleButton'
 
 export type ColorModeToggle = 'none' | 'switch' | 'button'
 
@@ -430,5 +431,26 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'Show a light/dark mode control in the title bar. Switch shows a sliding toggle, Button shows a single icon button, Hidden removes it.',
     keywords: ['color mode', 'dark mode', 'light mode', 'theme', 'toggle', 'title bar', 'chrome'],
     order: 127
+  }),
+
+  /**
+   * The title-bar affordance for Zen mode, an opt-in the same way the color-mode
+   * toggle beside it is. Off by default — Zen is still reachable from the View
+   * menu, the Command Palette and Ctrl/Cmd+Shift+Z whether or not the button is
+   * shown; this only governs the chrome. The mode's *active* state is transient
+   * and lives in the renderer (`stores/zen.ts`), not here: Zen is a thing you
+   * switch on for a session, not a preference that survives a restart.
+   */
+  defineSetting<boolean>({
+    key: ZEN_MODE_TOGGLE_BUTTON_KEY,
+    scope: 'durable',
+    default: false,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'interface',
+    label: 'Zen mode button in the title bar',
+    help: 'Show a button in the title bar that enters Zen mode — a minimal, fullscreen Now Playing view for TVs and secondary displays. Zen mode is also on the View menu and Ctrl/Cmd+Shift+Z.',
+    keywords: ['zen', 'kiosk', 'fullscreen', 'minimal', 'tv', 'toggle', 'title bar', 'chrome'],
+    order: 129
   })
 ]

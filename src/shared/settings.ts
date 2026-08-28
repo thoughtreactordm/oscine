@@ -49,7 +49,8 @@ export {
   RESTORE_SESSION_KEY,
   TAB_NAV_BAR_KEY,
   TRACK_ACTIVATION_KEY,
-  TRACK_DENSITY_KEY
+  TRACK_DENSITY_KEY,
+  ZEN_MODE_TOGGLE_BUTTON_KEY
 } from './settings/interface'
 export type {
   AlbumArtSize,

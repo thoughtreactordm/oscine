@@ -109,8 +109,12 @@ const api = {
     toggleMaximize: () => request('window.toggleMaximize', null),
     isMaximized: () => request('window.isMaximized', null),
     close: () => request('window.close', null),
+    setFullScreen: (on: boolean) => request('window.setFullScreen', { on }),
+    isFullScreen: () => request('window.isFullScreen', null),
     onMaximizedChange: (listener: (maximized: boolean) => void) =>
-      subscribe('window.maximizedChange', listener)
+      subscribe('window.maximizedChange', listener),
+    onFullScreenChange: (listener: (fullscreen: boolean) => void) =>
+      subscribe('window.fullScreenChange', listener)
   },
   appInfo: {
     /** The running application version, for the About dialog. */

@@ -26,6 +26,7 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { usePodcastsStore } from '@renderer/stores/podcasts'
 import { useSettingsNavStore } from '@renderer/stores/settingsNav'
+import { useZenStore } from '@renderer/stores/zen'
 
 /**
  * The command palette — D21's one prefixed modal, and RQ1's spike.
@@ -54,6 +55,7 @@ const playlists = usePlaylistsStore()
 const podcasts = usePodcastsStore()
 const settings = useSettings()
 const settingsNav = useSettingsNavStore()
+const zen = useZenStore()
 const toast = useToast()
 
 const search = createPaletteSearch({ query: searchIpc.query })
@@ -118,6 +120,7 @@ const actionCommands = buildActionCommands({
   toggleShuffle: () => playback.toggleShuffle(),
   cycleRepeat: () => playback.cycleRepeat(),
   clearQueue: () => playback.clearQueue(),
+  toggleZen: () => zen.toggle(),
   notify,
   close
 })

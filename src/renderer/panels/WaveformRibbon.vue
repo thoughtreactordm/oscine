@@ -327,14 +327,24 @@ onBeforeUnmount(() => {
   --ribbon-height: 14rem;
 
   height: var(--ribbon-height);
-  bottom: calc(var(--ribbon-height) / -2);
+  /*
+    The centre line pins to the container's bottom edge — the footer's top edge —
+    at the default lift of zero. Zen has no footer in a row of its own: the
+    transport floats over the foot of this same stage, so a caller can lift the
+    ribbon clear of it and keep the "rises out from behind the bar" read the
+    normal view has, without this island learning that Zen exists. Kept in the
+    same `calc` as the height so the centre line stays pinned when either moves.
+  */
+  bottom: calc(var(--ribbon-height) / -2 + var(--waveform-ribbon-lift, 0px));
 
   /*
     The blur and the opacity are the whole brief. They are also what buys the
     cheap render loop above: past this filter, a bin boundary is not a thing the
-    eye can find.
+    eye can find. Both are overridable so a surface watched from across a room —
+    Zen on a TV — can dial the ribbon up to read as more than atmosphere, the one
+    place the default's restraint is the wrong call.
   */
-  opacity: 0.4;
-  filter: blur(24px);
+  opacity: var(--waveform-ribbon-opacity, 0.4);
+  filter: blur(var(--waveform-ribbon-blur, 24px));
 }
 </style>
