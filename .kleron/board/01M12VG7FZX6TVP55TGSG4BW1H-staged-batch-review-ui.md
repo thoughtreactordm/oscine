@@ -1,7 +1,7 @@
 ---
 taskId: 01M12VG7FZX6TVP55TGSG4BW1H
 title: Staged batch review UI
-status: in-progress
+status: in-review
 priority: medium
 labels:
   - phase-2
@@ -12,9 +12,9 @@ workstreamId: W16-6
 dependsOn:
   - 01M12VEX19HRHTZDD2BQWT1Q0C
   - 01M12VFDD0R4ZKBG1JKTT96BGK
-order: 0
+order: 5
 created: '2026-08-28T00:14:49.343Z'
-updated: '2026-08-28T01:58:45.715Z'
+updated: '2026-08-28T13:01:31.143Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Staged review UI". The operator-facing gate that makes D28 "explicit and staged".
 
