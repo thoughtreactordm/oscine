@@ -17,6 +17,8 @@ export interface WritebackCorpusManifest {
   readonly version: number
   readonly libraryDir: string
   readonly cover: { readonly bytes: Uint8Array; readonly mimeType: string }
+  readonly backCover: { readonly bytes: Uint8Array; readonly mimeType: string }
+  readonly writtenCover: { readonly bytes: Uint8Array; readonly mimeType: string }
   readonly tracks: readonly WritebackCorpusTrack[]
 }
 

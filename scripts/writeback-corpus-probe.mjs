@@ -20,7 +20,8 @@ import {
  * mixed-format corpus in a throwaway directory, runs write → read → verify over
  * every v1 codec, and writes a markdown report. It exits non-zero on any failed
  * check, in the M1/M2 gate spirit — a red run is a triage card, never a quiet fix
- * folded into the flush path. Needs ffmpeg on PATH.
+ * folded into the flush path. Needs ffmpeg on PATH. W16-13 extends the same gate
+ * with multi-picture and custom-frame write-path checks.
  *
  * The fixture is built in a fresh temp directory and removed on exit (unless
  * `--keep`), so the gate never touches the operator's library and leaves nothing
@@ -60,7 +61,7 @@ function ffmpegVersion() {
 function markdownReport(report, env) {
   const failed = report.checks.filter((item) => !item.passed)
   const lines = []
-  lines.push('# Tag write-back corpus — round-trip gate (W16-2)')
+  lines.push('# Tag write-back corpus — round-trip gate (W16-3 / W16-13)')
   lines.push('')
   lines.push(`- Result: **${failed.length === 0 ? 'PASS' : 'FAIL'}**`)
   lines.push(`- Checks: ${report.checks.length - failed.length}/${report.checks.length} passed`)
@@ -98,9 +99,13 @@ function markdownReport(report, env) {
       '(W16-3) must serialise genres the same way.'
   )
   lines.push(
-    '- Artwork and an arbitrary custom frame are seeded, then a scalar-only write ' +
-      'must leave both byte-for-byte intact; decoded PCM is hashed before and after ' +
-      'to prove the audio stream was never rewritten.'
+    '- Artwork and custom frames (text, binary, and multi-instance) are seeded, ' +
+      'then a scalar-only write must leave them byte-for-byte intact. A subsequent ' +
+      'front-cover set/clear (Decision B) must write the new cover, preserve the ' +
+      'back cover on codecs whose containers distinguish picture types, and still ' +
+      'leave custom frames untouched. Decoded PCM is hashed before and after to ' +
+      'prove the audio stream was never rewritten. Apple `covr` has no picture-type ' +
+      'field, so back-cover checks skip AAC.'
   )
   lines.push('')
   return lines.join('\n')
