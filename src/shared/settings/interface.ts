@@ -98,6 +98,9 @@ export const NOW_PLAYING_WAVEFORM_KEY = 'interface.nowPlayingWaveform'
 export const NOW_PLAYING_IDLE_AUTOSHOW_KEY = 'interface.nowPlayingIdleAutoShow'
 export const COMMAND_PALETTE_AFFORDANCE_KEY = 'interface.commandPaletteAffordance'
 export const TAB_NAV_BAR_KEY = 'interface.tabNavBar'
+export const COLOR_MODE_TOGGLE_KEY = 'interface.colorModeToggle'
+
+export type ColorModeToggle = 'none' | 'switch' | 'button'
 
 export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
   /*
@@ -407,5 +410,25 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'The row of view tabs under the title bar. Off leaves navigation to keyboard shortcuts, the Command Palette, and the title bar’s View menu.',
     keywords: ['tab bar', 'navigation', 'tabs', 'views', 'nav', 'chrome'],
     order: 125
+  }),
+
+  defineSetting<ColorModeToggle>({
+    key: COLOR_MODE_TOGGLE_KEY,
+    scope: 'durable',
+    default: 'none',
+    validate: enumValue<ColorModeToggle>(['none', 'switch', 'button']),
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'none', label: 'Hidden' },
+        { value: 'switch', label: 'Switch' },
+        { value: 'button', label: 'Button' }
+      ]
+    },
+    category: 'interface',
+    label: 'Color mode toggle in the title bar',
+    help: 'Show a light/dark mode control in the title bar. Switch shows a sliding toggle, Button shows a single icon button, Hidden removes it.',
+    keywords: ['color mode', 'dark mode', 'light mode', 'theme', 'toggle', 'title bar', 'chrome'],
+    order: 127
   })
 ]
