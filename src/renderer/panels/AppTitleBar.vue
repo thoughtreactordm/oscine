@@ -13,7 +13,8 @@ import { useShellStore } from '@renderer/stores/shell'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
 import { OPEN_SOURCE_CREDITS } from '@renderer/panels/openSourceCredits'
 import { useSettings } from '@renderer/settings'
-import { COMMAND_PALETTE_AFFORDANCE_KEY } from '@shared/settings'
+import { COLOR_MODE_TOGGLE_KEY, COMMAND_PALETTE_AFFORDANCE_KEY } from '@shared/settings'
+import type { ColorModeToggle } from '@shared/settings'
 
 /**
  * The menu reaches the stores directly rather than emitting to a parent. The
@@ -35,6 +36,7 @@ const maximized = ref(false)
  * up — the chrome keeps its shape, it just loses the search box.
  */
 const paletteAffordance = computed(() => settings.get<boolean>(COMMAND_PALETTE_AFFORDANCE_KEY))
+const colorModeToggle = computed(() => settings.get<ColorModeToggle>(COLOR_MODE_TOGGLE_KEY))
 
 /**
  * The About dialog and the Open Source dialog, opened from the Help menu and
@@ -429,7 +431,8 @@ async function toggleMaximize(): Promise<void> {
     </div>
 
     <div class="app-no-drag flex h-full shrink-0 items-center" aria-label="Window controls">
-      <UColorModeSwitch />
+      <UColorModeSwitch v-if="colorModeToggle === 'switch'" />
+      <UColorModeButton v-else-if="colorModeToggle === 'button'" color="neutral" variant="ghost" />
       <UButton
         icon="i-tabler-minus"
         color="neutral"

@@ -35,6 +35,7 @@ export * from './settings/scope'
 export * from './settings/cascade'
 export * from './settings/profile'
 export {
+  COLOR_MODE_TOGGLE_KEY,
   COMMAND_PALETTE_AFFORDANCE_KEY,
   CONFIRM_ENTRY_REMOVAL_KEY,
   CONFIRM_PLAYLIST_DELETE_KEY,
@@ -52,6 +53,7 @@ export {
 } from './settings/interface'
 export type {
   AlbumArtSize,
+  ColorModeToggle,
   DateFormat,
   DurationFormat,
   FacetActivation,
