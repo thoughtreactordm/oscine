@@ -30,6 +30,8 @@ import {
   assertOverrideEditStateRequest,
   assertSetOverridesRequest,
   assertClearOverridesRequest,
+  assertArtworkTargetRequest,
+  assertArtworkFromBytesRequest,
   assertCancelNetScopeRequest,
   assertScrobbleTargetRequest,
   assertClearArtistMbidRequest,
@@ -305,6 +307,28 @@ export function registerIpcHandlers(
 
   handle('tagWriteback.cancelApply', () => {
     tagWriteback.cancel()
+    return null
+  })
+
+  handle('artwork.setFromDialog', (request) => {
+    const { trackIds } = assertArtworkTargetRequest(request)
+    return library.setArtworkFromDialog(trackIds)
+  })
+
+  handle('artwork.setFromBytes', (request) => {
+    const { trackIds, bytes, mime } = assertArtworkFromBytesRequest(request)
+    return library.setArtworkFromBytes(trackIds, bytes, mime)
+  })
+
+  handle('artwork.clear', async (request) => {
+    const { trackIds } = assertArtworkTargetRequest(request)
+    await library.clearArtwork(trackIds)
+    return null
+  })
+
+  handle('artwork.revert', async (request) => {
+    const { trackIds } = assertArtworkTargetRequest(request)
+    await library.revertArtwork(trackIds)
     return null
   })
 

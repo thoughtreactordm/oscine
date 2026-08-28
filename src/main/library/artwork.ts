@@ -6,6 +6,8 @@ import { WorkerArtworkImageProcessor, type ArtworkImageProcessor } from './artwo
 import { artworkHash, createDerivedArtworkStore, type StoredArtwork } from './derivedArtwork'
 import type { ArtworkOriginalsStore } from './artworkOriginals'
 import type { ArtworkAlbum, ArtworkOverrideTarget, LibraryStore } from './store'
+import { OscineError } from '@shared/errors'
+import { MAX_ARTWORK_INGEST_BYTES, sniffImageMime, type ArtworkRef } from '@shared/artwork'
 
 const RECONCILE_CONCURRENCY = 2
 const CACHE_FILE = /^([a-f0-9]{64})-(small|large)\.webp$/
@@ -163,6 +165,77 @@ export class ArtworkCacheService {
 
   async close(): Promise<void> {
     await this.processor.close()
+  }
+
+  /**
+   * Ingests operator-supplied cover bytes as a `set` override — **W16-10**,
+   * design authority Decision A/B/C.
+   *
+   * The one door image bytes take into the correction layer, shared by the
+   * file-dialog and drag/drop/paste paths. It refuses an oversize, non-JPEG/PNG
+   * or undecodable file before storing anything, keeps the full-resolution
+   * original the flush will one day write back, derives the display thumbnail so
+   * the cover shows everywhere before any flush, and fans the `set` row out
+   * across every track (Decision C — storage stays per-track). The returned
+   * {@link ArtworkRef} carries no bytes; the renderer addresses the thumbnail by
+   * its `hash`.
+   */
+  async setCover(trackIds: readonly number[], bytes: Uint8Array): Promise<ArtworkRef> {
+    if (!this.originals) {
+      throw new OscineError('internal', 'Artwork overrides are unavailable on this library.')
+    }
+    if (bytes.byteLength === 0) {
+      throw new OscineError('invalid-request', 'That image file is empty.')
+    }
+    if (bytes.byteLength > MAX_ARTWORK_INGEST_BYTES) {
+      throw new OscineError(
+        'invalid-request',
+        'That image is too large. Choose a cover under 32 MB.'
+      )
+    }
+    const mime = sniffImageMime(bytes)
+    if (!mime) {
+      throw new OscineError('invalid-request', 'That file is not a JPEG or PNG image.')
+    }
+    // `derived.store` decodes with sharp and writes both thumbnail variants, so
+    // it doubles as the decodability gate and is what makes the cover visible
+    // before any flush. `null` is sharp refusing the bytes — a corrupt file
+    // wearing a valid magic number — and nothing has been stored yet.
+    const stored = await this.derived.store(bytes, 'operator-supplied cover')
+    if (!stored) {
+      throw new OscineError('invalid-request', 'That image could not be read.')
+    }
+    // The originals store keys on the same SHA-256 the thumbnail did, so the
+    // full-res bytes, their thumbnail and every override row agree on one hash.
+    const hash = await this.originals.put(bytes)
+    this.store.setArtworkOverrides(trackIds, hash, mime, this.now())
+    return { present: true, hash, mime }
+  }
+
+  /**
+   * Sets the tri-state *clear* on a batch — **W16-10**. Each track gains a
+   * NULL-hash override: no cover now, and the flush strips the front cover. A
+   * hash the clear leaves unreferenced is GC'd from the originals store at once
+   * (R8) rather than waiting for the next reconcile.
+   */
+  async clearCover(trackIds: readonly number[]): Promise<void> {
+    this.store.clearArtworkOverrides(trackIds, this.now())
+    await this.gcOriginals()
+  }
+
+  /**
+   * Drops the override on a batch — **W16-10**, back to the file's own cover
+   * (*absent*). Releases any originals the removed rows were the last to name.
+   */
+  async revertCover(trackIds: readonly number[]): Promise<void> {
+    this.store.removeArtworkOverrides(trackIds)
+    await this.gcOriginals()
+  }
+
+  /** Releases originals no live override still names — the refcount GC (R8). */
+  private async gcOriginals(): Promise<void> {
+    if (!this.originals) return
+    await this.originals.gc(this.store.listReferencedOverrideImageHashes())
   }
 
   private async selectArtwork(

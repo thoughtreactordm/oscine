@@ -15,6 +15,8 @@ import type {
   TrackTags
 } from '../../../src/main/library/metadata'
 import { LibraryStore } from '../../../src/main/library/store'
+import { OscineError } from '../../../src/shared/errors'
+import { MAX_ARTWORK_INGEST_BYTES } from '../../../src/shared/artwork'
 
 let dir: string
 let cacheDir: string
@@ -465,5 +467,140 @@ describe('artwork override reconciliation', () => {
 
     expect(metrics.artworkOverridesRetired).toBe(0)
     expect(store.getArtworkOverride(track)).not.toBeNull()
+  })
+})
+
+/**
+ * Artwork ingest — **W16-10**. The one door operator-supplied covers take into
+ * the correction layer: validate with sharp (the thumbnail generator here),
+ * store the full-res original, and fan a `set` row out per track (Decision C).
+ * A refused file stores nothing.
+ */
+describe('artwork ingest', () => {
+  /** A minimal PNG-signature payload; the fake processor decodes anything but `malformed`. */
+  function png(payload: string): Uint8Array {
+    return Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from(payload)
+    ])
+  }
+
+  /** A processor that refuses every image — stands in for undecodable bytes. */
+  class RejectingProcessor implements ArtworkImageProcessor {
+    async generate(): Promise<boolean> {
+      throw new Error('unsupported image')
+    }
+    async validate(): Promise<boolean> {
+      return false
+    }
+    async close(): Promise<void> {}
+  }
+
+  function trackIdOf(rel: string): number {
+    return (db.prepare('SELECT id FROM tracks WHERE rel_path = ?').get(rel) as { id: number }).id
+  }
+
+  function service(
+    overrides?: Partial<{ processor: ArtworkImageProcessor; originalsDir: string }>
+  ) {
+    return new ArtworkCacheService({
+      store,
+      cacheDir,
+      processor: overrides?.processor ?? new FakeProcessor(),
+      originals: createArtworkOriginalsStore({
+        dir: overrides?.originalsDir ?? join(dir, 'originals')
+      })
+    })
+  }
+
+  it('fans a set cover across every track, stores the original and returns a bytes-free ref', async () => {
+    addTrack('Album/01.flac', 'Album', 'Artist')
+    addTrack('Album/02.flac', 'Album', 'Artist')
+    const ids = [trackIdOf('Album/01.flac'), trackIdOf('Album/02.flac')]
+    const bytes = png('chosen-cover')
+    const originalsDir = join(dir, 'originals')
+    const svc = service({ originalsDir })
+    const originals = createArtworkOriginalsStore({ dir: originalsDir })
+
+    const ref = await svc.setCover(ids, bytes)
+    const expected = createHash('sha256').update(bytes).digest('hex')
+
+    expect(ref).toEqual({ present: true, hash: expected, mime: 'image/png' })
+    for (const id of ids) {
+      expect(store.getArtworkOverride(id)).toEqual({ imageHash: expected, mime: 'image/png' })
+    }
+    expect(await originals.has(expected)).toBe(true)
+    // The display thumbnail exists too, so the cover shows before any flush.
+    expect(await readFile(join(cacheDir, `${expected}-small.webp`), 'utf8')).toBe(
+      `small:${expected}`
+    )
+    // Decision C is a per-track fan-out; storage is not album-level.
+    expect(
+      store
+        .listArtworkOverrideTargets()
+        .map((t) => t.trackId)
+        .sort()
+    ).toEqual([...ids].sort())
+  })
+
+  it('refuses a non-image file with a typed error and stores nothing', async () => {
+    addTrack('Album/01.flac', 'Album', 'Artist')
+    const id = trackIdOf('Album/01.flac')
+
+    await expect(service().setCover([id], Buffer.from('this is not an image'))).rejects.toThrow(
+      OscineError
+    )
+    expect(store.getArtworkOverride(id)).toBeNull()
+    expect(store.listReferencedOverrideImageHashes().size).toBe(0)
+  })
+
+  it('refuses an oversize file before decoding it', async () => {
+    addTrack('Album/01.flac', 'Album', 'Artist')
+    const id = trackIdOf('Album/01.flac')
+    const tooBig = Buffer.alloc(MAX_ARTWORK_INGEST_BYTES + 1)
+
+    await expect(service().setCover([id], tooBig)).rejects.toThrow(/too large/)
+    expect(store.getArtworkOverride(id)).toBeNull()
+  })
+
+  it('refuses undecodable bytes sharp cannot read and stores nothing', async () => {
+    addTrack('Album/01.flac', 'Album', 'Artist')
+    const id = trackIdOf('Album/01.flac')
+    const originalsDir = join(dir, 'originals')
+
+    await expect(
+      service({ processor: new RejectingProcessor(), originalsDir }).setCover([id], png('corrupt'))
+    ).rejects.toThrow(OscineError)
+    expect(store.getArtworkOverride(id)).toBeNull()
+    expect(store.listReferencedOverrideImageHashes().size).toBe(0)
+  })
+
+  it('sets the tri-state clear and GCs the original it orphans', async () => {
+    addTrack('Album/01.flac', 'Album', 'Artist')
+    const id = trackIdOf('Album/01.flac')
+    const originalsDir = join(dir, 'originals')
+    const svc = service({ originalsDir })
+    const originals = createArtworkOriginalsStore({ dir: originalsDir })
+
+    const { hash: setHash } = await svc.setCover([id], png('chosen-cover'))
+    await svc.clearCover([id])
+
+    expect(store.getArtworkOverride(id)).toEqual({ imageHash: null, mime: null })
+    expect(await originals.has(setHash!)).toBe(false)
+  })
+
+  it('reverts to the absent state and GCs the original', async () => {
+    addTrack('Album/01.flac', 'Album', 'Artist')
+    const id = trackIdOf('Album/01.flac')
+    const originalsDir = join(dir, 'originals')
+    const svc = service({ originalsDir })
+    const originals = createArtworkOriginalsStore({ dir: originalsDir })
+
+    const { hash: setHash } = await svc.setCover([id], png('chosen-cover'))
+    await svc.revertCover([id])
+
+    expect(store.getArtworkOverride(id)).toBeNull()
+    expect(store.listArtworkOverrideTargets()).toEqual([])
+    expect(await originals.has(setHash!)).toBe(false)
   })
 })

@@ -201,6 +201,23 @@ const api = {
     onApplyProgress: (listener: (progress: WritebackProgress) => void) =>
       subscribe('tagWriteback.applyProgress', listener)
   },
+  /**
+   * Cover ingest — **W16-10**. Bytes travel renderer→main only: `setFromBytes`
+   * ships a dropped/pasted image one way, and nothing here ever returns bytes —
+   * the answer is a reference the renderer re-addresses through `oscine://`.
+   */
+  artwork: {
+    /** Open the OS image picker in main and set the chosen cover on a batch. */
+    setFromDialog: (trackIds: readonly number[]) =>
+      request('artwork.setFromDialog', { trackIds: [...trackIds] }),
+    /** Ship a dropped/pasted image's bytes one way to main and set it on a batch. */
+    setFromBytes: (trackIds: readonly number[], bytes: Uint8Array, mime: string) =>
+      request('artwork.setFromBytes', { trackIds: [...trackIds], bytes, mime }),
+    /** Set the tri-state clear (cover removed on flush) on a batch. */
+    clear: (trackIds: readonly number[]) => request('artwork.clear', { trackIds: [...trackIds] }),
+    /** Drop the override on a batch — back to the file's own cover. */
+    revert: (trackIds: readonly number[]) => request('artwork.revert', { trackIds: [...trackIds] })
+  },
   history: {
     /** One play, at the moment the transport committed to it. Main stamps the time. */
     record: (trackId: number) => request('history.record', { trackId }),

@@ -2177,6 +2177,42 @@ export class LibraryStore {
     this.statements.deleteArtworkOverride.run(trackId)
   }
 
+  /**
+   * Decision C's album fan-out in one transaction — **W16-10**. Sets the same
+   * chosen cover on every track of a selection; a compilation whose tracks were
+   * given different covers is the caller's concern, not this method's.
+   */
+  setArtworkOverrides(
+    trackIds: readonly number[],
+    imageHash: string,
+    mime: string | null,
+    now: number
+  ): void {
+    const unique = [...new Set(trackIds)]
+    if (unique.length === 0) return
+    this.db.transaction(() => {
+      for (const trackId of unique) this.setArtworkOverride(trackId, imageHash, mime, now)
+    })()
+  }
+
+  /** The batch tri-state *clear* — **W16-10**, one NULL-hash row per track. */
+  clearArtworkOverrides(trackIds: readonly number[], now: number): void {
+    const unique = [...new Set(trackIds)]
+    if (unique.length === 0) return
+    this.db.transaction(() => {
+      for (const trackId of unique) this.clearArtworkOverride(trackId, now)
+    })()
+  }
+
+  /** The batch *revert* — **W16-10**, drops the override row for every track. */
+  removeArtworkOverrides(trackIds: readonly number[]): void {
+    const unique = [...new Set(trackIds)]
+    if (unique.length === 0) return
+    this.db.transaction(() => {
+      for (const trackId of unique) this.removeArtworkOverride(trackId)
+    })()
+  }
+
   /** A track's cover override, or `null` when it has none (absent). */
   getArtworkOverride(trackId: number): ArtworkOverride | null {
     const row = this.statements.findArtworkOverride.get(trackId) as
