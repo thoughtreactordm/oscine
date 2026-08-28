@@ -1,7 +1,7 @@
 ---
 taskId: 01M12VF3AAEPVY8JQ0GCW2N3JG
 title: Test corpus — mixed-format round-trip (D7 precondition)
-status: in-review
+status: done
 priority: high
 labels:
   - phase-1
@@ -9,9 +9,9 @@ labels:
   - gate
 workstream: W16
 workstreamId: W16-2
-order: 1
+order: 9
 created: '2026-08-28T00:14:12.297Z'
-updated: '2026-08-28T00:56:45.001Z'
+updated: '2026-08-28T19:48:16.296Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Test corpus — a precondition, not a nicety".
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01M12VGDC5BYX59D9WKH9TAWDY
 title: Re-scan reconciliation
-status: in-review
+status: done
 priority: medium
 labels:
   - phase-2
@@ -12,9 +12,9 @@ workstreamId: W16-7
 dependsOn:
   - 01M12VEX19HRHTZDD2BQWT1Q0C
   - 01M12VFDD0R4ZKBG1JKTT96BGK
-order: 6
+order: 17
 created: '2026-08-28T00:14:55.365Z'
-updated: '2026-08-28T13:59:45.814Z'
+updated: '2026-08-28T19:48:16.409Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Re-scan reconciliation". The card that actually closes the operator's loop — the reason the whole stream exists.
 

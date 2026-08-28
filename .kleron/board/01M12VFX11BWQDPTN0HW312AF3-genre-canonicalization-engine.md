@@ -1,7 +1,7 @@
 ---
 taskId: 01M12VFX11BWQDPTN0HW312AF3
 title: Genre canonicalization engine
-status: in-review
+status: done
 priority: medium
 labels:
   - phase-2
@@ -11,9 +11,9 @@ workstream: W16
 workstreamId: W16-5
 dependsOn:
   - 01M12VEX19HRHTZDD2BQWT1Q0C
-order: 0
+order: 5
 created: '2026-08-28T00:14:38.624Z'
-updated: '2026-08-28T01:58:44.212Z'
+updated: '2026-08-28T19:48:16.251Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Genre canonicalization engine". Directly targets the operator's stated pain: bulk junk genres, not one-off typos.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01M12VFDD0R4ZKBG1JKTT96BGK
 title: Atomic tag-write engine (main)
-status: in-review
+status: done
 priority: high
 labels:
   - phase-1
@@ -11,9 +11,9 @@ workstream: W16
 workstreamId: W16-3
 dependsOn:
   - 01M12VF3AAEPVY8JQ0GCW2N3JG
-order: 2
+order: 11
 created: '2026-08-28T00:14:22.623Z'
-updated: '2026-08-28T01:25:25.919Z'
+updated: '2026-08-28T19:48:16.318Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "The write engine" + "Atomic write + backup + rollback". Owns **R6 (tag-write corruption)** — the one Oscine operation that can destroy an operator's file.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01M12VGJFB1DVHY9KFVP9Y7Q67
 title: Artwork & custom frames (epic)
-status: in-review
+status: done
 priority: low
 labels:
   - phase-3
@@ -14,9 +14,9 @@ dependsOn:
   - 01M14ABNB9PG2QS6934W1MHZ9E
   - 01M14AC6FN6HN92JVRQRDN5PB7
   - 01M14ACETGA3WTRWG0KBF1Z9DP
-order: 0
+order: 6
 created: '2026-08-28T00:15:00.586Z'
-updated: '2026-08-28T17:32:58.175Z'
+updated: '2026-08-28T19:48:16.263Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Embedded artwork & custom frames (W16-9 – W16-13)". **Epic — investigation done, split into five slices; this card just tracks them.**
 

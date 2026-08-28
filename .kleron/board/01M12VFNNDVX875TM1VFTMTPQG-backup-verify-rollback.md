@@ -1,7 +1,7 @@
 ---
 taskId: 01M12VFNNDVX875TM1VFTMTPQG
 title: 'Backup, verify & rollback'
-status: in-review
+status: done
 priority: high
 labels:
   - phase-1
@@ -11,9 +11,9 @@ workstream: W16
 workstreamId: W16-4
 dependsOn:
   - 01M12VFDD0R4ZKBG1JKTT96BGK
-order: 1
+order: 10
 created: '2026-08-28T00:14:31.085Z'
-updated: '2026-08-28T01:39:23.035Z'
+updated: '2026-08-28T19:48:16.306Z'
 ---
 Design authority: wiki `oscine-tag-writeback` → "Atomic write + backup + rollback". The recoverability half of R6's mitigation.
 

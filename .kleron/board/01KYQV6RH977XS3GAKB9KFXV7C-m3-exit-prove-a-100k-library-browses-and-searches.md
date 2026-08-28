@@ -1,7 +1,7 @@
 ---
 taskId: 01KYQV6RH977XS3GAKB9KFXV7C
 title: 'M3 exit: prove a 100k library browses and searches within frame budget'
-status: in-review
+status: done
 priority: high
 labels:
   - M3
@@ -18,9 +18,9 @@ dependsOn:
   - 01KYQV5FCHTQ9JTDFBAMXHA75X
   - 01KYQV63WZB2PJ7PNTVY8XJJS4
 effort: high
-order: 1
+order: 8
 created: '2026-07-29T21:06:36.712Z'
-updated: '2026-08-28T17:33:12.125Z'
+updated: '2026-08-28T19:48:16.285Z'
 ---
 Turn M3's exit sentence into a repeatable gate with evidence from the same commit on Windows and Linux.
 
