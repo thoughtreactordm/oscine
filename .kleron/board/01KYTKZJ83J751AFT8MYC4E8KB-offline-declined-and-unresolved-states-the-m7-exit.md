@@ -1,7 +1,7 @@
 ---
 taskId: 01KYTKZJ83J751AFT8MYC4E8KB
 title: 'Offline, declined and unresolved states — the M7 exit proof'
-status: todo
+status: done
 priority: high
 labels:
   - M7
@@ -16,7 +16,7 @@ dependsOn:
   - 01KYTKZ93BBNWDPQDGQVP2RCGC
 order: 1
 created: '2026-07-30T22:58:04.161Z'
-updated: '2026-08-28T17:33:14.698Z'
+updated: '2026-08-29T17:15:22.571Z'
 ---
 ## Scope
 
