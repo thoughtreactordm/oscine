@@ -6,7 +6,10 @@ A format-first local music player for large libraries: Electron shell, Vue 3 ren
 library in the main process, Web Audio playback in the renderer. Poweruser library control with a
 themeable modern interface. No streaming integration — the library is folders on disk.
 
-Current milestone: **M1 "It plays"** — thin end-to-end slice, every layer touched, none finished.
+Current status: **1.0.0-rc, feature-complete** — locking in the 1.0.0 release. The original
+frozen scope (M1–M6) plus M7 (Tunedeck network), M8 (listening & scrobbling), podcasts (W9),
+Discover (W12) and tag write-back (W16) have all shipped. The design doc's "Status as of 1.0"
+block is the map of what landed; work now is polish, not new milestones.
 
 ## Design authority
 
@@ -154,5 +157,9 @@ These are the rules whose violation causes damage rather than mess.
   non-zero means crossfade. Never both.
 - **Every list is virtualized from its first commit.** The scale target is 100k tracks; virtualization
   is never retrofitted.
-- **v1 never writes tags to disk** (D7). Corrections live in `track_overrides`.
+- **No tag is ever written to disk implicitly** (D7, amended W16). Corrections land in
+  `track_overrides` first — that is still the staging layer — and reach the file only through
+  the explicit staged write-back review the operator confirms, one atomic per-file write with
+  backup, hash-verify and rollback. The library never mutates a file on its own; embedded
+  artwork overrides follow the same reviewed-flush rule.
 - Both Windows and Linux are first-class. No platform-specific path or shell handling.

@@ -9,14 +9,15 @@ It is the single canonical copy. It covers:
 
 | Section | Contents |
 |---|---|
+| Top | "Status as of 1.0" — what shipped beyond the original frozen scope |
 | 1 | What Oscine is, and the definition of "v1 is done" |
-| 2 | Decisions D1–D15, each with rationale, rejected alternatives and a revisit trigger |
+| 2 | Decisions D1–D20, each with rationale, rejected alternatives and a revisit trigger |
 | 3 | Risks R1–R5, with mitigations |
-| 4 | Data model — schema v1 |
+| 4 | Data model — schema v1 and its migrations |
 | 5 | Queue semantics — the seven rules |
 | 6 | Process architecture and the main/renderer boundary |
 | 7 | Repository structure |
-| 8–9 | Workstreams W1–W6 and milestones M1–M6 |
+| 8–9 | Workstreams W1–W12 (plus W16, tag write-back) and milestones M1–M8 |
 | 10–11 | Conventions, and what is explicitly out of scope for v1 |
 
 This file is a pointer rather than a duplicate. Two copies of a long design document drift the
@@ -28,4 +29,4 @@ Edit the wiki file directly, or through `kleron_wiki_update`.
 ## Other documentation
 
 Milestone and task detail lives on the board in `.kleron/board/`, one markdown file per card,
-also version-controlled. The M1 cards carry their own scope and acceptance criteria.
+also version-controlled. Each card carries its own scope and acceptance criteria.

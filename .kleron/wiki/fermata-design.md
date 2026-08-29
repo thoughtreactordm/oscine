@@ -5,7 +5,27 @@ updated: '2026-07-26T04:53:06.799Z'
 ---
 # Oscine — Design Document
 
-Status: **approved, v1 scope frozen** · Owner: Michael · Repo: `C:\Users\Michael\Projects\oscine`
+Status: **v1.0 shipped — original scope frozen, post-freeze additions folded in** · Owner: Michael · Repo: `oscine`
+
+### Status as of 1.0 (2026-08-29)
+
+The original frozen scope was M1–M6 (§9): browse and sort a local library, playlists and a
+queue, and gapless/crossfade/loudness playback of MP3/FLAC/OGG. That shipped, and four bodies
+of work were added on top of it and also shipped in 1.0.0:
+
+- **M7 — Tunedeck network** (W7): the D14 consent gate and main-process fetch layer,
+  MusicBrainz identity resolution, Wikipedia biography, in-library artist relations.
+- **M8 — Listening & scrobbling** (W10–W11): the D17 listens log, D18 favorites, the stats
+  dashboard, and D19 Last.fm scrobbling with an offline outbox.
+- **Podcasts** (W9, D16) and **Discover** (W12, D20), the two off-ladder verticals.
+- **Tag write-back** (W16), which D7 and §11 originally deferred out of v1. Its revisit
+  trigger — a test corpus and atomic-write handling — has fired; see the D7 amendment below.
+
+So "v1" in the frozen decisions below means the original M1–M6 line. Where a decision or the
+§11 out-of-scope list still reads as if a since-shipped feature is future, a dated amendment
+records what changed. Everything else stands as written and still governs — read it before
+proposing architectural change, and do not reopen a D-number without checking its revisit
+trigger has actually fired.
 
 ## 1. What this is
 
@@ -62,6 +82,18 @@ Index on add, mtime-based incremental rescan at launch, filesystem watcher for l
 Tags are parsed on scan; corrections live in `track_overrides` and never touch files in v1. Zero corruption risk while the library layer is young. Write-back is roadmapped as an explicit opt-in once there is a test corpus and atomic-write handling.
 
 *Accepted cost*: edits are invisible to other applications until write-back ships.
+
+*Amended 2026-08-29 (W16)*: **write-back shipped.** The trigger fired — the mixed-format
+corpus and its gate (`probe:writeback-corpus`, W16-3) and the atomic write engine with backup,
+hash-verify and rollback (W16-2/4) both exist — so the opt-in this decision roadmapped is now
+real. It does not soften the rule it replaced: nothing is written implicitly. A correction
+still lands in `track_overrides` first — D7's original layer, now the *staging* layer — and
+reaches disk only through the explicit staged review the operator confirms, one atomic
+per-file write at a time. Embedded artwork is a persistent override layer over the front cover
+that preserves every other picture and round-trips custom frames (W16-9..W16-13). The library
+still never mutates a file on its own; "never touch files in v1" narrowed to "never touch a
+file the operator has not reviewed," which is precisely the opt-in this line was always going
+to become.
 
 ### D8 — Search: **FTS5 instant search + sortable columns**
 
@@ -536,8 +568,8 @@ oscine/
 
 ## 11. Explicitly out of scope for v1
 
-Streaming-service integration · dockable/scriptable layouts · query language and smart playlists · tag write-back · EQ and DSP chain · noise reduction · visualizers · mobile or remote control · the Tunedeck artist nexus, which is M7 · upcoming-show listings, which have no source we can obtain (D14).
+Streaming-service integration · dockable/scriptable layouts · query language and smart playlists · EQ and DSP chain · noise reduction · visualizers · mobile or remote control · upcoming-show listings, which have no source we can obtain (D14).
 
-These are deferrals, not rejections — except upcoming shows, which is a rejection until a listings API exists that does not require partner approval. Query language, tag write-back and the EQ chain are the strongest v2 candidates.
+These are deferrals, not rejections — except upcoming shows, which is a rejection until a listings API exists that does not require partner approval. Query language and the EQ chain are the strongest v2 candidates.
 
-**Scrobbling left this list** under D19, which distinguishes a per-user authenticated write from D14's keyless read-only metadata sources; it is M8. A Wrapped-style retrospective remains out of scope and is deliberately specified separately from the Listening dashboard, which is not one (W10-14).
+**Three items left this list after the freeze**, each for a reason worth keeping. **Scrobbling** left under D19, which distinguishes a per-user authenticated write from D14's keyless read-only metadata sources; it shipped as M8. **Tag write-back** left under the D7 amendment once its test corpus and atomic-write handling existed; it shipped as W16 — an explicit operator-reviewed flush, not the implicit one this list rejected. The **Tunedeck artist nexus** was never truly out of scope so much as sequenced last; it was M7 and shipped. A Wrapped-style retrospective remains out of scope and is deliberately specified separately from the Listening dashboard, which is not one (W10-14).
