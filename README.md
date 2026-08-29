@@ -105,3 +105,7 @@ clone carries the full project context. Its "Status as of 1.0" block maps what s
 original frozen scope. Subsystem contracts that outgrew the design doc have their own notes under
 [`docs/`](docs/) (artwork cache, ReplayGain). Project-wide conventions and invariants for
 contributors — and for coding agents — live in [`CLAUDE.md`](CLAUDE.md).
+
+## License
+
+Oscine is licensed under the [MIT License](LICENSE).
