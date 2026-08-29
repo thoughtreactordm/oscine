@@ -42,5 +42,5 @@ from embedded metadata during the next reconciliation.
 
 Each reconciliation writes one structured `[artwork]` log record with album and
 source counts, unique hashes, generated/pruned files, elapsed time, cache bytes,
-and the configured concurrency. The M3 exit probe can aggregate these records
+and the configured concurrency. An exit probe can aggregate these records
 without adding a renderer IPC payload.
