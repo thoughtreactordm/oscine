@@ -15,6 +15,7 @@ import {
   MIB
 } from '../../../src/shared/settings'
 import { TRANSPORT_REPEAT_KEY } from '../../../src/renderer/playback/transportPreferences'
+import { perceptualVolumeToAmplitude } from '../../../src/renderer/playback/volumeCurve'
 import { settingsStoreFixture, storedValue } from '../settings/fixture'
 import { DEFAULT_NORMALIZATION_POLICY } from '../../../src/renderer/audio/normalization'
 import {
@@ -351,6 +352,8 @@ describe('createPlaybackController', () => {
     it('replays a volume set before the first play', async () => {
       h.controller.setVolume(0.25)
       expect(h.controller.hasEngine()).toBe(false)
+      // The stored value is the slider's perceptual position, unchanged.
+      expect(h.controller.volume.value).toBe(0.25)
 
       await h.controller.playFromList({
         sort: 'artist',
@@ -359,7 +362,8 @@ describe('createPlaybackController', () => {
         track: track(0)
       })
 
-      expect(h.engine.volumes[0]).toBe(0.25)
+      // The engine receives the tapered amplitude, not the raw slider position.
+      expect(h.engine.volumes[0]).toBe(perceptualVolumeToAmplitude(0.25))
     })
 
     it('clamps a volume outside 0..1', () => {

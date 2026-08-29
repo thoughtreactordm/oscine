@@ -54,6 +54,7 @@ import {
 } from './sessionScope'
 import { createShuffledPlayOrder, type ShuffledPlayOrder } from './shufflePlayOrder'
 import { cycleRepeatMode, previousIndex, type RepeatMode } from './traversal'
+import { perceptualVolumeToAmplitude } from './volumeCurve'
 import {
   chooseSuccessor,
   createUpNextQueue,
@@ -620,8 +621,10 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
       created.on('prefetchchange', applyPrefetch)
     ]
 
-    // A volume set before the first play still has to reach the device.
-    created.setVolume(volume.value)
+    // A volume set before the first play still has to reach the device. The
+    // stored value is the slider's perceptual position; the engine wants the
+    // tapered amplitude.
+    created.setVolume(perceptualVolumeToAmplitude(volume.value))
     scheduler = created
     return created
   }
@@ -1428,11 +1431,13 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     scheduler?.seek(currentTime.value)
   }
 
-  function setVolume(gain: number): void {
-    const clamped = Number.isFinite(gain) ? Math.min(Math.max(gain, 0), 1) : 0
+  function setVolume(position: number): void {
+    const clamped = Number.isFinite(position) ? Math.min(Math.max(position, 0), 1) : 0
+    // The slider position is the user-facing volume — persisted and shown as a
+    // percentage. Only the value the engine plays is tapered (see volumeCurve).
     volume.value = clamped
     // Before the first play there is no engine; `ensureEngine` replays it.
-    scheduler?.setVolume(clamped)
+    scheduler?.setVolume(perceptualVolumeToAmplitude(clamped))
   }
 
   /** Pushes whichever of the two crossfade settings currently applies. */
