@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import MarqueeText from '@renderer/panels/MarqueeText.vue'
 import QuickMenu from '@renderer/panels/QuickMenu.vue'
 import NowPlayingActions from '@renderer/panels/transport/NowPlayingActions.vue'
 import PlaybackModeButtons from '@renderer/panels/transport/PlaybackModeButtons.vue'
 import SeekBar from '@renderer/panels/transport/SeekBar.vue'
 import TransportButtons from '@renderer/panels/transport/TransportButtons.vue'
+import TransportOverflow from '@renderer/panels/transport/TransportOverflow.vue'
 import VolumeControl from '@renderer/panels/transport/VolumeControl.vue'
+import { useContainerWidth } from '@renderer/shell/useContainerWidth'
 import { hasArtwork } from '@shared/ipc'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
@@ -48,6 +50,27 @@ const backdrop = computed(() => {
   const url = playback.nowPlaying?.artwork.large
   return url && hasArtwork(url) ? url : null
 })
+
+/**
+ * Whether the bar has folded its flanking controls into a popover (§1).
+ *
+ * Measured off the bar's own width rather than the viewport's — the bottom bar
+ * happens to span the window, but the same flag drives the Zen stage's transport,
+ * which Tunedeck squeezes narrower than the window. Below the threshold the song
+ * actions, volume and the standing modes move into `TransportOverflow`, leaving
+ * only the track line and the verbs so the two can never overlap. The number is
+ * the bar's resting min width — tune by eye, not by theory.
+ */
+const barRef = ref<HTMLElement | null>(null)
+const { width: barWidth } = useContainerWidth(barRef)
+const compact = computed(() => barWidth.value > 0 && barWidth.value < 860)
+
+/**
+ * Whether the sidebar's full-size cover is actually on screen. It is not when the
+ * frame has reflowed the rail into a band (§2) — the pane belongs to the rail and
+ * is not drawn there — so the thumbnail has to come back, `coverExpanded` or not.
+ */
+const coverPaneVisible = computed(() => shell.coverExpanded && !shell.sidebarCompact)
 </script>
 
 <template>
@@ -59,6 +82,17 @@ const backdrop = computed(() => {
     :ui="{ body: 'flex w-full h-full items-center justify-between gap-6 overflow-hidden px-3' }"
     aria-label="Now playing"
   >
+    <!--
+      A zero-height, full-width sentinel the width observer measures. The card
+      root is `relative`, so this reports the bar's own inline size without a
+      wrapper that would disturb the flex row or the cover bleed behind it.
+    -->
+    <div
+      ref="barRef"
+      class="pointer-events-none absolute inset-x-0 top-0 h-px"
+      aria-hidden="true"
+    />
+
     <!--
       Keyed so a track change crossfades: Vue keeps the outgoing cover mounted
       while the incoming one arrives, and both are out of flow, so they overlap
@@ -100,7 +134,7 @@ const backdrop = computed(() => {
           own dismiss.
         -->
         <Transition name="coverThumb">
-          <div v-if="!shell.coverExpanded" class="cover-thumb">
+          <div v-if="!coverPaneVisible" class="cover-thumb">
             <div class="cover-thumb-inner pr-3">
               <UTooltip text="Show cover art">
                 <button
@@ -145,13 +179,17 @@ const backdrop = computed(() => {
           <MarqueeText class="text-xs text-primary" :text="playback.nowPlaying?.albumArtist" />
           <p v-if="playback.error" class="truncate text-xs text-error">{{ playback.error }}</p>
         </div>
-        <NowPlayingActions class="pl-3" />
+        <!-- Folded into the overflow popover when the bar is compact (§1). -->
+        <NowPlayingActions v-if="!compact" class="pl-3" />
       </div>
     </Transition>
 
     <div class="order-3 flex min-w-0 flex-1 items-center justify-end gap-3">
-      <VolumeControl />
-      <PlaybackModeButtons />
+      <template v-if="!compact">
+        <VolumeControl />
+        <PlaybackModeButtons />
+      </template>
+      <TransportOverflow v-else />
     </div>
   </UCard>
 

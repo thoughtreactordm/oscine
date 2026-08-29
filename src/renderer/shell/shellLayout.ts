@@ -36,9 +36,11 @@ export const SHELL_PANE_SIZES_KEY = 'view.shellPaneSizes'
 /**
  * The frame's sidebar.
  *
- * `reserve` is the body's `min-w-120`. Together with the window's 940px
- * `minWidth` it means the drag stops at 460 on the narrowest allowed window and
- * at the full 480 on anything wider, rather than overflowing the row.
+ * `reserve` is the body's wide-mode `min-w-90` (360). Below ~760 the frame stops
+ * keeping the rail beside the body and reflows it into a band (§2), so the drag
+ * only has to leave the body room while the two are side by side: with the 640px
+ * `minWidth`, sidebar `min` (240) plus this reserve (360) clears the floor with
+ * slack, and on anything wider the drag stops before it can crush the body.
  */
 export const SIDEBAR_PANE: PaneSpec = {
   key: 'shell.sidebar',
@@ -48,7 +50,30 @@ export const SIDEBAR_PANE: PaneSpec = {
   defaultSize: 320,
   min: 240,
   max: 480,
-  reserve: 480
+  reserve: 360
+}
+
+/**
+ * The reflowed rail's band height (§2).
+ *
+ * When the frame drops the side rail into a band above the body, that band is the
+ * `before` pane of a vertical split the same way the sidebar is the `before` pane
+ * of a horizontal one — so it gets the same `PaneResizer`, turned on its side, and
+ * the same one stored number. `reserve` is the body's own floor below it (a list
+ * header and a few rows); `max` keeps the band from swallowing the view on a tall,
+ * narrow window where the reflow is on but the height is not the thing that is
+ * scarce. Its own key, so a dragged band height and a dragged sidebar width do not
+ * overwrite each other across the wide/compact switch.
+ */
+export const SHELL_BAND_PANE: PaneSpec = {
+  key: 'shell.band',
+  axis: 'y',
+  side: 'before',
+  label: 'Sources band height',
+  defaultSize: 224,
+  min: 140,
+  max: 520,
+  reserve: 200
 }
 
 /**

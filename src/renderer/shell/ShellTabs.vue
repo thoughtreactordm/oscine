@@ -47,31 +47,19 @@ const trailingTabs = computed(() => shellTabs.filter((tab) => tab.trailing))
 
 <template>
   <nav
-    class="flex h-full min-w-0 items-center gap-1 border-b border-default bg-elevated/40 px-2"
+    class="tabs-nav flex h-full min-w-0 items-center gap-1 border-b border-default bg-elevated/40 px-2"
     aria-label="Views"
   >
-    <UButton
-      v-for="tab in leadingTabs"
-      :key="tab.name"
-      :icon="tab.icon"
-      :label="tab.label"
-      size="xs"
-      variant="ghost"
-      :color="shell.activeTab === tab.name ? 'primary' : 'neutral'"
-      class="h-full rounded-none border-b-2 px-3 text-sm tracking-wide"
-      :class="shell.activeTab === tab.name ? 'border-primary' : 'border-transparent'"
-      :ui="{ leadingIcon: shell.activeTab === tab.name ? '' : 'opacity-50' }"
-      :aria-pressed="shell.activeTab === tab.name"
-      @click="router.push({ name: tab.name })"
-    />
-
-    <!-- The trailing utilities, right-aligned and set off with a divider. -->
-    <div class="ml-auto flex h-full items-center gap-1 border-l border-default pl-2">
+    <!--
+      The primary destinations. Their labels are in the slot rather than the
+      `label` prop so a container query can drop them when the row is tight (§4):
+      the tab shrinks to its icon and stops shoving the trailing utilities off the
+      right edge. The tooltip is what the label leaves behind when it goes, so a
+      crunched, icon-only row is still legible.
+    -->
+    <UTooltip v-for="tab in leadingTabs" :key="tab.name" :text="tab.label">
       <UButton
-        v-for="tab in trailingTabs"
-        :key="tab.name"
         :icon="tab.icon"
-        :label="tab.label"
         size="xs"
         variant="ghost"
         :color="shell.activeTab === tab.name ? 'primary' : 'neutral'"
@@ -79,8 +67,53 @@ const trailingTabs = computed(() => shellTabs.filter((tab) => tab.trailing))
         :class="shell.activeTab === tab.name ? 'border-primary' : 'border-transparent'"
         :ui="{ leadingIcon: shell.activeTab === tab.name ? '' : 'opacity-50' }"
         :aria-pressed="shell.activeTab === tab.name"
+        :aria-label="tab.label"
         @click="router.push({ name: tab.name })"
-      />
+      >
+        <span class="tab-label">{{ tab.label }}</span>
+      </UButton>
+    </UTooltip>
+
+    <!--
+      The trailing utilities, right-aligned and set off with a divider. Icon-only
+      always (§3): Stats, Tools and Settings are library-wide verbs, not places,
+      so they carry the smallest footprint the row allows and lean on the tooltip
+      for their name — which is what leaves the leading tabs room to keep theirs.
+    -->
+    <div class="ml-auto flex h-full items-center gap-1 border-l border-default pl-2">
+      <UTooltip v-for="tab in trailingTabs" :key="tab.name" :text="tab.label">
+        <UButton
+          :icon="tab.icon"
+          size="xs"
+          variant="ghost"
+          square
+          :color="shell.activeTab === tab.name ? 'primary' : 'neutral'"
+          class="h-full rounded-none border-b-2 px-2.5 text-sm tracking-wide"
+          :class="shell.activeTab === tab.name ? 'border-primary' : 'border-transparent'"
+          :ui="{ leadingIcon: shell.activeTab === tab.name ? '' : 'opacity-50' }"
+          :aria-pressed="shell.activeTab === tab.name"
+          :aria-label="tab.label"
+          @click="router.push({ name: tab.name })"
+        />
+      </UTooltip>
     </div>
   </nav>
 </template>
+
+<style scoped>
+/*
+ * The row reacts to its own width, not the viewport's — the same rule the rest of
+ * the responsive pass follows. Below the breakpoint the primary tabs shed their
+ * labels and stand on their icons and tooltips, so the trailing utilities keep
+ * their place instead of being pushed past the right edge.
+ */
+.tabs-nav {
+  container-type: inline-size;
+}
+
+@container (max-width: 600px) {
+  .tab-label {
+    display: none;
+  }
+}
+</style>

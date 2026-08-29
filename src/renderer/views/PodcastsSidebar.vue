@@ -21,6 +21,13 @@ import type { Episode, Podcast } from '@shared/podcasts'
  * shows list. Clicking it views Discover; clicking a show views that show.
  */
 
+/**
+ * `band` is the frame's narrow-window layout (§2): Subscriptions and Recent as
+ * two columns instead of a vertical split. Only the furniture changes — both
+ * panes keep their own virtualized, independently scrolled list.
+ */
+withDefaults(defineProps<{ layout?: 'rail' | 'band' }>(), { layout: 'rail' })
+
 const podcasts = usePodcastsStore()
 const shell = useShellStore()
 
@@ -119,10 +126,21 @@ function openShow(podcast: Podcast): void {
 </script>
 
 <template>
-  <aside class="flex h-full min-h-0 flex-col bg-default" aria-label="Podcasts">
+  <!--
+    §2 band: Subscriptions and Recent laid side by side instead of stacked, for
+    when the frame has reflowed the rail above the list. The vertical split's
+    stored height and its resizer have no meaning across a row, so the band drops
+    them and lets the two panes take half the width each.
+  -->
+  <aside
+    class="flex h-full min-h-0 bg-default"
+    :class="layout === 'band' ? 'flex-row divide-x divide-default' : 'flex-col'"
+    aria-label="Podcasts"
+  >
     <section
       class="flex min-h-0 flex-col overflow-hidden"
-      :style="{ height: `${subscriptionsHeight}px` }"
+      :class="layout === 'band' ? 'min-w-0 flex-1' : ''"
+      :style="layout === 'band' ? undefined : { height: `${subscriptionsHeight}px` }"
     >
       <header class="flex items-center justify-between gap-2 px-3 py-2">
         <h2 class="text-xs font-semibold uppercase tracking-widest text-muted">Subscriptions</h2>
@@ -243,9 +261,16 @@ function openShow(podcast: Podcast): void {
       </div>
     </section>
 
-    <PaneResizer v-model:size="subscriptionsHeight" :pane="PODCASTS_SUBSCRIPTIONS_PANE" />
+    <PaneResizer
+      v-if="layout !== 'band'"
+      v-model:size="subscriptionsHeight"
+      :pane="PODCASTS_SUBSCRIPTIONS_PANE"
+    />
 
-    <section class="flex min-h-40 flex-1 flex-col overflow-hidden">
+    <section
+      class="flex min-h-40 flex-1 flex-col overflow-hidden"
+      :class="{ 'min-w-0': layout === 'band' }"
+    >
       <header class="flex items-center justify-between gap-2 px-3 py-2">
         <h2 class="text-xs font-semibold uppercase tracking-widest text-muted">Recent</h2>
         <span class="text-[11px] text-dimmed">{{ podcasts.recentTotal }}</span>

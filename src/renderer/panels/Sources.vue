@@ -30,6 +30,15 @@ const ARTIST_ROW_HEIGHT = 32
 const ALBUM_ROW_HEIGHT = 44
 const GENRE_ROW_HEIGHT = 28
 
+/**
+ * `band` is the narrow-window presentation the frame asks for when it reflows the
+ * rail above the list (§2): the same three facet lists, laid out as columns in a
+ * short strip instead of a tall stack. The vertical stack's resizers and stored
+ * heights have no meaning across a row, so the band drops them and splits the
+ * width evenly — the models, menus and activation are the rail's, unchanged.
+ */
+withDefaults(defineProps<{ layout?: 'rail' | 'band' }>(), { layout: 'rail' })
+
 const watchSettings = panelSettingsSurface('library-roots')
 
 /**
@@ -359,7 +368,217 @@ const albumPane = facetPane<AlbumFacet>({
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 flex-col" aria-label="Library sources">
+  <!--
+    §2 band: the same three facet lists as columns in a short strip, for when the
+    frame has reflowed the rail above the track list. The folder select and search
+    share one compact row; the panes split the width evenly with no resizers,
+    since a stored height means nothing across a row.
+  -->
+  <section
+    v-if="layout === 'band'"
+    class="flex h-full min-h-0 flex-col"
+    aria-label="Library sources"
+  >
+    <div class="flex items-center gap-1 border-b border-default bg-elevated/40 p-2">
+      <USelect
+        v-model="browse.rootValue"
+        value-key="value"
+        :items="rootItems"
+        class="min-w-0 flex-1"
+        aria-label="Library folder"
+      />
+      <UInput
+        v-model="browse.searchInput"
+        type="search"
+        icon="i-tabler-search"
+        class="min-w-0 flex-[2]"
+        placeholder="Search title, artist, album"
+        :maxlength="MAX_SEARCH_LENGTH"
+        :loading="
+          browse.searchPending || browse.artists.loading.value || browse.albums.loading.value
+        "
+        aria-label="Search library"
+      />
+      <UFieldGroup>
+        <PanelSettingsPopover :surface="watchSettings" size="md" />
+        <UDropdownMenu :items="folderItems" :content="{ align: 'end' }">
+          <UButton
+            icon="i-tabler-dots-vertical"
+            color="neutral"
+            variant="ghost"
+            :loading="roots.removing !== null"
+            aria-label="Library folder actions"
+          />
+        </UDropdownMenu>
+      </UFieldGroup>
+    </div>
+
+    <div class="grid min-h-0 flex-1 grid-cols-3 divide-x divide-default">
+      <div class="flex min-h-0 min-w-0 flex-col overflow-hidden">
+        <div
+          class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2"
+        >
+          <h2 class="truncate text-xs font-semibold uppercase tracking-wide text-muted">
+            Genres &amp; tags
+          </h2>
+          <template v-if="browse.genres.selectionCount.value > 0">
+            <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
+              {{ browse.genres.selectionCount.value.toLocaleString() }}
+            </span>
+            <UButton
+              icon="i-tabler-x"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              aria-label="Clear genre and tag selection"
+              @click="browse.genres.clearSelection()"
+            />
+          </template>
+          <span
+            class="text-xs tabular-nums text-dimmed"
+            :class="{ 'ml-auto': browse.genres.selectionCount.value === 0 }"
+          >
+            {{ browse.genres.total.value.toLocaleString() }}
+          </span>
+        </div>
+        <div class="flex min-h-0 flex-1 flex-col">
+          <GenreFacetList
+            v-show="browse.genres.total.value > 0"
+            :model="browse.genres"
+            :row-height="GENRE_ROW_HEIGHT"
+            label="Genres and tags"
+          />
+          <UEmpty
+            v-if="browse.genres.total.value === 0 && !browse.genres.loading.value"
+            variant="naked"
+            size="sm"
+            icon="i-tabler-tag"
+            title="No genres or tags"
+            class="min-h-0 flex-1"
+          />
+        </div>
+      </div>
+
+      <div class="flex min-h-0 min-w-0 flex-col overflow-hidden">
+        <div
+          class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2"
+        >
+          <h2 class="truncate text-xs font-semibold uppercase tracking-wide text-muted">Artists</h2>
+          <template v-if="browse.artists.selectionCount.value > 0">
+            <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
+              {{ browse.artists.selectionCount.value.toLocaleString() }}
+            </span>
+            <UButton
+              icon="i-tabler-x"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              aria-label="Clear artist selection"
+              @click="browse.artists.clearSelection()"
+            />
+          </template>
+          <span
+            class="text-xs tabular-nums text-dimmed"
+            :class="{ 'ml-auto': browse.artists.selectionCount.value === 0 }"
+          >
+            {{ browse.artists.total.value.toLocaleString() }}
+          </span>
+        </div>
+        <div class="flex min-h-0 flex-1 flex-col">
+          <FacetList
+            :model="browse.artists"
+            :row-height="ARTIST_ROW_HEIGHT"
+            label="Artists"
+            :menu="artistPane.menu"
+            @activate="artistPane.activate"
+            @menu-open="artistPane.onMenuOpen"
+          >
+            <template #row="{ item }">
+              <span class="truncate">{{ item?.name ?? 'Loading…' }}</span>
+              <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
+                {{ item?.trackCount ?? '' }}
+              </span>
+            </template>
+          </FacetList>
+          <UEmpty
+            v-if="browse.artists.total.value === 0 && !browse.artists.loading.value"
+            variant="naked"
+            size="sm"
+            icon="i-tabler-users"
+            title="No artists match"
+            class="min-h-0 flex-1"
+          />
+        </div>
+      </div>
+
+      <div class="flex min-h-0 min-w-0 flex-col overflow-hidden">
+        <div
+          class="flex h-8 shrink-0 items-center gap-2 border-b border-default bg-elevated/30 px-2"
+        >
+          <h2 class="truncate text-xs font-semibold uppercase tracking-wide text-muted">Albums</h2>
+          <template v-if="browse.albums.selectionCount.value > 0">
+            <span class="ml-auto text-xs tabular-nums text-primary" aria-live="polite">
+              {{ browse.albums.selectionCount.value.toLocaleString() }}
+            </span>
+            <UButton
+              icon="i-tabler-x"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              aria-label="Clear album selection"
+              @click="browse.albums.clearSelection()"
+            />
+          </template>
+          <span
+            class="text-xs tabular-nums text-dimmed"
+            :class="{ 'ml-auto': browse.albums.selectionCount.value === 0 }"
+          >
+            {{ browse.albums.total.value.toLocaleString() }}
+          </span>
+        </div>
+        <div class="flex min-h-0 flex-1 flex-col">
+          <FacetList
+            :model="browse.albums"
+            :row-height="ALBUM_ROW_HEIGHT"
+            label="Albums"
+            :menu="albumPane.menu"
+            @activate="albumPane.activate"
+          >
+            <template #row="{ item }">
+              <UAvatar
+                :src="item?.artwork.small"
+                :icon="item ? undefined : 'i-tabler-vinyl'"
+                alt=""
+                size="md"
+                class="shrink-0 rounded"
+                :ui="{ image: 'rounded object-cover', icon: 'size-4 text-dimmed' }"
+                loading="lazy"
+              />
+              <span class="flex min-w-0 flex-col">
+                <span class="truncate">{{ item?.title ?? 'Loading…' }}</span>
+                <span class="truncate text-xs text-muted">
+                  {{ item ? (item.albumArtist ?? 'Unknown artist') : '' }}
+                </span>
+              </span>
+              <span class="ml-auto shrink-0 text-xs tabular-nums text-dimmed">
+                {{ item?.trackCount ?? '' }}
+              </span>
+            </template>
+          </FacetList>
+          <UEmpty
+            v-if="browse.albums.total.value === 0 && !browse.albums.loading.value"
+            variant="naked"
+            size="sm"
+            icon="i-tabler-vinyl"
+            title="No albums match"
+            class="min-h-0 flex-1"
+          />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section v-else class="flex h-full min-h-0 flex-col" aria-label="Library sources">
     <div class="space-y-2 border-b border-default bg-elevated/40 p-2">
       <UFormField label="Library folder" :ui="{ label: 'sr-only' }">
         <div class="flex items-center gap-1">
