@@ -240,7 +240,13 @@ function createWindow(backgroundColor: string): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
-    minWidth: 940,
+    // The floor the responsive shell is designed down to: below it the transport
+    // folds its flanking controls into a popover, the side rail reflows into a
+    // band above the list, and the tab row and title bar crunch to icons. Kept
+    // above a phone column on purpose — narrower than this the lists stop being
+    // worth virtualizing over. Tiling WMs ignore this, which is exactly the case
+    // the container-relative breakpoints exist to survive.
+    minWidth: 640,
     minHeight: 600,
     show: false,
     frame: false,

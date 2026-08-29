@@ -21,6 +21,13 @@ declare module 'vue-router' {
      * pane, which belongs to the sidebar container rather than to any tab.
      */
     sidebar: boolean
+    /**
+     * Whether the tab's sidebar can reflow into a band above the body when the
+     * window is too narrow for a side-by-side rail (§2). The browse rails carry a
+     * `layout="band"` presentation for it; the utility rails (Tools, Settings) do
+     * not, so they keep their column and simply crunch.
+     */
+    reflow: boolean
   }
 }
 
@@ -47,6 +54,12 @@ interface ShellTab {
    */
   sidebar?: Component
   /**
+   * Whether the sidebar reflows into a band above the body on a narrow window
+   * (§2). Only the browse rails — Library, Curate, Podcasts — carry the
+   * `layout="band"` presentation this needs; utility rails keep their column.
+   */
+  reflow?: boolean
+  /**
    * Whether the tab sits in the trailing group of the row, pushed to the right
    * and separated from the primary navigation. Stats and Settings are utilities
    * about the library rather than places within it, so they read as a distinct
@@ -62,7 +75,8 @@ const TABS: ShellTab[] = [
     label: 'Library',
     icon: 'i-tabler-library',
     view: LibraryView,
-    sidebar: Sources
+    sidebar: Sources,
+    reflow: true
   },
   {
     name: 'curate',
@@ -70,7 +84,8 @@ const TABS: ShellTab[] = [
     label: 'Curate',
     icon: 'i-tabler-playlist',
     view: CurateView,
-    sidebar: CurateSidebar
+    sidebar: CurateSidebar,
+    reflow: true
   },
   {
     name: 'podcasts',
@@ -78,7 +93,8 @@ const TABS: ShellTab[] = [
     label: 'Podcasts',
     icon: 'i-tabler-microphone',
     view: PodcastsView,
-    sidebar: PodcastsSidebar
+    sidebar: PodcastsSidebar,
+    reflow: true
   },
   {
     name: 'now-playing',
@@ -163,7 +179,7 @@ export const shellRoutes: RouteRecordRaw[] = [
         path: tab.path,
         name: tab.name,
         components,
-        meta: { sidebar: Boolean(tab.sidebar) }
+        meta: { sidebar: Boolean(tab.sidebar), reflow: Boolean(tab.reflow) }
       }
     })
   }

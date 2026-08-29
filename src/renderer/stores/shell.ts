@@ -50,6 +50,23 @@ export const useShellStore = defineStore('shell', () => {
   }
 
   /**
+   * Whether the frame has reflowed the side rail into a band above the list
+   * because the sidebar and body can no longer sit side by side (§2).
+   *
+   * Session-only, and owned by the frame: it is a fact about the current window
+   * size, not a preference to persist. It rides in the store because the cover
+   * pane belongs to the rail — when the rail becomes a band the full-size cover
+   * is not drawn, so the transport's thumbnail has to come back even though the
+   * operator's `coverExpanded` preference is untouched. Reading one flag is how
+   * the bar knows the pane is not on screen without learning what a sidebar is.
+   */
+  const sidebarCompact = ref(false)
+
+  function setSidebarCompact(value: boolean): void {
+    sidebarCompact.value = value
+  }
+
+  /**
    * Which tab is showing, mirrored from the route.
    *
    * The route stays the source of truth for *navigation* — it is what survives
@@ -114,6 +131,8 @@ export const useShellStore = defineStore('shell', () => {
     coverExpanded,
     toggleCover,
     collapseCover,
+    sidebarCompact,
+    setSidebarCompact,
     activeTab,
     activeTabIndex,
     direction,

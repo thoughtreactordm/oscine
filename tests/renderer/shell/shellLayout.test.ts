@@ -51,7 +51,9 @@ describe('reading a stored layout', () => {
     // then. A layout written by a build with a wider ceiling must still be safe.
     const { layout } = shellLayout({ 'shell.sidebar': 900 })
     expect(layout.sizeOf(SIDEBAR_PANE)).toBe(480)
-    expect(layout.sizeOf(SIDEBAR_PANE, 940)).toBe(460)
+    // On the narrowest allowed window (640), the body's 360 reserve leaves the
+    // sidebar 280 — below its own 480 ceiling, so the container is what bites.
+    expect(layout.sizeOf(SIDEBAR_PANE, 640)).toBe(280)
   })
 })
 

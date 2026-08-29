@@ -360,6 +360,32 @@ const helpItems = computed<DropdownMenuItem[][]>(() => [
   ]
 ])
 
+/**
+ * The four menus, folded into one when the chrome is too narrow to lay them out
+ * (§5). Each becomes a submenu carrying its own groups, so nothing is lost — the
+ * bar just spends one button's width instead of four. The overflow trigger and
+ * the four inline buttons are both always rendered; a container query shows one
+ * and hides the other, so there is no width measurement to keep in step.
+ */
+function flattenGroups(groups: DropdownMenuItem[][]): DropdownMenuItem[] {
+  return groups.flatMap((group, index) =>
+    index === 0 ? group : [{ type: 'separator' as const }, ...group]
+  )
+}
+
+const overflowItems = computed<DropdownMenuItem[][]>(() => [
+  [
+    { label: 'Library', icon: 'i-tabler-folder', children: flattenGroups(libraryItems.value) },
+    {
+      label: 'Playback',
+      icon: 'i-tabler-player-play',
+      children: flattenGroups(playbackItems.value)
+    },
+    { label: 'View', icon: 'i-tabler-layout-2', children: flattenGroups(viewItems.value) },
+    { label: 'Help', icon: 'i-tabler-help-circle', children: flattenGroups(helpItems.value) }
+  ]
+])
+
 onMounted(async () => {
   stopMaximizedListener = windowControls.onMaximizedChange((value) => {
     maximized.value = value
@@ -377,15 +403,39 @@ async function toggleMaximize(): Promise<void> {
 
 <template>
   <header
-    class="app-drag-region flex h-full min-w-0 items-center border-b border-default bg-elevated/70 text-sm select-none"
+    class="app-titlebar app-drag-region flex h-full min-w-0 items-center border-b border-default bg-elevated/70 text-sm select-none"
     aria-label="Application toolbar"
   >
     <div class="flex h-full shrink-0 items-center gap-2 px-3" aria-label="Oscine">
       <AppLogo class="size-6" />
-      <span class="app-logo text-sm font-semibold tracking-wide text-highlighted">oscine</span>
+      <span class="app-logo app-wordmark text-sm font-semibold tracking-wide text-highlighted">
+        oscine
+      </span>
     </div>
 
-    <nav class="app-no-drag flex h-full items-center" aria-label="Application menu">
+    <!--
+      The full menu bar and the single overflow menu that replaces it are both
+      here; a container query on the header shows exactly one (see the styles).
+    -->
+    <div class="app-overflow app-no-drag h-full items-center px-1">
+      <UDropdownMenu
+        :items="overflowItems"
+        :content="{ align: 'start', sideOffset: 0 }"
+        :ui="menuUi"
+      >
+        <UButton
+          icon="i-tabler-menu-2"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          square
+          class="h-full rounded-none"
+          aria-label="Menu"
+        />
+      </UDropdownMenu>
+    </div>
+
+    <nav class="app-menubar app-no-drag h-full items-center" aria-label="Application menu">
       <UDropdownMenu
         :items="libraryItems"
         :content="{ align: 'start', sideOffset: 0 }"
@@ -445,7 +495,7 @@ async function toggleMaximize(): Promise<void> {
       <button
         v-if="paletteAffordance"
         type="button"
-        class="app-no-drag flex h-6 w-full max-w-80 items-center gap-2 rounded-md border border-default bg-default/60 px-2.5 text-xs text-muted transition-colors hover:bg-elevated hover:text-default"
+        class="app-search app-no-drag flex h-6 w-full max-w-80 items-center gap-2 rounded-md border border-default bg-default/60 px-2.5 text-xs text-muted transition-colors hover:bg-elevated hover:text-default"
         aria-label="Search"
         @click="palette.openPalette()"
       >
@@ -644,5 +694,49 @@ async function toggleMaximize(): Promise<void> {
  */
 .app-logo {
   font-family: 'Sora Variable', system-ui, sans-serif;
+}
+
+/*
+ * The chrome sheds width in the order it can most afford to (§5), each stage
+ * keyed to the bar's own width, not the viewport's:
+ *   - the wordmark goes first — the mark still says which app this is;
+ *   - then the search box, whose job the palette shortcut already does;
+ *   - then the four menus fold into one `☰`, so a bare-minimum window still
+ *     reaches every one of them.
+ * The window controls never move: they are the last thing that may leave, and on
+ * a frameless window they are the only way to close it.
+ */
+.app-titlebar {
+  container-type: inline-size;
+}
+
+.app-menubar {
+  display: flex;
+}
+
+.app-overflow {
+  display: none;
+}
+
+@container (max-width: 760px) {
+  .app-wordmark {
+    display: none;
+  }
+}
+
+@container (max-width: 720px) {
+  .app-search {
+    display: none;
+  }
+}
+
+@container (max-width: 680px) {
+  .app-menubar {
+    display: none;
+  }
+
+  .app-overflow {
+    display: flex;
+  }
 }
 </style>

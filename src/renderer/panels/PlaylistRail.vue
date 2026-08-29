@@ -43,6 +43,16 @@ import { CONFIRM_PLAYLIST_DELETE_KEY } from '@shared/settings'
  * contents pane. They meet at the stores.
  */
 
+/**
+ * `band` is the frame's narrow-window layout (§2). A single virtualized list does
+ * not decompose into columns, so the band keeps every interaction — reorder,
+ * inline rename, the context menu, the virtualization — and only rearranges the
+ * furniture: the pinned nav becomes a left column and the playlist list the right
+ * one. The two `contents` wrappers make the wide (`rail`) layout byte-identical —
+ * they generate no box, so the section's flex column flows exactly as before.
+ */
+withDefaults(defineProps<{ layout?: 'rail' | 'band' }>(), { layout: 'rail' })
+
 const playlists = usePlaylistsStore()
 const playback = usePlaybackStore()
 const settings = useSettings()
@@ -244,8 +254,21 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 flex-col" aria-label="Curate">
+  <section
+    class="flex h-full min-h-0"
+    :class="layout === 'band' ? 'flex-row divide-x divide-default' : 'flex-col'"
+    aria-label="Curate"
+  >
     <!--
+      Pinned nav. `contents` in the rail so it flows in the section's column
+      exactly as before; a narrow left column in the band.
+    -->
+    <div
+      :class="
+        layout === 'band' ? 'flex w-40 min-h-0 shrink-0 flex-col overflow-y-auto' : 'contents'
+      "
+    >
+      <!--
       The two pinned destinations. Above the playlists and outside the scroll
       container, so they stay put however far the rail is scrolled — pinned is
       the whole of what the operator asked for.
@@ -260,164 +283,168 @@ onMounted(() => {
       also the only version that cannot rot: there is no code path to forget to
       keep disabled.
     -->
-    <button
-      type="button"
-      class="flex h-8 shrink-0 cursor-default items-center gap-2 border-b border-default px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
-      :class="
-        discoverViewed
-          ? 'bg-elevated text-highlighted shadow-[inset_2px_0_0_0_var(--ui-primary)]'
-          : 'text-muted hover:bg-elevated/60 hover:text-default'
-      "
-      :aria-current="discoverViewed ? 'true' : undefined"
-      @click="playlists.view(DISCOVER_TAB)"
-    >
-      <UIcon
-        name="i-tabler-compass"
-        class="size-3.5 shrink-0"
-        :class="discoverViewed ? 'text-primary' : ''"
-        aria-hidden="true"
-      />
-      <span class="min-w-0 flex-1 truncate font-medium">Discover</span>
-    </button>
+      <button
+        type="button"
+        class="flex h-8 shrink-0 cursor-default items-center gap-2 border-b border-default px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+        :class="
+          discoverViewed
+            ? 'bg-elevated text-highlighted shadow-[inset_2px_0_0_0_var(--ui-primary)]'
+            : 'text-muted hover:bg-elevated/60 hover:text-default'
+        "
+        :aria-current="discoverViewed ? 'true' : undefined"
+        @click="playlists.view(DISCOVER_TAB)"
+      >
+        <UIcon
+          name="i-tabler-compass"
+          class="size-3.5 shrink-0"
+          :class="discoverViewed ? 'text-primary' : ''"
+          aria-hidden="true"
+        />
+        <span class="min-w-0 flex-1 truncate font-medium">Discover</span>
+      </button>
 
-    <button
-      type="button"
-      class="flex h-8 shrink-0 cursor-default items-center gap-2 border-b border-default px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
-      :class="
-        favoritesViewed
-          ? 'bg-elevated text-highlighted shadow-[inset_2px_0_0_0_var(--ui-primary)]'
-          : 'text-muted hover:bg-elevated/60 hover:text-default'
-      "
-      :aria-current="favoritesViewed ? 'true' : undefined"
-      @click="playlists.view(FAVORITES_TAB)"
-      @dblclick="playFavorites()"
-    >
-      <UIcon
-        name="i-tabler-heart"
-        class="size-3.5 shrink-0"
-        :class="favoritesViewed ? 'text-primary' : ''"
-        aria-hidden="true"
-      />
-      <span class="min-w-0 flex-1 truncate font-medium">My Favorites</span>
-      <span class="shrink-0 text-xs tabular-nums text-dimmed">
-        {{ favorites.total.toLocaleString() }}
-      </span>
-    </button>
-
-    <div class="flex h-9 shrink-0 items-center gap-2 border-b border-default bg-elevated/40 px-2">
-      <UIcon name="i-tabler-playlist" class="size-4 text-primary" />
-      <h2 class="text-sm font-semibold text-highlighted">Playlists</h2>
-      <span class="ml-auto text-xs tabular-nums text-muted">
-        {{ playlists.list.length.toLocaleString() }}
-      </span>
-      <UButton
-        icon="i-tabler-plus"
-        size="xs"
-        color="neutral"
-        variant="ghost"
-        aria-label="New playlist"
-        @click="model.create()"
-      />
+      <button
+        type="button"
+        class="flex h-8 shrink-0 cursor-default items-center gap-2 border-b border-default px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+        :class="
+          favoritesViewed
+            ? 'bg-elevated text-highlighted shadow-[inset_2px_0_0_0_var(--ui-primary)]'
+            : 'text-muted hover:bg-elevated/60 hover:text-default'
+        "
+        :aria-current="favoritesViewed ? 'true' : undefined"
+        @click="playlists.view(FAVORITES_TAB)"
+        @dblclick="playFavorites()"
+      >
+        <UIcon
+          name="i-tabler-heart"
+          class="size-3.5 shrink-0"
+          :class="favoritesViewed ? 'text-primary' : ''"
+          aria-hidden="true"
+        />
+        <span class="min-w-0 flex-1 truncate font-medium">My Favorites</span>
+        <span class="shrink-0 text-xs tabular-nums text-dimmed">
+          {{ favorites.total.toLocaleString() }}
+        </span>
+      </button>
     </div>
 
-    <!--
+    <!-- Playlists list. `contents` in the rail; the wide right column in the band. -->
+    <div :class="layout === 'band' ? 'flex min-h-0 min-w-0 flex-1 flex-col' : 'contents'">
+      <div class="flex h-9 shrink-0 items-center gap-2 border-b border-default bg-elevated/40 px-2">
+        <UIcon name="i-tabler-playlist" class="size-4 text-primary" />
+        <h2 class="text-sm font-semibold text-highlighted">Playlists</h2>
+        <span class="ml-auto text-xs tabular-nums text-muted">
+          {{ playlists.list.length.toLocaleString() }}
+        </span>
+        <UButton
+          icon="i-tabler-plus"
+          size="xs"
+          color="neutral"
+          variant="ghost"
+          aria-label="New playlist"
+          @click="model.create()"
+        />
+      </div>
+
+      <!--
       One scroll container, two spacers, and only the rows between them. The
       playlists are in memory, so the whole of the virtualization is the padding.
     -->
-    <div
-      v-if="model.rows.value.length > 0"
-      :ref="measure"
-      class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-      role="listbox"
-      aria-label="All playlists"
-      @scroll.passive="onScroll"
-      @keydown="onKeydown"
-    >
-      <div :style="{ height: `${window.topPx}px` }" aria-hidden="true" />
+      <div
+        v-if="model.rows.value.length > 0"
+        :ref="measure"
+        class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        role="listbox"
+        aria-label="All playlists"
+        @scroll.passive="onScroll"
+        @keydown="onKeydown"
+      >
+        <div :style="{ height: `${window.topPx}px` }" aria-hidden="true" />
 
-      <UContextMenu v-for="row in drawn" :key="row.playlist.id" :items="menu(row.playlist)">
-        <div
-          :ref="(el) => registerRow(row.playlist.id, el)"
-          role="option"
-          :aria-selected="row.isViewed"
-          :tabindex="row.isFocused ? 0 : -1"
-          :draggable="model.renamingId.value !== row.playlist.id"
-          :style="{ height: `${ROW_PX}px` }"
-          class="group relative flex cursor-default items-center gap-2 px-2 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
-          :class="
-            row.isViewed
-              ? 'bg-elevated text-highlighted shadow-[inset_2px_0_0_0_var(--ui-primary)]'
-              : 'text-muted hover:bg-elevated/60 hover:text-default'
-          "
-          @click="model.activate(row.playlist.id)"
-          @dblclick="model.play(row.playlist.id)"
-          @dragstart="onDragStart($event, row.playlist.id)"
-          @dragover="onDragOver($event, row.playlist.id)"
-          @drop.prevent="model.drop()"
-          @dragend="model.endDrag()"
-        >
-          <span
-            v-if="model.dropIndicator(row.playlist.id) !== null"
-            class="pointer-events-none absolute inset-x-0 h-0.5 bg-primary"
-            :class="model.dropIndicator(row.playlist.id) === 'before' ? 'top-0' : 'bottom-0'"
-            aria-hidden="true"
-          />
+        <UContextMenu v-for="row in drawn" :key="row.playlist.id" :items="menu(row.playlist)">
+          <div
+            :ref="(el) => registerRow(row.playlist.id, el)"
+            role="option"
+            :aria-selected="row.isViewed"
+            :tabindex="row.isFocused ? 0 : -1"
+            :draggable="model.renamingId.value !== row.playlist.id"
+            :style="{ height: `${ROW_PX}px` }"
+            class="group relative flex cursor-default items-center gap-2 px-2 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+            :class="
+              row.isViewed
+                ? 'bg-elevated text-highlighted shadow-[inset_2px_0_0_0_var(--ui-primary)]'
+                : 'text-muted hover:bg-elevated/60 hover:text-default'
+            "
+            @click="model.activate(row.playlist.id)"
+            @dblclick="model.play(row.playlist.id)"
+            @dragstart="onDragStart($event, row.playlist.id)"
+            @dragover="onDragOver($event, row.playlist.id)"
+            @drop.prevent="model.drop()"
+            @dragend="model.endDrag()"
+          >
+            <span
+              v-if="model.dropIndicator(row.playlist.id) !== null"
+              class="pointer-events-none absolute inset-x-0 h-0.5 bg-primary"
+              :class="model.dropIndicator(row.playlist.id) === 'before' ? 'top-0' : 'bottom-0'"
+              aria-hidden="true"
+            />
 
-          <!--
+            <!--
             Two states, two marks, because §5 makes them two facts. Playing gets
             the glyph; viewed is the row's own surface and the primary edge. A
             third "open" mark used to sit here when this rail fed a tab strip;
             without one, viewed is the only workspace fact a row has.
           -->
-          <UIcon
-            v-if="row.isPlaying"
-            name="i-tabler-player-play-filled"
-            class="size-3 shrink-0 text-primary"
-            aria-hidden="true"
-          />
-          <span v-else class="size-3 shrink-0" aria-hidden="true" />
+            <UIcon
+              v-if="row.isPlaying"
+              name="i-tabler-player-play-filled"
+              class="size-3 shrink-0 text-primary"
+              aria-hidden="true"
+            />
+            <span v-else class="size-3 shrink-0" aria-hidden="true" />
 
-          <input
-            v-if="model.renamingId.value === row.playlist.id"
-            :ref="(el) => registerRenameInput(el)"
-            v-model="model.draft.value"
-            class="min-w-0 flex-1 rounded-sm bg-default px-1 text-sm text-highlighted outline-none ring-1 ring-primary"
-            :maxlength="PLAYLIST_NAME_MAX_LENGTH"
-            aria-label="Playlist name"
-            @click.stop
-            @dblclick.stop
-            @keydown.stop.enter.prevent="model.commitRename()"
-            @keydown.stop.esc.prevent="model.cancelRename()"
-            @blur="model.commitRename()"
-          />
-          <template v-else>
-            <span
-              class="min-w-0 flex-1 truncate"
-              :class="row.isPlaying ? 'text-primary' : ''"
-              :title="row.playlist.name"
-            >
-              {{ row.playlist.name }}
-            </span>
-            <span v-if="row.isPlaying" class="sr-only">(playing)</span>
-            <span class="shrink-0 text-xs tabular-nums text-dimmed">
-              {{ row.playlist.trackCount.toLocaleString() }}
-            </span>
-          </template>
-        </div>
-      </UContextMenu>
+            <input
+              v-if="model.renamingId.value === row.playlist.id"
+              :ref="(el) => registerRenameInput(el)"
+              v-model="model.draft.value"
+              class="min-w-0 flex-1 rounded-sm bg-default px-1 text-sm text-highlighted outline-none ring-1 ring-primary"
+              :maxlength="PLAYLIST_NAME_MAX_LENGTH"
+              aria-label="Playlist name"
+              @click.stop
+              @dblclick.stop
+              @keydown.stop.enter.prevent="model.commitRename()"
+              @keydown.stop.esc.prevent="model.cancelRename()"
+              @blur="model.commitRename()"
+            />
+            <template v-else>
+              <span
+                class="min-w-0 flex-1 truncate"
+                :class="row.isPlaying ? 'text-primary' : ''"
+                :title="row.playlist.name"
+              >
+                {{ row.playlist.name }}
+              </span>
+              <span v-if="row.isPlaying" class="sr-only">(playing)</span>
+              <span class="shrink-0 text-xs tabular-nums text-dimmed">
+                {{ row.playlist.trackCount.toLocaleString() }}
+              </span>
+            </template>
+          </div>
+        </UContextMenu>
 
-      <div :style="{ height: `${window.bottomPx}px` }" aria-hidden="true" />
+        <div :style="{ height: `${window.bottomPx}px` }" aria-hidden="true" />
+      </div>
+
+      <UEmpty
+        v-else
+        variant="naked"
+        size="sm"
+        icon="i-tabler-playlist-add"
+        title="No playlists yet"
+        description="Make one with the plus button."
+        class="min-h-0 flex-1"
+      />
     </div>
-
-    <UEmpty
-      v-else
-      variant="naked"
-      size="sm"
-      icon="i-tabler-playlist-add"
-      title="No playlists yet"
-      description="Make one with the plus button."
-      class="min-h-0 flex-1"
-    />
 
     <UModal
       v-model:open="promptOpen"

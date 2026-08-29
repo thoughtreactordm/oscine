@@ -13,8 +13,9 @@ import { shellTabs } from '@renderer/shell/routes'
 import { useGlobalShortcuts } from '@renderer/shell/useGlobalShortcuts'
 import { useIdleAutoShow } from '@renderer/shell/useIdleAutoShow'
 import { useStageTransport } from '@renderer/shell/useStageTransport'
+import { useContainerWidth } from '@renderer/shell/useContainerWidth'
 import { useZenMode } from '@renderer/shell/useZenMode'
-import { SIDEBAR_PANE } from '@renderer/shell/shellLayout'
+import { SHELL_BAND_PANE, SIDEBAR_PANE } from '@renderer/shell/shellLayout'
 import ShellSidebar from '@renderer/shell/ShellSidebar.vue'
 import ShellTabs from '@renderer/shell/ShellTabs.vue'
 import Tunedeck from '@renderer/panels/Tunedeck.vue'
@@ -133,6 +134,12 @@ useZenMode()
 const sidebarWidth = shell.paneSize(SIDEBAR_PANE)
 
 /**
+ * The reflowed band's height, dragged and remembered — the vertical counterpart
+ * to `sidebarWidth`, live only while the rail is a band (§2).
+ */
+const bandHeight = shell.paneSize(SHELL_BAND_PANE)
+
+/**
  * Suspends the collapse animation for the length of a drag.
  *
  * The two want the same property for opposite reasons: the collapse needs the
@@ -154,6 +161,29 @@ const deckResizing = ref(false)
  * changes.
  */
 const hasSidebar = computed(() => route.meta.sidebar === true)
+
+/**
+ * §2: below ~760px the rail and the body can no longer sit side by side, so the
+ * frame reflows the rail into a band above the body and drops the body's width
+ * floor. Measured on the sidebar+body region rather than the viewport — the deck
+ * is a sibling outside that region, so opening it narrows what is measured here
+ * and pulls the reflow forward exactly when the deck is the thing eating the
+ * width. Only the browse rails carry the band presentation (`route.meta.reflow`);
+ * the utility rails keep their column and simply crunch.
+ */
+const regionRef = ref<HTMLElement | null>(null)
+const { width: regionWidth } = useContainerWidth(regionRef)
+const compactSidebar = computed(
+  () =>
+    hasSidebar.value &&
+    route.meta.reflow === true &&
+    regionWidth.value > 0 &&
+    regionWidth.value < 760
+)
+
+// The transport reads this to bring its cover thumbnail back when the band has
+// taken the full-size cover pane off screen — see the shell store.
+watch(compactSidebar, (compact) => shell.setSidebarCompact(compact), { immediate: true })
 
 /**
  * Which way the body slides, from the order of the tab row.
@@ -233,44 +263,86 @@ onUnmounted(() => {
         Sidebar and body are nested one level in so that the deck is outside
         them. That is not tidiness: `PaneResizer` measures its own parent, so
         the sidebar's handle now measures a row the deck has already been taken
-        out of, and `SIDEBAR_PANE.reserve` stays exactly the body's `min-w-120`
-        instead of having to grow and shrink with a pane it knows nothing about.
+        out of, and `SIDEBAR_PANE.reserve` stays exactly the body's wide-mode
+        `min-w-90` instead of having to grow and shrink with a pane it knows
+        nothing about.
         A static reserve that had to account for the deck would be wrong in one
         of the two states whichever number it held.
       -->
-      <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <div
-          class="shell-sidebar min-h-0 overflow-hidden bg-default"
-          :style="{ width: hasSidebar ? `${sidebarWidth}px` : '0px' }"
-          :data-resizing="resizing || undefined"
-          :inert="hasSidebar ? undefined : true"
-        >
-          <!--
-            The inner width is the full one whatever the outer is animating
-            towards. Without it the sidebar's contents would reflow through every
-            frame of the collapse — a virtualized facet list re-measuring itself
-            320 times on the way to zero — instead of being clipped by a container
-            that is closing over them.
-          -->
-          <div class="h-full min-h-0" :style="{ width: `${sidebarWidth}px` }">
-            <ShellSidebar>
-              <RouterView v-slot="{ Component }" name="sidebar">
-                <Transition name="tab-fade" mode="out-in">
-                  <component :is="Component" v-if="Component" :key="shell.activeTab" />
-                </Transition>
-              </RouterView>
-            </ShellSidebar>
+      <div
+        ref="regionRef"
+        class="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+        :class="compactSidebar ? 'flex-col' : 'flex-row'"
+      >
+        <!--
+          Wide: the rail as a left column, its width dragged and animated as
+          before. The cover pane rides inside `ShellSidebar` here and only here.
+        -->
+        <template v-if="!compactSidebar">
+          <div
+            class="shell-sidebar min-h-0 overflow-hidden bg-default"
+            :style="{ width: hasSidebar ? `${sidebarWidth}px` : '0px' }"
+            :data-resizing="resizing || undefined"
+            :inert="hasSidebar ? undefined : true"
+          >
+            <!--
+              The inner width is the full one whatever the outer is animating
+              towards. Without it the sidebar's contents would reflow through every
+              frame of the collapse — a virtualized facet list re-measuring itself
+              320 times on the way to zero — instead of being clipped by a container
+              that is closing over them.
+            -->
+            <div class="h-full min-h-0" :style="{ width: `${sidebarWidth}px` }">
+              <ShellSidebar>
+                <RouterView v-slot="{ Component }" name="sidebar">
+                  <Transition name="tab-fade" mode="out-in">
+                    <component :is="Component" v-if="Component" :key="shell.activeTab" />
+                  </Transition>
+                </RouterView>
+              </ShellSidebar>
+            </div>
           </div>
+
+          <PaneResizer
+            v-if="hasSidebar"
+            v-model:size="sidebarWidth"
+            :pane="SIDEBAR_PANE"
+            @dragging="resizing = $event"
+          />
+        </template>
+
+        <!--
+          Compact: the same routed rail, reflowed into a fixed-height band above
+          the body (§2). `layout="band"` is what asks each rail to lay its sections
+          side by side; the cover pane is deliberately absent here, which is the
+          "auto close" the narrow layout wants. Only one `RouterView name="sidebar"`
+          is mounted at a time — this branch or the column above — so crossing the
+          breakpoint remounts the rail (it reads from stores) but never the body,
+          which is a stable sibling of both branches below.
+        -->
+        <div
+          v-else
+          class="shell-band shrink-0 overflow-hidden bg-default"
+          :style="{ height: `${bandHeight}px` }"
+        >
+          <RouterView v-slot="{ Component }" name="sidebar">
+            <component :is="Component" v-if="Component" :key="shell.activeTab" layout="band" />
+          </RouterView>
         </div>
 
-        <PaneResizer
-          v-if="hasSidebar"
-          v-model:size="sidebarWidth"
-          :pane="SIDEBAR_PANE"
-          @dragging="resizing = $event"
-        />
+        <!--
+          The band's own edge, the vertical twin of the sidebar's. Drawn only in
+          the reflowed layout, between the band and the body, so the operator sets
+          how much of the narrow window the sources keep. Measures the region — its
+          parent — for the height it has to divide, exactly as the sidebar handle
+          measures it for width.
+        -->
+        <PaneResizer v-if="compactSidebar" v-model:size="bandHeight" :pane="SHELL_BAND_PANE" />
 
-        <div class="relative min-h-0 min-w-120 flex-1 overflow-hidden bg-default">
+        <div
+          class="relative min-h-0 flex-1 overflow-hidden bg-default"
+          :class="compactSidebar ? 'min-w-0' : 'min-w-90'"
+        >
           <RouterView v-slot="{ Component }">
             <Transition :name="bodyTransition">
               <component
