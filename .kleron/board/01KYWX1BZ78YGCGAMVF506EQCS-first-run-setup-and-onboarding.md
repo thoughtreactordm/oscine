@@ -1,17 +1,39 @@
 ---
 taskId: 01KYWX1BZ78YGCGAMVF506EQCS
 title: First-run setup and onboarding
-status: todo
+status: in-review
 priority: low
 labels: []
 workstream: W8
 workstreamId: W8-14
 dependsOn:
-  - 01KYWWY6TM6XQA3NB7YHQWZZG4
-order: 2
+  - 01M157K1SBA9AWBQ30K9VBRXWA
+  - 01M157KBPZV4TXQBHYPC2J8Q4X
+  - 01M157KNGJHKK2E76JWCREYGM0
+  - 01M157KWSZJBR98E7ZBJW49QAY
+  - 01M157M1BGFBFPB5RF82CPP8BD
+  - 01M157MBXHJ73S8PJE66BN8KEW
+order: 0
 created: '2026-07-31T20:14:49.317Z'
-updated: '2026-08-28T17:33:16.561Z'
+updated: '2026-08-28T23:54:07.525Z'
 ---
+**Umbrella.** The design is settled and cut into sub-cards — see wiki **`oscine-onboarding`** for the
+full spec (decisions D-ONB-1…7, the done-key/launch gate, the flow, and the discovered global-scan-
+indicator gap). This card tracks the whole; work the children.
+
+## Breakdown
+
+- **14a** — done-key `interface.onboardingCompleted` + main-side fresh detection + `AppShell`
+  open-on-launch.
+- **14b** *(keystone)* — `useOnboardingStore` + `<UModal>` shell in `AppShell` + linear next/back +
+  cancel=keep-and-mark-done + surface→`SettingField` rendering.
+- **14c** — root step (single folder) + immediate background `scanRoot`.
+- **14d** — theme / audio / network steps as descriptor surfaces (network conditional on W7's key).
+- **14e** — scan step + non-blocking Finish + minimal global indexing indicator.
+- **14f** — re-run entry points (Settings button + `onboarding.rerun` palette command).
+
+---
+
 The registry rendered as a wizard. Cheap once everything above exists, and currently owned by nobody — a first launch today drops the operator into an empty shell with no root and no indication that adding one is the next move.
 
 ## The flow

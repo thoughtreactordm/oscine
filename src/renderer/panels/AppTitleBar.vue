@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { appInfo, windowControls } from '@renderer/ipc'
+import IndexingIndicator from '@renderer/panels/IndexingIndicator.vue'
 import AppLogo from '@renderer/shell/AppLogo.vue'
 import { SHORTCUTS, type ShortcutCategory } from '@renderer/shell/globalShortcuts'
 import { shellTabs } from '@renderer/shell/routes'
@@ -453,6 +454,13 @@ async function toggleMaximize(): Promise<void> {
         <UKbd :value="shortcutHint" size="sm" />
       </button>
     </div>
+
+    <!--
+      Live while `roots.scan` is set, gone the moment it is null. Always-on so
+      a first-run Finish (or a rescan from any tab) still has an indexing cue
+      after the modal or sidebar that started it is gone.
+    -->
+    <IndexingIndicator />
 
     <div class="app-no-drag flex h-full shrink-0 items-center" aria-label="Window controls">
       <!--

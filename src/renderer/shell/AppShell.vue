@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import OnboardingModal from '@renderer/onboarding/OnboardingModal.vue'
 import AppTitleBar from '@renderer/panels/AppTitleBar.vue'
 import CommandPalette from '@renderer/panels/CommandPalette.vue'
 import NewPlaylistModal from '@renderer/panels/NewPlaylistModal.vue'
@@ -354,6 +355,13 @@ onUnmounted(() => {
       one tab, so it cannot live under a route that a tab change unmounts.
     -->
     <CommandPalette />
+
+    <!--
+      First-run setup, mounted with the frame for the same reason the playlist
+      modal is: the launch gate and a later Settings re-run both open it from
+      outside any one tab.
+    -->
+    <OnboardingModal />
   </main>
 </template>
 
