@@ -27,7 +27,14 @@ const shell = useShellStore()
     :ui="{ body: 'flex h-full min-h-0 flex-col p-0 sm:p-0' }"
     aria-label="Sidebar"
   >
-    <div class="flex min-h-0 flex-1 flex-col">
+    <!--
+      `relative` and clipping, because the routed rail inside the slot is
+      `absolute inset-0` and cross-fades against the next one (see the frame): this
+      is the box it positions and fades within. The rail keeps its own `h-full`
+      flex column; inset-0 is only what gives two of them the same footprint for
+      the length of the swap.
+    -->
+    <div class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <slot />
     </div>
 

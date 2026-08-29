@@ -333,9 +333,27 @@ onUnmounted(() => {
             -->
             <div class="h-full min-h-0" :style="{ width: `${sidebarWidth}px` }">
               <ShellSidebar>
+                <!--
+                  Keyed and absolutely stacked, exactly as the body below is, and
+                  for the reason it is: a plain cross-fade rather than `mode="out-in"`.
+                  Out-in waits for the leaving rail to finish before it mounts the
+                  incoming one, and that handoff wedged when both the component and
+                  its key changed on the same navigation — the old rail left and the
+                  new one never entered, so every rail but the launch tab's came up
+                  blank. The band branch below carries the same `<component>` with no
+                  transition and never had the fault, which is what pinned it on the
+                  transition. Overlapping the two `absolute inset-0` for the length of
+                  the fade is what lets the mode go: they no longer stack in flow, so
+                  there is nothing for out-in to have been preventing.
+                -->
                 <RouterView v-slot="{ Component }" name="sidebar">
-                  <Transition name="tab-fade" mode="out-in">
-                    <component :is="Component" v-if="Component" :key="shell.activeTab" />
+                  <Transition name="tab-fade">
+                    <component
+                      :is="Component"
+                      v-if="Component"
+                      :key="shell.activeTab"
+                      class="absolute inset-0"
+                    />
                   </Transition>
                 </RouterView>
               </ShellSidebar>
@@ -541,9 +559,11 @@ onUnmounted(() => {
 }
 
 /*
- * The sidebar fades without travel, and out before in. It is inside a container
- * that is changing width at the same time, so a horizontal slide would be two
- * horizontal movements disagreeing about the same edge.
+ * The sidebar cross-fades without travel — the two rails overlap `absolute
+ * inset-0` for the length of it rather than one leaving before the other
+ * arrives. No travel because it is inside a container that is changing width at
+ * the same time, so a horizontal slide would be two horizontal movements
+ * disagreeing about the same edge.
  */
 .tab-fade-enter-from,
 .tab-fade-leave-to {
