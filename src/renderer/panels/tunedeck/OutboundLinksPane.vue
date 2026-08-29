@@ -4,6 +4,7 @@ import { ARTIST_LINK_LIMIT } from '@shared/artistLinks'
 import { appInfo } from '@renderer/ipc'
 import { visibleRange } from '@renderer/panels/listViewport'
 import { buildLinkRows, type LinkRow } from '@renderer/panels/tunedeck/artistLinks'
+import { deckLookupState } from '@renderer/panels/tunedeck/deckLookupState'
 import { useDeferredFlag } from '@renderer/panels/tunedeck/loadingDelay'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
 import { useArtistLinksStore } from '@renderer/stores/artistLinks'
@@ -79,6 +80,24 @@ const slow = useDeferredFlag(() => identity.loading || store.loading)
 
 const waiting = computed(() => !idle.value && !unresolved.value && (blank.value || slow.value))
 
+/**
+ * Which of the states is on screen — split declined from offline (**W7-14**).
+ *
+ * The branch order is in `deckLookupState`, shared with the members pane it sits
+ * beside, so both distinguish "lookups are off" from "could not reach" the same
+ * way and a Node Vitest can drive each state.
+ */
+const state = computed(() =>
+  deckLookupState({
+    idle: idle.value,
+    unresolved: unresolved.value,
+    hasContent: rows.value.length > 0,
+    loading: waiting.value,
+    failure: failure.value,
+    failed: store.failed
+  })
+)
+
 const visible = computed(() =>
   visibleRange({
     total: rows.value.length,
@@ -127,7 +146,7 @@ function open(row: LinkRow): void {
       viewport arithmetic rather than inventing a shorter path for the small
       case. Every row kind is `ROW_PX` tall, which keeps `visibleRange` honest.
     -->
-    <template v-if="rows.length > 0 && !waiting">
+    <template v-if="state === 'ready'">
       <div
         :ref="measure"
         class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
@@ -198,21 +217,29 @@ function open(row: LinkRow): void {
     </template>
 
     <!--
-      The same six states as the members pane, and deliberately so: the two sit
-      in one tab under one identity, and an artist we could not identify shows a
-      sentence here rather than somebody else's socials.
+      The same states as the members pane, and deliberately so: the two sit in one
+      tab under one identity, and both distinguish "lookups are off" from "could
+      not reach". An artist we could not identify shows a sentence here rather
+      than somebody else's socials, and a declined lookup a calm line rather than
+      a retry that cannot work while the toggle is off.
     -->
-    <p v-else-if="idle" class="px-1 py-4 text-center text-xs text-muted">
+    <p v-else-if="state === 'idle'" class="px-1 py-4 text-center text-xs text-muted">
       Nothing playing. This follows the current track.
     </p>
 
-    <p v-else-if="unresolved" class="px-1 py-4 text-center text-xs text-muted">
+    <p v-else-if="state === 'unresolved'" class="px-1 py-4 text-center text-xs text-muted">
       This artist has not been identified, so there is nowhere to link to.
     </p>
 
-    <p v-else-if="waiting" class="px-1 py-4 text-center text-xs text-dimmed">Looking…</p>
+    <p v-else-if="state === 'loading'" class="px-1 py-4 text-center text-xs text-dimmed">
+      Looking…
+    </p>
 
-    <div v-else-if="failure || store.failed" class="flex flex-col items-center gap-2 px-1 py-4">
+    <p v-else-if="state === 'declined'" class="px-1 py-4 text-center text-xs text-muted">
+      External lookups are off. Turn them on in Settings to see an artist's links.
+    </p>
+
+    <div v-else-if="state === 'offline'" class="flex flex-col items-center gap-2 px-1 py-4">
       <p class="text-center text-xs text-muted">
         {{ failure?.message ?? 'Could not reach MusicBrainz.' }}
       </p>
