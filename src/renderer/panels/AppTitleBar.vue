@@ -471,7 +471,7 @@ async function toggleMaximize(): Promise<void> {
       -->
       <UTooltip v-if="zenModeButton" :text="zen.active ? 'Exit Zen mode' : 'Enter Zen mode'">
         <UButton
-          icon="i-tabler-focus-2"
+          icon="i-tabler-ear-scan"
           :color="zen.active ? 'primary' : 'neutral'"
           variant="ghost"
           :aria-pressed="zen.active"
