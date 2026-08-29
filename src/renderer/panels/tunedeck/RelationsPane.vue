@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ARTIST_RELATION_LIMIT } from '@shared/artistRelations'
 import { visibleRange } from '@renderer/panels/listViewport'
+import { deckLookupState } from '@renderer/panels/tunedeck/deckLookupState'
 import { useDeferredFlag } from '@renderer/panels/tunedeck/loadingDelay'
 import { buildRelationRows, type RelationRow } from '@renderer/panels/tunedeck/relationRows'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
@@ -89,6 +90,25 @@ const slow = useDeferredFlag(() => identity.loading || relations.loading)
 
 const waiting = computed(() => !idle.value && !unresolved.value && (blank.value || slow.value))
 
+/**
+ * Which of the six states is on screen — split declined from offline (**W7-14**).
+ *
+ * The branch order lives in `deckLookupState` so a Node Vitest can drive every
+ * one of these states without a DOM. A declined lookup is its own calm state
+ * below, not a failed fetch with a retry that cannot succeed while the toggle is
+ * off.
+ */
+const state = computed(() =>
+  deckLookupState({
+    idle: idle.value,
+    unresolved: unresolved.value,
+    hasContent: rows.value.length > 0,
+    loading: waiting.value,
+    failure: failure.value,
+    failed: relations.failed
+  })
+)
+
 const visible = computed(() =>
   visibleRange({
     total: rows.value.length,
@@ -165,7 +185,7 @@ function rowTitle(row: RelationRow): string {
       and `ARTIST_RELATION_LIMIT` caps that at 250 rows rather than at none.
       Every row kind is `ROW_PX` tall, which keeps `visibleRange` arithmetic.
     -->
-    <template v-if="rows.length > 0 && !waiting">
+    <template v-if="state === 'ready'">
       <div
         :ref="measure"
         class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
@@ -263,23 +283,35 @@ function rowTitle(row: RelationRow): string {
     </template>
 
     <!--
-      Six states, and they are deliberately six. "Nothing is playing", "we do not
-      know who this is", "the lookup is running", "the lookup failed" and
-      "MusicBrainz records no connections" are different facts with different
-      next moves, and the second of them is the one the card names: an artist we
-      could not identify shows a sentence rather than somebody else's band.
+      Seven states, and they are deliberately distinct. "Nothing is playing", "we
+      do not know who this is", "the lookup is running", "external lookups are
+      off", "the lookup failed" and "MusicBrainz records no connections" are
+      different facts with different next moves. Two of them are what the M7 exit
+      gate is about: an artist we could not identify shows a sentence rather than
+      somebody else's band, and a lookup we were told not to make is a calm state
+      rather than a failed fetch offering a retry that cannot work.
     -->
-    <p v-else-if="idle" class="px-1 py-4 text-center text-xs text-muted">
+    <p v-else-if="state === 'idle'" class="px-1 py-4 text-center text-xs text-muted">
       Nothing playing. This follows the current track.
     </p>
 
-    <p v-else-if="unresolved" class="px-1 py-4 text-center text-xs text-muted">
+    <p v-else-if="state === 'unresolved'" class="px-1 py-4 text-center text-xs text-muted">
       This artist has not been identified, so there is nothing to connect them to.
     </p>
 
-    <p v-else-if="waiting" class="px-1 py-4 text-center text-xs text-dimmed">Looking…</p>
+    <p v-else-if="state === 'loading'" class="px-1 py-4 text-center text-xs text-dimmed">
+      Looking…
+    </p>
 
-    <div v-else-if="failure || relations.failed" class="flex flex-col items-center gap-2 px-1 py-4">
+    <!--
+      Declined is not a failure, so it gets no retry: asking again cannot succeed
+      while the toggle is off. Same call `artistIdentity` makes with `retryable`.
+    -->
+    <p v-else-if="state === 'declined'" class="px-1 py-4 text-center text-xs text-muted">
+      External lookups are off. Turn them on in Settings to see an artist's connections.
+    </p>
+
+    <div v-else-if="state === 'offline'" class="flex flex-col items-center gap-2 px-1 py-4">
       <p class="text-center text-xs text-muted">
         {{ failure?.message ?? 'Could not reach MusicBrainz.' }}
       </p>

@@ -29,6 +29,15 @@ const resolution = computed(() => identity.resolution)
 
 const candidates = computed(() => resolution.value?.candidates ?? [])
 
+/**
+ * External lookups are off, as distinct from MusicBrainz having nothing (**W7-14**).
+ *
+ * The two used to share one line, which told an operator to correct a tag when
+ * the real fix was to turn networking on — a wrong next move. Declined reads as
+ * a state; a genuine empty result keeps the tag-correction hint.
+ */
+const declined = computed(() => resolution.value?.failure?.kind === 'declined')
+
 const heading = computed(() => `Which “${resolution.value?.name ?? 'artist'}”?`)
 
 const description = computed(() => {
@@ -61,9 +70,18 @@ function isChosen(mbid: string): boolean {
       </div>
 
       <!--
-        The offline and declined case. Not an error: the local panes are all
-        intact behind this dialog, which is the property D14 asks for, so this
-        says what is missing and why rather than apologising.
+        Declined first, and on its own: not an error, and not a reason to correct
+        a tag. The local panes are all intact behind this dialog — the property
+        D14 asks for — so it says what is off and how to turn it on.
+      -->
+      <p v-else-if="declined" class="px-1 py-6 text-center text-xs text-muted">
+        External lookups are off. Turn them on in Settings to search MusicBrainz.
+      </p>
+
+      <!--
+        The offline and genuinely-empty case. A reachable failure shows its own
+        message; MusicBrainz having nothing keeps the tag-correction hint, which
+        is the real way in when the name simply does not resolve.
       -->
       <p v-else-if="candidates.length === 0" class="px-1 py-6 text-center text-xs text-muted">
         {{

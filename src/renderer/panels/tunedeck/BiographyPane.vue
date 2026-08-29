@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { WIKIPEDIA_LICENCE_NAME, WIKIPEDIA_LICENCE_URL } from '@shared/biography'
 import BiographySkeleton from '@renderer/panels/tunedeck/BiographySkeleton.vue'
 import { biographyParagraphs, previewBiography } from '@renderer/panels/tunedeck/biographyText'
+import { deckLookupState } from '@renderer/panels/tunedeck/deckLookupState'
 import { useDeferredFlag } from '@renderer/panels/tunedeck/loadingDelay'
 import { useArtistBiographyStore } from '@renderer/stores/artistBiography'
 import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
@@ -45,14 +46,18 @@ import { useArtistIdentityStore } from '@renderer/stores/artistIdentity'
  * an answer" and "we have an answer *about this artist*" different questions,
  * which is the difference between a stale pane and an honest one.
  *
- * ## Six states and a placeholder
+ * ## The states, and why declined is its own
  *
- * Nothing playing, no identity yet, loading, unreachable, no article, and the
- * biography. The two middle empty states are the ones the card is about: an
- * artist Wikipedia has never heard of is a normal outcome and gets a sentence
- * rather than a warning, while a Wikipedia we could not reach is a failure and
- * gets a retry. Telling an operator "no biography" when the truth is "no
- * network" would send them to correct an identity that was never wrong.
+ * Nothing playing, no identity yet, loading, lookups-off, unreachable, no
+ * article, and the biography. The empty states are what the card is about, and
+ * three of them read alike only if you are not paying attention: an artist
+ * Wikipedia has never heard of is a normal outcome and gets a sentence, a
+ * Wikipedia we could not reach is a failure and gets a retry, and a lookup we
+ * were told not to make is neither — it gets a calm line and no retry, because
+ * asking again cannot succeed while external lookups are off. Telling an operator
+ * "no biography" when the truth is "no network" or "lookups are off" would send
+ * them to correct an identity that was never wrong. The branch order is in
+ * `deckLookupState`, where a test can reach it (**W7-14**).
  */
 
 const identity = useArtistIdentityStore()
@@ -119,6 +124,26 @@ const shown = computed(() => {
 const expandable = computed(() => preview.value?.truncated === true)
 
 const failure = computed(() => current.value?.failure ?? null)
+
+/**
+ * Which of the states is on screen — split declined from offline (**W7-14**).
+ *
+ * The `skeleton` flag is this pane's `loading`, and it is deliberately allowed to
+ * win over a stale biography: `deckLookupState` returns `loading` when work is in
+ * flight even with content present, which is the skeleton-over-someone-else's-
+ * history behaviour the store's staleness guard exists for. Declined is its own
+ * calm state below rather than the failed branch's retry.
+ */
+const state = computed(() =>
+  deckLookupState({
+    idle: idle.value,
+    unresolved: unresolved.value,
+    hasContent: biography.value !== null,
+    loading: skeleton.value,
+    failure: failure.value,
+    failed: biographies.failed
+  })
+)
 </script>
 
 <template>
@@ -136,9 +161,13 @@ const failure = computed(() => current.value?.failure ?? null)
       all would let Vue patch prose into prose without a transition, which is the
       one case where a crossfade actually reads as a change of subject.
     -->
-    <BiographySkeleton v-if="skeleton" key="loading" />
+    <BiographySkeleton v-if="state === 'loading'" key="loading" />
 
-    <div v-else-if="biography" key="ready" class="flex h-full min-h-0 flex-col">
+    <div
+      v-else-if="state === 'ready' && biography"
+      key="ready"
+      class="flex h-full min-h-0 flex-col"
+    >
       <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1">
         <p
           v-for="(paragraph, index) in shown"
@@ -196,17 +225,34 @@ const failure = computed(() => current.value?.failure ?? null)
       </div>
     </div>
 
-    <p v-else-if="idle" key="idle" class="px-1 py-4 text-center text-xs text-muted">
+    <p v-else-if="state === 'idle'" key="idle" class="px-1 py-4 text-center text-xs text-muted">
       Nothing playing. This follows the current track.
     </p>
 
-    <p v-else-if="unresolved" key="unresolved" class="px-1 py-4 text-center text-xs text-muted">
+    <p
+      v-else-if="state === 'unresolved'"
+      key="unresolved"
+      class="px-1 py-4 text-center text-xs text-muted"
+    >
       This artist has not been identified, so there is nothing to look up.
     </p>
 
+    <!--
+      Declined is a state, not a failure: no retry, because asking again cannot
+      succeed while external lookups are off. The catalog below this still reads
+      from SQLite, which is the property D14's third rule asks this pane to prove.
+    -->
+    <p
+      v-else-if="state === 'declined'"
+      key="declined"
+      class="px-1 py-4 text-center text-xs text-muted"
+    >
+      External lookups are off. Turn them on in Settings to read an artist's biography.
+    </p>
+
     <div
-      v-else-if="failure || biographies.failed"
-      key="failed"
+      v-else-if="state === 'offline'"
+      key="offline"
       class="flex flex-col items-center gap-2 px-1 py-4"
     >
       <p class="text-center text-xs text-muted">
