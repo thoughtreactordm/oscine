@@ -66,6 +66,17 @@ export interface NetGetRequest {
   scope: NetScope
   /** Sent as `Accept`. Defaults to `application/json` for `getJson`, anything for text. */
   accept?: string
+  /**
+   * Extra request headers, for the one caller whose auth is a header rather than
+   * a query or form field — W11-8's ListenBrainz, which carries its user token in
+   * `Authorization: Token <token>`.
+   *
+   * Merged *under* the fixed `accept`, `user-agent` and (on a POST) `content-type`,
+   * so a caller cannot quietly reshape the request's identity or its body's type:
+   * those three are the client's to set and are spread last. Everything else a
+   * caller adds — an `Authorization`, an API-versioning header — passes through.
+   */
+  headers?: Readonly<Record<string, string>>
   timeoutMs?: number
   maxBytes?: number
   /**
@@ -101,17 +112,28 @@ export interface NetGetRequest {
 }
 
 /**
- * A form POST, which is every rule above with a body attached.
+ * A POST, which is every rule above with a body attached.
  *
- * `form` rather than a free `body` and a `content-type`: the only thing in
- * Oscine that posts is D19's Last.fm client, Last.fm takes
- * `application/x-www-form-urlencoded` and nothing else, and a general body
- * parameter would be a second thing to get right for a case that does not exist.
- * Widen it when a caller needs JSON — W11-8's ListenBrainz will — rather than in
- * advance.
+ * `form` **xor** `json`, and exactly one of them: the two verbs Oscine posts
+ * with are Last.fm's `application/x-www-form-urlencoded` writes and W11-8's
+ * ListenBrainz `application/json` submits, and each names its own content type so
+ * a caller never sets one by hand. This is the widening the earlier version of
+ * this comment promised rather than took in advance — still not a free `body`
+ * plus a `content-type`, because those two are the two shapes that exist and a
+ * general body parameter would be a third thing to validate for a case that does
+ * not. `json` is serialised with `JSON.stringify`, so `undefined` is the "no JSON
+ * body" signal and the form branch is taken; a caller posting an empty body sends
+ * an empty `form`.
  */
 export interface NetPostRequest extends NetGetRequest {
-  form: URLSearchParams
+  form?: URLSearchParams
+  json?: unknown
+}
+
+/** A request body reduced to the two things the socket needs. */
+interface PreparedBody {
+  readonly contentType: string
+  readonly text: string
 }
 
 export interface NetClient {
@@ -286,7 +308,7 @@ export function createNetClient({
     accept: string,
     scopeSignal: AbortSignal,
     read: BodyReader<T>,
-    form: URLSearchParams | undefined
+    body: PreparedBody | undefined
   ): Promise<Attempt<T>> {
     const timeoutMs = request.timeoutMs ?? defaultTimeoutMs
     const maxBytes = request.maxBytes ?? defaultMaxBytes
@@ -318,18 +340,20 @@ export function createNetClient({
     let response: Response
     try {
       response = await fetchImpl(request.url, {
-        method: form === undefined ? 'GET' : 'POST',
+        method: body === undefined ? 'GET' : 'POST',
         redirect: 'follow',
         signal: attempt.signal,
-        headers:
-          form === undefined
-            ? { accept, 'user-agent': userAgent }
-            : {
-                accept,
-                'user-agent': userAgent,
-                'content-type': 'application/x-www-form-urlencoded'
-              },
-        ...(form === undefined ? {} : { body: form.toString() })
+        // Caller headers first, the client's own last: `accept`, `user-agent` and
+        // the body's `content-type` are the client's to set and win any collision,
+        // so an `Authorization` passes through but the request's identity does not
+        // become a caller's to forge.
+        headers: {
+          ...request.headers,
+          accept,
+          'user-agent': userAgent,
+          ...(body === undefined ? {} : { 'content-type': body.contentType })
+        },
+        ...(body === undefined ? {} : { body: body.text })
       })
     } catch {
       const aborted = attempt.signal.aborted
@@ -437,7 +461,7 @@ export function createNetClient({
     request: NetGetRequest,
     accept: string,
     read: BodyReader<T>,
-    form?: URLSearchParams
+    body?: PreparedBody
   ): Promise<NetResult<T>> {
     if (!consent.granted()) return netFailed(DECLINED)
 
@@ -457,7 +481,7 @@ export function createNetClient({
         // the operator switched the toggle off must not outlive the decision.
         if (!consent.granted()) return netFailed(DECLINED)
 
-        const result = await attemptOnce(request, host, accept, entry.signal, read, form)
+        const result = await attemptOnce(request, host, accept, entry.signal, read, body)
         if (result.outcome === 'ok') return netOk(result.body)
         if (result.outcome === 'give-up') return netFailed(result.failure)
         if (attempt >= attempts) return netFailed(result.failure)
@@ -472,6 +496,21 @@ export function createNetClient({
       }
     } finally {
       entry.release()
+    }
+  }
+
+  /**
+   * The one place a POST's body becomes bytes, so its content type cannot drift
+   * from its contents. `json` wins when present — it is `undefined` for the form
+   * writes — and an absent form is an empty body rather than a thrown call.
+   */
+  function postBody(request: NetPostRequest): PreparedBody {
+    if (request.json !== undefined) {
+      return { contentType: 'application/json', text: JSON.stringify(request.json) }
+    }
+    return {
+      contentType: 'application/x-www-form-urlencoded',
+      text: (request.form ?? new URLSearchParams()).toString()
     }
   }
 
@@ -496,7 +535,12 @@ export function createNetClient({
 
     async postJson<T>(request: NetPostRequest): Promise<NetResult<T>> {
       return asJson<T>(
-        await perform(request, request.accept ?? 'application/json', readCappedText, request.form)
+        await perform(
+          request,
+          request.accept ?? 'application/json',
+          readCappedText,
+          postBody(request)
+        )
       )
     }
   }

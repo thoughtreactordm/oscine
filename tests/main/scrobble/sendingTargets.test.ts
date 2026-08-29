@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { createSendingTargets, scrobbleTargetEnabled } from '../../../src/main/scrobble/enabled'
 import { createStubScrobbleTarget } from '../../../src/main/scrobble/stubTarget'
 import { LASTFM_ENABLED } from '../../../src/shared/settings'
+import type { ScrobbleTargetId } from '../../../src/shared/scrobble'
 
 describe('which targets may send', () => {
   it('includes a target whose switch is on', () => {
@@ -65,17 +66,19 @@ describe('which targets may send', () => {
       getBoolean: (key) => key !== LASTFM_ENABLED
     })
 
-    // ListenBrainz has no key in the registry yet, so it is unswitched and
-    // therefore on — see below for why that is the safe default.
+    // Both real targets now have a key; this reads Last.fm's as off and
+    // ListenBrainz's as on, so only ListenBrainz may send.
     expect(sending()).toEqual([listenbrainz])
   })
 
   it('treats a target with no registered switch as on', () => {
     // The alternative — absent key means off — turns a registry that has not
     // caught up with a new target into scrobbles that silently never send, and
-    // silence is the one failure this stream cannot notice on its own.
+    // silence is the one failure this stream cannot notice on its own. Both
+    // shipped targets now have a switch, so a hypothetical unregistered id stands
+    // in for the target the registry has not caught up with.
     expect(
-      scrobbleTargetEnabled('listenbrainz', () => {
+      scrobbleTargetEnabled('unregistered' as ScrobbleTargetId, () => {
         throw new Error('no key should have been read')
       })
     ).toBe(true)

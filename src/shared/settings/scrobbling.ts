@@ -53,6 +53,18 @@ export const LASTFM_API_SECRET = 'lastfm.apiSecret'
 export const LASTFM_LOVE_ON_FAVORITE = 'lastfm.loveOnFavorite'
 
 /**
+ * ListenBrainz's pause switch — W11-8, and the only durable key it needs.
+ *
+ * There is no app-key pair here and no love toggle, and their absence is the
+ * point of this target. ListenBrainz authenticates with a user token and nothing
+ * else (D19), so there is no shipped credential to override; and it has no
+ * "loved track" concept Oscine can reach, so `capabilities.supportsLove` is false
+ * and the love-push never enqueues for it — a switch to gate a thing that cannot
+ * happen would be a switch that does nothing.
+ */
+export const LISTENBRAINZ_ENABLED = 'listenbrainz.enabled'
+
+/**
  * Which key pauses which target — the map the main process filters through.
  *
  * `Partial` on purpose, and the absent case means *on*. A target with no switch
@@ -64,7 +76,8 @@ export const LASTFM_LOVE_ON_FAVORITE = 'lastfm.loveOnFavorite'
  */
 export const SCROBBLE_ENABLED_KEYS: Readonly<Partial<Record<ScrobbleTargetId, string>>> =
   Object.freeze({
-    lastfm: LASTFM_ENABLED
+    lastfm: LASTFM_ENABLED,
+    listenbrainz: LISTENBRAINZ_ENABLED
   })
 
 /**
@@ -105,6 +118,23 @@ export const SCROBBLING_SETTINGS: readonly SettingDescriptor[] = [
     help: 'Send what you play to Last.fm while an account is connected. Turning this off pauses scrobbling, now-playing, and the loved push without signing you out. Anything already waiting to send stays queued until you turn it back on.',
     keywords: ['lastfm', 'last.fm', 'scrobble', 'scrobbling', 'pause', 'enable'],
     order: 80
+  }),
+  // ListenBrainz's pause switch — the same shape and the same promise as
+  // Last.fm's, one target over. Off pauses its scrobbling and now-playing (it has
+  // no loves to pause) without forgetting the token, and anything already queued
+  // for it waits. Separate from Last.fm's so an operator can run one, both, or
+  // neither.
+  defineSetting<boolean>({
+    key: LISTENBRAINZ_ENABLED,
+    scope: 'durable',
+    default: true,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'network',
+    label: 'Scrobble to ListenBrainz',
+    help: 'Send what you play to ListenBrainz while an account is connected. Turning this off pauses scrobbling and now-playing without disconnecting your token. Anything already waiting to send stays queued until you turn it back on.',
+    keywords: ['listenbrainz', 'listen', 'brainz', 'scrobble', 'scrobbling', 'pause', 'enable'],
+    order: 85
   }),
   // Portable, where the two below are not, and the difference is the same one
   // this file is about: a key pasted on one machine is usually registered for a

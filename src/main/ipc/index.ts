@@ -33,6 +33,7 @@ import {
   assertArtworkTargetRequest,
   assertArtworkFromBytesRequest,
   assertCancelNetScopeRequest,
+  assertScrobbleConnectRequest,
   assertScrobbleTargetRequest,
   assertClearArtistMbidRequest,
   assertGetArtistBiographyRequest,
@@ -678,11 +679,15 @@ export function registerIpcHandlers(
   // that is deliberate — a handler that had to remember to strip something is a
   // handler that eventually forgets.
   //
-  // This one can sit unresolved for minutes while the operator is in their
-  // browser. That is the design, not a hang: see `scrobble.connect`.
-  handle('scrobble.connect', (request) =>
-    scrobble.connect(assertScrobbleTargetRequest(request).target)
-  )
+  // An interactive target can sit unresolved for minutes while the operator is in
+  // their browser; a token target resolves in one short call and carries the
+  // pasted token in the request. That is the design, not a hang: see
+  // `scrobble.connect`. The token is passed straight through to the target and
+  // never read here — the credential is the target's to hold (D19).
+  handle('scrobble.connect', (request) => {
+    const { target, token } = assertScrobbleConnectRequest(request)
+    return scrobble.connect(target, token === undefined ? undefined : { token })
+  })
 
   handle('scrobble.cancelConnect', (request) => {
     scrobble.cancelConnect(assertScrobbleTargetRequest(request).target)

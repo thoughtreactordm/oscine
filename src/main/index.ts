@@ -49,6 +49,8 @@ import { createScrobbleStatusService, type ScrobbleStatusService } from './scrob
 import { createLastfmTarget } from './scrobble/lastfm/target'
 import { createLastfmTransport } from './scrobble/lastfm/transport'
 import { resolveLastfmAppKey } from './scrobble/lastfm/appKey'
+import { createListenbrainzTarget } from './scrobble/listenbrainz/target'
+import { createListenbrainzTransport } from './scrobble/listenbrainz/transport'
 import { backfillOnboardingCompleted, SqliteSettingsService } from './settings'
 import { createArtistBiographyService, createArtistImageService } from './wikipedia'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
@@ -468,6 +470,19 @@ if (!app.requestSingleInstanceLock()) {
         credentials: scrobbleCredentials,
         settings,
         openExternal: (url) => shell.openExternal(url)
+      }),
+      // The second target, and the abstraction's test (D19): no app key, no
+      // signature, no shared secret — a user token carried in a header and a
+      // batch limit twenty times Last.fm's. It shares the limiter and scope
+      // registry so per-host spacing and `cancelScope('scrobble')` cover both,
+      // and it needs no `settings` because there is no shipped credential to
+      // override.
+      createListenbrainzTarget({
+        transport: createListenbrainzTransport({
+          limiter: net.limiter,
+          scopes: net.scopes
+        }),
+        credentials: scrobbleCredentials
       })
     ]
 

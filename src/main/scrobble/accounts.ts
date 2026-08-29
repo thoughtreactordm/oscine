@@ -18,7 +18,12 @@
  */
 
 import type { NetResult } from '@shared/net'
-import type { ScrobbleConnection, ScrobbleTarget, ScrobbleTargetId } from '@shared/scrobble'
+import type {
+  ScrobbleAuthorizeInput,
+  ScrobbleConnection,
+  ScrobbleTarget,
+  ScrobbleTargetId
+} from '@shared/scrobble'
 import type { LastfmScrobbleTarget } from './lastfm/target'
 
 /** A target that can also abandon a sign-in in progress. */
@@ -27,8 +32,20 @@ type ConnectableTarget = ScrobbleTarget & Partial<Pick<LastfmScrobbleTarget, 'ca
 export interface ScrobbleAccountsService {
   /** Every target this build knows how to speak to, connected or not. */
   connections(): ScrobbleConnection[]
-  /** Run a target's sign-in flow. Resolves when it completes, fails, or is abandoned. */
-  connect(target: ScrobbleTargetId): Promise<NetResult<ScrobbleConnection>>
+  /**
+   * Run a target's sign-in flow. Resolves when it completes, fails, or is
+   * abandoned.
+   *
+   * `input` carries the token a token-flow target (ListenBrainz) is connected
+   * with, and is passed to `authorize` untouched — an interactive target
+   * (Last.fm) ignores it. The service does not inspect it: the credential is the
+   * target's to hold, and reading it here would be the exact widening D19's
+   * renderer rule exists to prevent, one process too early.
+   */
+  connect(
+    target: ScrobbleTargetId,
+    input?: ScrobbleAuthorizeInput
+  ): Promise<NetResult<ScrobbleConnection>>
   /** Abandon a sign-in in progress. Safe to call when none is. */
   cancelConnect(target: ScrobbleTargetId): void
   /** Forget a target's credential. Idempotent. */
@@ -64,7 +81,7 @@ export function createScrobbleAccounts({
 
     target: (id) => byId.get(id) ?? null,
 
-    async connect(id): Promise<NetResult<ScrobbleConnection>> {
+    async connect(id, input): Promise<NetResult<ScrobbleConnection>> {
       const target = byId.get(id)
       if (target === undefined) {
         return {
@@ -72,7 +89,7 @@ export function createScrobbleAccounts({
           failure: { kind: 'rejected', message: `This build cannot connect to ${id}.` }
         }
       }
-      const result = await target.authorize()
+      const result = await target.authorize(input)
       // Announced on failure as well as on success: an authorize that failed
       // because the stored session key was refused has left the target
       // disconnected, and the pane needs to hear about that just as much.

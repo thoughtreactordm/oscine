@@ -168,9 +168,12 @@ describe('post', () => {
 
     const [request] = client.posted
     expect(request.url).toBe(LASTFM_API_ROOT)
-    expect(request.form.get('method')).toBe('track.scrobble')
-    expect(request.form.get('api_sig')).toMatch(/^[0-9a-f]{32}$/)
-    expect(request.form.get('format')).toBe('json')
+    // The Last.fm transport always posts a form body, never JSON.
+    const form = request.form
+    if (form === undefined) throw new Error('expected a form body')
+    expect(form.get('method')).toBe('track.scrobble')
+    expect(form.get('api_sig')).toMatch(/^[0-9a-f]{32}$/)
+    expect(form.get('format')).toBe('json')
     expect(request.scope).toBe('scrobble')
     // The session key belongs in a body, not in a URL that proxies and access
     // logs write down.

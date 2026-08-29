@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { scrobble as scrobbleIpc } from '@renderer/ipc'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { appInfo, scrobble as scrobbleIpc } from '@renderer/ipc'
 import {
   disconnectSummary,
   SCROBBLE_TARGET_LABELS,
   scrobblingRows,
-  waitingLabel
+  waitingLabel,
+  type ScrobblingRow
 } from '@renderer/panels/settings/scrobblingRows'
 import { useSettings } from '@renderer/settings'
 import { SCROBBLE_ENABLED_KEYS } from '@shared/settings'
@@ -68,6 +69,16 @@ const busy = ref<ScrobbleTargetId | null>(null)
  */
 const connectProblems = ref<Partial<Record<ScrobbleTargetId, string>>>({})
 
+/**
+ * The token being typed for each token-flow target, before it is submitted.
+ *
+ * Held here and nowhere else: it is a credential in transit, so it is never a
+ * setting, never persisted, and cleared the moment a connect succeeds. `reactive`
+ * rather than `ref` so binding a single target's draft does not rewrite the whole
+ * map on every keystroke.
+ */
+const tokenDrafts = reactive<Partial<Record<ScrobbleTargetId, string>>>({})
+
 let unsubscribe: (() => void) | null = null
 
 async function refresh(): Promise<void> {
@@ -123,12 +134,37 @@ function noteProblem(target: ScrobbleTargetId, message: string | null): void {
   connectProblems.value = next
 }
 
-async function connect(target: ScrobbleTargetId): Promise<void> {
+/** The token typed for a target, trimmed — `''` when there is nothing to send. */
+function draftToken(target: ScrobbleTargetId): string {
+  return (tokenDrafts[target] ?? '').trim()
+}
+
+/**
+ * Whether Connect would do anything.
+ *
+ * A browser target is always ready — the sign-in is where the operator supplies
+ * anything. A token target needs a non-empty paste first, so its Connect stays
+ * disabled until there is a token to check rather than opening a round trip that
+ * can only come back "paste your token".
+ */
+function canConnect(row: ScrobblingRow): boolean {
+  if (busy.value !== null || connecting.value !== null) return false
+  return row.connect === 'browser' || draftToken(row.status.target) !== ''
+}
+
+async function connect(row: ScrobblingRow): Promise<void> {
+  const target = row.status.target
+  const token = row.connect === 'token' ? draftToken(target) : undefined
+  if (row.connect === 'token' && token === '') return
+
   connecting.value = target
   noteProblem(target, null)
   try {
-    const result = await scrobbleIpc.connect(target)
+    const result = await scrobbleIpc.connect(target, token)
     if (result.ok) {
+      // The credential is stored and sealed now; the draft has done its job and
+      // there is no reason to leave the token sitting in a renderer field.
+      if (row.connect === 'token') delete tokenDrafts[target]
       await refresh()
       return
     }
@@ -220,7 +256,8 @@ async function retry(target: ScrobbleTargetId): Promise<void> {
           <span class="truncate text-sm font-medium text-highlighted">{{ row.label }}</span>
           <span class="truncate text-[11px] text-muted">
             <template v-if="connecting === row.status.target">
-              Waiting for you to approve Oscine in your browser…
+              <template v-if="row.connect === 'token'">Checking your token…</template>
+              <template v-else>Waiting for you to approve Oscine in your browser…</template>
             </template>
             <template v-else-if="row.status.connected">
               Connected as {{ row.status.username }}
@@ -261,18 +298,60 @@ async function retry(target: ScrobbleTargetId): Promise<void> {
             @click="disconnect(row.status)"
           />
         </UTooltip>
-        <UTooltip v-else :text="`Sign in to ${row.label} in your browser`">
+        <UTooltip
+          v-else
+          :text="
+            row.connect === 'token'
+              ? `Connect to ${row.label} with your user token`
+              : `Sign in to ${row.label} in your browser`
+          "
+        >
           <UButton
             size="xs"
             color="primary"
             variant="soft"
             icon="i-tabler-plug-connected"
             label="Connect"
-            :disabled="busy !== null || connecting !== null"
+            :disabled="!canConnect(row)"
             class="shrink-0 text-xs"
-            @click="connect(row.status.target)"
+            @click="connect(row)"
           />
         </UTooltip>
+      </div>
+
+      <!--
+        The token paste, for a token-flow target that is not connected. It is a
+        credential in transit, so it lives in `tokenDrafts` and nowhere durable,
+        and Enter is wired to Connect because pasting a token and reaching for the
+        mouse is a worse version of pressing return. The "get a token" link opens
+        the service's own settings page through `openExternal`, never an in-app
+        view — the same rule as the Last.fm sign-in.
+      -->
+      <div
+        v-if="row.connect === 'token' && !row.status.connected && connecting !== row.status.target"
+        class="flex items-center gap-2 pl-7"
+      >
+        <UInput
+          v-model="tokenDrafts[row.status.target]"
+          type="password"
+          size="xs"
+          class="flex-1"
+          placeholder="Paste your user token"
+          autocomplete="off"
+          spellcheck="false"
+          :disabled="busy !== null || connecting !== null"
+          @keydown.enter="connect(row)"
+        />
+        <UButton
+          v-if="row.tokenPage"
+          size="xs"
+          color="neutral"
+          variant="link"
+          icon="i-tabler-external-link"
+          label="Get a token"
+          class="shrink-0 text-[11px]"
+          @click="appInfo.openExternal(row.tokenPage)"
+        />
       </div>
 
       <!--
