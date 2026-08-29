@@ -1,7 +1,7 @@
 ---
 taskId: 01M157MBXHJ73S8PJE66BN8KEW
 title: 'First-run onboarding — scan step, Finish handoff & global indexing indicator'
-status: in-review
+status: done
 priority: low
 labels: []
 workstream: W8
@@ -9,9 +9,9 @@ workstreamId: W8-20
 dependsOn:
   - 01M157KBPZV4TXQBHYPC2J8Q4X
   - 01M157KNGJHKK2E76JWCREYGM0
-order: 1
+order: 4
 created: '2026-08-28T22:25:16.720Z'
-updated: '2026-08-29T00:11:46.785Z'
+updated: '2026-08-29T02:55:08.017Z'
 ---
 Part of **W8-14** (umbrella). Spec: wiki `oscine-onboarding` → "The flow" step 5, "Discovered gap".
 

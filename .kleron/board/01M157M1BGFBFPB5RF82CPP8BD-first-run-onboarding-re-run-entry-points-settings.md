@@ -1,16 +1,16 @@
 ---
 taskId: 01M157M1BGFBFPB5RF82CPP8BD
 title: First-run onboarding — re-run entry points (settings button + palette)
-status: in-review
+status: done
 priority: low
 labels: []
 workstream: W8
 workstreamId: W8-19
 dependsOn:
   - 01M157KBPZV4TXQBHYPC2J8Q4X
-order: 1
+order: 3
 created: '2026-08-28T22:25:05.903Z'
-updated: '2026-08-29T00:11:45.973Z'
+updated: '2026-08-29T02:55:08.004Z'
 ---
 Part of **W8-14** (umbrella). Spec: wiki `oscine-onboarding` → D-ONB-6, "The flow".
 

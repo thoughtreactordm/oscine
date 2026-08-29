@@ -1,14 +1,14 @@
 ---
 taskId: 01M157K1SBA9AWBQ30K9VBRXWA
 title: 'First-run onboarding — done-key, launch gate & upgrade backfill'
-status: in-review
+status: done
 priority: low
 labels: []
 workstream: W8
 workstreamId: W8-15
-order: 1
+order: 2
 created: '2026-08-28T22:24:33.578Z'
-updated: '2026-08-28T23:54:07.541Z'
+updated: '2026-08-29T02:55:07.991Z'
 ---
 Part of **W8-14** (umbrella). Spec: wiki `oscine-onboarding` → D-ONB-7, "The done-key and launch gate".
 
