@@ -1,16 +1,16 @@
 ---
 taskId: 01M157KWSZJBR98E7ZBJW49QAY
 title: 'First-run onboarding — theme, audio & network steps'
-status: in-review
+status: done
 priority: low
 labels: []
 workstream: W8
 workstreamId: W8-18
 dependsOn:
   - 01M157KBPZV4TXQBHYPC2J8Q4X
-order: 4
+order: 7
 created: '2026-08-28T22:25:01.247Z'
-updated: '2026-08-28T23:54:07.574Z'
+updated: '2026-08-29T02:55:08.053Z'
 ---
 Part of **W8-14** (umbrella). Spec: wiki `oscine-onboarding` → D-ONB-5, "The flow" steps 2–4.
 

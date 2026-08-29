@@ -1,7 +1,7 @@
 ---
 taskId: 01KYWX1BZ78YGCGAMVF506EQCS
 title: First-run setup and onboarding
-status: in-review
+status: done
 priority: low
 labels: []
 workstream: W8
@@ -15,7 +15,7 @@ dependsOn:
   - 01M157MBXHJ73S8PJE66BN8KEW
 order: 0
 created: '2026-07-31T20:14:49.317Z'
-updated: '2026-08-28T23:54:07.525Z'
+updated: '2026-08-29T02:55:07.953Z'
 ---
 **Umbrella.** The design is settled and cut into sub-cards — see wiki **`oscine-onboarding`** for the
 full spec (decisions D-ONB-1…7, the done-key/launch gate, the flow, and the discovered global-scan-

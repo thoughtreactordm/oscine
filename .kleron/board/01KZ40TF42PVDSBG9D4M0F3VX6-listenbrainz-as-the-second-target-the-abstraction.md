@@ -1,7 +1,7 @@
 ---
 taskId: 01KZ40TF42PVDSBG9D4M0F3VX6
 title: ListenBrainz as the second target — the abstraction's test
-status: in-progress
+status: done
 priority: low
 labels:
   - main
@@ -12,9 +12,9 @@ workstreamId: W11-8
 dependsOn:
   - 01KZ40T0PCH1E2GH031Q4BFKTT
   - 01KZ40RQ6VF1EAZVWCJYTEGJAN
-order: 0
+order: 1
 created: '2026-08-03T14:35:38.497Z'
-updated: '2026-08-29T01:47:40.373Z'
+updated: '2026-08-29T02:55:07.975Z'
 ---
 Spec: wiki `fermata-listening-and-scrobbling` → D19.
 

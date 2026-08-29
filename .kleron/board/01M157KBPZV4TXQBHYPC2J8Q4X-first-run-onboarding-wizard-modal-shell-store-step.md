@@ -1,14 +1,14 @@
 ---
 taskId: 01M157KBPZV4TXQBHYPC2J8Q4X
 title: 'First-run onboarding — wizard modal shell, store & step framework'
-status: in-review
+status: done
 priority: low
 labels: []
 workstream: W8
 workstreamId: W8-16
-order: 2
+order: 5
 created: '2026-08-28T22:24:43.743Z'
-updated: '2026-08-28T23:54:07.552Z'
+updated: '2026-08-29T02:55:08.031Z'
 ---
 Part of **W8-14** (umbrella). Spec: wiki `oscine-onboarding` → D-ONB-1, D-ONB-4, "The flow".
 **Keystone** — the step cards (14c/14d/14e) and re-run (14f) build on this.

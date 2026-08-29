@@ -1,16 +1,16 @@
 ---
 taskId: 01M157KNGJHKK2E76JWCREYGM0
 title: First-run onboarding — root step & background scan kickoff
-status: in-review
+status: done
 priority: low
 labels: []
 workstream: W8
 workstreamId: W8-17
 dependsOn:
   - 01M157KBPZV4TXQBHYPC2J8Q4X
-order: 3
+order: 6
 created: '2026-08-28T22:24:53.778Z'
-updated: '2026-08-28T23:54:07.563Z'
+updated: '2026-08-29T02:55:08.043Z'
 ---
 Part of **W8-14** (umbrella). Spec: wiki `oscine-onboarding` → D-ONB-2, D-ONB-3, "The flow" step 1.
 
