@@ -67,6 +67,26 @@ export const useShellStore = defineStore('shell', () => {
   }
 
   /**
+   * Whether the rail has dropped the full-size cover because the column is too
+   * short to hold it and a usable sources stack at once — the vertical twin of
+   * `sidebarCompact` (§2, height edition).
+   *
+   * Session-only and owned by the frame for the same reasons: it is a fact about
+   * the current window size, not a preference, and `coverExpanded` is left
+   * untouched so the pane returns exactly as the operator left it once there is
+   * room. It rides here so the transport's thumbnail knows to come back while the
+   * pane is off screen, the same signal `sidebarCompact` already gives it. Set by
+   * `ShellSidebar`, which is the only component that measures the column; it
+   * clears this on unmount so a crossing into the band leaves no stale suppression
+   * behind.
+   */
+  const coverSuppressed = ref(false)
+
+  function setCoverSuppressed(value: boolean): void {
+    coverSuppressed.value = value
+  }
+
+  /**
    * Which tab is showing, mirrored from the route.
    *
    * The route stays the source of truth for *navigation* — it is what survives
@@ -133,6 +153,8 @@ export const useShellStore = defineStore('shell', () => {
     collapseCover,
     sidebarCompact,
     setSidebarCompact,
+    coverSuppressed,
+    setCoverSuppressed,
     activeTab,
     activeTabIndex,
     direction,
