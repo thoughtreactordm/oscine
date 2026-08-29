@@ -13,6 +13,7 @@ import {
   matchNavigation,
   type NavigationCommand
 } from '@renderer/shell/navigationCommands'
+import { buildOnboardingCommands } from '@renderer/shell/onboardingCommands'
 import {
   activateHit,
   performSelection,
@@ -21,6 +22,7 @@ import {
 import { createPaletteSearch } from '@renderer/shell/paletteSearch'
 import { buildSettingsCommands } from '@renderer/shell/settingsCommands'
 import { shellTabs } from '@renderer/shell/routes'
+import { useOnboardingStore } from '@renderer/stores/onboarding'
 import { usePaletteStore } from '@renderer/stores/palette'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
@@ -45,12 +47,14 @@ import { useZenStore } from '@renderer/stores/zen'
  * windowing the entity groups — is not needed at these caps and stays available.
  *
  * Actions and Settings are the other two D21 groups, filled from the command
- * registry (`actionCommands`) and the settings registry (`settingsCommands`);
- * entity hits carry their own verb through `activateHit`.
+ * registry (`actionCommands` plus D-ONB-6's `onboarding.rerun`) and the settings
+ * registry (`settingsCommands`); entity hits carry their own verb through
+ * `activateHit`.
  */
 const palette = usePaletteStore()
 const router = useRouter()
 const playback = usePlaybackStore()
+const onboarding = useOnboardingStore()
 const playlists = usePlaylistsStore()
 const podcasts = usePodcastsStore()
 const settings = useSettings()
@@ -109,9 +113,10 @@ function notify(message: string): void {
 }
 
 /**
- * The two registry-backed groups, built once. Their `run` closures carry the
+ * The two D21 command groups, built once. Their `run` closures carry the
  * store verbs, the toast and the dismissal, so `matchCommands` is all the
  * component does at query time — the same shape as the Views group.
+ * Onboarding's re-run is folded into Actions (see below), not a third group.
  */
 const actionCommands = buildActionCommands({
   toggle: () => playback.toggle(),
@@ -122,6 +127,16 @@ const actionCommands = buildActionCommands({
   clearQueue: () => playback.clearQueue(),
   toggleZen: () => zen.toggle(),
   notify,
+  close
+})
+
+/**
+ * D-ONB-6. Lives in the Actions group as a verb, not in `/` settings — the
+ * done-key is internal. Closes the palette first so the wizard is not a second
+ * overlay on top of the finder.
+ */
+const onboardingCommands = buildOnboardingCommands({
+  openWizard: () => onboarding.openWizard(),
   close
 })
 
@@ -198,7 +213,7 @@ const groups = computed<CommandPaletteGroup[]>(() => {
   // whole group; blended shows them only once there is text to match and caps
   // them, so a keystroke of entities is never buried under every command.
   if (mode === 'action' || (mode === 'blended' && text.length > 0)) {
-    const items = matchCommands(actionCommands, text)
+    const items = matchCommands([...actionCommands, ...onboardingCommands], text)
     if (items.length > 0) {
       out.push({
         id: 'actions',

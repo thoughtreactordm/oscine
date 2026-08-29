@@ -12,6 +12,7 @@ import { editMetadataMenuItem } from '@renderer/panels/metadataMenu'
 import { queueCommandLabel, queueIds } from '@renderer/playback/queueCommands'
 import { useSettings } from '@renderer/settings'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
+import { scanCountsLabel, scanFileLabel } from '@renderer/shell/scanProgress'
 import { SOURCES_ARTISTS_PANE, SOURCES_GENRES_PANE } from '@renderer/shell/shellLayout'
 import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
 import { useArtistFavorites } from '@renderer/stores/artistStars'
@@ -502,11 +503,11 @@ const albumPane = facetPane<AlbumFacet>({
 
         <div v-if="roots.scan" class="space-y-2 border-b border-default px-3 py-2" role="status">
           <UProgress animation="carousel" size="2xs" />
-          <p class="text-xs text-muted">
-            {{ roots.scan.filesSeen }} found · {{ roots.scan.tracksIndexed }} indexed
+          <p class="text-xs tabular-nums text-muted">
+            {{ scanCountsLabel(roots.scan) }}
           </p>
           <p class="truncate text-xs text-muted">
-            {{ roots.scan.currentFile ?? 'Reading folders…' }}
+            {{ scanFileLabel(roots.scan) }}
           </p>
         </div>
 

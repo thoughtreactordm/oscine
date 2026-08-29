@@ -1,7 +1,7 @@
 ---
 taskId: 01M14Z4V5RBCW215AF6JD0B6TE
 title: Zen / Kiosk mode
-status: todo
+status: done
 priority: medium
 labels:
   - W14
@@ -10,9 +10,9 @@ labels:
   - interface
 workstream: W14
 workstreamId: W14-16
-order: 4
+order: 5
 created: '2026-08-28T19:56:59.447Z'
-updated: '2026-08-28T19:56:59.447Z'
+updated: '2026-08-29T00:07:00.233Z'
 ---
 A minimal "Zen / Kiosk" display mode for secondary monitors, TVs, and kiosks. A single transient override state (`zen.active`, **not** persisted — resets on restart) that, while on:
 
