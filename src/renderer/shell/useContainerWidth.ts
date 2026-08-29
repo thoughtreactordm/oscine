@@ -51,3 +51,47 @@ export function useContainerWidth(target: Ref<HTMLElement | null>): { width: Ref
 
   return { width }
 }
+
+/**
+ * The height twin of `useContainerWidth`, for the one frame region whose *layout*
+ * turns on its own block size rather than its inline one: the sidebar drops its
+ * full-size cover pane when the column is too short to hold both the cover and a
+ * usable sources stack, the vertical counterpart of the §2 width band. Everything
+ * else that reacts to height is a pane split, which CSS already handles — this is
+ * only for the case that has to move DOM.
+ *
+ * A separate function rather than a `useContainerSize` returning both, for the
+ * same reason the width one is width-only: observing one number keeps the reads
+ * from re-running on a change to the axis the consumer does not care about.
+ */
+export function useContainerHeight(target: Ref<HTMLElement | null>): { height: Ref<number> } {
+  const height = ref(0)
+
+  let observer: ResizeObserver | null = null
+
+  function measure(el: HTMLElement): void {
+    height.value = el.clientHeight
+  }
+
+  watch(
+    target,
+    (el) => {
+      observer?.disconnect()
+      if (!el) {
+        height.value = 0
+        return
+      }
+      measure(el)
+      observer = new ResizeObserver(() => measure(el))
+      observer.observe(el)
+    },
+    { immediate: true, flush: 'post' }
+  )
+
+  onBeforeUnmount(() => {
+    observer?.disconnect()
+    observer = null
+  })
+
+  return { height }
+}

@@ -68,9 +68,13 @@ const compact = computed(() => barWidth.value > 0 && barWidth.value < 860)
 /**
  * Whether the sidebar's full-size cover is actually on screen. It is not when the
  * frame has reflowed the rail into a band (§2) — the pane belongs to the rail and
- * is not drawn there — so the thumbnail has to come back, `coverExpanded` or not.
+ * is not drawn there — nor when the rail is too short to hold the pane and its
+ * facets at once and has dropped it (`coverSuppressed`). Either way the thumbnail
+ * has to come back, `coverExpanded` or not.
  */
-const coverPaneVisible = computed(() => shell.coverExpanded && !shell.sidebarCompact)
+const coverPaneVisible = computed(
+  () => shell.coverExpanded && !shell.sidebarCompact && !shell.coverSuppressed
+)
 </script>
 
 <template>

@@ -10,9 +10,11 @@ import { useShellStore } from '@renderer/stores/shell'
  * and it stays put across a tab change so the record on screen does not blink
  * out because the user went looking at playlists.
  *
- * Read-only on the flag, like the panel it replaces: this is a mount point and
+ * Read-only on the flags, like the panel it replaces: this is a mount point and
  * a collapse animation, and everything about what is drawn belongs to
- * `CoverArt`.
+ * `CoverArt`. Whether there is room for the cover at all is the frame's call —
+ * it measures the column and sets `coverSuppressed` (§2, height edition) — so
+ * this only reads the answer.
  */
 const shell = useShellStore()
 </script>
@@ -30,7 +32,7 @@ const shell = useShellStore()
     </div>
 
     <Transition name="coverSlot">
-      <div v-if="shell.coverExpanded" class="cover-slot shrink-0">
+      <div v-if="shell.coverExpanded && !shell.coverSuppressed" class="cover-slot shrink-0">
         <div class="cover-slot-inner">
           <CoverArt />
         </div>

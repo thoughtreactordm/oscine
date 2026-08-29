@@ -13,7 +13,7 @@ import { shellTabs } from '@renderer/shell/routes'
 import { useGlobalShortcuts } from '@renderer/shell/useGlobalShortcuts'
 import { useIdleAutoShow } from '@renderer/shell/useIdleAutoShow'
 import { useStageTransport } from '@renderer/shell/useStageTransport'
-import { useContainerWidth } from '@renderer/shell/useContainerWidth'
+import { useContainerHeight, useContainerWidth } from '@renderer/shell/useContainerWidth'
 import { useZenMode } from '@renderer/shell/useZenMode'
 import { SHELL_BAND_PANE, SIDEBAR_PANE } from '@renderer/shell/shellLayout'
 import ShellSidebar from '@renderer/shell/ShellSidebar.vue'
@@ -184,6 +184,45 @@ const compactSidebar = computed(
 // The transport reads this to bring its cover thumbnail back when the band has
 // taken the full-size cover pane off screen — see the shell store.
 watch(compactSidebar, (compact) => shell.setSidebarCompact(compact), { immediate: true })
+
+/**
+ * The height twin of the width reflow above: when the rail is a left column, the
+ * region's *height* is that column's height, so the frame drops the full-size
+ * cover pane when it can no longer coexist with a usable sources stack (§2,
+ * height edition) rather than let the two crush the facets out of the clipped
+ * card. `coverExpanded` is left untouched so the pane returns once the window
+ * grows, and `coverSuppressed` brings the transport's thumbnail back meanwhile,
+ * exactly as `sidebarCompact` does for the band. The decision lives here, beside
+ * the width reflow, because measuring the rail from inside it fought its own
+ * height chain — the frame already measures this region and owns the sidebar
+ * width, which is everything the sum needs.
+ *
+ * `SOURCES_MIN` is a *comfortable* floor, not the bare one. The un-shrinkable part
+ * of the Library rail is only ~350 (the folder+search row, three section headers,
+ * the Albums pane's `min-h-44` and two resizers), but dropping the cover only
+ * there leaves a band just above it where the facets are squeezed to nothing and,
+ * mid-drag, the cover's collapse overlaps the still-shrinking lists. Reserving well
+ * past the hard floor takes the cover off screen before the stack enters that band.
+ * It is the single knob: raise it to drop the cover on taller windows, lower it to
+ * keep the cover longer. `COVER_CHROME` is the pane's header, `p-3` and border above
+ * its `min(100%, 40vh)` square, whose size tracks both the rail width (the `100%`
+ * leg) and the viewport height (the `40vh` leg) — which is why a wide rail on a
+ * short window is the shape that overflowed.
+ */
+const SOURCES_MIN = 480
+const COVER_CHROME = 58
+const { height: regionHeight } = useContainerHeight(regionRef)
+const coverFits = computed(() => {
+  if (regionHeight.value === 0) return true
+  const square = Math.max(0, Math.min(sidebarWidth.value - 24, 0.4 * window.innerHeight))
+  return regionHeight.value - (COVER_CHROME + square) >= SOURCES_MIN
+})
+
+watch(
+  () => !compactSidebar.value && shell.coverExpanded && !coverFits.value,
+  (suppressed) => shell.setCoverSuppressed(suppressed),
+  { immediate: true }
+)
 
 /**
  * Which way the body slides, from the order of the tab row.
