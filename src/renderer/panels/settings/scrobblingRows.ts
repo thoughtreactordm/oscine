@@ -19,9 +19,36 @@ export const SCROBBLE_TARGET_LABELS: Readonly<Record<ScrobbleTargetId, string>> 
   listenbrainz: 'ListenBrainz'
 })
 
+/**
+ * How a target is connected, which is the one way the pane differs per target.
+ *
+ * `'browser'` is Last.fm's minutes-long sign-in through the operator's own
+ * browser; `'token'` is ListenBrainz's paste of a user token they already hold.
+ * Kept here as data rather than as an `if (target === …)` in the template so the
+ * knowledge lives in one declared place, the way the labels do — a third target
+ * adds a line here, not a branch in the markup.
+ */
+export type ScrobbleConnectKind = 'browser' | 'token'
+
+export const SCROBBLE_TARGET_CONNECT: Readonly<Record<ScrobbleTargetId, ScrobbleConnectKind>> =
+  Object.freeze({
+    lastfm: 'browser',
+    listenbrainz: 'token'
+  })
+
+/** Where a token-flow operator finds the token to paste. */
+export const SCROBBLE_TOKEN_PAGE: Readonly<Partial<Record<ScrobbleTargetId, string>>> =
+  Object.freeze({
+    listenbrainz: 'https://listenbrainz.org/settings/'
+  })
+
 export interface ScrobblingRow {
   readonly status: ScrobbleTargetStatus
   readonly label: string
+  /** How this target is connected — a browser sign-in, or a pasted token. */
+  readonly connect: ScrobbleConnectKind
+  /** The token page for a `'token'` target, or `null` — the "get a token" link. */
+  readonly tokenPage: string | null
   /** The operator has switched this target off. Its queue is frozen, not dropped. */
   readonly paused: boolean
   /** A sign-in failure to show under this target, or `null`. */
@@ -94,6 +121,8 @@ export function scrobblingRows(
     return {
       status,
       label: SCROBBLE_TARGET_LABELS[status.target],
+      connect: SCROBBLE_TARGET_CONNECT[status.target],
+      tokenPage: SCROBBLE_TOKEN_PAGE[status.target] ?? null,
       paused,
       problem: options.problem(status.target),
       canRetry: status.connected && !paused && status.queueDepth > 0,

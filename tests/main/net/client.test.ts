@@ -140,6 +140,23 @@ describe('a successful request', () => {
     const result = await client.getJson({ url: URL_UNDER_TEST, scope: 'tunedeck' })
     expect(failed(result).kind).toBe('malformed')
   })
+
+  it('carries a caller header on a GET, for ListenBrainz’s validate-token', async () => {
+    const { client, fetchImpl } = harness([reply('{"valid":true}')])
+    await client.getJson({
+      url: URL_UNDER_TEST,
+      scope: 'scrobble',
+      headers: { authorization: 'Token secret-abc' }
+    })
+
+    const headers = (fetchImpl.mock.calls[0] as [string, RequestInit])[1].headers as Record<
+      string,
+      string
+    >
+    expect(headers.authorization).toBe('Token secret-abc')
+    // A GET has no body, so nothing declares a content type.
+    expect(headers['content-type']).toBeUndefined()
+  })
 })
 
 describe('every failure mode is a value', () => {
@@ -458,6 +475,46 @@ describe('postJson', () => {
     )
     // The session key is in the body precisely so it is not here.
     expect(url).not.toContain('sk=')
+  })
+
+  it('sends a JSON body with the JSON content type — W11-8’s ListenBrainz', async () => {
+    const { client, fetchImpl } = harness([reply('{"status":"ok"}')])
+    const payload = { listen_type: 'import', payload: [{ listened_at: 1000 }] }
+    const result = await client.postJson({ url: URL_UNDER_TEST, scope: 'scrobble', json: payload })
+
+    expect(result).toEqual({ ok: true, value: { status: 'ok' } })
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(JSON.stringify(payload))
+    expect((init.headers as Record<string, string>)['content-type']).toBe('application/json')
+  })
+
+  it('carries a caller header but keeps its own identity and content type', async () => {
+    const { client, fetchImpl } = harness([reply('{"status":"ok"}')])
+    await client.postJson({
+      url: URL_UNDER_TEST,
+      scope: 'scrobble',
+      json: { a: 1 },
+      // The token header ListenBrainz needs — and an attempt to reshape the
+      // request's identity, which must not take.
+      headers: {
+        authorization: 'Token secret-abc',
+        accept: 'text/evil',
+        'user-agent': 'evil',
+        'content-type': 'text/evil'
+      }
+    })
+
+    const headers = (fetchImpl.mock.calls[0] as [string, RequestInit])[1].headers as Record<
+      string,
+      string
+    >
+    expect(headers.authorization).toBe('Token secret-abc')
+    // The three the client owns win the collision: the caller cannot forge the
+    // agent, the accept, or the body's declared type.
+    expect(headers.accept).toBe('application/json')
+    expect(headers['user-agent']).toMatch(/^Oscine\//)
+    expect(headers['content-type']).toBe('application/json')
   })
 
   it('honours a per-request attempt budget, so a caller can own its retries', async () => {

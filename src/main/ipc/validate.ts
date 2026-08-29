@@ -75,6 +75,7 @@ import {
 import { NET_SCOPES, type CancelNetScopeRequest, type NetScope } from '@shared/net'
 import {
   SCROBBLE_TARGET_IDS,
+  type ScrobbleConnectRequest,
   type ScrobbleTargetId,
   type ScrobbleTargetRequest
 } from '@shared/scrobble'
@@ -1574,6 +1575,37 @@ export function assertScrobbleTargetRequest(value: unknown): ScrobbleTargetReque
     invalid(`target must be one of: ${SCROBBLE_TARGET_IDS.join(', ')}.`)
   }
   return { target: raw.target as ScrobbleTargetId }
+}
+
+/**
+ * A target id, and the optional token a token-flow target is connected with.
+ *
+ * Its own validator rather than `assertScrobbleTargetRequest` because
+ * `scrobble.connect` is the one scrobbling request that may carry a secret, and
+ * the shape that admits a `token` is deliberately not the one guarding
+ * `cancelConnect` and `disconnect`. The token is bounded and not trimmed or
+ * emptied here: an empty paste is a `rejected` the target phrases for the
+ * operator, so the "paste your token" wording lives in one place rather than two.
+ */
+export function assertScrobbleConnectRequest(value: unknown): ScrobbleConnectRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['target', 'token'])
+  if (
+    typeof raw.target !== 'string' ||
+    !(SCROBBLE_TARGET_IDS as readonly string[]).includes(raw.target)
+  ) {
+    invalid(`target must be one of: ${SCROBBLE_TARGET_IDS.join(', ')}.`)
+  }
+  if (raw.token !== undefined && typeof raw.token !== 'string') {
+    invalid('token must be a string.')
+  }
+  if (typeof raw.token === 'string' && raw.token.length > 1024) {
+    invalid('token is too long.')
+  }
+  return {
+    target: raw.target as ScrobbleTargetId,
+    ...(typeof raw.token === 'string' ? { token: raw.token } : {})
+  }
 }
 
 export function assertResolveArtistQuery(value: unknown): ResolveArtistQuery {

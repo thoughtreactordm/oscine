@@ -362,15 +362,19 @@ export const net = {
 /**
  * Scrobbling accounts and the outbox's health — **D19**'s renderer half.
  *
- * `connect` is the one call in this file that can sit unresolved for minutes: it
- * resolves when the operator has finished in their own browser, and the pane's
- * waiting state is exactly the lifetime of that promise. It rejects only for the
- * reasons any channel does; the ordinary failures — no application key, no
- * keyring, a tab closed — arrive as a failed `NetResult` to be *shown*.
+ * `connect` is the one call in this file that can sit unresolved for minutes when
+ * the target is interactive (Last.fm): it resolves when the operator has finished
+ * in their own browser, and the pane's waiting state is exactly the lifetime of
+ * that promise. A token target (ListenBrainz) takes the pasted `token` and
+ * resolves in one short call. Either way it rejects only for the reasons any
+ * channel does; the ordinary failures — no application key, no keyring, a tab
+ * closed, a token the service did not recognise — arrive as a failed `NetResult`
+ * to be *shown*.
  */
 export const scrobble = {
   status: () => unwrap(window.oscine.scrobble.status()),
-  connect: (target: ScrobbleTargetId) => unwrap(window.oscine.scrobble.connect(target)),
+  connect: (target: ScrobbleTargetId, token?: string) =>
+    unwrap(window.oscine.scrobble.connect(target, token)),
   cancelConnect: (target: ScrobbleTargetId) => unwrap(window.oscine.scrobble.cancelConnect(target)),
   disconnect: (target: ScrobbleTargetId) => unwrap(window.oscine.scrobble.disconnect(target)),
   retry: () => unwrap(window.oscine.scrobble.retry()),

@@ -73,6 +73,26 @@ export {
   toNetResult
 } from './lastfm/transport'
 export type { LastfmCallResult, LastfmTransport, LastfmTransportOptions } from './lastfm/transport'
+export { createListenbrainzTarget, LISTENBRAINZ_BATCH_LIMIT } from './listenbrainz/target'
+export type { ListenbrainzTargetOptions } from './listenbrainz/target'
+export {
+  createListenbrainzTransport,
+  LISTENBRAINZ_API_ROOT,
+  LISTENBRAINZ_SUBMIT_URL,
+  LISTENBRAINZ_VALIDATE_URL
+} from './listenbrainz/transport'
+export type {
+  ListenbrainzIdentity,
+  ListenbrainzTransport,
+  ListenbrainzTransportOptions,
+  ListenbrainzWriteResult
+} from './listenbrainz/transport'
+export { nowPlayingBody, submitBody } from './listenbrainz/listens'
+export type {
+  ListenbrainzListen,
+  ListenbrainzSubmitBody,
+  ListenbrainzTrackMetadata
+} from './listenbrainz/listens'
 export { createStubScrobbleTarget } from './stubTarget'
 export type {
   StubLoveResponder,

@@ -83,6 +83,7 @@ import type {
 import type { CancelNetScopeRequest, CancelNetScopeResult, NetResult } from './net'
 import type {
   ScrobbleConnection,
+  ScrobbleConnectRequest,
   ScrobbleStatusResult,
   ScrobbleTargetRequest,
   ScrobbleTargetStatus
@@ -992,14 +993,17 @@ export interface IpcContract {
    * browser, so this can sit unresolved for minutes. That is why it is `invoke`
    * rather than a fire-and-forget with a completion event — the pane's waiting
    * state is exactly the lifetime of this promise, and there is no third state
-   * to get out of step.
+   * to get out of step. A token target (ListenBrainz, W11-8) resolves in one
+   * short call instead, and carries the pasted token in the request — the one
+   * scrobbling channel that does, and inbound only.
    *
    * Failures come back as `NetResult` rather than as a thrown IPC error,
    * because most of them are things to *show* — no application key configured,
-   * no keyring on this machine, the operator closed the tab. A pane that has to
-   * `try` around a sign-in will render a blank where an explanation belongs.
+   * no keyring on this machine, the operator closed the tab, a token the service
+   * did not recognise. A pane that has to `try` around a sign-in will render a
+   * blank where an explanation belongs.
    */
-  'scrobble.connect': { request: ScrobbleTargetRequest; response: NetResult<ScrobbleConnection> }
+  'scrobble.connect': { request: ScrobbleConnectRequest; response: NetResult<ScrobbleConnection> }
 
   /**
    * Abandon a sign-in in progress — the way out for an operator who opened the

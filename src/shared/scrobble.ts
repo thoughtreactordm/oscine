@@ -244,6 +244,33 @@ export interface ScrobbleTargetRequest {
   readonly target: ScrobbleTargetId
 }
 
+/**
+ * What a token-flow target needs from the operator to `authorize` — W11-8.
+ *
+ * One field, and optional, because an interactive target (Last.fm) is authorized
+ * with none: the browser is where its secret is entered, not this object. A
+ * token target (ListenBrainz) requires `token`, and it is the credential itself,
+ * so this is the last place it exists as plaintext outside `safeStorage` — see
+ * `ScrobbleTarget.authorize`.
+ */
+export interface ScrobbleAuthorizeInput {
+  readonly token: string
+}
+
+/**
+ * The `scrobble.connect` request: a target, and the token a token-flow target is
+ * connected with.
+ *
+ * Its own shape rather than a reuse of `ScrobbleTargetRequest` because it is the
+ * one scrobbling request that carries a secret, and giving `cancelConnect` and
+ * `disconnect` a field that could carry one would be inviting the mistake this
+ * separation exists to make impossible. `token` is absent for an interactive
+ * target and present for a token one; main validates the pairing.
+ */
+export interface ScrobbleConnectRequest extends ScrobbleTargetRequest {
+  readonly token?: string
+}
+
 export interface ScrobbleStatusResult {
   readonly targets: readonly ScrobbleTargetStatus[]
 }
@@ -278,11 +305,31 @@ export interface ScrobbleTarget {
   /**
    * Begin whatever flow this target uses, and store the credential it yields.
    *
-   * Resolves once the operator has completed the flow — for Last.fm, a round
-   * trip through the system browser — with the connection that resulted. The
-   * credential itself is not in the return value and never leaves the target.
+   * Resolves once the operator has completed the flow with the connection that
+   * resulted. The credential itself is not in the return value and never leaves
+   * the target.
+   *
+   * ### Two flow shapes, and the one argument that tells them apart
+   *
+   * There are exactly two ways a scrobbling service establishes who you are, and
+   * W11-8 is the point at which the second one appears:
+   *
+   * - **Interactive** (Last.fm). `authorize()` is self-driving: it opens the
+   *   operator's browser, they sign in on the service's own page, and the target
+   *   polls until the service confirms. The operator hands Oscine *nothing* — the
+   *   secret is minted by the service and travels back to the target directly, so
+   *   `input` is ignored.
+   * - **Token** (ListenBrainz). There is no browser round trip; the operator
+   *   pastes a user token they already hold, and the whole of `authorize` is to
+   *   check it names an account and seal it. That token is the credential, and it
+   *   arrives in `input.token` — the *only* moment a scrobbling secret travels
+   *   inbound over IPC, and it does so write-only: it is sealed on arrival, never
+   *   read back, and the renderer's view of it afterwards is `ScrobbleConnection`
+   *   like every other target's. A target that needs a token and is called
+   *   without one fails with a `rejected` the pane can show, rather than opening
+   *   nothing and looking hung.
    */
-  authorize(): Promise<NetResult<ScrobbleConnection>>
+  authorize(input?: ScrobbleAuthorizeInput): Promise<NetResult<ScrobbleConnection>>
 
   /** Forget the stored credential. Idempotent, and never fails outward. */
   disconnect(): Promise<void>

@@ -434,11 +434,14 @@ const api = {
     /**
      * Start a sign-in and wait for it.
      *
-     * Resolves only when the operator has finished in their browser, given up,
-     * or something failed — minutes, potentially. Render a waiting state for the
-     * lifetime of this promise and offer `cancelConnect` as the way out.
+     * An interactive target (Last.fm) resolves only when the operator has
+     * finished in their browser, given up, or something failed — minutes,
+     * potentially; render a waiting state for the lifetime of the promise and
+     * offer `cancelConnect` as the way out. A token target (ListenBrainz) takes
+     * the pasted `token` and resolves in one short call.
      */
-    connect: (target: ScrobbleTargetId) => request('scrobble.connect', { target }),
+    connect: (target: ScrobbleTargetId, token?: string) =>
+      request('scrobble.connect', token === undefined ? { target } : { target, token }),
     /** Abandon a sign-in in progress. The pending `connect` resolves cancelled. */
     cancelConnect: (target: ScrobbleTargetId) => request('scrobble.cancelConnect', { target }),
     /**
