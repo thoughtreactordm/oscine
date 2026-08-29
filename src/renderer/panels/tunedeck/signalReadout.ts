@@ -379,7 +379,7 @@ export function describeDecodePath(
     label: streaming ? 'Streaming' : 'Decoded',
     explanation: decodeExplanation(decision, formats),
     consequence: streaming
-      ? 'Gapless and crossfade need a decoded source, so this track joins its neighbours with a hard cut.'
+      ? 'Gapless and crossfade need a decoded source, so this track joins its neighbors with a hard cut.'
       : null,
     rows,
     capFraction:

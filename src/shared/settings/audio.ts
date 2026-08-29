@@ -195,7 +195,7 @@ export const AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING = defineSetting<boolean>({
   validate: booleanValue(),
   control: { kind: 'toggle' },
   category: 'audio',
-  label: 'Analyse untagged tracks',
+  label: 'Analyze untagged tracks',
   help: 'Allow the background job to measure ReplayGain for tracks that have no tag. Turning this off refuses the job; it never discards a measurement already taken.',
   keywords: ['replaygain', 'analyse', 'analyze', 'scan', 'job', 'background'],
   order: 50

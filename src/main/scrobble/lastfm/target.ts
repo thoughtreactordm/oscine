@@ -313,7 +313,7 @@ export function createLastfmTarget({
         for (;;) {
           await sleep(pollIntervalMs)
           if (flow.cancelled) {
-            return netFailed({ kind: 'cancelled', message: 'The Last.fm sign-in was cancelled.' })
+            return netFailed({ kind: 'cancelled', message: 'The Last.fm sign-in was canceled.' })
           }
 
           const session = await transport.call<SessionBody>({

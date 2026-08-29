@@ -210,7 +210,7 @@ const STATUS_RAMPS = {
 const OSCINE: BuiltInTheme = {
   id: 'oscine',
   label: 'Oscine',
-  description: 'Warm amber on a taupe grey. What the app has always looked like.',
+  description: 'Warm amber on a taupe gray. What the app has always looked like.',
   light: {
     ramps: {
       primary: palette('amber'),
@@ -244,7 +244,7 @@ const OSCINE: BuiltInTheme = {
 const NOCTURNE: BuiltInTheme = {
   id: 'nocturne',
   label: 'Nocturne',
-  description: 'Cold verdigris on a blue-shifted grey. Off-palette by construction.',
+  description: 'Cold verdigris on a blue-shifted gray. Off-palette by construction.',
   light: {
     ramps: {
       primary: seed('oklch(64% 0.115 197)'),
@@ -288,7 +288,7 @@ const NOCTURNE: BuiltInTheme = {
 const HIGH_CONTRAST: BuiltInTheme = {
   id: 'high-contrast',
   label: 'High Contrast',
-  description: 'Neutral blue-grey with every weight pushed apart. For bright rooms.',
+  description: 'Neutral blue-gray with every weight pushed apart. For bright rooms.',
   light: {
     ramps: {
       primary: palette('blue'),

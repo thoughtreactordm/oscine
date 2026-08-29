@@ -282,8 +282,8 @@ async function save(recipeId: DiscoverRecipeId): Promise<void> {
           Everything you own, arranged for you
         </h2>
         <p class="max-w-prose text-sm text-muted">
-          Shelves that read your library the way a streaming service reads its catalogue — except
-          the catalogue is yours, and nothing here phones anywhere. Save a shelf as a playlist when
+          Shelves that read your library the way a streaming service reads its catalog — except
+          the catalog is yours, and nothing here phones anywhere. Save a shelf as a playlist when
           you want to keep today's pick; pick a playlist from the rail to edit one.
         </p>
       </header>

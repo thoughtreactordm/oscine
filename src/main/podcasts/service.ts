@@ -720,7 +720,7 @@ export class SqlitePodcastService implements PodcastService {
     this.downloadAborts.set(episodeId, () => {
       cancelledByUser = true
       guard.abort()
-      activeBody?.destroy(new OscineError('cancelled', 'Download cancelled.'))
+      activeBody?.destroy(new OscineError('cancelled', 'Download canceled.'))
     })
     try {
       await mkdir(dirname(absPath), { recursive: true })
@@ -742,7 +742,7 @@ export class SqlitePodcastService implements PodcastService {
       const nodeBody = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream)
       activeBody = nodeBody
       // A user cancel between here and the first chunk still needs to bite.
-      if (cancelledByUser) nodeBody.destroy(new OscineError('cancelled', 'Download cancelled.'))
+      if (cancelledByUser) nodeBody.destroy(new OscineError('cancelled', 'Download canceled.'))
       // Coalesce progress to a steady cadence. A fast multi-MB episode arrives in
       // hundreds of chunks a second; emitting one IPC event per chunk floods the
       // renderer (every event re-renders the episode list) and starves it of the

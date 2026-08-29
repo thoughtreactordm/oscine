@@ -71,7 +71,7 @@ export class ReplayGainJobService {
     this.assertComputeAllowed()
     const state = this.store.state(jobId)
     if (state !== 'paused' && state !== 'cancelled') {
-      throw new OscineError('conflict', 'Only a paused or cancelled ReplayGain job can resume.')
+      throw new OscineError('conflict', 'Only a paused or canceled ReplayGain job can resume.')
     }
     this.store.setState(jobId, 'running')
     this.launch(jobId)
@@ -100,7 +100,7 @@ export class ReplayGainJobService {
     if (this.deps.canCompute && !this.deps.canCompute()) {
       throw new OscineError(
         'conflict',
-        'Analysing untagged tracks is turned off in audio settings.'
+        'Analyzing untagged tracks is turned off in audio settings.'
       )
     }
   }
@@ -177,7 +177,7 @@ export class ReplayGainJobService {
         return
       }
       console.warn(`[replaygain] track ${item.trackId} failed:`, error)
-      this.store.fail(item, 'The file could not be decoded or analysed.')
+      this.store.fail(item, 'The file could not be decoded or analyzed.')
     }
   }
 

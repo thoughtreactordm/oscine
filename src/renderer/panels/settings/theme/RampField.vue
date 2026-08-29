@@ -79,7 +79,7 @@ const seed = computed(() => (props.spec.mode === 'seed' ? props.spec.seed : prop
 /** One line naming the mode, because the strip alone does not say how it was made. */
 const summary = computed(() => {
   if (props.spec.mode === 'palette') return `Tailwind ${props.spec.palette}`
-  if (props.spec.mode === 'seed') return 'From one colour'
+  if (props.spec.mode === 'seed') return 'From one color'
   return 'Eleven steps'
 })
 
@@ -156,7 +156,7 @@ function setStep(step: RampStep, value: string): void {
           <div v-if="advanced" class="flex items-center gap-1">
             <UButton
               v-for="option in [
-                { value: 'seed', label: 'One colour' },
+                { value: 'seed', label: 'One color' },
                 { value: 'palette', label: 'Tailwind' },
                 { value: 'custom', label: 'Eleven steps' }
               ]"
@@ -174,13 +174,13 @@ function setStep(step: RampStep, value: string): void {
           <template v-if="mode === 'seed'">
             <ColorField
               :value="seed"
-              :label="`${descriptor.label} seed colour`"
+              :label="`${descriptor.label} seed color`"
               :disabled="disabled"
               @update="setSeed"
             />
             <p class="text-[11px] text-muted">
               The other ten steps are derived in OKLCH: the hue is held, lightness walks the ladder
-              a real palette walks, and a step that leaves sRGB gives up colour rather than
+              a real palette walks, and a step that leaves sRGB gives up color rather than
               brightness.
             </p>
           </template>

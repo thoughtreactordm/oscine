@@ -293,15 +293,15 @@ function shelfIcon(kind: string): string {
         >
           <UIcon name="i-tabler-world-search" class="size-8 text-dimmed" aria-hidden="true" />
           <div class="flex flex-col gap-1.5">
-            <h3 class="text-base font-semibold text-highlighted">Browse the podcast catalogue</h3>
+            <h3 class="text-base font-semibold text-highlighted">Browse the podcast catalog</h3>
             <p class="text-sm text-muted">
-              Search and recommendations query Apple’s podcast catalogue. Oscine doesn’t contact
+              Search and recommendations query Apple’s podcast catalog. Oscine doesn’t contact
               Apple until you turn this on — your subscriptions, downloads and playback never do.
             </p>
           </div>
           <div class="flex flex-wrap items-center justify-center gap-2">
             <UButton icon="i-tabler-world-bolt" @click="enableCatalogue">
-              Turn on catalogue search
+              Turn on catalog search
             </UButton>
             <UButton
               color="neutral"
@@ -342,7 +342,7 @@ function shelfIcon(kind: string): string {
               class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-default py-16 text-center"
             >
               <UIcon name="i-tabler-mood-search" class="size-8 text-dimmed" aria-hidden="true" />
-              <p class="text-sm text-muted">No catalogue matches for that term.</p>
+              <p class="text-sm text-muted">No catalog matches for that term.</p>
               <UButton
                 size="xs"
                 color="neutral"

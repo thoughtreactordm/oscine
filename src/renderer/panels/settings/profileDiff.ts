@@ -40,7 +40,7 @@ export const IMPORT_STATUS_META: Record<SettingsImportStatus, ImportStatusMeta> 
   excluded: { label: 'Left behind', tone: 'neutral', icon: 'i-tabler-device-desktop', rank: 4 },
   incompatible: { label: 'Newer build', tone: 'warning', icon: 'i-tabler-versions', rank: 5 },
   invalid: { label: 'Refused', tone: 'error', icon: 'i-tabler-alert-triangle', rank: 6 },
-  unknown: { label: 'Unrecognised', tone: 'neutral', icon: 'i-tabler-help-circle', rank: 7 }
+  unknown: { label: 'Unrecognized', tone: 'neutral', icon: 'i-tabler-help-circle', rank: 7 }
 }
 
 /**

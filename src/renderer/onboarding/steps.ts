@@ -100,7 +100,7 @@ const NETWORK_STEP: OnboardingStep = {
   kind: 'surface',
   title: 'Online lookups',
   blurb:
-    'Oscine can fetch artist info and browse the podcast catalogue. Off stays on this machine. Either choice is fine — you can change this later.',
+    'Oscine can fetch artist info and browse the podcast catalog. Off stays on this machine. Either choice is fine — you can change this later.',
   skippable: true,
   keys: [NETWORK_EXTERNAL_LOOKUPS_KEY]
 }

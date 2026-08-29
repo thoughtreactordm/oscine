@@ -236,7 +236,7 @@ export const tunedeckRegistry = createTunedeckRegistry([
         id: 'artist-tags',
         title: 'Tags',
         icon: 'i-tabler-tags',
-        hint: 'Your own labels across everything by this artist, each with how many of the artist’s tracks carry it. Apply one to the whole catalogue or lift it off; a tag on every track is one you have made the artist’s own. The file’s genres are not shown here — this is your record, not the files’ (D7). Local: it works with online lookups off.',
+        hint: 'Your own labels across everything by this artist, each with how many of the artist’s tracks carry it. Apply one to the whole catalog or lift it off; a tag on every track is one you have made the artist’s own. The file’s genres are not shown here — this is your record, not the files’ (D7). Local: it works with online lookups off.',
         component: ArtistTagsPane
       }
     ]

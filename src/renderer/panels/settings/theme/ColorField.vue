@@ -104,7 +104,7 @@ function onPick(event: Event): void {
       type="color"
       :value="hex"
       :disabled="disabled"
-      :aria-label="`${label} colour picker`"
+      :aria-label="`${label} color picker`"
       class="size-7 shrink-0 cursor-pointer rounded border border-default bg-transparent p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
       @input="onPick"
     />
@@ -122,7 +122,7 @@ function onPick(event: Event): void {
       @update:model-value="onText(String($event))"
     />
 
-    <UTooltip v-if="invalid" text="Not a colour this build can read. Nothing has been changed.">
+    <UTooltip v-if="invalid" text="Not a color this build can read. Nothing has been changed.">
       <UIcon name="i-tabler-alert-triangle" class="size-4 shrink-0 text-error" />
     </UTooltip>
     <!--
@@ -133,7 +133,7 @@ function onPick(event: Event): void {
     -->
     <UTooltip
       v-else-if="outOfGamut"
-      text="Outside sRGB. The display will show the nearest colour it can."
+      text="Outside sRGB. The display will show the nearest color it can."
     >
       <UIcon name="i-tabler-color-filter" class="size-4 shrink-0 text-warning" />
     </UTooltip>

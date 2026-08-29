@@ -38,7 +38,7 @@ export type TokenKind =
 export const TOKEN_GROUPS = [
   {
     id: 'color',
-    label: 'Colour roles',
+    label: 'Color roles',
     help: 'The ramps every surface, border and state is built from.'
   },
   {
@@ -91,12 +91,12 @@ export const COLOR_ROLES = [
   { id: 'secondary', label: 'Secondary', help: 'The supporting accent.' },
   { id: 'success', label: 'Success', help: 'Completed scans, confirmed writes.' },
   { id: 'info', label: 'Info', help: 'Neutral notices.' },
-  { id: 'warning', label: 'Warning', help: 'The restart-required badge, cancellable jobs.' },
+  { id: 'warning', label: 'Warning', help: 'The restart-required badge, cancelable jobs.' },
   { id: 'error', label: 'Error', help: 'Failed reads, missing files, rejected input.' },
   {
     id: 'neutral',
     label: 'Neutral',
-    help: 'Greys. Every surface, border and text weight derives from this ramp.'
+    help: 'Grays. Every surface, border and text weight derives from this ramp.'
   }
 ] as const
 

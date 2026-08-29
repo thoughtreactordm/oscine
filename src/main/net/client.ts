@@ -275,14 +275,14 @@ type BodyReader<T> = (response: Response, maxBytes: number) => Promise<T>
  */
 function fromAbort(reason: unknown): NetFailure {
   if (reason instanceof ScopeCancelledError) {
-    return { kind: 'cancelled', message: 'The request was cancelled.' }
+    return { kind: 'cancelled', message: 'The request was canceled.' }
   }
   if (reason instanceof RequestTimeoutError) {
     return { kind: 'timeout', message: 'The service did not reply in time.' }
   }
   // Anything else aborted this request without going through the registry,
   // which is a bug here rather than a state to render.
-  return { kind: 'cancelled', message: 'The request was cancelled.' }
+  return { kind: 'cancelled', message: 'The request was canceled.' }
 }
 
 export function createNetClient({
