@@ -15,12 +15,13 @@
 
 /**
  * The 1.0 catalog, in the order the spec names them — placeholders first, then
- * the five extras.
+ * the five extras, then the day-picked `genre-roulette` (W12-6).
  *
- * This is not the exclusion walk. Recipes claim albums, tracks and artists in
- * a different sequence (`for-you`, then `artists`, then the rest, with
- * `revisit` last) so a later shelf cannot reprint an earlier one. That order
- * belongs to compose, not to this list.
+ * This is neither the exclusion walk nor the display order. Recipes claim
+ * albums, tracks and artists in one sequence (`for-you`, then `artists`, then
+ * the rest, with `revisit` and `genre-roulette` last) so a later shelf cannot
+ * reprint an earlier one, and render in another. Both orders belong to compose,
+ * not to this list.
  */
 export const DISCOVER_RECIPE_IDS = [
   'for-you',
@@ -31,7 +32,8 @@ export const DISCOVER_RECIPE_IDS = [
   'forgotten-favorites',
   'because-favorited',
   'neglected-genre',
-  'guest-appearances'
+  'guest-appearances',
+  'genre-roulette'
 ] as const
 
 export type DiscoverRecipeId = (typeof DISCOVER_RECIPE_IDS)[number]

@@ -254,9 +254,12 @@ describe('compose — the five extras', () => {
     return result.shelves.find((entry) => entry.id === id)
   }
 
-  it('runs all nine recipes through one compose call', () => {
+  it('runs all ten recipes through one compose call, genre-roulette rendered under for-you', () => {
+    // genre-roulette claims last (it takes only what the taste shelves left) but
+    // renders second (W12-6): display order is decoupled from the claim walk.
     expect(result.shelves.map((entry) => entry.id)).toEqual([
       'for-you',
+      'genre-roulette',
       'artists',
       'almost-finished',
       'forgotten-favorites',

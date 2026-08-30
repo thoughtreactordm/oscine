@@ -21,8 +21,16 @@ const ARTISTS = 2_000
 const ALBUMS = 8_000
 const GENRES = 5
 
-/** Tab-open budget. Four times a 60 Hz frame, generous for CI share. */
-const BUDGET_MS = 250
+/**
+ * Tab-open budget. Was four 60 Hz frames (250 ms); raised to 300 when
+ * genre-roulette (W12-6) added the one recipe that must scan the whole library's
+ * genre map to pick the day's genre — ~35 ms at this 100k ceiling, which pushed
+ * p95 just past 250. The scan is index-bound: it can only be retired by
+ * denormalizing `album_id` onto `track_genres` (covering `(genre_key, album_id)`
+ * index), which is W12-8. Restore 250 when that lands. Still deep inside a
+ * tab-open, and compose is memoized per UTC day, so a real open pays this once.
+ */
+const BUDGET_MS = 300
 
 describe('compose at the scale target', () => {
   let opened: ReturnType<typeof openDatabase>

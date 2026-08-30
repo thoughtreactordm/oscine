@@ -13,15 +13,39 @@ import { guestAppearances } from './recipes/guestAppearances'
 import { unplayed } from './recipes/unplayed'
 import { neglectedGenre } from './recipes/neglectedGenre'
 import { revisit } from './recipes/revisit'
+import { genreRoulette } from './recipes/genreRoulette'
 
 /**
  * Exclusion order. Each recipe receives the album, track and artist ids already
  * claimed. *revisit* is last so it cannot steal an album that is also almost
  * finished or forgotten; *unplayed* sits after the taste-shaped shelves so the
- * remainder is genuinely the rest of the library.
+ * remainder is genuinely the rest of the library. *genre-roulette* claims dead
+ * last (W12-6): it explores whatever is left and must never poach a taste shelf.
  */
 export const EXCLUSION_ORDER: readonly DiscoverRecipeId[] = [
   'for-you',
+  'artists',
+  'almost-finished',
+  'forgotten-favorites',
+  'because-favorited',
+  'guest-appearances',
+  'unplayed',
+  'neglected-genre',
+  'revisit',
+  'genre-roulette'
+]
+
+/**
+ * Display order, decoupled from the claim walk (W12-6). *genre-roulette* claims
+ * last so it poaches nothing, but the operator wanted the day's fresh genre to
+ * feel prominent, so it renders second — under *for-you* — rather than buried at
+ * the foot of the page. Every `DiscoverRecipeId` appears here exactly once; with
+ * *genre-roulette* absent this reduces to the historical `EXCLUSION_ORDER`, so
+ * the other shelves never move.
+ */
+const DISPLAY_ORDER: readonly DiscoverRecipeId[] = [
+  'for-you',
+  'genre-roulette',
   'artists',
   'almost-finished',
   'forgotten-favorites',
@@ -41,7 +65,8 @@ const RECIPES: Record<DiscoverRecipeId, Recipe> = {
   'guest-appearances': guestAppearances,
   unplayed,
   'neglected-genre': neglectedGenre,
-  revisit
+  revisit,
+  'genre-roulette': genreRoulette
 }
 
 /**
@@ -53,15 +78,16 @@ const RECIPES: Record<DiscoverRecipeId, Recipe> = {
 export function compose(db: Database.Database, nowMs: number): DiscoverShelvesResult {
   const seed = buildTasteSeed(db, nowMs)
   const claimed = emptyClaimed()
-  const shelves: DiscoverShelvesResult['shelves'] = []
+  const built = new Map<DiscoverRecipeId, DiscoverShelvesResult['shelves'][number]>()
 
+  // Build in claim order so exclusion holds, then emit in DISPLAY_ORDER.
   for (const id of EXCLUSION_ORDER) {
     const recipe = RECIPES[id]
     const output = recipe(db, nowMs, claimed, seed)
     if (output === null) continue
     if (!keepShelf(id, output.items, seed.empty)) continue
     claim(claimed, output.items, output.claimedArtistIds)
-    shelves.push({
+    built.set(id, {
       id,
       title: output.title,
       hint: output.hint,
@@ -70,6 +96,7 @@ export function compose(db: Database.Database, nowMs: number): DiscoverShelvesRe
     })
   }
 
+  const shelves = DISPLAY_ORDER.filter((id) => built.has(id)).map((id) => built.get(id)!)
   return { dayKey: dayKey(nowMs), shelves }
 }
 
