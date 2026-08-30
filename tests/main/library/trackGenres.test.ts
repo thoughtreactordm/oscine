@@ -163,6 +163,51 @@ describe('track_genres, written by the scanner', () => {
 
     expect(allGenres(opened.db).map((row) => row.genre)).toEqual(['IDM', 'idm'])
   })
+
+  /**
+   * W12-8 denormalized `tracks.album_id` onto `track_genres` so genre-roulette's
+   * pool gate walks a covering index instead of correlating back to `tracks`.
+   * The scanner writes the column; a direct retarget of `tracks.album_id` (the
+   * W16 write-back paths, which never rebuild `track_genres`) is mirrored by the
+   * schema's sync trigger. Both are asserted because a desync here is silent —
+   * the recipe would just quietly bucket albums wrong.
+   */
+  it('stamps each genre row with the track album_id at scan time', () => {
+    store.writeTracks(rootId, [scanned('a.flac', 'Rock; Alternative')])
+
+    const albumId = (
+      opened.db.prepare("SELECT album_id AS id FROM tracks WHERE rel_path = 'a.flac'").get() as {
+        id: number
+      }
+    ).id
+    const stamped = opened.db.prepare('SELECT DISTINCT album_id AS id FROM track_genres').all() as {
+      id: number
+    }[]
+    expect(stamped).toEqual([{ id: albumId }])
+  })
+
+  it('mirrors a direct album_id retarget onto the genre rows via trigger', () => {
+    store.writeTracks(rootId, [scanned('a.flac', 'IDM')])
+    const trackId = (
+      opened.db.prepare("SELECT id FROM tracks WHERE rel_path = 'a.flac'").get() as { id: number }
+    ).id
+    const newAlbumId = Number(
+      opened.db
+        .prepare('INSERT INTO albums (title, album_artist_id, year) VALUES (?, NULL, NULL)')
+        .run('Re-homed').lastInsertRowid
+    )
+
+    // The shape the write-back paths use: UPDATE tracks.album_id without touching
+    // track_genres. The trigger is what keeps the denormalized copy honest.
+    opened.db.prepare('UPDATE tracks SET album_id = ? WHERE id = ?').run(newAlbumId, trackId)
+
+    const mirrored = (
+      opened.db
+        .prepare('SELECT album_id AS id FROM track_genres WHERE track_id = ?')
+        .get(trackId) as { id: number }
+    ).id
+    expect(mirrored).toBe(newAlbumId)
+  })
 })
 
 describe('migration 013 backfill', () => {

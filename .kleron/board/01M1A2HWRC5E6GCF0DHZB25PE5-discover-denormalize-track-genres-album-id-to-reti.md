@@ -3,7 +3,7 @@ taskId: 01M1A2HWRC5E6GCF0DHZB25PE5
 title: >-
   Discover: denormalize track_genres.album_id to retire genre-roulette's library
   scan
-status: backlog
+status: in-progress
 priority: low
 labels:
   - discover
@@ -11,9 +11,9 @@ labels:
   - recipe
 workstream: W12
 workstreamId: W12-8
-order: 10
+order: 2
 created: '2026-08-30T19:32:44.940Z'
-updated: '2026-08-30T19:32:44.940Z'
+updated: '2026-08-30T21:18:50.875Z'
 ---
 ## Intent
 

@@ -20,6 +20,7 @@ import { userTags } from './018-user-tags'
 import { trackOverridesGenreYear } from './019-track-overrides-genre-year'
 import { genreAliases } from './020-genre-aliases'
 import { artworkOverrides } from './021-artwork-overrides'
+import { trackGenresAlbum } from './022-track-genres-album'
 
 /**
  * Every migration, in order.
@@ -51,5 +52,6 @@ export const MIGRATIONS: readonly Migration[] = [
   userTags,
   trackOverridesGenreYear,
   genreAliases,
-  artworkOverrides
+  artworkOverrides,
+  trackGenresAlbum
 ]

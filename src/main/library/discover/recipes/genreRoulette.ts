@@ -69,14 +69,17 @@ export function genreRoulette(
  * albums of `ALBUM_MIN_TRACKS`-plus tracks — the day-pick's candidate set.
  *
  * `qa` is the qualifying-album set (unclaimed, big enough), a few thousand rows
- * even at the 100k-track scale. Each `pair` arm walks the tag vocabulary and
- * keeps it to that set with `album_id IN (SELECT ... FROM qa)` — SQLite indexes
- * the small `qa` subquery rather than hash-joining a derived table against every
- * track, which is what keeps this off the O(rows × albums) cliff. `COUNT(DISTINCT
- * albumId)` folds the two arms together, so a file genre and a user tag sharing a
- * key — or an album with several tracks under one key — count that album once.
- * Keys only: the display spelling for the *one* picked key is a cheap point
- * lookup, not a group over the whole library.
+ * even at the 100k-track scale. The file-genre arm reads `track_genres.album_id`
+ * (denormalized by W12-8) straight through `idx_track_genres_key_album`, so it
+ * never joins `tracks`; the tag arm keeps its `track_tags → tracks` join, small
+ * because the user-tag vocabulary is. Both keep to `qa` with `album_id IN
+ * (SELECT ... FROM qa)` — SQLite indexes the small `qa` subquery rather than
+ * hash-joining a derived table against every track, which is what keeps this off
+ * the O(rows × albums) cliff. `COUNT(DISTINCT albumId)` folds the two arms
+ * together, so a file genre and a user tag sharing a key — or an album with
+ * several tracks under one key — count that album once. Keys only: the display
+ * spelling for the *one* picked key is a cheap point lookup, not a group over the
+ * whole library.
  */
 function fillableGenreKeys(db: Database.Database, claimed: Claimed): string[] {
   const rows = db
@@ -90,10 +93,9 @@ function fillableGenreKeys(db: Database.Database, claimed: Claimed): string[] {
          HAVING COUNT(*) >= @minTracks
        ),
        pair AS (
-         SELECT tg.genre_key AS genreKey, t.album_id AS albumId
+         SELECT tg.genre_key AS genreKey, tg.album_id AS albumId
            FROM track_genres tg
-           JOIN tracks t ON t.id = tg.track_id
-          WHERE t.album_id IN (SELECT album_id FROM qa)
+          WHERE tg.album_id IN (SELECT album_id FROM qa)
          UNION ALL
          SELECT gt.key AS genreKey, t.album_id AS albumId
            FROM track_tags tt
@@ -136,24 +138,25 @@ function genreDisplay(db: Database.Database, genreKey: string): string {
  * vocabulary, with each album's play stats. No taste gate and no unplayed
  * requirement — exploration includes what you have dipped into.
  *
- * Driven *from the genre*, not from a full scan of `tracks`: `genre_albums` walks
- * only the genre's rows through `idx_track_genres_key` (and the small tag arm)
- * and folds to distinct album ids, then those albums' tracks are aggregated
- * through `idx_tracks_album`. That is the difference between touching the picked
- * genre's few thousand tracks and running a correlated `EXISTS` over every track
- * in the library — the shape *neglected-genre* can afford only because it is
- * gated to one taste-scored genre and often bails before it runs.
+ * Driven *from the genre*, not from a full scan of `tracks`: the file-genre arm
+ * of `genre_albums` reads distinct `album_id` straight off `track_genres` through
+ * `idx_track_genres_key_album` (the covering index W12-8 added) with no `tracks`
+ * join, and the small tag arm folds in through its own indexes; those albums'
+ * tracks are then aggregated through `idx_tracks_album`. That is the difference
+ * between touching the picked genre's few thousand tracks and running a
+ * correlated `EXISTS` over every track in the library — the shape
+ * *neglected-genre* can afford only because it is gated to one taste-scored genre
+ * and often bails before it runs.
  */
 function albumsInGenre(db: Database.Database, claimed: Claimed, genreKey: string): GenreAlbumRow[] {
   return db
     .prepare(
       `WITH genre_albums AS (
-         SELECT t.album_id AS albumId
+         SELECT tg.album_id AS albumId
            FROM track_genres tg
-           JOIN tracks t ON t.id = tg.track_id
           WHERE tg.genre_key = @genreKey
-            AND t.album_id IS NOT NULL
-            AND t.album_id NOT IN (SELECT value FROM json_each(@claimedAlbums))
+            AND tg.album_id IS NOT NULL
+            AND tg.album_id NOT IN (SELECT value FROM json_each(@claimedAlbums))
          UNION
          SELECT t.album_id
            FROM track_tags tt

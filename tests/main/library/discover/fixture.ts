@@ -79,9 +79,11 @@ export function addTrack(
       ).lastInsertRowid
   )
   const insertGenre = db.prepare(
-    'INSERT INTO track_genres (track_id, genre_key, genre) VALUES (?, ?, ?)'
+    // album_id denormalized (W12-8), mirroring what LibraryStore.writeTrack writes.
+    'INSERT INTO track_genres (track_id, genre_key, genre, album_id) VALUES (?, ?, ?, ?)'
   )
-  for (const part of splitGenres(options.genre)) insertGenre.run(id, part.key, part.genre)
+  for (const part of splitGenres(options.genre))
+    insertGenre.run(id, part.key, part.genre, options.albumId)
   return id
 }
 

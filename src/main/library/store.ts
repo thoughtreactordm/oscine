@@ -658,7 +658,9 @@ function prepareStatements(db: Database.Database) {
     // retagged file leaves nothing of its old genres behind.
     clearTrackGenres: db.prepare('DELETE FROM track_genres WHERE track_id = ?'),
     insertTrackGenre: db.prepare(
-      'INSERT INTO track_genres (track_id, genre_key, genre) VALUES (?, ?, ?)'
+      // album_id denormalized from tracks (W12-8): kept in sync on the write-back
+      // paths by the schema's track_genres_album_sync trigger.
+      'INSERT INTO track_genres (track_id, genre_key, genre, album_id) VALUES (?, ?, ?, ?)'
     ),
 
     // W16-7 re-scan reconciliation: read once per scanned track to decide
@@ -1236,7 +1238,7 @@ export class LibraryStore {
     // vanished file and a removed root alike.
     this.statements.clearTrackGenres.run(trackId)
     for (const { key, genre } of splitGenres(tags.genre)) {
-      this.statements.insertTrackGenre.run(trackId, key, genre)
+      this.statements.insertTrackGenre.run(trackId, key, genre, albumId)
     }
 
     // W16-7: the re-scan that just read these tags is where an override retires.
