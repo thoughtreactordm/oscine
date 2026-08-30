@@ -133,7 +133,7 @@
       "description": "Curate's Discover pane: named local SQL recipes over the library and the listens log (D20). Nine 1.0 shelves, 5–10 playable items each, nothing fetched, nothing pinned to the rail. Specified in the wiki page `fermata-discover-1-0`.\n\nFaces forward — what to play next from files already owned — where W10's dashboard faces backward. Does not call `stats.query` or `related.ts`; those engines answer different questions. Does not fire D18's revisit trigger: shelves are ephemeral recipes, and save-as-playlist produces an ordinary D12 row.\n\nDoes NOT own Podcast Discover (W9), the Listening dashboard (W10-12), MusicBrainz similar-artists (W7), or a Recently Added rail fixture.",
       "color": "cyan",
       "order": 11,
-      "cardCounter": 5,
+      "cardCounter": 8,
       "dependsOn": [
         "W2",
         "W5",
