@@ -1,7 +1,7 @@
 ---
 taskId: 01KYR5BV7JFF7S4ARGEW9M07Q6
 title: Artwork scan logs one ENOENT per file when a root is missing
-status: triage
+status: backlog
 priority: medium
 labels:
   - artwork
@@ -10,9 +10,9 @@ labels:
 triageKind: bug
 workstream: W2
 workstreamId: W2-8
-order: 0
+order: 26
 created: '2026-07-30T00:04:09.073Z'
-updated: '2026-07-30T00:04:09.073Z'
+updated: '2026-09-01T22:54:33.613Z'
 ---
 When a configured root is absent, the artwork pass logs one `[artwork] skipped track N: ENOENT ...` line per track instead of noticing the root is gone and saying so once.
 
