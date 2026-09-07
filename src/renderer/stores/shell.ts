@@ -56,9 +56,10 @@ export const useShellStore = defineStore('shell', () => {
    * Session-only, and owned by the frame: it is a fact about the current window
    * size, not a preference to persist. It rides in the store because the cover
    * pane belongs to the rail — when the rail becomes a band the full-size cover
-   * is not drawn, so the transport's thumbnail has to come back even though the
+   * is not drawn, so the transport's thumbnail would come back even though the
    * operator's `coverExpanded` preference is untouched. Reading one flag is how
    * the bar knows the pane is not on screen without learning what a sidebar is.
+   * The bar may still hide the thumbnail on its own width; this is only the pane.
    */
   const sidebarCompact = ref(false)
 

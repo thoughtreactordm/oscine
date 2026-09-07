@@ -15,7 +15,7 @@ import { useIdleAutoShow } from '@renderer/shell/useIdleAutoShow'
 import { useStageTransport } from '@renderer/shell/useStageTransport'
 import { useContainerHeight, useContainerWidth } from '@renderer/shell/useContainerWidth'
 import { useZenMode } from '@renderer/shell/useZenMode'
-import { SHELL_BAND_PANE, SIDEBAR_PANE } from '@renderer/shell/shellLayout'
+import { SHELL_BAND_PANE, SIDEBAR_PANE, SIDEBAR_REFLOW_BELOW } from '@renderer/shell/shellLayout'
 import ShellSidebar from '@renderer/shell/ShellSidebar.vue'
 import ShellTabs from '@renderer/shell/ShellTabs.vue'
 import Tunedeck from '@renderer/panels/Tunedeck.vue'
@@ -163,13 +163,13 @@ const deckResizing = ref(false)
 const hasSidebar = computed(() => route.meta.sidebar === true)
 
 /**
- * §2: below ~760px the rail and the body can no longer sit side by side, so the
- * frame reflows the rail into a band above the body and drops the body's width
- * floor. Measured on the sidebar+body region rather than the viewport — the deck
- * is a sibling outside that region, so opening it narrows what is measured here
- * and pulls the reflow forward exactly when the deck is the thing eating the
- * width. Only the browse rails carry the band presentation (`route.meta.reflow`);
- * the utility rails keep their column and simply crunch.
+ * §2: below `SIDEBAR_REFLOW_BELOW` the rail and the body can no longer sit side
+ * by side, so the frame reflows the rail into a band above the body and drops
+ * the body's width floor. Measured on the sidebar+body region rather than the
+ * viewport — the deck is a sibling outside that region, so opening it narrows
+ * what is measured here and pulls the reflow forward exactly when the deck is
+ * the thing eating the width. Only the browse rails carry the band presentation
+ * (`route.meta.reflow`); the utility rails keep their column and simply crunch.
  */
 const regionRef = ref<HTMLElement | null>(null)
 const { width: regionWidth } = useContainerWidth(regionRef)
@@ -178,11 +178,12 @@ const compactSidebar = computed(
     hasSidebar.value &&
     route.meta.reflow === true &&
     regionWidth.value > 0 &&
-    regionWidth.value < 760
+    regionWidth.value < SIDEBAR_REFLOW_BELOW
 )
 
-// The transport reads this to bring its cover thumbnail back when the band has
-// taken the full-size cover pane off screen — see the shell store.
+// The transport reads this so it can stand the cover thumbnail down while the
+// band has taken the full-size pane off screen — see the shell store. The bar
+// may still hide the thumbnail on its own width; this flag is only about the pane.
 watch(compactSidebar, (compact) => shell.setSidebarCompact(compact), { immediate: true })
 
 /**
