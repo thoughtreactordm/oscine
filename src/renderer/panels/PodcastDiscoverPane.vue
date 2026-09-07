@@ -295,8 +295,8 @@ function shelfIcon(kind: string): string {
           <div class="flex flex-col gap-1.5">
             <h3 class="text-base font-semibold text-highlighted">Browse the podcast catalog</h3>
             <p class="text-sm text-muted">
-              Search and recommendations query Apple’s podcast catalog. Oscine doesn’t contact
-              Apple until you turn this on — your subscriptions, downloads and playback never do.
+              Search and recommendations query Apple’s podcast catalog. Oscine doesn’t contact Apple
+              until you turn this on — your subscriptions, downloads and playback never do.
             </p>
           </div>
           <div class="flex flex-wrap items-center justify-center gap-2">

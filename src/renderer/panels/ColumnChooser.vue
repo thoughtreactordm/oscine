@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { isSortableColumn, type TrackColumnSpec } from "@renderer/panels/columnLayout";
-import { useTrackColumnsStore } from "@renderer/stores/columns";
-import { useTrackListStore } from "@renderer/stores/trackList";
+import { computed } from 'vue'
+import { isSortableColumn, type TrackColumnSpec } from '@renderer/panels/columnLayout'
+import { useTrackColumnsStore } from '@renderer/stores/columns'
+import { useTrackListStore } from '@renderer/stores/trackList'
 
 /**
  * Column visibility, order and sort, from the keyboard.
@@ -14,18 +14,18 @@ import { useTrackListStore } from "@renderer/stores/trackList";
  * user cannot reach. Every sortable column is listed here whether or not it is
  * visible, so the sort is always changeable and always legible.
  */
-const columns = useTrackColumnsStore();
-const panel = useTrackListStore();
+const columns = useTrackColumnsStore()
+const panel = useTrackListStore()
 
-const visibleCount = computed(() => columns.visibleColumns.length);
+const visibleCount = computed(() => columns.visibleColumns.length)
 
 function columnName(column: TrackColumnSpec): string {
-  return column.title ?? column.label;
+  return column.title ?? column.label
 }
 
 /** Position among the visible columns, which is what the move buttons step through. */
 function visiblePosition(column: TrackColumnSpec): number {
-  return columns.visibleColumns.findIndex((entry) => entry.key === column.key);
+  return columns.visibleColumns.findIndex((entry) => entry.key === column.key)
 }
 </script>
 
