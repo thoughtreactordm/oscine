@@ -32,6 +32,8 @@ import {
   AUDIO_CROSSFADE_MS,
   AUDIO_CROSSFADE_MS_KEY,
   EMPTY_QUEUE_SESSION,
+  PLAYBACK_PREVIOUS_BUTTON,
+  type PreviousButtonMode,
   type QueueIntent,
   type QueueSession
 } from '@shared/settings'
@@ -53,7 +55,7 @@ import {
   type SessionRowReader
 } from './sessionScope'
 import { createShuffledPlayOrder, type ShuffledPlayOrder } from './shufflePlayOrder'
-import { cycleRepeatMode, previousIndex, type RepeatMode } from './traversal'
+import { cycleRepeatMode, previousIndex, previousPressAction, type RepeatMode } from './traversal'
 import { perceptualVolumeToAmplitude } from './volumeCurve'
 import {
   chooseSuccessor,
@@ -446,6 +448,16 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     shuffle: shuffleEnabled,
     volume
   } = bindTransportPreferences(deps.settings)
+
+  /**
+   * Durable, unlike the three above: this is a preference about the button,
+   * not a mode the window was left in. Unbound, the registry default is
+   * `restart` — which is also what a test that never mentions the setting
+   * gets, and why the existing Previous tests still skip at `currentTime` 0.
+   */
+  const previousButtonMode: Ref<PreviousButtonMode> = deps.settings
+    ? deps.settings.value<PreviousButtonMode>(PLAYBACK_PREVIOUS_BUTTON.key)
+    : ref(PLAYBACK_PREVIOUS_BUTTON.default)
 
   /**
    * How many positions the playing order has, or `null` when unknown — which
@@ -1239,11 +1251,16 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   }
 
   async function previous(): Promise<void> {
-    // At the first row there is nowhere to go without repeat. Restarting the
-    // current track instead is a convention worth having, but it belongs with
-    // the rest of the transport polish rather than smuggled in here.
     const from = position.value
     if (!from) return
+    // The restart convention is a seek, not a traversal: same row, same play,
+    // just back at zero. It has to win before the detour / step-back reading
+    // below, or a queued track two minutes in would jump out instead of
+    // restarting. A second press, now under the threshold, falls through.
+    if (previousPressAction(currentTime.value, previousButtonMode.value) === 'restart') {
+      seek(0)
+      return
+    }
     // Backing out of a *user* detour returns to the row it interrupted. The
     // queue is forward-looking — the entry that just played has been shifted
     // out of it — so there is nothing else Previous could mean there.
@@ -1422,12 +1439,27 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   function endScrub(): void {
     if (!scrubbing.value) return
     scrubbing.value = false
+    if (pendingResume) {
+      pendingResume = {
+        index: pendingResume.index,
+        elapsedMs: Math.round(currentTime.value * 1000)
+      }
+    }
     scheduler?.seek(currentTime.value)
   }
 
   /** A seek with no drag behind it — keyboard, or a click on the track. */
   function seek(seconds: number): void {
     currentTime.value = clampTime(seconds)
+    // A restored queue that has not opened a device yet still has a resume
+    // position. Previous-to-restart (and a scrub) have to move that too, or
+    // the first play would jump back to wherever the snapshot was taken.
+    if (pendingResume) {
+      pendingResume = {
+        index: pendingResume.index,
+        elapsedMs: Math.round(currentTime.value * 1000)
+      }
+    }
     scheduler?.seek(currentTime.value)
   }
 

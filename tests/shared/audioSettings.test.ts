@@ -10,6 +10,9 @@ import {
   AUDIO_REPLAY_GAIN_FALLBACK_DB,
   AUDIO_REPLAY_GAIN_MODE,
   AUDIO_REPLAY_GAIN_PREAMP_DB,
+  PLAYBACK_PREVIOUS_BUTTON,
+  PLAYBACK_REPEAT,
+  PLAYBACK_SHUFFLE,
   auditRegistry,
   boundaryPolicy,
   clampSetting,
@@ -249,5 +252,22 @@ describe('the audio domain', () => {
     expect(AUDIO_DECODE_TRACK_CAP_MB.help).toContain('16–1024')
     expect(AUDIO_DECODE_RESIDENCY_BUDGET_MB.help).toContain('64–2048')
     expect(AUDIO_PREFETCH_DEPTH.help).toContain('one prefetch slot')
+  })
+})
+
+describe('the playback domain', () => {
+  it('defaults Previous to restart-then-skip', () => {
+    expect(getSetting(PLAYBACK_PREVIOUS_BUTTON.key)).toBe(PLAYBACK_PREVIOUS_BUTTON)
+    expect(PLAYBACK_PREVIOUS_BUTTON.default).toBe('restart')
+    expect(PLAYBACK_PREVIOUS_BUTTON.scope).toBe('durable')
+  })
+
+  it('renders the operator-facing playback keys in display order', () => {
+    expect(settingsInCategory('playback').map((descriptor) => descriptor.key)).toEqual([
+      PLAYBACK_PREVIOUS_BUTTON.key,
+      PLAYBACK_REPEAT.key,
+      PLAYBACK_SHUFFLE.key
+    ])
+    expect(auditRegistry()).toEqual([])
   })
 })

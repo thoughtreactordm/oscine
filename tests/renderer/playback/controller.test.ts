@@ -12,7 +12,8 @@ import {
   AUDIO_REPLAY_GAIN_FALLBACK_DB,
   AUDIO_REPLAY_GAIN_MODE,
   AUDIO_REPLAY_GAIN_PREAMP_DB,
-  MIB
+  MIB,
+  PLAYBACK_PREVIOUS_BUTTON
 } from '../../../src/shared/settings'
 import { TRANSPORT_REPEAT_KEY } from '../../../src/renderer/playback/transportPreferences'
 import { perceptualVolumeToAmplitude } from '../../../src/renderer/playback/volumeCurve'
@@ -647,6 +648,124 @@ describe('createPlaybackController', () => {
       await fresh.controller.previous()
 
       expect(fresh.controller.hasEngine()).toBe(false)
+    })
+  })
+
+  describe('the Previous button convention', () => {
+    async function playingAt(index: number, currentTime: number) {
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index,
+        track: track(index)
+      })
+      h.engine.emit('timeupdate', { currentTime, duration: 120 })
+    }
+
+    it('restarts the playing track once it has moved past the threshold', async () => {
+      await playingAt(2, 10)
+      const loads = h.engine.loaded.length
+
+      await h.controller.previous()
+
+      expect(h.controller.orderIndex.value).toBe(2)
+      expect(h.controller.nowPlaying.value?.id).toBe(2)
+      expect(h.controller.currentTime.value).toBe(0)
+      expect(h.engine.seeks).toContain(0)
+      expect(h.engine.loaded).toHaveLength(loads)
+    })
+
+    it('skips back on the second press, now under the threshold', async () => {
+      await playingAt(2, 10)
+
+      await h.controller.previous()
+      expect(h.controller.nowPlaying.value?.id).toBe(2)
+      expect(h.controller.currentTime.value).toBe(0)
+
+      await h.controller.previous()
+      expect(h.controller.orderIndex.value).toBe(1)
+      expect(h.controller.nowPlaying.value?.id).toBe(1)
+    })
+
+    it('still skips at the start of a track, where a restart would be a no-op', async () => {
+      await playingAt(2, 0)
+
+      await h.controller.previous()
+
+      expect(h.controller.orderIndex.value).toBe(1)
+      expect(h.controller.nowPlaying.value?.id).toBe(1)
+    })
+
+    it('restarts the first row rather than no-opping once the play has moved', async () => {
+      await playingAt(0, 10)
+      const loads = h.engine.loaded.length
+
+      await h.controller.previous()
+
+      expect(h.controller.orderIndex.value).toBe(0)
+      expect(h.controller.nowPlaying.value?.id).toBe(0)
+      expect(h.controller.currentTime.value).toBe(0)
+      expect(h.engine.loaded).toHaveLength(loads)
+    })
+
+    it('restarts a queue detour instead of immediately backing out of it', async () => {
+      await h.controller.playFromPlaylist({ playlistId: 7, index: 2 })
+      h.controller.enqueue([track(42)])
+      await settle()
+      await h.controller.next()
+      expect(h.controller.nowPlaying.value?.id).toBe(42)
+      // Next has swapped the active slot, so the timeupdate has to land on
+      // whichever engine is now playing — both, and the scheduler ignores
+      // the inactive one.
+      for (const engine of h.engines) {
+        engine.emit('timeupdate', { currentTime: 10, duration: 120 })
+      }
+
+      await h.controller.previous()
+
+      expect(h.controller.nowPlaying.value?.id).toBe(42)
+      expect(h.controller.currentTime.value).toBe(0)
+
+      await h.controller.previous()
+      expect(h.controller.nowPlaying.value?.id).toBe(PLAYLIST_TRACK_BASE + 2)
+    })
+
+    it('always skips when the setting says so, even mid-track', async () => {
+      const store = settingsStoreFixture({
+        stored: { [PLAYBACK_PREVIOUS_BUTTON.key]: 'skip' }
+      })
+      await store.settings.ready
+      const bound = harness({ settings: store.settings })
+      await bound.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 2,
+        track: track(2)
+      })
+      bound.engine.emit('timeupdate', { currentTime: 10, duration: 120 })
+
+      await bound.controller.previous()
+
+      expect(bound.controller.orderIndex.value).toBe(1)
+      expect(bound.controller.nowPlaying.value?.id).toBe(1)
+    })
+
+    it('takes a setting written elsewhere without a restart', async () => {
+      const store = viewStore()
+      await store.settings.ready
+      const bound = harness({ settings: store.settings })
+      await bound.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 2,
+        track: track(2)
+      })
+      bound.engine.emit('timeupdate', { currentTime: 10, duration: 120 })
+
+      await store.settings.set(PLAYBACK_PREVIOUS_BUTTON.key, 'skip')
+      await bound.controller.previous()
+
+      expect(bound.controller.nowPlaying.value?.id).toBe(1)
     })
   })
 

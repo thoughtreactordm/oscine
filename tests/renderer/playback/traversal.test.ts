@@ -5,6 +5,8 @@ import {
   needsTotal,
   nextIndex,
   previousIndex,
+  previousPressAction,
+  PREVIOUS_RESTART_THRESHOLD_SEC,
   REPEAT_MODES
 } from '../../../src/renderer/playback/traversal'
 
@@ -80,6 +82,26 @@ describe('previousIndex', () => {
 
   it('cannot wrap without a length', () => {
     expect(previousIndex(0, null, 'all')).toBeNull()
+  })
+})
+
+describe('previousPressAction', () => {
+  it('always steps back in skip mode, however far in the track is', () => {
+    expect(previousPressAction(0, 'skip')).toBe('skip')
+    expect(previousPressAction(PREVIOUS_RESTART_THRESHOLD_SEC, 'skip')).toBe('skip')
+    expect(previousPressAction(120, 'skip')).toBe('skip')
+  })
+
+  it('restarts only once the play has moved past the threshold', () => {
+    expect(previousPressAction(0, 'restart')).toBe('skip')
+    expect(previousPressAction(PREVIOUS_RESTART_THRESHOLD_SEC, 'restart')).toBe('skip')
+    expect(previousPressAction(PREVIOUS_RESTART_THRESHOLD_SEC + 0.01, 'restart')).toBe('restart')
+    expect(previousPressAction(120, 'restart')).toBe('restart')
+  })
+
+  it('treats a non-number position as still at the start', () => {
+    expect(previousPressAction(Number.NaN, 'restart')).toBe('skip')
+    expect(previousPressAction(Number.POSITIVE_INFINITY, 'restart')).toBe('skip')
   })
 })
 
