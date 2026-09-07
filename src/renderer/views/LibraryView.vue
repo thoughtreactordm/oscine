@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import type { ContextMenuItem } from '@nuxt/ui'
 import ColumnChooser from '@renderer/panels/ColumnChooser.vue'
+import FocusedBackdrop from '@renderer/panels/FocusedBackdrop.vue'
+import FocusedHeader from '@renderer/panels/FocusedHeader.vue'
 import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
@@ -24,16 +26,23 @@ import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
 import { useTrackColumnsStore } from '@renderer/stores/columns'
+import { useFocusedHeaderStore } from '@renderer/stores/focusedHeader'
 import { useTrackListStore } from '@renderer/stores/trackList'
 import type { Track } from '@shared/library'
 
 /**
- * The Library tab's body: the song list and the chrome that describes it.
+ * The library tab's body: the song list and the chrome that describes it.
  *
  * The predicate it renders is written to the track list store by `Sources`,
  * which the frame mounts as this tab's sidebar. The two are siblings under a
  * routed layout now rather than parent and child, so the store carries what the
  * `filters-change` emit used to.
+ *
+ * When the predicate names one genre, one artist or one album, the compact
+ * "Songs" bar becomes a focused header — identity, a handful of facts, and for
+ * artists and albums the same set-back picture the Tunedeck stands on. The
+ * section's `isolate` is what lets that backdrop paint above the panel and
+ * below the chrome without the list opting in.
  */
 const trackList = useTrackListStore()
 const columns = useTrackColumnsStore()
@@ -41,6 +50,7 @@ const playback = usePlaybackStore()
 const queue = useQueueCommandsStore()
 const addToPlaylist = useAddToPlaylistStore()
 const trackActions = useTrackActions()
+const focus = useFocusedHeaderStore()
 
 /**
  * The ordering, shown only when its column is not.
@@ -218,40 +228,63 @@ async function targetFor(index: number): Promise<QueueTarget> {
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 min-w-0 flex-col" aria-label="Songs">
-    <div class="flex h-9 shrink-0 items-center gap-2 border-b border-default bg-elevated/40 px-2">
-      <UIcon name="i-tabler-playlist" class="size-4 text-primary" />
-      <h2 class="font-semibold text-highlighted">Songs</h2>
+  <section
+    class="relative isolate flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+    aria-label="Songs"
+  >
+    <FocusedBackdrop />
 
-      <UBadge
-        v-if="hiddenSort"
-        color="neutral"
-        variant="subtle"
-        size="sm"
-        :icon="trackList.direction === 'asc' ? 'i-tabler-chevron-up' : 'i-tabler-chevron-down'"
-      >
-        {{ hiddenSort.title ?? hiddenSort.label }}
-      </UBadge>
+    <div
+      class="flex shrink-0 gap-2"
+      :class="
+        focus.kind
+          ? 'items-start bg-transparent px-3 pb-4 pt-5'
+          : 'h-9 items-center border-b border-default bg-elevated/40 px-2'
+      "
+    >
+      <FocusedHeader v-if="focus.kind" />
+      <template v-else>
+        <UIcon name="i-tabler-playlist" class="size-4 text-primary" />
+        <h2 class="font-semibold text-highlighted">Songs</h2>
+      </template>
 
-      <span
-        v-if="trackList.selectionCount > 0"
-        class="ml-auto text-xs tabular-nums text-primary"
-        aria-live="polite"
-      >
-        {{ trackList.selectionCount.toLocaleString() }} selected
-      </span>
-      <span
-        class="text-xs tabular-nums text-muted"
-        :class="{ 'ml-auto': trackList.selectionCount === 0 }"
-      >
-        {{ trackList.total.toLocaleString() }}
-      </span>
+      <!--
+        One cluster, one midline. The focused bar is `items-start` so this sits
+        with the title rather than in the middle of the tags, and the inner
+        `items-center` is what keeps the count and both choosers on the same
+        line — they are different heights (text vs. two buttons that were not
+        even the same size) and per-item `mt-*` was pretending they were not.
+      -->
+      <div class="ml-auto flex shrink-0 items-center gap-2" :class="{ 'h-8': focus.kind }">
+        <UBadge
+          v-if="hiddenSort"
+          color="neutral"
+          variant="subtle"
+          size="sm"
+          :icon="trackList.direction === 'asc' ? 'i-tabler-chevron-up' : 'i-tabler-chevron-down'"
+        >
+          {{ hiddenSort.title ?? hiddenSort.label }}
+        </UBadge>
 
-      <GroupChooser
-        :groupable="trackList.sort === 'album'"
-        hint="Albums are grouped when the list is sorted by Album, which selecting an artist does. Sorted by another column, the albums interleave and there are no runs to head."
-      />
-      <ColumnChooser />
+        <span
+          v-if="trackList.selectionCount > 0"
+          class="text-xs tabular-nums text-primary"
+          aria-live="polite"
+        >
+          {{ trackList.selectionCount.toLocaleString() }}
+          selected
+        </span>
+        <span class="text-xs tabular-nums text-muted">
+          {{ trackList.total.toLocaleString() }}
+        </span>
+
+        <GroupChooser
+          size="sm"
+          :groupable="trackList.sort === 'album'"
+          hint="Albums are grouped when the list is sorted by Album, which selecting an artist does. Sorted by another column, the albums interleave and there are no runs to head."
+        />
+        <ColumnChooser />
+      </div>
     </div>
     <div class="min-h-0 flex-1">
       <TrackList

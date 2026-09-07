@@ -156,7 +156,7 @@ export function createListenbrainzTransport({
       // same either way: paste a token that works.
       return netFailed({
         kind: 'rejected',
-        message: 'ListenBrainz did not recognise that token. Check it and try again.'
+        message: 'ListenBrainz did not recognize that token. Check it and try again.'
       })
     },
 

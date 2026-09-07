@@ -51,7 +51,7 @@ export function createItunesClient(deps: ItunesClientDeps = {}): ItunesClient {
     // it. Read live, so switching the toggle off stops fetching without a
     // restart. See `net/consent.ts`.
     if (consent && !consent.granted()) {
-      throw new OscineError('io-error', 'Online catalogue lookups are turned off.')
+      throw new OscineError('io-error', 'Online catalog lookups are turned off.')
     }
     let response: Response
     try {
@@ -60,15 +60,15 @@ export function createItunesClient(deps: ItunesClientDeps = {}): ItunesClient {
         headers: { accept: 'application/json', 'user-agent': userAgent }
       })
     } catch {
-      throw new OscineError('io-error', 'Could not reach the Apple podcast catalogue.')
+      throw new OscineError('io-error', 'Could not reach the Apple podcast catalog.')
     }
     if (!response.ok) {
-      throw new OscineError('io-error', `Apple catalogue returned HTTP ${response.status}.`)
+      throw new OscineError('io-error', `Apple catalog returned HTTP ${response.status}.`)
     }
     try {
       return (await response.json()) as unknown
     } catch {
-      throw new OscineError('io-error', 'Apple catalogue returned invalid JSON.')
+      throw new OscineError('io-error', 'Apple catalog returned invalid JSON.')
     }
   }
 

@@ -132,7 +132,7 @@ export const THEME_SETTINGS: readonly SettingDescriptor[] = [
     validate: booleanValue(),
     control: { kind: 'toggle' },
     category: 'theme',
-    label: 'Reactive colour',
+    label: 'Reactive color',
     help: 'Take the accent from the cover art of whatever is playing. An accent you have set yourself in the token editor still wins.',
     keywords: [
       'reactive',
@@ -165,7 +165,7 @@ export const THEME_SETTINGS: readonly SettingDescriptor[] = [
     control: { kind: 'custom', component: 'themeEditor' },
     category: 'theme',
     label: 'Token overrides',
-    help: 'Author your own colours, shape, type and motion over the selected theme.',
+    help: 'Author your own colors, shape, type and motion over the selected theme.',
     keywords: ['token', 'override', 'custom', 'colour', 'color', 'font', 'radius', 'editor'],
     order: 30
   })

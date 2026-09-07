@@ -30,6 +30,17 @@ export type ReplayGainMode = 'off' | 'track' | 'album'
 export type RepeatMode = 'off' | 'all' | 'one'
 
 /**
+ * What the Previous transport button does.
+ *
+ * `restart` is the convention every player anyone has used actually ships:
+ * one press seeks to the start of the playing track, and a second press near
+ * the start skips back. `skip` is Oscine's original always-step-back reading,
+ * kept as an option rather than deleted, because an operator who learned the
+ * transport that way is not wrong.
+ */
+export type PreviousButtonMode = 'restart' | 'skip'
+
+/**
  * Named because the playback controller binds to it by key.
  *
  * A literal there and a literal here would be two places to get the same string
@@ -195,7 +206,7 @@ export const AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING = defineSetting<boolean>({
   validate: booleanValue(),
   control: { kind: 'toggle' },
   category: 'audio',
-  label: 'Analyse untagged tracks',
+  label: 'Analyze untagged tracks',
   help: 'Allow the background job to measure ReplayGain for tracks that have no tag. Turning this off refuses the job; it never discards a measurement already taken.',
   keywords: ['replaygain', 'analyse', 'analyze', 'scan', 'job', 'background'],
   order: 50
@@ -299,6 +310,39 @@ export const AUDIO_PREFETCH_DEPTH = defineSetting<number>({
 })
 
 /**
+ * Durable rather than view-scoped: this is how the operator wants the button
+ * to work, not which mode they left a window in. Shuffle and repeat sit in
+ * the same category because they are also transport, but they are restored
+ * session state; this one belongs in a profile that travels.
+ */
+export const PLAYBACK_PREVIOUS_BUTTON = defineSetting<PreviousButtonMode>({
+  key: 'playback.previousButton',
+  scope: 'durable',
+  default: 'restart',
+  validate: enumValue<PreviousButtonMode>(['restart', 'skip']),
+  control: {
+    kind: 'select',
+    options: [
+      {
+        value: 'restart',
+        label: 'Restart this track',
+        help: 'Press again near the start to skip to the previous track.'
+      },
+      {
+        value: 'skip',
+        label: 'Always skip back',
+        help: 'Every press moves to the previous track.'
+      }
+    ]
+  },
+  category: 'playback',
+  label: 'Previous button',
+  help: 'One press restarts the playing track. A second press near the start skips back.',
+  keywords: ['previous', 'back', 'restart', 'skip', 'rewind'],
+  order: 5
+})
+
+/**
  * View-scoped: which order you left the transport in is a fact about this
  * window on this machine, not a preference worth carrying to another one.
  */
@@ -364,6 +408,7 @@ export const AUDIO_SETTINGS: readonly SettingDescriptor[] = [
   AUDIO_DECODE_TRACK_CAP_MB,
   AUDIO_DECODE_RESIDENCY_BUDGET_MB,
   AUDIO_PREFETCH_DEPTH,
+  PLAYBACK_PREVIOUS_BUTTON,
   PLAYBACK_REPEAT,
   PLAYBACK_SHUFFLE,
   PLAYBACK_VOLUME

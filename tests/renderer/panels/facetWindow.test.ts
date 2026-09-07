@@ -327,4 +327,17 @@ describe('createFacetWindow', () => {
     // Dropping ids on a failed query would discard the user's work silently.
     expect(model.selectionCount.value).toBe(1)
   })
+
+  it('finds a loaded row by id without asking for its index', async () => {
+    const { model } = syntheticFacet({ total: 200, pageSize: 100 })
+    model.ensureRange(0, 20)
+    await flush()
+
+    expect(model.findById(1)?.name).toBe('Artist 1')
+    expect(model.findById(150)).toBeUndefined()
+
+    model.ensureRange(100, 120)
+    await flush()
+    expect(model.findById(101)?.name).toBe('Artist 101')
+  })
 })

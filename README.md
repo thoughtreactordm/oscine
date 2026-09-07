@@ -106,6 +106,14 @@ original frozen scope. Subsystem contracts that outgrew the design doc have thei
 [`docs/`](docs/) (artwork cache, ReplayGain). Project-wide conventions and invariants for
 contributors — and for coding agents — live in [`CLAUDE.md`](CLAUDE.md).
 
-## License
+## License & brand
 
-Oscine is licensed under the [MIT License](LICENSE).
+The source code is licensed under the [MIT License](LICENSE) — free to use, fork, and distribute,
+including commercially.
+
+The **Oscine™ name, logo, icon, wordmark, and visual identity** are trademarks of Thought Reactor
+and are **not** covered by the MIT License. Forking the code means renaming and rebranding: remove
+the Oscine name and logo assets and replace them with your own. Truthful nominative references
+("a fork of Oscine", "based on Oscine") are always fine.
+
+See [TRADEMARK.md](TRADEMARK.md) for the full brand policy and a list of the reserved assets.

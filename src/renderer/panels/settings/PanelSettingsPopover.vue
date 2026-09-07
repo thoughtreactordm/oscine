@@ -95,7 +95,7 @@ function reveal(key: string): void {
     <template #content>
       <div class="flex flex-col">
         <div class="flex items-center gap-2 border-b border-default px-3 py-2">
-          <UIcon :name="surface.icon" class="size-4 shrink-0 text-dimmed" />
+          <UIcon :name="surface.icon" class="size-5 shrink-0 text-dimmed" />
           <h3 class="min-w-0 truncate text-sm font-semibold text-highlighted">
             {{ surface.title }}
           </h3>

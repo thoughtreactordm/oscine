@@ -217,7 +217,7 @@ export const usePodcastsStore = defineStore('podcasts', () => {
     } catch (error) {
       if (generation !== searchGeneration) return
       catalogHits.value = []
-      notice.value = error instanceof OscineError ? error.message : 'Catalogue search failed.'
+      notice.value = error instanceof OscineError ? error.message : 'Catalog search failed.'
     } finally {
       if (generation === searchGeneration) searchingCatalog.value = false
     }

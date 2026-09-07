@@ -34,13 +34,22 @@ import { clampPaneSize, type PaneSpec } from './paneResizer'
 export const SHELL_PANE_SIZES_KEY = 'view.shellPaneSizes'
 
 /**
+ * §2: below this the rail and the body can no longer sit side by side, so the
+ * frame reflows the rail into a band above the list. Named once so the transport
+ * can hide its cover thumbnail at the same figure — leaving the art in the bar
+ * after the pane has gone is how the two started colliding.
+ */
+export const SIDEBAR_REFLOW_BELOW = 760
+
+/**
  * The frame's sidebar.
  *
- * `reserve` is the body's wide-mode `min-w-90` (360). Below ~760 the frame stops
- * keeping the rail beside the body and reflows it into a band (§2), so the drag
- * only has to leave the body room while the two are side by side: with the 640px
- * `minWidth`, sidebar `min` (240) plus this reserve (360) clears the floor with
- * slack, and on anything wider the drag stops before it can crush the body.
+ * `reserve` is the body's wide-mode `min-w-90` (360). Below `SIDEBAR_REFLOW_BELOW`
+ * the frame stops keeping the rail beside the body and reflows it into a band
+ * (§2), so the drag only has to leave the body room while the two are side by
+ * side: with the 640px `minWidth`, sidebar `min` (240) plus this reserve (360)
+ * clears the floor with slack, and on anything wider the drag stops before it
+ * can crush the body.
  */
 export const SIDEBAR_PANE: PaneSpec = {
   key: 'shell.sidebar',

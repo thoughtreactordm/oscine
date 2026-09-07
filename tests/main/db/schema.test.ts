@@ -73,7 +73,8 @@ describe('openDatabase', () => {
         'user-tags',
         'track-overrides-genre-year',
         'genre-aliases',
-        'artwork-overrides'
+        'artwork-overrides',
+        'track-genres-album'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -125,7 +126,8 @@ describe('openDatabase', () => {
         'user-tags',
         'track-overrides-genre-year',
         'genre-aliases',
-        'artwork-overrides'
+        'artwork-overrides',
+        'track-genres-album'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -166,7 +168,8 @@ describe('openDatabase', () => {
         'user-tags',
         'track-overrides-genre-year',
         'genre-aliases',
-        'artwork-overrides'
+        'artwork-overrides',
+        'track-genres-album'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
@@ -279,6 +282,35 @@ describe('openDatabase', () => {
       // Key first, track id second: that ordering is what makes "count tracks
       // per genre" an index-only scan rather than a walk of the table.
       expect(index?.sql).toContain('(genre_key, track_id)')
+    } finally {
+      db.close()
+    }
+  })
+
+  /**
+   * Migration 022's denormalization (W12-8). The `album_id` column, its covering
+   * index and the sync trigger are what let genre-roulette's pool gate walk an
+   * index instead of correlating `track_genres` back to `tracks`; each is a
+   * property a later migration could drop while its own tests kept passing, and
+   * losing the trigger would desync the column on the write-back paths silently.
+   */
+  it('denormalizes album_id onto the genre table, kept in sync by trigger', () => {
+    const { db } = openDatabase(file)
+    try {
+      const columns = db.prepare('SELECT name FROM pragma_table_info(?)').all('track_genres') as {
+        name: string
+      }[]
+      expect(columns.map((c) => c.name)).toContain('album_id')
+
+      const index = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get('idx_track_genres_key_album') as { sql: string } | undefined
+      expect(index?.sql).toContain('(genre_key, album_id)')
+
+      const trigger = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?")
+        .get('track_genres_album_sync') as { sql: string } | undefined
+      expect(trigger?.sql).toContain('AFTER UPDATE OF album_id ON tracks')
     } finally {
       db.close()
     }

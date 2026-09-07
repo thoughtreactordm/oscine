@@ -171,9 +171,9 @@ describe('createListenbrainzTarget', () => {
       expect(result.ok === false && result.failure.kind).toBe('rejected')
     })
 
-    it('reports a token the service did not recognise, and stores nothing', async () => {
+    it('reports a token the service did not recognize, and stores nothing', async () => {
       const transport = fakeTransport({
-        validate: () => netFailed({ kind: 'rejected', message: 'ListenBrainz did not recognise…' })
+        validate: () => netFailed({ kind: 'rejected', message: 'ListenBrainz did not recognize…' })
       })
       const result = await target(transport).authorize({ token: 'nope' })
 

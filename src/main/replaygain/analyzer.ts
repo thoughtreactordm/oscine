@@ -24,14 +24,14 @@ export class WorkerReplayGainAnalyzer implements ReplayGainAnalyzer {
   private readonly pending = new Map<number, Pending>()
 
   async analyze(path: string, signal: AbortSignal): Promise<ReplayGainAnalysis> {
-    if (signal.aborted) throw new Error('ReplayGain analysis cancelled.')
+    if (signal.aborted) throw new Error('ReplayGain analysis canceled.')
     const worker = this.getWorker()
     const id = this.nextId++
 
     return new Promise((resolve, reject) => {
       const abort = (): void => {
         this.pending.delete(id)
-        reject(new Error('ReplayGain analysis cancelled.'))
+        reject(new Error('ReplayGain analysis canceled.'))
         void this.stopWorker()
       }
       signal.addEventListener('abort', abort, { once: true })
@@ -84,7 +84,7 @@ export class WorkerReplayGainAnalyzer implements ReplayGainAnalyzer {
     const worker = this.worker
     this.worker = null
     if (!worker) return
-    this.failAll(new Error('ReplayGain analysis cancelled.'))
+    this.failAll(new Error('ReplayGain analysis canceled.'))
     const stopping = worker.terminate().then(() => {})
     this.stopping = stopping
     try {

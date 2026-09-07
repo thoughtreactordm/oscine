@@ -10,6 +10,10 @@ import PlaybackModeButtons from '@renderer/panels/transport/PlaybackModeButtons.
 import SeekBar from '@renderer/panels/transport/SeekBar.vue'
 import TransportButtons from '@renderer/panels/transport/TransportButtons.vue'
 import TransportOverflow from '@renderer/panels/transport/TransportOverflow.vue'
+import {
+  TRANSPORT_STAGE_COMPACT_BELOW,
+  transportIsCompact
+} from '@renderer/panels/transport/transportLayout'
 import VolumeControl from '@renderer/panels/transport/VolumeControl.vue'
 import WaveformRibbon from '@renderer/panels/WaveformRibbon.vue'
 
@@ -46,16 +50,19 @@ const stageOwnsTransport = useStageTransport()
  * width rather than the viewport's. Only meaningful while the stage carries the
  * transport; the observer sits on the element, which only exists then.
  *
- * The number is higher than the bottom bar's 860 despite the lighter left flank,
+ * The number is higher than the bottom bar's despite the lighter left flank,
  * because the verbs are centred between two equal `flex-1` sides and this row
  * carries far more side padding (`sm:px-8` against the bar's `px-3`). The wide
  * right cluster — volume and the standing modes — is mirrored across the centre,
  * so it reaches the verbs at a wider container than the bar does; below this it
- * would eclipse them. Tune by eye, not by theory.
+ * would eclipse them. Compact is the expanded-volume layout: see
+ * `transportLayout.ts`.
  */
 const stageTransportRef = ref<HTMLElement | null>(null)
 const { width: transportWidth, height: transportHeight } = useElementSize(stageTransportRef)
-const compactTransport = computed(() => transportWidth.value > 0 && transportWidth.value < 900)
+const compactTransport = computed(() =>
+  transportIsCompact(transportWidth.value, TRANSPORT_STAGE_COMPACT_BELOW)
+)
 
 /**
  * The bottom padding the content reserves so it centres in the space *above* the
@@ -163,15 +170,31 @@ const byline = computed(() => {
           </Transition>
         </div>
 
+        <!--
+          `w-full` is load-bearing. This column is `items-center`, so without a
+          definite width each line sizes to its own max-content; `truncate` then
+          has nothing to clamp against and a long title overflows equally both
+          ways — clipped by the stage's `overflow-hidden`, not ellipsized. The
+          title wraps to two lines before the clamp; album and byline stay one.
+        -->
         <div
           v-if="playback.hasTrack"
-          class="stage-caption flex min-w-0 max-w-2xl shrink-0 flex-col items-center gap-1 text-center"
+          class="stage-caption flex min-w-0 w-full max-w-2xl shrink-0 flex-col items-center gap-1 text-center"
         >
-          <h2 class="truncate text-2xl font-bold tracking-tight text-highlighted">
+          <h2
+            class="line-clamp-2 min-w-0 w-full wrap-anywhere text-2xl font-bold tracking-tight text-highlighted"
+            :title="playback.nowPlaying?.title"
+          >
             {{ playback.nowPlaying?.title }}
           </h2>
-          <p v-if="byline" class="truncate text-base text-muted">{{ byline }}</p>
-          <p v-if="playback.nowPlaying?.album" class="truncate text-sm text-dimmed">
+          <p v-if="byline" class="min-w-0 w-full truncate text-base text-muted" :title="byline">
+            {{ byline }}
+          </p>
+          <p
+            v-if="playback.nowPlaying?.album"
+            class="min-w-0 w-full truncate text-sm text-dimmed"
+            :title="playback.nowPlaying.album"
+          >
             {{ playback.nowPlaying.album }}
           </p>
         </div>
@@ -202,7 +225,10 @@ const byline = computed(() => {
       aria-label="Now playing controls"
     >
       <SeekBar />
-      <div class="flex items-center justify-between gap-6 px-4 py-4 sm:px-8">
+      <div
+        class="flex items-center justify-between"
+        :class="compactTransport ? 'gap-3 px-3 py-3' : 'gap-6 px-4 py-4 sm:px-8'"
+      >
         <!--
           An empty spacer holds the verbs centred once the actions fold away, so
           the collapse changes what is on the flanks, not where the verbs sit.
@@ -267,6 +293,14 @@ section {
   .stage-caption {
     align-items: flex-start;
     text-align: left;
+    /*
+     * Beside the record the caption takes leftover width, not its title's
+     * max-content — otherwise a long line shoves the group past the stage
+     * the same way the stacked layout used to clip both sides.
+     */
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
   }
 }
 

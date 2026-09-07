@@ -44,7 +44,7 @@ export const NETWORK_SETTINGS: readonly SettingDescriptor[] = [
     control: { kind: 'toggle' },
     category: 'network',
     label: 'Allow online lookups',
-    help: 'Fetch artist info and browse the podcast catalogue online. Off by default.',
+    help: 'Fetch artist info and browse the podcast catalog online. Off by default.',
     keywords: [
       'network',
       'internet',
@@ -58,6 +58,7 @@ export const NETWORK_SETTINGS: readonly SettingDescriptor[] = [
       'apple',
       'itunes',
       'podcast',
+      'catalog',
       'catalogue',
       'discover',
       'metadata',

@@ -35,7 +35,7 @@ function visiblePosition(column: TrackColumnSpec): number {
       <UButton
         color="neutral"
         variant="ghost"
-        size="xs"
+        size="sm"
         icon="i-tabler-columns-3"
         aria-label="Choose columns"
       />

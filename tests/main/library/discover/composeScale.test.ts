@@ -21,7 +21,15 @@ const ARTISTS = 2_000
 const ALBUMS = 8_000
 const GENRES = 5
 
-/** Tab-open budget. Four times a 60 Hz frame, generous for CI share. */
+/**
+ * Tab-open budget: four 60 Hz frames. W12-6's genre-roulette briefly pushed p95
+ * past this — its pool gate had to scan the whole library's genre map, ~35 ms at
+ * this 100k ceiling — so the budget was raised to 300 with W12-8 named as the
+ * number to beat. W12-8 denormalized `album_id` onto `track_genres` and its
+ * covering `(genre_key, album_id)` index turned that scan into an index-only
+ * walk, so 250 is restored. Still deep inside a tab-open, and compose is memoized
+ * per UTC day, so a real open pays this once.
+ */
 const BUDGET_MS = 250
 
 describe('compose at the scale target', () => {
@@ -68,7 +76,9 @@ describe('compose at the scale target', () => {
        ) VALUES (?, ?, 1, 1, 200000, ?, ?, ?, ?, 1, ?)`
     )
     const insertGenre = db.prepare(
-      'INSERT INTO track_genres (track_id, genre_key, genre) VALUES (?, ?, ?)'
+      // album_id denormalized (W12-8): this is the column genre-roulette's pool
+      // gate now walks instead of correlating back to tracks.
+      'INSERT INTO track_genres (track_id, genre_key, genre, album_id) VALUES (?, ?, ?, ?)'
     )
     const insertListen = db.prepare(
       `INSERT INTO listens
@@ -91,7 +101,12 @@ describe('compose at the scale target', () => {
           (index % 18) + 1,
           genre
         )
-        insertGenre.run(Number(result.lastInsertRowid), genre.toLowerCase(), genre)
+        insertGenre.run(
+          Number(result.lastInsertRowid),
+          genre.toLowerCase(),
+          genre,
+          albumIds[albumIndex]
+        )
 
         // A thin recent log so *for-you* and *artists* do real work rather
         // than taking the cold-start path this fixture would otherwise be.

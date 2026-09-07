@@ -8,6 +8,11 @@ import SeekBar from '@renderer/panels/transport/SeekBar.vue'
 import TransportButtons from '@renderer/panels/transport/TransportButtons.vue'
 import TransportOverflow from '@renderer/panels/transport/TransportOverflow.vue'
 import VolumeControl from '@renderer/panels/transport/VolumeControl.vue'
+import {
+  TRANSPORT_BAR_COMPACT_BELOW,
+  transportCoverFits,
+  transportIsCompact
+} from '@renderer/panels/transport/transportLayout'
 import { useContainerWidth } from '@renderer/shell/useContainerWidth'
 import { hasArtwork } from '@shared/ipc'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -58,22 +63,32 @@ const backdrop = computed(() => {
  * happens to span the window, but the same flag drives the Zen stage's transport,
  * which Tunedeck squeezes narrower than the window. Below the threshold the song
  * actions, volume and the standing modes move into `TransportOverflow`, leaving
- * only the track line and the verbs so the two can never overlap. The number is
- * the bar's resting min width — tune by eye, not by theory.
+ * only the track line and the verbs so the two can never overlap. Compact is the
+ * expanded-volume layout, not the resting row: see `transportLayout.ts`.
  */
 const barRef = ref<HTMLElement | null>(null)
 const { width: barWidth } = useContainerWidth(barRef)
-const compact = computed(() => barWidth.value > 0 && barWidth.value < 860)
+const compact = computed(() => transportIsCompact(barWidth.value, TRANSPORT_BAR_COMPACT_BELOW))
 
 /**
  * Whether the sidebar's full-size cover is actually on screen. It is not when the
  * frame has reflowed the rail into a band (§2) — the pane belongs to the rail and
  * is not drawn there — nor when the rail is too short to hold the pane and its
- * facets at once and has dropped it (`coverSuppressed`). Either way the thumbnail
- * has to come back, `coverExpanded` or not.
+ * facets at once and has dropped it (`coverSuppressed`).
+ *
+ * The thumbnail comes back only when the bar still has room for it. At the same
+ * width that would drop the pane, leaving the art in this row eclipses the track
+ * line, so the thumbnail stays away too.
  */
 const coverPaneVisible = computed(
   () => shell.coverExpanded && !shell.sidebarCompact && !shell.coverSuppressed
+)
+const showCoverThumb = computed(() => !coverPaneVisible.value && transportCoverFits(barWidth.value))
+
+const barBody = computed(() =>
+  compact.value
+    ? 'flex h-full w-full items-center justify-between gap-3 overflow-hidden px-2'
+    : 'flex h-full w-full items-center justify-between gap-6 overflow-hidden px-3'
 )
 </script>
 
@@ -83,7 +98,7 @@ const coverPaneVisible = computed(
     as="footer"
     variant="soft"
     class="relative isolate h-full min-h-0 overflow-hidden rounded-none ring-0"
-    :ui="{ body: 'flex w-full h-full items-center justify-between gap-6 overflow-hidden px-3' }"
+    :ui="{ body: barBody }"
     aria-label="Now playing"
   >
     <!--
@@ -135,10 +150,12 @@ const coverPaneVisible = computed(
           The thumbnail is the control for the sidebar's blow-up, and it stands
           down once that blow-up is on screen — two copies of the same cover a few
           hundred pixels apart is one too many, and the sidebar pane carries its
-          own dismiss.
+          own dismiss. It also stands down when the bar is too slender to hold art
+          and the track line together, which is the same squeeze that drops the
+          pane.
         -->
         <Transition name="coverThumb">
-          <div v-if="!coverPaneVisible" class="cover-thumb">
+          <div v-if="showCoverThumb" class="cover-thumb">
             <div class="cover-thumb-inner pr-3">
               <UTooltip text="Show cover art">
                 <button
@@ -169,7 +186,7 @@ const coverPaneVisible = computed(
           When the thumbnail wipes away for the sidebar's blow-up the text holds
           its place rather than sliding to centre.
         -->
-        <div class="flex min-w-48 max-w-72 flex-col justify-center">
+        <div class="flex min-w-0 max-w-72 flex-col justify-center">
           <MarqueeText
             class="text-sm font-medium text-highlighted"
             :text="playback.nowPlaying?.title ?? 'Nothing playing'"

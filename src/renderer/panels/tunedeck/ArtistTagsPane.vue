@@ -240,7 +240,7 @@ function chipItems(tag: TagCoverage): DropdownMenuItem[][] {
         </ul>
         <p v-else class="text-xs text-muted">
           <template v-if="artistId === null">This track has no artist to gather tags by.</template>
-          <template v-else>No tags of your own across this artist’s catalogue yet.</template>
+          <template v-else>No tags of your own across this artist’s catalog yet.</template>
         </p>
       </section>
 

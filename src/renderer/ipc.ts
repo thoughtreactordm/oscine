@@ -386,10 +386,12 @@ export const scrobble = {
 /**
  * **R5**: the artist tag resolved to an identity, and the operator's veto over it.
  *
- * Every call here can cause main to fetch, which is why every one of them is
- * made from the deck and nowhere else — D14 scopes lookups to an open drawer,
- * and a store elsewhere in the app calling `resolve` on a track change would
- * defeat that from the other side of the boundary.
+ * Every call here can cause main to fetch. `resolve` stays a deck verb — D14
+ * scopes identity lookups to an open drawer, and a store calling it on a track
+ * change would defeat that from the other side of the boundary. `image` is also
+ * read from the Songs focused header, and only for an artist the operator has
+ * already named; it is a no-op without an MBID the deck previously resolved,
+ * so it does not start a MusicBrainz conversation of its own.
  */
 export const artists = {
   resolve: (trackId: number) => unwrap(window.oscine.artists.resolve(trackId)),

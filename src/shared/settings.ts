@@ -78,13 +78,19 @@ export {
   AUDIO_REPLAY_GAIN_MODE,
   AUDIO_REPLAY_GAIN_PREAMP_DB,
   MIB,
+  PLAYBACK_PREVIOUS_BUTTON,
   PLAYBACK_REPEAT,
   PLAYBACK_SHUFFLE,
   PLAYBACK_VOLUME,
   boundaryPolicy,
   clampSetting
 } from './settings/audio'
-export type { BoundaryPolicy, RepeatMode, ReplayGainMode } from './settings/audio'
+export type {
+  BoundaryPolicy,
+  PreviousButtonMode,
+  RepeatMode,
+  ReplayGainMode
+} from './settings/audio'
 export {
   THEME_MODE_KEY,
   THEME_NAME_KEY,

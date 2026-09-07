@@ -84,12 +84,43 @@ export function nextIndex(
 }
 
 /**
+ * How far into a track "Previous" still means skip-back under `restart`.
+ *
+ * Three seconds is what Spotify, Apple Music and VLC all do, so the "second
+ * quick click" the setting describes is this number rather than a click
+ * timer: the first press seeks to zero, and a second press now under the
+ * threshold skips. Named here, next to the function that reads it, rather
+ * than on the descriptor — the descriptor is the operator's choice of
+ * convention, not the length of a second.
+ */
+export const PREVIOUS_RESTART_THRESHOLD_SEC = 3
+
+/**
+ * Whether this Previous press restarts the playing track or steps back.
+ *
+ * The index arithmetic stays in `previousIndex`. This is the other half of
+ * the button: a decision about `currentTime`, which is why it is not folded
+ * into that function. `skip` is the identity; `restart` seeks when the play
+ * has moved past the threshold and otherwise falls through to a step back.
+ */
+export function previousPressAction(
+  currentTimeSec: number,
+  mode: 'restart' | 'skip'
+): 'restart' | 'skip' {
+  if (mode === 'skip') return 'skip'
+  if (!Number.isFinite(currentTimeSec) || currentTimeSec <= PREVIOUS_RESTART_THRESHOLD_SEC) {
+    return 'skip'
+  }
+  return 'restart'
+}
+
+/**
  * The position before `from`, or `null` when there is nowhere to go.
  *
- * Restarting the current track at index 0 is the other convention worth
- * having, and it is deliberately still not here — it is a transport decision
- * about `currentTime`, not a traversal one, and the note at `controller.ts`
- * keeps it with the rest of the transport polish.
+ * Restarting the playing track is the other convention, and it is the
+ * `previousPressAction` decision above rather than a wrap at index 0 — a
+ * first-row press past the threshold seeks, and a first-row press at the
+ * start still has nowhere to go.
  */
 export function previousIndex(
   from: number,
