@@ -1,46 +1,56 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { ContextMenuItem } from '@nuxt/ui'
-import ColumnChooser from '@renderer/panels/ColumnChooser.vue'
-import GroupChooser from '@renderer/panels/GroupChooser.vue'
-import TrackList from '@renderer/panels/TrackList.vue'
-import { beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
-import { trackMenuItems } from '@renderer/panels/trackMenu'
-import { editMetadataMenuItem } from '@renderer/panels/metadataMenu'
-import { useTrackActions } from '@renderer/panels/useTrackActions'
-import { useTrackActivation } from '@renderer/panels/useTrackActivation'
+import { computed } from "vue";
+import type { ContextMenuItem } from "@nuxt/ui";
+import ColumnChooser from "@renderer/panels/ColumnChooser.vue";
+import FocusedBackdrop from "@renderer/panels/FocusedBackdrop.vue";
+import FocusedHeader from "@renderer/panels/FocusedHeader.vue";
+import GroupChooser from "@renderer/panels/GroupChooser.vue";
+import TrackList from "@renderer/panels/TrackList.vue";
+import { beginRowDrag, endRowDrag, lazily } from "@renderer/panels/trackDrag";
+import { trackMenuItems } from "@renderer/panels/trackMenu";
+import { editMetadataMenuItem } from "@renderer/panels/metadataMenu";
+import { useTrackActions } from "@renderer/panels/useTrackActions";
+import { useTrackActivation } from "@renderer/panels/useTrackActivation";
 import type {
   TrackListDrag,
   TrackListGroupMenu,
-  TrackListMenu
-} from '@renderer/panels/trackListSource'
+  TrackListMenu,
+} from "@renderer/panels/trackListSource";
 import {
   queueCommandLabel,
   queueIds,
   queueRows,
-  type QueueTarget
-} from '@renderer/playback/queueCommands'
-import { useAddToPlaylistStore } from '@renderer/stores/addToPlaylist'
-import { usePlaybackStore } from '@renderer/stores/playback'
-import { useQueueCommandsStore } from '@renderer/stores/queueCommands'
-import { useTrackColumnsStore } from '@renderer/stores/columns'
-import { useTrackListStore } from '@renderer/stores/trackList'
-import type { Track } from '@shared/library'
+  type QueueTarget,
+} from "@renderer/playback/queueCommands";
+import { useAddToPlaylistStore } from "@renderer/stores/addToPlaylist";
+import { usePlaybackStore } from "@renderer/stores/playback";
+import { useQueueCommandsStore } from "@renderer/stores/queueCommands";
+import { useTrackColumnsStore } from "@renderer/stores/columns";
+import { useFocusedHeaderStore } from "@renderer/stores/focusedHeader";
+import { useTrackListStore } from "@renderer/stores/trackList";
+import type { Track } from "@shared/library";
 
 /**
- * The Library tab's body: the song list and the chrome that describes it.
+ * The library tab's body: the song list and the chrome that describes it.
  *
  * The predicate it renders is written to the track list store by `Sources`,
  * which the frame mounts as this tab's sidebar. The two are siblings under a
  * routed layout now rather than parent and child, so the store carries what the
  * `filters-change` emit used to.
+ *
+ * When the predicate names one genre, one artist or one album, the compact
+ * "Songs" bar becomes a focused header — identity, a handful of facts, and for
+ * artists and albums the same set-back picture the Tunedeck stands on. The
+ * section's `isolate` is what lets that backdrop paint above the panel and
+ * below the chrome without the list opting in.
  */
-const trackList = useTrackListStore()
-const columns = useTrackColumnsStore()
-const playback = usePlaybackStore()
-const queue = useQueueCommandsStore()
-const addToPlaylist = useAddToPlaylistStore()
-const trackActions = useTrackActions()
+const trackList = useTrackListStore();
+const columns = useTrackColumnsStore();
+const playback = usePlaybackStore();
+const queue = useQueueCommandsStore();
+const addToPlaylist = useAddToPlaylistStore();
+const trackActions = useTrackActions();
+const focus = useFocusedHeaderStore();
 
 /**
  * The ordering, shown only when its column is not.
@@ -51,8 +61,8 @@ const trackActions = useTrackActions()
  * changed; this is where it is read.
  */
 const hiddenSort = computed(() =>
-  columns.isVisible(trackList.sort) ? null : columns.specOf(trackList.sort)
-)
+  columns.isVisible(trackList.sort) ? null : columns.specOf(trackList.sort),
+);
 
 function playTrack(track: Track, index: number): void {
   void playback.playFromList({
@@ -60,8 +70,8 @@ function playTrack(track: Track, index: number): void {
     direction: trackList.direction,
     filters: trackList.filters,
     index,
-    track
-  })
+    track,
+  });
 }
 
 /**
@@ -70,7 +80,7 @@ function playTrack(track: Track, index: number): void {
  * The row menu's own Play still calls `playTrack` directly — the setting is
  * about the gesture with no name on it, not about a verb the operator picked.
  */
-const activation = useTrackActivation(playTrack)
+const activation = useTrackActivation(playTrack);
 
 /**
  * The rows a gesture is about: the selection when the row is in it, that row
@@ -82,13 +92,13 @@ const activation = useTrackActivation(playTrack)
  * and why `dragstart` cannot wait for it; see `trackDrag.ts`.
  */
 function trackIdsFor(index: number): () => Promise<readonly number[]> {
-  if (trackList.isSelectedAt(index)) return lazily(() => trackList.resolveSelection())
-  const track = trackList.rowAt(index)
-  return () => Promise.resolve(track ? [track.id] : [])
+  if (trackList.isSelectedAt(index)) return lazily(() => trackList.resolveSelection());
+  const track = trackList.rowAt(index);
+  return () => Promise.resolve(track ? [track.id] : []);
 }
 
 function rowCount(index: number): number {
-  return trackList.isSelectedAt(index) ? Math.max(1, trackList.selectionCount) : 1
+  return trackList.isSelectedAt(index) ? Math.max(1, trackList.selectionCount) : 1;
 }
 
 /**
@@ -105,14 +115,14 @@ const drag: TrackListDrag = {
       playlistId: null,
       trackIds: trackIdsFor(index),
       // Library rows are not playlist entries, so there is nothing to reorder.
-      entryIds: null
-    })
-    return true
+      entryIds: null,
+    });
+    return true;
   },
   over: () => false,
   drop: () => {},
-  end: endRowDrag
-}
+  end: endRowDrag,
+};
 
 /**
  * The row menu.
@@ -134,8 +144,8 @@ const drag: TrackListDrag = {
  * precisely so it never has to keep the rows for one.
  */
 const menu: TrackListMenu = (index): ContextMenuItem[] => {
-  const count = rowCount(index)
-  const track = count === 1 ? trackList.rowAt(index) : undefined
+  const count = rowCount(index);
+  const track = count === 1 ? trackList.rowAt(index) : undefined;
   if (track) {
     return trackMenuItems({
       play: () => playTrack(track, index),
@@ -146,28 +156,28 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
       viewArtist: trackActions.viewArtist(trackActions.artistOf(track)),
       viewAlbum: trackActions.viewAlbum(track.album),
       trackInfo: trackActions.showInfo(track),
-      editMetadata: trackActions.editTrack(track)
-    })
+      editMetadata: trackActions.editTrack(track),
+    });
   }
   return [
     {
-      label: queueCommandLabel('playNext', count),
-      icon: 'i-tabler-corner-right-down',
-      onSelect: () => void targetFor(index).then(queue.playNext)
+      label: queueCommandLabel("playNext", count),
+      icon: "i-tabler-corner-right-down",
+      onSelect: () => void targetFor(index).then(queue.playNext),
     },
     {
-      label: queueCommandLabel('addToQueue', count),
-      icon: 'i-tabler-list-numbers',
-      onSelect: () => void targetFor(index).then(queue.addToQueue)
+      label: queueCommandLabel("addToQueue", count),
+      icon: "i-tabler-list-numbers",
+      onSelect: () => void targetFor(index).then(queue.addToQueue),
     },
-    { type: 'separator' },
+    { type: "separator" },
     // No suggested name: a track selection has nothing to call itself, and the
     // one row case would suggest a song title for a playlist.
     addToPlaylist.menuItem({ count, trackIds: trackIdsFor(index) }),
-    { type: 'separator' },
-    editMetadataMenuItem(trackActions.editTracks(count, trackIdsFor(index)))
-  ]
-}
+    { type: "separator" },
+    editMetadataMenuItem(trackActions.editTracks(count, trackIdsFor(index))),
+  ];
+};
 
 /**
  * The album-header menu: the same three verbs, aimed at a whole run.
@@ -182,26 +192,26 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
  * verb is about, whatever is ticked elsewhere.
  */
 const groupMenu: TrackListGroupMenu = (run): ContextMenuItem[] => {
-  const count = run.group.trackCount
-  const trackIds = lazily(() => trackList.idsInRange(run.firstOffset, run.firstOffset + count - 1))
-  const album = run.group.title ?? 'Unknown album'
+  const count = run.group.trackCount;
+  const trackIds = lazily(() => trackList.idsInRange(run.firstOffset, run.firstOffset + count - 1));
+  const album = run.group.title ?? "Unknown album";
   return [
     {
-      label: queueCommandLabel('playNext', count),
-      icon: 'i-tabler-corner-right-down',
-      onSelect: () => void trackIds().then((ids) => queue.playNext(queueIds(ids)))
+      label: queueCommandLabel("playNext", count),
+      icon: "i-tabler-corner-right-down",
+      onSelect: () => void trackIds().then((ids) => queue.playNext(queueIds(ids))),
     },
     {
-      label: queueCommandLabel('addToQueue', count),
-      icon: 'i-tabler-list-numbers',
-      onSelect: () => void trackIds().then((ids) => queue.addToQueue(queueIds(ids)))
+      label: queueCommandLabel("addToQueue", count),
+      icon: "i-tabler-list-numbers",
+      onSelect: () => void trackIds().then((ids) => queue.addToQueue(queueIds(ids))),
     },
-    { type: 'separator' },
+    { type: "separator" },
     addToPlaylist.menuItem({ count, trackIds, suggestedName: album }),
-    { type: 'separator' },
-    editMetadataMenuItem(trackActions.editTracks(count, trackIds, album))
-  ]
-}
+    { type: "separator" },
+    editMetadataMenuItem(trackActions.editTracks(count, trackIds, album)),
+  ];
+};
 
 /**
  * What a queue verb is aimed at, resolved the same way the drag resolves.
@@ -211,47 +221,70 @@ const groupMenu: TrackListGroupMenu = (run): ContextMenuItem[] => {
  * order lives, which is why this is a promise.
  */
 async function targetFor(index: number): Promise<QueueTarget> {
-  if (trackList.isSelectedAt(index)) return queueIds(await trackList.resolveSelection())
-  const track = trackList.rowAt(index)
-  return queueRows(track ? [track] : [])
+  if (trackList.isSelectedAt(index)) return queueIds(await trackList.resolveSelection());
+  const track = trackList.rowAt(index);
+  return queueRows(track ? [track] : []);
 }
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 min-w-0 flex-col" aria-label="Songs">
-    <div class="flex h-9 shrink-0 items-center gap-2 border-b border-default bg-elevated/40 px-2">
-      <UIcon name="i-tabler-playlist" class="size-4 text-primary" />
-      <h2 class="font-semibold text-highlighted">Songs</h2>
+  <section
+    class="relative isolate flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+    aria-label="Songs"
+  >
+    <FocusedBackdrop />
 
-      <UBadge
-        v-if="hiddenSort"
-        color="neutral"
-        variant="subtle"
-        size="sm"
-        :icon="trackList.direction === 'asc' ? 'i-tabler-chevron-up' : 'i-tabler-chevron-down'"
-      >
-        {{ hiddenSort.title ?? hiddenSort.label }}
-      </UBadge>
+    <div
+      class="flex shrink-0 gap-2"
+      :class="
+        focus.kind
+          ? 'items-start bg-transparent px-3 pb-4 pt-5'
+          : 'h-9 items-center border-b border-default bg-elevated/40 px-2'
+      "
+    >
+      <FocusedHeader v-if="focus.kind" />
+      <template v-else>
+        <UIcon name="i-tabler-playlist" class="size-4 text-primary" />
+        <h2 class="font-semibold text-highlighted">Songs</h2>
+      </template>
 
-      <span
-        v-if="trackList.selectionCount > 0"
-        class="ml-auto text-xs tabular-nums text-primary"
-        aria-live="polite"
-      >
-        {{ trackList.selectionCount.toLocaleString() }} selected
-      </span>
-      <span
-        class="text-xs tabular-nums text-muted"
-        :class="{ 'ml-auto': trackList.selectionCount === 0 }"
-      >
-        {{ trackList.total.toLocaleString() }}
-      </span>
+      <!--
+        One cluster, one midline. The focused bar is `items-start` so this sits
+        with the title rather than in the middle of the tags, and the inner
+        `items-center` is what keeps the count and both choosers on the same
+        line — they are different heights (text vs. two buttons that were not
+        even the same size) and per-item `mt-*` was pretending they were not.
+      -->
+      <div class="ml-auto flex shrink-0 items-center gap-2" :class="{ 'h-8': focus.kind }">
+        <UBadge
+          v-if="hiddenSort"
+          color="neutral"
+          variant="subtle"
+          size="sm"
+          :icon="trackList.direction === 'asc' ? 'i-tabler-chevron-up' : 'i-tabler-chevron-down'"
+        >
+          {{ hiddenSort.title ?? hiddenSort.label }}
+        </UBadge>
 
-      <GroupChooser
-        :groupable="trackList.sort === 'album'"
-        hint="Albums are grouped when the list is sorted by Album, which selecting an artist does. Sorted by another column, the albums interleave and there are no runs to head."
-      />
-      <ColumnChooser />
+        <span
+          v-if="trackList.selectionCount > 0"
+          class="text-xs tabular-nums text-primary"
+          aria-live="polite"
+        >
+          {{ trackList.selectionCount.toLocaleString() }}
+          selected
+        </span>
+        <span class="text-xs tabular-nums text-muted">
+          {{ trackList.total.toLocaleString() }}
+        </span>
+
+        <GroupChooser
+          size="sm"
+          :groupable="trackList.sort === 'album'"
+          hint="Albums are grouped when the list is sorted by Album, which selecting an artist does. Sorted by another column, the albums interleave and there are no runs to head."
+        />
+        <ColumnChooser />
+      </div>
     </div>
     <div class="min-h-0 flex-1">
       <TrackList

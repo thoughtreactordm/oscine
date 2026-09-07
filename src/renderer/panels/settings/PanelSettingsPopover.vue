@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import type { ButtonProps } from '@nuxt/ui'
-import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import type { ButtonProps } from "@nuxt/ui";
+import { computed, ref } from "vue";
+import { useRouter } from "vue-router";
 import {
   buildPanelSettings,
-  type PanelSettingsSurface
-} from '@renderer/panels/settings/panelSettings'
-import ScopedSettingRow from '@renderer/panels/settings/ScopedSettingRow.vue'
-import SettingRow from '@renderer/panels/settings/SettingRow.vue'
-import { settingsRouteFor } from '@renderer/shell/routes'
-import type { CascadeScopeRef } from '@shared/settings'
+  type PanelSettingsSurface,
+} from "@renderer/panels/settings/panelSettings";
+import ScopedSettingRow from "@renderer/panels/settings/ScopedSettingRow.vue";
+import SettingRow from "@renderer/panels/settings/SettingRow.vue";
+import { settingsRouteFor } from "@renderer/shell/routes";
+import type { CascadeScopeRef } from "@shared/settings";
 
 /**
  * A panel's gear: the settings it affects, next to the thing they affect.
@@ -32,25 +32,25 @@ import type { CascadeScopeRef } from '@shared/settings'
  * to whoever is drawing from it.
  */
 const props = defineProps<{
-  surface: PanelSettingsSurface
+  surface: PanelSettingsSurface;
   /**
    * The entity to resolve the surface's keys against, when the panel is showing
    * one. Required in practice for a surface that declares an `entity` — without
    * it the rows would edit the global value under a heading that said otherwise.
    */
-  scope?: CascadeScopeRef
+  scope?: CascadeScopeRef;
   /** Drawn as engaged, when the panel has a state worth reflecting in the button. */
-  active?: boolean
+  active?: boolean;
   /** Said at the foot: why one of these controls may currently be doing nothing. */
-  hint?: string
+  hint?: string;
   /** The gear's button size. Defaults to `lg`, the size the transport and rails use. */
-  size?: ButtonProps['size']
-}>()
+  size?: ButtonProps["size"];
+}>();
 
-const router = useRouter()
-const open = ref(false)
+const router = useRouter();
+const open = ref(false);
 
-const panel = computed(() => buildPanelSettings(props.surface))
+const panel = computed(() => buildPanelSettings(props.surface));
 
 /**
  * A scoped surface renders override controls; an unscoped one renders the global
@@ -61,8 +61,8 @@ const panel = computed(() => buildPanelSettings(props.surface))
 const entityScope = computed(() =>
   props.surface.entity !== undefined && props.scope?.kind === props.surface.entity
     ? props.scope
-    : null
-)
+    : null,
+);
 
 /**
  * Declared keys that could not be drawn — an unknown key, or one that does not
@@ -72,11 +72,11 @@ const entityScope = computed(() =>
  * rather than in the operator's library, and a popover that silently rendered
  * two of the three keys it was asked for is a bug that survives review.
  */
-const undrawable = computed(() => [...panel.value.unknown, ...panel.value.unscoped])
+const undrawable = computed(() => [...panel.value.unknown, ...panel.value.unscoped]);
 
 function reveal(key: string): void {
-  open.value = false
-  void router.push(settingsRouteFor(key))
+  open.value = false;
+  void router.push(settingsRouteFor(key));
 }
 </script>
 
@@ -95,7 +95,7 @@ function reveal(key: string): void {
     <template #content>
       <div class="flex flex-col">
         <div class="flex items-center gap-2 border-b border-default px-3 py-2">
-          <UIcon :name="surface.icon" class="size-4 shrink-0 text-dimmed" />
+          <UIcon :name="surface.icon" class="size-5 shrink-0 text-dimmed" />
           <h3 class="min-w-0 truncate text-sm font-semibold text-highlighted">
             {{ surface.title }}
           </h3>

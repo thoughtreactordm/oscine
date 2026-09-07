@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { ButtonProps } from '@nuxt/ui'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import { useTrackGroupingStore } from '@renderer/stores/grouping'
@@ -38,8 +39,10 @@ withDefaults(
     groupable: boolean
     /** Shown when it does not, to say what would make it groupable. */
     hint?: string
+    /** Forwarded to the gear. The song-list toolbars pass `xs` to match the column chooser. */
+    size?: ButtonProps['size']
   }>(),
-  { hint: undefined }
+  { hint: undefined, size: undefined }
 )
 
 const surface = panelSettingsSurface('track-grouping')
@@ -50,5 +53,6 @@ const surface = panelSettingsSurface('track-grouping')
     :surface="surface"
     :active="grouping.enabled && groupable"
     :hint="groupable ? undefined : hint"
+    :size="size"
   />
 </template>

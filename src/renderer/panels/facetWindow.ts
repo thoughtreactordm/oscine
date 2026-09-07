@@ -99,6 +99,27 @@ export function createFacetWindow<T extends { id: number }>(deps: FacetWindowDep
   }
 
   /**
+   * The loaded row with this id, or `undefined` when no cached page holds it.
+   *
+   * The Songs focused header needs the *row* — name, year, artwork — and a
+   * selection is only an id. Walking the window by index would miss a row that
+   * was selected from outside the list (`selectOnlyId`) and has not been
+   * scrolled into view, and would also miss one that has scrolled *out* of the
+   * retained pages. Scanning what is actually held is the honest answer: if it
+   * is here, we have it; if it is not, the caller fetches that one id.
+   *
+   * Reads `revision` so a page landing is a reactive hit rather than a stale miss.
+   */
+  function findById(id: number): T | undefined {
+    void revision.value
+    for (const page of pages.values()) {
+      const row = page.find((item) => item.id === id)
+      if (row) return row
+    }
+    return undefined
+  }
+
+  /**
    * Ids for an inclusive index range, chunked to the id page ceiling.
    *
    * Sequential, and it stops when the predicate changes: the chunks are only
@@ -309,6 +330,7 @@ export function createFacetWindow<T extends { id: number }>(deps: FacetWindowDep
     generation,
     pageSize,
     rowAt,
+    findById,
     ensureRange,
     setFilters,
     reload,
