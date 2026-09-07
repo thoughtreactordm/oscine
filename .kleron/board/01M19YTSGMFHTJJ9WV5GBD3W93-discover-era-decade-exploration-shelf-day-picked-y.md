@@ -1,7 +1,7 @@
 ---
 taskId: 01M19YTSGMFHTJJ9WV5GBD3W93
 title: 'Discover: era/decade exploration shelf (day-picked year)'
-status: in-progress
+status: done
 priority: high
 labels:
   - discover
@@ -12,7 +12,7 @@ dependsOn:
   - 01M19YT6AYCKGZV5KNHNG7PGCY
 order: 1
 created: '2026-08-30T18:27:42.228Z'
-updated: '2026-08-30T21:18:49.863Z'
+updated: '2026-09-07T20:11:35.280Z'
 ---
 ## Intent
 

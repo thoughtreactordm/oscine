@@ -1,7 +1,7 @@
 ---
 taskId: 01M19YT6AYCKGZV5KNHNG7PGCY
 title: 'Discover: genre-roulette exploration shelf (day-picked genre)'
-status: in-progress
+status: done
 priority: high
 labels:
   - discover
@@ -10,7 +10,7 @@ workstream: W12
 workstreamId: W12-6
 order: 0
 created: '2026-08-30T18:27:22.590Z'
-updated: '2026-08-30T18:33:28.169Z'
+updated: '2026-09-07T20:11:34.275Z'
 ---
 ## Intent
 
