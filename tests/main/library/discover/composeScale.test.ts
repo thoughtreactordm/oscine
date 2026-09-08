@@ -22,15 +22,31 @@ const ALBUMS = 8_000
 const GENRES = 5
 
 /**
- * Tab-open budget: four 60 Hz frames. W12-6's genre-roulette briefly pushed p95
- * past this — its pool gate had to scan the whole library's genre map, ~35 ms at
- * this 100k ceiling — so the budget was raised to 300 with W12-8 named as the
- * number to beat. W12-8 denormalized `album_id` onto `track_genres` and its
- * covering `(genre_key, album_id)` index turned that scan into an index-only
- * walk, so 250 is restored. Still deep inside a tab-open, and compose is memoized
- * per UTC day, so a real open pays this once.
+ * Tab-open budget. W12-6's genre-roulette briefly pushed this past 250 ms — its
+ * pool gate had to scan the whole library's genre map, ~35 ms at this 100k
+ * ceiling — so the budget went to 300 with W12-8 named as the number to beat.
+ * W12-8 denormalized `album_id` onto `track_genres` and its covering
+ * `(genre_key, album_id)` index turned that scan into an index-only walk, and
+ * the budget was set back to 250.
+ *
+ * 250 turned out to be the measured cost rather than a budget, which is not a
+ * threshold so much as a coin toss. The ten recipes divide the work evenly at
+ * this fixture — no hotspot, `unplayed` 52 ms and `for-you` 45 ms at the top,
+ * ~245 ms in total on an idle 16-core desktop — so there is no cheap win hiding
+ * here and nothing has regressed; the number was simply set flush against
+ * reality. Run-to-run spread is ~15 ms, and Vitest saturates every core with
+ * other files while this one measures, which costs ~10 ms more.
+ *
+ * So: 320, about 20% clear of the loaded p95. That is deliberately a
+ * catch-the-quadratic budget rather than a catch-the-creep one. A measurement
+ * with ±15 ms of noise cannot honestly police a 35 ms regression, and pretending
+ * otherwise is what produced a test that failed half the time for no reason. If
+ * Discover needs defending at that resolution it wants a benchmark on a quiet
+ * machine, not an assertion inside the unit suite.
+ *
+ * Compose is memoized per UTC day, so a real tab-open pays this once.
  */
-const BUDGET_MS = 250
+const BUDGET_MS = 320
 
 describe('compose at the scale target', () => {
   let opened: ReturnType<typeof openDatabase>
@@ -138,9 +154,14 @@ describe('compose at the scale target', () => {
   })
 
   it('answers inside the tab-open budget', () => {
+    // 20 samples, as `relatedScale` and `listTracksScale` take. Nearest-rank
+    // over five would land on `samples[4]` — the slowest of the five, not a p95
+    // at all — so a single scheduling hiccup decided the run. Over twenty the
+    // same expression picks the nineteenth, which is the statistic this claims
+    // to be and which discards that one worst sample.
+    for (let warm = 0; warm < 3; warm++) compose(opened.db, NOW)
     const samples: number[] = []
-    compose(opened.db, NOW)
-    for (let sample = 0; sample < 5; sample++) {
+    for (let sample = 0; sample < 20; sample++) {
       const startedAt = performance.now()
       compose(opened.db, NOW)
       samples.push(performance.now() - startedAt)
