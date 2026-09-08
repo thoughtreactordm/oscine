@@ -129,8 +129,9 @@ jobs:
 
   # Each platform packages itself (electron-builder.yml explains why there is no
   # cross-build): the win runner produces the NSIS installer, the linux runner the
-  # AppImage and deb. Windows is a single-file deliverable and is attached as-is;
-  # Linux has two files, so they are bundled into one tarball. Either way the
+  # AppImage and deb. Every artifact is attached as-is — one installer for
+  # Windows, one AppImage and one deb for Linux — so the release page offers a
+  # distro-appropriate download rather than an archive to unpack. Either way the
   # `.blockmap`/`latest*.yml` electron-updater sidecars are left off the release.
   release-build:
     name: release build (${{ matrix.os }})
@@ -154,8 +155,8 @@ jobs:
 
       # `--publish never`: build the artifacts into release/ but do not upload
       # them loose. The steps below are the only things that attach to the
-      # release, so the page carries the installer plus one Linux tarball rather
-      # than six loose files.
+      # release, so the page carries exactly the three deliverables rather than
+      # all six files electron-builder writes into release/.
       - name: Package
         run: npm run build && npx electron-builder --publish never
 
@@ -174,18 +175,41 @@ jobs:
           $exe = (Get-ChildItem release/*.exe | Select-Object -First 1).FullName
           gh release upload $tag $exe --clobber
 
-      # One tarball for Linux: the AppImage and the deb, both real deliverables.
+      # Two Linux deliverables, attached separately rather than tarred together:
+      # the .deb for Debian/Ubuntu derivatives, the AppImage for every other
+      # distro. Both fall out of the single electron-builder run above — there is
+      # no second Linux build, and both carry the same glibc floor because they
+      # come from the same runner. Attaching them loose means a .deb user does
+      # not download an AppImage they will never run, and the .deb installs
+      # straight from the release URL without an extract step first.
+      #
+      # `file#label` is gh's display-label syntax; it is what makes the two
+      # choices legible on the release page, since electron-builder names the
+      # AppImage `Oscine-<version>.AppImage` and the deb `oscine_<version>_<arch>.deb`.
       # `latest-linux.yml` and the `.AppImage.blockmap` sidecar are excluded for
       # the same reason as Windows.
-      - name: Archive and upload (Linux)
+      - name: Upload packages (Linux)
         if: runner.os == 'Linux'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ needs.release-gate.outputs.tag }}"
-          TARBALL="Oscine-${TAG}-linux.tar.gz"
-          tar -czf "release/${TARBALL}" -C release $(cd release && ls *.AppImage *.deb)
-          gh release upload "$TAG" "release/${TARBALL}" --clobber
+          shopt -s nullglob
+          APPIMAGE=(release/*.AppImage)
+          DEB=(release/*.deb)
+          # Assert rather than glob blindly: `ls … | head -1` takes its exit
+          # status from head, so a missing artifact would slip past `-e` and
+          # upload a file named `#label`. A release that quietly ships one of
+          # its two Linux packages is worse than a failed job.
+          if [ ${#APPIMAGE[@]} -ne 1 ] || [ ${#DEB[@]} -ne 1 ]; then
+            echo "::error::expected one AppImage and one deb in release/, found ${#APPIMAGE[@]} and ${#DEB[@]}"
+            ls -la release/
+            exit 1
+          fi
+          gh release upload "$TAG" \
+            "${APPIMAGE[0]}#Linux — AppImage (portable, any distro)" \
+            "${DEB[0]}#Linux — .deb (Debian / Ubuntu)" \
+            --clobber
 
   # Flip the draft to a published release only once both platforms have uploaded,
   # so a release is never visible carrying just one OS's artifacts.

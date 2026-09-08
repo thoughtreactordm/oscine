@@ -5,8 +5,8 @@ directories:
   buildResources: build
 
 # CI no longer uses electron-builder's own publisher: the release job builds with
-# `--publish never`, then attaches the Windows installer directly and bundles the
-# two Linux files into a tarball with `gh release upload` (see
+# `--publish never`, then attaches the Windows installer and the two Linux
+# packages individually with `gh release upload` (see
 # .github/workflows/ci.yml). This block only serves a manual local
 # `electron-builder --publish`, which otherwise has no target because
 # package.json carries no inferable `repository` field.
