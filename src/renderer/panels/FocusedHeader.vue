@@ -24,7 +24,7 @@ import { useFocusedHeaderStore } from '@renderer/stores/focusedHeader'
  * picture in half, the same reason the Tunedeck identity header dropped its
  * hairline.
  *
- * ## Why the tag row holds its height when empty
+ * ## Why the tag row is exactly one row, always
  *
  * Tag coverage arrives over IPC, and the store clears it to `[]` on every
  * artist change — so a row that only exists when `focusTags` is non-empty pops
@@ -34,6 +34,15 @@ import { useFocusedHeaderStore } from '@renderer/stores/focusedHeader'
  * `kind === 'artist'` rather than on the tags themselves: only the artist
  * branch of the store ever loads coverage, so holding the space under an album
  * or genre would be dead margin waiting for something that never comes.
+ *
+ * A reserved height only holds if the content cannot outgrow it, so the strip
+ * does not wrap: up to `MAX_FOCUS_TAGS` badges run off the end and scroll on x
+ * rather than becoming a second line, and `shrink-0` keeps them at their own
+ * width instead of squeezing to fit. The scrollbar is hidden because
+ * `main.css` styles every native scroller at 8px — visible here it would eat a
+ * third of the row and come and go with the tag count, which is the same jank
+ * by another route. Chromium makes an overflowing scroller keyboard-focusable
+ * on its own, so hiding the bar costs no keyboard access.
  */
 
 const focus = useFocusedHeaderStore()
@@ -149,10 +158,10 @@ function toggleArtist(): void {
       <div v-if="focus.kind === 'artist'" class="mt-2 min-h-6" :class="{ 'ps-7': !focus.sleeve }">
         <ul
           v-if="focus.focusTags.length > 0"
-          class="m-0 flex list-none flex-wrap gap-1 p-0"
+          class="m-0 flex list-none gap-1 overflow-x-auto p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           aria-label="Tags"
         >
-          <li v-for="tag in focus.focusTags" :key="tag.id">
+          <li v-for="tag in focus.focusTags" :key="tag.id" class="shrink-0">
             <UTooltip :text="`On ${tag.carried.toLocaleString()} of this artist's tracks`">
               <UBadge color="neutral" variant="subtle" size="sm" class="max-w-40 truncate">
                 {{ tag.label }}
