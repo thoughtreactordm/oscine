@@ -7,6 +7,13 @@ dist/
 release/
 .vite/
 
+# Locally built optical (CD-ripping) addon; CI produces each platform's prebuild.
+native/cdrip/build/
+native/cdrip/prebuilds/
+
+# Per-platform FLAC encoder from `npm run fetch:flac`.
+resources/bin/
+
 # Test output
 coverage/
 
