@@ -150,6 +150,7 @@ import type {
 } from './tagWriteback'
 import type { OverrideEditState, OverrideField, OverridePatch } from './overrides'
 import type { ArtworkRef } from './artwork'
+import type { InstalledTheme } from './theme'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -952,6 +953,33 @@ export interface IpcContract {
   }
 
   /**
+   * Write the theme in force to an `.osctheme` the operator names.
+   *
+   * The name they type rides in the request and becomes both the file's
+   * embedded name and the suggested filename. `null` when they dismiss the save
+   * dialog. Theme keys left the profile bundle (they are non-portable now), so
+   * this is how a theme travels — see `../theme/themeFile.ts`.
+   */
+  'theme.export': { request: { name: string }; response: { fileName: string } | null }
+  /**
+   * The `.osctheme` files in the themes folder, parsed, for the picker to list.
+   *
+   * Malformed files are skipped rather than failing the list — one broken theme
+   * dropped in must not hide the good ones.
+   */
+  'theme.listInstalled': { request: null; response: InstalledTheme[] }
+  /**
+   * Pick an `.osctheme` from anywhere and copy it into the themes folder.
+   *
+   * The convenience path for installing a theme without opening a file manager;
+   * dropping a file into the folder directly reaches the same place. `null` when
+   * the open dialog is dismissed.
+   */
+  'theme.import': { request: null; response: { id: string; name: string } | null }
+  /** Reveal the themes folder in the OS file manager, creating it if absent. */
+  'theme.revealFolder': { request: null; response: void }
+
+  /**
    * Abandon everything main is fetching on behalf of a scope.
    *
    * The renderer calls this when the thing that wanted the data goes away —
@@ -1358,6 +1386,10 @@ export const IPC_CHANNELS = [
   'settings.exportProfile',
   'settings.readProfile',
   'settings.importProfile',
+  'theme.export',
+  'theme.listInstalled',
+  'theme.import',
+  'theme.revealFolder',
   'net.cancelScope',
   'scrobble.status',
   'scrobble.connect',

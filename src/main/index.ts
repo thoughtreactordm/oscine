@@ -12,7 +12,8 @@ import {
   cacheDatabasePath,
   libraryDatabasePath,
   podcastsDirectoryPath,
-  scrobbleCredentialsPath
+  scrobbleCredentialsPath,
+  themesDirectoryPath
 } from './db/location'
 import { SqlitePlayHistoryService } from './history/service'
 import { SqliteListenService } from './listens/service'
@@ -52,6 +53,7 @@ import { resolveLastfmAppKey } from './scrobble/lastfm/appKey'
 import { createListenbrainzTarget } from './scrobble/listenbrainz/target'
 import { createListenbrainzTransport } from './scrobble/listenbrainz/transport'
 import { backfillOnboardingCompleted, SqliteSettingsService } from './settings'
+import { FsThemeFileService } from './theme/service'
 import { createArtistBiographyService, createArtistImageService } from './wikipedia'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
@@ -173,6 +175,48 @@ async function pickSettingsImportFile(): Promise<string | null> {
     title: 'Import settings',
     buttonLabel: 'Open',
     filters: [{ name: 'Oscine settings', extensions: ['json'] }],
+    properties: ['openFile', 'dontAddToRecent']
+  }
+
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options)
+
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+}
+
+/**
+ * A theme, out and in. Mirrors the settings pair above — a save dialog to name
+ * a file, an open dialog to choose one — but filtered to `.osctheme`. The
+ * extension is a filter only; `FsThemeFileService` is what puts it on a bare
+ * name, so that rule lives in one place.
+ */
+async function pickThemeExportFile(suggestedName: string): Promise<string | null> {
+  const options: Electron.SaveDialogOptions = {
+    title: 'Export theme',
+    buttonLabel: 'Export',
+    // Anchor the dialog in the themes folder — the same folder the picker scans —
+    // so an export lands where it will be found again without the operator having
+    // to navigate there. A bare filename would open on the OS's last-used dir.
+    defaultPath: join(themesDirectoryPath(), suggestedName),
+    filters: [{ name: 'Oscine theme', extensions: ['osctheme'] }],
+    properties: ['createDirectory', 'showOverwriteConfirmation', 'dontAddToRecent']
+  }
+
+  const result = mainWindow
+    ? await dialog.showSaveDialog(mainWindow, options)
+    : await dialog.showSaveDialog(options)
+
+  if (result.canceled || result.filePath === undefined || result.filePath === '') return null
+  return result.filePath
+}
+
+async function pickThemeImportFile(): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    title: 'Import theme',
+    buttonLabel: 'Open',
+    filters: [{ name: 'Oscine theme', extensions: ['osctheme'] }],
     properties: ['openFile', 'dontAddToRecent']
   }
 
@@ -426,6 +470,16 @@ if (!app.requestSingleInstanceLock()) {
     for (const notice of settings.loadNotices()) {
       console.warn(`[settings] ${notice.key}: ${notice.reason}`)
     }
+
+    // Themes travel as their own `.osctheme` files, out of the settings profile.
+    // Reads the three theme keys off `settings` to export; only ever moves files.
+    const themeFiles = new FsThemeFileService({
+      settings,
+      themesDir: themesDirectoryPath(),
+      pickExportFile: pickThemeExportFile,
+      pickImportFile: pickThemeImportFile,
+      appVersion: app.getVersion()
+    })
 
     // D-ONB-7: an existing install must not be dropped into the wizard. Runs
     // while the key is still unset, and only writes `true` — a fresh directory
@@ -792,6 +846,7 @@ if (!app.requestSingleInstanceLock()) {
       playlists,
       podcasts,
       settings,
+      themeFiles,
       history,
       listens,
       stats,

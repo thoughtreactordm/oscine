@@ -5,6 +5,7 @@ import { visibleRange } from '@renderer/panels/listViewport'
 import RebuildCountersAction from '@renderer/panels/settings/RebuildCountersAction.vue'
 import RerunOnboardingAction from '@renderer/panels/settings/RerunOnboardingAction.vue'
 import ScrobblingAccounts from '@renderer/panels/settings/ScrobblingAccounts.vue'
+import ThemeActions from '@renderer/panels/settings/theme/ThemeActions.vue'
 import SettingRow from '@renderer/panels/settings/SettingRow.vue'
 import { useSettings } from '@renderer/settings'
 import { useSettingsNavStore } from '@renderer/stores/settingsNav'
@@ -228,6 +229,16 @@ watch(
       <template v-if="!catalog.spanning && section?.id === 'library'">
         <RerunOnboardingAction />
         <RebuildCountersAction />
+      </template>
+
+      <!--
+        The Theme section's file actions — export the theme in force as an
+        `.osctheme`, import one, or open the themes folder. Here rather than as
+        generated rows for the same reason the Library actions are: none has a
+        stored value to be a row of, and themes travel as files, not settings.
+      -->
+      <template v-if="!catalog.spanning && section?.id === 'theme'">
+        <ThemeActions />
       </template>
 
       <!--

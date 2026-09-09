@@ -1,6 +1,7 @@
 import type { Component } from 'vue'
 import OutputDeviceControl from './OutputDeviceControl.vue'
 import ThemeEditorControl from './theme/ThemeEditorControl.vue'
+import ThemePickerControl from './theme/ThemePickerControl.vue'
 
 /**
  * The escape hatch, and the register of who has used it.
@@ -26,13 +27,20 @@ import ThemeEditorControl from './theme/ThemeEditorControl.vue'
  * working; a dozen would mean the generated surface had quietly stopped being
  * generated.
  *
+ * `themePicker` is the third, and the same shape as `OutputDeviceControl`: its
+ * options are not a list the registry could hold either — the built-in themes
+ * plus whatever `.osctheme` files the operator has dropped into the themes
+ * folder, read at runtime. `theme.name` used to be a static `select`; the
+ * dropped-in themes are what pushed it through this hatch.
+ *
  * The key is the name in the descriptor, not the component's — `themeEditor` is
  * what `src/shared/settings/theme.ts` writes, and `src/shared` cannot import a
  * renderer component to say so.
  */
 export const CUSTOM_SETTING_CONTROLS: Readonly<Record<string, Component>> = Object.freeze({
   OutputDeviceControl,
-  themeEditor: ThemeEditorControl
+  themeEditor: ThemeEditorControl,
+  themePicker: ThemePickerControl
 })
 
 export function customSettingControl(name: string): Component | null {

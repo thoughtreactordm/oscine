@@ -402,6 +402,16 @@ const api = {
     onChanged: (listener: (changes: SettingsChange[]) => void) =>
       subscribe('settings.changed', listener)
   },
+  theme: {
+    /** Save dialog, then the theme in force as an `.osctheme`. `null` if cancelled. */
+    export: (name: string) => request('theme.export', { name }),
+    /** The parsed `.osctheme` files in the themes folder, for the picker. */
+    listInstalled: () => request('theme.listInstalled', null),
+    /** Open dialog, then copy the chosen file into the themes folder. */
+    import: () => request('theme.import', null),
+    /** Reveal the themes folder in the OS file manager. */
+    revealFolder: () => request('theme.revealFolder', null)
+  },
   net: {
     /**
      * Abandon main's in-flight and queued work for a scope.

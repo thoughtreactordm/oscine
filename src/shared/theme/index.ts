@@ -34,6 +34,20 @@ export {
 
 export { hasOverrides, parseOverrides, withOverride, withoutOverride } from './overrides'
 
+export {
+  DEFAULT_THEME_FILE_BASE,
+  THEME_FILE_EXTENSION,
+  THEME_FILE_FORMAT,
+  THEME_FILE_VERSION,
+  buildThemeFile,
+  parseThemeFile,
+  type BuildThemeFileOptions,
+  type InstalledTheme,
+  type ThemeFile,
+  type ThemeFileMode,
+  type ThemeFileParse
+} from './themeFile'
+
 export { TAILWIND_PALETTES, TAILWIND_PALETTE_NAMES } from './palettes'
 
 export {

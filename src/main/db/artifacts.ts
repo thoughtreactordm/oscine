@@ -120,6 +120,23 @@ export const SCROBBLE_CREDENTIALS_ARTIFACT: UserDataArtifact = {
 }
 
 /**
+ * The `.osctheme` files the operator dropped in or exported into, which the
+ * Theme picker lists by name.
+ *
+ * `authored`, not `derived`: these are hand-made looks, and losing the folder
+ * loses that work — the opposite of the caches beside it. `authored` does not
+ * pull it into the D11 bundle, which carries statements about tracks and has
+ * never touched this; it only keeps the folder off `EXPORT_EXCLUDED_ARTIFACTS`,
+ * which is right — a track bundle must never carry it, and a future
+ * back-up-my-data feature should.
+ */
+export const THEMES_ARTIFACT: UserDataArtifact = {
+  name: 'themes',
+  kind: 'authored',
+  why: 'The operator’s .osctheme files, dropped in or exported here, that the Theme picker lists.'
+}
+
+/**
  * Every artifact, declared once.
  *
  * `location.ts` derives its filenames from this, so a path that exists without
@@ -132,7 +149,8 @@ export const USER_DATA_ARTIFACTS: readonly UserDataArtifact[] = [
   ARTWORK_CACHE_ARTIFACT,
   ARTWORK_ORIGINALS_ARTIFACT,
   PODCASTS_ARTIFACT,
-  SCROBBLE_CREDENTIALS_ARTIFACT
+  SCROBBLE_CREDENTIALS_ARTIFACT,
+  THEMES_ARTIFACT
 ]
 
 /**
