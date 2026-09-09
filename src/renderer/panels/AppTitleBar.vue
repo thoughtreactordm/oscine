@@ -70,8 +70,14 @@ const shortcutsOpen = ref(false)
  */
 const version = ref('')
 
-/** Placeholder until the documentation site exists — G7 says a stand-in is fine. */
-const DOCS_URL = 'https://github.com/thoughtreactordm/oscine'
+/**
+ * The two outward links in Help. These are separate destinations for separate
+ * audiences and the menu says so: `/learn` is the user-facing guide G7 asked
+ * for, the repository is for people who want the source. Both are http(s), so
+ * both clear the scheme check `app.openExternal` applies in main.
+ */
+const LEARN_URL = 'https://oscine.app/learn'
+const GITHUB_URL = 'https://github.com/thoughtreactordm/oscine'
 
 /**
  * The shortcut hint on the search box. Cosmetic — the binding itself is
@@ -322,10 +328,12 @@ const viewItems = computed<DropdownMenuItem[][]>(() => [
 ])
 
 /**
- * Help — About, the documentation link, then the Open Source credits.
+ * Help — About, the two outward links, then the Open Source credits.
  *
- * The documentation target is a placeholder for now (G7). Both modals are opened
- * from here and rendered at the foot of this component.
+ * `How to Use` sits above `GitHub` because it is what someone opening Help
+ * actually wants; the repository is named for what it is rather than labelled
+ * "Documentation", which promised a manual and delivered a source tree. Both
+ * modals are opened from here and rendered at the foot of this component.
  */
 const helpItems = computed<DropdownMenuItem[][]>(() => [
   [
@@ -337,9 +345,14 @@ const helpItems = computed<DropdownMenuItem[][]>(() => [
       }
     },
     {
-      label: 'Documentation',
+      label: 'How to Use',
       icon: 'i-tabler-book',
-      onSelect: () => void appInfo.openExternal(DOCS_URL)
+      onSelect: () => void appInfo.openExternal(LEARN_URL)
+    },
+    {
+      label: 'GitHub',
+      icon: 'i-tabler-brand-github',
+      onSelect: () => void appInfo.openExternal(GITHUB_URL)
     }
   ],
   [
