@@ -103,7 +103,11 @@ const byline = computed(() => {
     <!--
       The art again, blown out and blurred, as the backdrop. It is the one
       colour source on this screen that is allowed to come from outside the
-      token layer, because it is not a colour — it is the artwork itself.
+      token layer, because it is not a colour — it is the artwork itself. Its
+      blur, colorization and bleed are the same `nowPlaying.*` tokens the
+      transport bar and the focused song-list headers use, so authoring them in
+      the token editor moves this wash in lockstep with every other cover
+      backdrop rather than leaving the largest one behind — see `.stage-wash-img`.
     -->
     <Transition name="stage-wash">
       <img
@@ -112,7 +116,7 @@ const byline = computed(() => {
         :src="cover"
         alt=""
         aria-hidden="true"
-        class="pointer-events-none absolute inset-0 size-full scale-125 object-cover opacity-20 blur-3xl"
+        class="stage-wash-img pointer-events-none absolute inset-0 size-full object-cover"
         draggable="false"
       />
     </Transition>
@@ -362,6 +366,20 @@ section:hover .stage-exit,
   .stage-exit {
     transition-duration: 0ms;
   }
+}
+
+/*
+ * The backdrop wash, driven by the same cover tokens as the transport bar
+ * (`--oscine-cover-blur`, `--oscine-cover-bleed`) and colorized like the focused
+ * song-list header (`FocusedBackdrop.vue`'s `saturate`). The multipliers hold
+ * the resting look this used to hardcode — a `blur-3xl` (64px) off the 40px
+ * default blur, and `opacity-20` off the ~0.18 default bleed, the same 1.1 the
+ * focused header uses — while now tracking whatever the token editor sets.
+ */
+.stage-wash-img {
+  filter: blur(calc(var(--oscine-cover-blur) * 1.6)) saturate(2.2);
+  opacity: calc(var(--oscine-cover-bleed) * 1.1);
+  transform: scale(1.25);
 }
 
 .stage-art-enter-active,
