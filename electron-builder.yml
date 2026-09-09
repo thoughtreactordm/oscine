@@ -27,6 +27,11 @@ files:
   # what a source build consumes. We never source-build (see npmRebuild below).
   - '!node_modules/better-sqlite3/deps/**'
   - '!node_modules/better-sqlite3/src/**'
+  # The in-tree optical addon is compiled by postinstall on each platform.
+  - '!node_modules/@oscine/cdrip/build/**'
+  - '!node_modules/@oscine/cdrip/*.cc'
+  - '!node_modules/@oscine/cdrip/*.h'
+  - '!node_modules/@oscine/cdrip/binding.gyp'
   # D10 has no macOS target, so no build ever needs the darwin prebuilds.
   - '!node_modules/better-sqlite3/prebuilds/darwin-*'
   - '!node_modules/node-web-audio-api/*.darwin-*.node'
@@ -41,8 +46,12 @@ files:
 win:
   target:
     - nsis
+  extraResources:
+    - from: resources/bin/win32-${arch}
+      to: bin
   files:
     - '!node_modules/better-sqlite3/prebuilds/linux*'
+    - '!node_modules/@oscine/cdrip/prebuilds/linux-*'
     - '!node_modules/node-web-audio-api/*.linux-*.node'
 nsis:
   oneClick: false
@@ -53,8 +62,12 @@ linux:
   target:
     - AppImage
     - deb
+  extraResources:
+    - from: resources/bin/linux-${arch}
+      to: bin
   files:
     - '!node_modules/better-sqlite3/prebuilds/win32*'
+    - '!node_modules/@oscine/cdrip/prebuilds/win32-*'
     - '!node_modules/node-web-audio-api/*.win32-*.node'
   # W3-10. The desktop entry is how the shell resolves the MPRIS client we
   # publish into an application identity — without it GNOME/KDE show the media
@@ -84,11 +97,15 @@ asarUnpack:
   - '**/node_modules/sharp/**'
   - '**/node_modules/@img/**'
 
-# All three native dependencies — better-sqlite3, sharp, node-web-audio-api —
-# ship N-API prebuilds, which are ABI-stable across Node and Electron. That is
+# All four native dependencies (including the locally compiled cdrip addon)
+# use N-API prebuilds, which are ABI-stable across Node and Electron. That is
 # why `verify:native` passes without a rebuild step. Letting electron-builder
 # run @electron/rebuild here would replace those prebuilds with node-gyp builds
 # against Electron's headers, and the next `npm test` — running under system
 # Node — would fail to load better-sqlite3. Revisit only if a dependency without
 # N-API prebuilds is added.
 npmRebuild: false
+
+# The Linux extraResources copy drops the executable bit. Without this the first
+# rip fails with EACCES on the bundled `flac`.
+afterPack: scripts/chmod-flac.mjs

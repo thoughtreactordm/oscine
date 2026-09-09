@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJ0P2N21SZFS5S8890MFHD
 title: 'Rip: RipService — the session, throttled progress and token cancel'
-status: backlog
+status: in-review
 priority: medium
 labels:
   - cdrip
@@ -15,9 +15,9 @@ dependsOn:
   - 01M1FHXZ4E3N5GWB3B3Y8AN5S0
   - 01M1FHYVP8XP027FVE6G79AS1D
   - 01M1FHZQC8BQQS72DA3PNR8HAP
-order: 19
+order: 4
 created: '2026-09-01T22:39:10.420Z'
-updated: '2026-09-01T22:39:10.420Z'
+updated: '2026-09-09T03:47:22.208Z'
 ---
 ## Intent
 

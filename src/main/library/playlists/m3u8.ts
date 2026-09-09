@@ -1,5 +1,6 @@
 import nodePath from 'node:path'
 import type { PlatformPath } from 'node:path'
+import { replaceUnsafeFilenameChars } from '@shared/pathSanitize'
 import type { PlaylistPathStyle } from '@shared/playlists'
 
 /**
@@ -133,17 +134,6 @@ function locationField(
   return relative === '' ? absPath : relative
 }
 
-/**
- * Illegal in a Windows filename; `/` and the control range are illegal in both.
- *
- * The control range is what the disable is for: `no-control-regex` exists to
- * catch a control character nobody meant to write, and matching them is the
- * entire intent here — a playlist name is free text, and a filename carrying
- * one is a name the save dialog will refuse.
- */
-// eslint-disable-next-line no-control-regex -- matching the control range is the point
-const UNSAFE_FILENAME_CHARS = /[<>:"/\\|?*\u0000-\u001f]/g
-
 /** Windows rejects a name ending in a dot or a space, whatever precedes it. */
 const TRIMMABLE_EDGES = /^[. ]+|[. ]+$/g
 
@@ -163,7 +153,7 @@ const MAX_FILENAME_STEM = 100
  * substitution is not theoretical.
  */
 export function suggestedFileName(playlistName: string): string {
-  const sanitised = playlistName.replace(UNSAFE_FILENAME_CHARS, '_')
+  const sanitised = replaceUnsafeFilenameChars(playlistName, '_')
   // Sliced by code point, not by UTF-16 unit: cutting a surrogate pair in half
   // produces a name the filesystem may refuse, and non-ASCII names are exactly
   // the ones this is protecting.

@@ -56,6 +56,7 @@ import type {
 } from '@shared/settings'
 import type { SearchQuery } from '@shared/search'
 import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
+import type { RipProgress, RipRequest } from '@shared/cdrip'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
 import type { UpdateStatus } from '@shared/update'
 
@@ -216,6 +217,21 @@ const api = {
     /** Returns an unsubscribe function. Call it on unmount. */
     onApplyProgress: (listener: (progress: WritebackProgress) => void) =>
       subscribe('tagWriteback.applyProgress', listener)
+  },
+  /**
+   * CD rip — **W18-5**. Drive list and TOC for the Tools pane, plus the session
+   * that turns a confirmed selection into files. Progress is coalesced in main;
+   * cancel is observed between sector chunks.
+   */
+  cdrip: {
+    listDrives: () => request('cdrip.listDrives', null),
+    readToc: (driveId: string) => request('cdrip.readToc', { driveId }),
+    lookup: (driveId: string) => request('cdrip.lookup', { driveId }),
+    validateDestination: (absDir: string) => request('cdrip.validateDestination', { absDir }),
+    pickDestination: () => request('cdrip.pickDestination', null),
+    start: (ripRequest: RipRequest) => request('cdrip.start', ripRequest),
+    cancel: () => request('cdrip.cancel', null),
+    onProgress: (listener: (progress: RipProgress) => void) => subscribe('cdrip.progress', listener)
   },
   /**
    * Cover ingest — **W16-10**. Bytes travel renderer→main only: `setFromBytes`

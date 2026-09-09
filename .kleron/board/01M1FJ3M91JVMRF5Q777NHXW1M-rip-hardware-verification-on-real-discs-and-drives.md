@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJ3M91JVMRF5Q777NHXW1M
 title: 'Rip: hardware verification on real discs and drives (R9)'
-status: backlog
+status: todo
 priority: high
 labels:
   - cdrip
@@ -13,9 +13,9 @@ workstream: W18
 workstreamId: W18-9
 dependsOn:
   - 01M1FHX2E9B7GSQRZHJ4MPFHX1
-order: 27
+order: 2
 created: '2026-09-01T22:40:46.880Z'
-updated: '2026-09-01T22:54:35.936Z'
+updated: '2026-09-09T03:35:56.416Z'
 ---
 ## Why this exists as a human card
 

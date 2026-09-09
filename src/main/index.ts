@@ -30,6 +30,10 @@ import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { TagWritebackDiffer } from './library/writeback/differ'
 import { TagWritebackService, trackPathResolver } from './library/writeback/service'
+import { createCdDrive } from './cdrip/drive'
+import { createDiscLookup } from './cdrip/discLookup'
+import { createFlacEncoder, resolveFlacBinaryPath } from './cdrip/encoder'
+import { RipService, ripDestResolver } from './cdrip/service'
 import { SqlitePodcastService } from './podcasts/service'
 import {
   createArtistIdentityService,
@@ -92,6 +96,23 @@ async function pickMusicFolder(): Promise<string | null> {
   const options: Electron.OpenDialogOptions = {
     title: 'Add music folder',
     buttonLabel: 'Add folder',
+    properties: ['openDirectory', 'createDirectory', 'dontAddToRecent']
+  }
+
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options)
+
+  // Cancelling is an ordinary outcome, not an error — the contract says so.
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+}
+
+/** W18-7's rip destination. Same dialog shape as add-root; a different title. */
+async function pickRipDestination(): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    title: 'Choose rip destination',
+    buttonLabel: 'Choose folder',
     properties: ['openDirectory', 'createDirectory', 'dontAddToRecent']
   }
 
@@ -803,6 +824,24 @@ if (!app.requestSingleInstanceLock()) {
       broadcastUpdateStatus
     )
 
+    // W18-5 — the CD-rip session. Lazy native load, fake-drive tests, and the
+    // encoder binary resolved from the packaged extraResources layout or the
+    // repo-relative vendor copy. Lookup is on the same service so the Tools
+    // pane's metadata match (W18-6) does not grow a second orchestrator.
+    const rip = new RipService({
+      drive: createCdDrive(),
+      lookup: createDiscLookup({ client: net.client, cache }),
+      encoder: createFlacEncoder({
+        binaryPath: resolveFlacBinaryPath({
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          appRoot: app.getAppPath()
+        })
+      }),
+      resolvePath: ripDestResolver(db),
+      ingest: (rootId, absPaths) => library.ingestRippedFiles(rootId, absPaths)
+    })
+
     // The command palette's finder (D23). Same connection, no tables of its own
     // and no network: it reuses `tracks_fts` for tracks and a light LIKE over
     // the small entity sets, and reaches nothing but this database.
@@ -846,6 +885,8 @@ if (!app.requestSingleInstanceLock()) {
       // drain costs a retry, never a scrobble.
       scrobbleDrain.stop()
       net.cancelScope('scrobble')
+      rip.cancel()
+      net.cancelScope('cdrip')
 
       // First of the awaited steps, because it is the only one that needs the
       // renderer alive and
@@ -906,7 +947,9 @@ if (!app.requestSingleInstanceLock()) {
       tags,
       tagSuggestions,
       tagWriteback,
-      updates
+      updates,
+      rip,
+      pickRipDestination
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

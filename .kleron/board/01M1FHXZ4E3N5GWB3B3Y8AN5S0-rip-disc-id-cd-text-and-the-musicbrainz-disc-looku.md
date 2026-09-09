@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FHXZ4E3N5GWB3B3Y8AN5S0
 title: 'Rip: disc ID, CD-TEXT and the MusicBrainz disc lookup behind D14'
-status: backlog
+status: in-review
 priority: medium
 labels:
   - cdrip
@@ -12,9 +12,9 @@ workstream: W18
 workstreamId: W18-2
 dependsOn:
   - 01M1FHX2E9B7GSQRZHJ4MPFHX1
-order: 16
+order: 1
 created: '2026-09-01T22:37:41.390Z'
-updated: '2026-09-01T22:37:41.390Z'
+updated: '2026-09-09T02:43:27.449Z'
 ---
 ## Intent
 

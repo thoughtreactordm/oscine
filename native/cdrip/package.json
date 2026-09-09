@@ -1,0 +1,12 @@
+{
+  "name": "@oscine/cdrip",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "main": "index.cjs",
+  "gypfile": false,
+  "files": [
+    "index.cjs",
+    "prebuilds"
+  ]
+}

@@ -101,7 +101,9 @@ export const NET_SCOPES = [
    * disconnected. The rows survive — persist first, submit second — so an
    * abandoned drain costs a retry, never a scrobble.
    */
-  'scrobble'
+  'scrobble',
+  /** A rip's metadata lookup. Closing its pane or cancelling abandons queued and in-flight work. */
+  'cdrip'
 ] as const
 
 export type NetScope = (typeof NET_SCOPES)[number]

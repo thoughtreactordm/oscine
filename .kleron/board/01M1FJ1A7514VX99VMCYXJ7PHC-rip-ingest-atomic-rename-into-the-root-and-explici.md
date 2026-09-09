@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJ1A7514VX99VMCYXJ7PHC
 title: 'Rip: ingest — atomic rename into the root and explicit reconcile'
-status: backlog
+status: in-review
 priority: medium
 labels:
   - cdrip
@@ -12,9 +12,9 @@ workstream: W18
 workstreamId: W18-6
 dependsOn:
   - 01M1FJ0P2N21SZFS5S8890MFHD
-order: 20
+order: 5
 created: '2026-09-01T22:39:31.045Z'
-updated: '2026-09-01T22:39:31.045Z'
+updated: '2026-09-09T03:47:22.226Z'
 ---
 ## Intent
 

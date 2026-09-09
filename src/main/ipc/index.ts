@@ -6,6 +6,7 @@ import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
 import type { TagWritebackService } from '../library/writeback/service'
 import type { UpdateService } from '../update'
+import type { RipService } from '../cdrip/service'
 import type { ListenService } from '../listens/service'
 import type { PlaylistService } from '../library/playlists/service'
 import type {
@@ -103,6 +104,7 @@ import {
   assertRenameTagRequest,
   assertSuggestTagsRequest
 } from './validate'
+import { registerCdripHandlers } from './cdrip'
 
 /**
  * Wires every channel in the contract to the library service.
@@ -132,7 +134,9 @@ export function registerIpcHandlers(
   tags: TagStore,
   tagSuggestions: TagSuggestionService,
   tagWriteback: TagWritebackService,
-  updates: UpdateService
+  updates: UpdateService,
+  rip: RipService,
+  pickRipDestination: () => Promise<string | null>
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -775,6 +779,12 @@ export function registerIpcHandlers(
   // MusicBrainz records no outbound URLs for is an empty state rather than an
   // error, and an unresolved one never reaches a socket at all.
   handle('artist.links', (request) => links.get(assertGetArtistLinksRequest(request).artistId))
+
+  registerCdripHandlers({
+    rip,
+    pickDestination: pickRipDestination,
+    listRoots: () => library.listRoots()
+  })
 
   assertEveryChannelHandled()
 }

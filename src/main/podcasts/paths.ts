@@ -1,4 +1,5 @@
 import { basename, extname, join, posix } from 'node:path'
+import { FILENAME_SLASHES, UNSAFE_FILENAME_CHARS } from '@shared/pathSanitize'
 
 /**
  * Paths under the podcasts download root.
@@ -6,10 +7,6 @@ import { basename, extname, join, posix } from 'node:path'
  * Same invariant as library tracks: store POSIX-relative, rejoin per-platform
  * on read. The root itself is machine-local (`userData/podcasts`).
  */
-
-// eslint-disable-next-line no-control-regex -- stripping control chars from titles is the point
-const UNSAFE = /[<>:"|?*\u0000-\u001f]/g
-const SLASHES = /[\\/]+/g
 
 export function podcastDirName(podcastId: number, title: string): string {
   const slug = slugify(title) || 'podcast'
@@ -46,8 +43,8 @@ function slugify(value: string): string {
   return value
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(UNSAFE, '')
-    .replace(SLASHES, '-')
+    .replace(UNSAFE_FILENAME_CHARS, '')
+    .replace(FILENAME_SLASHES, '-')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')

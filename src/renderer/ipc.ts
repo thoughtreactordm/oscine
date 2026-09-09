@@ -25,6 +25,7 @@ import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
 import type { DiscoverRecipeId } from '@shared/discover'
 import type { SearchQuery } from '@shared/search'
 import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
+import type { RipProgress, RipRequest } from '@shared/cdrip'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
 import type {
   AddTracksToPlaylistRequest,
@@ -149,6 +150,18 @@ export const tagWriteback = {
   /** Returns an unsubscribe function. Call it on unmount. */
   onApplyProgress: (listener: (progress: WritebackProgress) => void) =>
     window.oscine.tagWriteback.onApplyProgress(listener)
+}
+
+export const cdrip = {
+  listDrives: () => unwrap(window.oscine.cdrip.listDrives()),
+  readToc: (driveId: string) => unwrap(window.oscine.cdrip.readToc(driveId)),
+  lookup: (driveId: string) => unwrap(window.oscine.cdrip.lookup(driveId)),
+  validateDestination: (absDir: string) => unwrap(window.oscine.cdrip.validateDestination(absDir)),
+  pickDestination: () => unwrap(window.oscine.cdrip.pickDestination()),
+  start: (request: RipRequest) => unwrap(window.oscine.cdrip.start(request)),
+  cancel: () => unwrap(window.oscine.cdrip.cancel()),
+  onProgress: (listener: (progress: RipProgress) => void) =>
+    window.oscine.cdrip.onProgress(listener)
 }
 
 /**

@@ -31,6 +31,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * answer means two different things does not.
  */
 export const CACHE_ENTITIES = [
+  /** Disc ID → release candidates. The operator's choice lives in the rip session. */
+  'musicbrainz.disc',
   /** Artist name → MusicBrainz search candidates. R5's once-per-artist lookup. */
   'musicbrainz.artist-search',
   /** MBID → the artist document, with its relations and outbound links. */
@@ -92,6 +94,8 @@ export interface EntityTtl {
  * unmatchable artist, which is precisely the failure R5 names.
  */
 export const DEFAULT_CACHE_TTLS: Readonly<Record<CacheEntity, EntityTtl>> = {
+  /** Disc associations change slowly; retry unmatched discs weekly. */
+  'musicbrainz.disc': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
   /**
    * Thirty days positive. The mapping from a tag string to a candidate set only
    * moves when MusicBrainz gains, merges or renames an artist, and a successful

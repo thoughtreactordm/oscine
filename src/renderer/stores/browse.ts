@@ -276,6 +276,24 @@ export const useBrowseStore = defineStore('browse', () => {
   }
 
   /**
+   * Narrows the library to one album, named from outside the sidebar.
+   *
+   * `revealArtist`'s neighbour: the request wins over the current predicate, so
+   * a rip report that names an album the current filter excludes still lands
+   * on it rather than silently doing nothing. Artist and search go, because
+   * they were chosen against a different slice.
+   */
+  function revealAlbum(albumId: number): void {
+    rootId.value = null
+    searchInput.value = ''
+    activeSearch.value = null
+    searchPending.value = false
+
+    artists.clearSelection()
+    albums.selectOnlyId(albumId)
+  }
+
+  /**
    * Narrows the library to a phrase, named from outside the sidebar.
    *
    * `revealArtist`'s neighbour, and it clears the same things above it for the
@@ -414,6 +432,7 @@ export const useBrowseStore = defineStore('browse', () => {
     facetTrackIds,
     reloadFacets,
     revealArtist,
+    revealAlbum,
     revealSearch,
     revealTag
   }

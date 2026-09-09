@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJ2TPSC8D1DY4CG7X2T56Z
 title: 'Rip: session persistence and resume (migration 023)'
-status: backlog
+status: todo
 priority: low
 labels:
   - cdrip
@@ -14,9 +14,9 @@ workstreamId: W18-8
 dependsOn:
   - 01M1FJ0P2N21SZFS5S8890MFHD
   - 01M1FJ1A7514VX99VMCYXJ7PHC
-order: 22
+order: 1
 created: '2026-09-01T22:40:20.696Z'
-updated: '2026-09-01T22:40:20.696Z'
+updated: '2026-09-09T03:35:53.590Z'
 ---
 ## Intent
 

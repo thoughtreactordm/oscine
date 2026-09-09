@@ -2,9 +2,8 @@
 import { useToolsStore } from '@renderer/stores/tools'
 
 /**
- * The Tools tab's rail — **W16-6**. One entry per tool; the tag write-back
- * review is the first. Built to grow: another tool is another row here and a
- * branch in `ToolsView`.
+ * The Tools tab's rail — **W16-6 / W18-7**. One entry per tool. Built to grow:
+ * another tool is another row here and a branch in `ToolsView`.
  */
 const tools = useToolsStore()
 </script>

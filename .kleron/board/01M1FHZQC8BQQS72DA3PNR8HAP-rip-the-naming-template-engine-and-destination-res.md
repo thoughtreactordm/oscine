@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FHZQC8BQQS72DA3PNR8HAP
 title: 'Rip: the naming template engine and destination resolution'
-status: backlog
+status: in-review
 priority: medium
 labels:
   - cdrip
@@ -10,9 +10,9 @@ labels:
   - portability
 workstream: W18
 workstreamId: W18-4
-order: 18
+order: 3
 created: '2026-09-01T22:38:38.983Z'
-updated: '2026-09-01T22:38:38.983Z'
+updated: '2026-09-09T03:17:47.871Z'
 ---
 ## Intent
 
