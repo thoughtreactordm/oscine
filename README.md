@@ -1,119 +1,147 @@
 # Oscine
 
-A format-first local music player for large libraries.
+A local music player for large libraries, for Windows and Linux.
 
-Oscine plays the files you already own. It indexes local folders into SQLite, browses and searches
-tens of thousands of tracks without stuttering, and handles MP3, FLAC, Ogg Vorbis, Opus, AAC and WAV
-consistently across platforms. No streaming service, no account, no cloud library.
+Oscine indexes local music folders into a SQLite library and plays MP3, FLAC, Ogg Vorbis, Opus, AAC (`.m4a`) and WAV. It is designed for libraries of up to 100,000 tracks. There is no streaming integration and no account; the library is the folders on disk.
 
-Windows and Linux are both first-class targets.
+Oscine is open source under the [MIT License](LICENSE) and is distributed as a packaged desktop application.
 
-## Status
+- [Download](https://github.com/thoughtreactordm/oscine/releases/latest)
+- [User guide](https://oscine.app/learn)
+- [Website](https://oscine.app)
+- [Discord](https://discord.gg/u3npX42WbP)
+- [Issues](https://github.com/thoughtreactordm/oscine/issues)
 
-Feature-complete and stabilising for the **1.0.0** release (currently `1.0.0-rc`). The whole stack
-is in place and usable end to end:
+## Install
 
-- **Library** — point it at folders; incremental scan on launch plus a live filesystem watcher;
-  FTS5 instant search; virtualized Artist/Album/Song browsing tuned for a 100k-track scale target;
-  a content-addressed artwork cache.
-- **Playback** — gapless and equal-power crossfade (mutually exclusive per boundary), ReplayGain
-  read-or-compute, a two-tier up-next queue over per-tab playlists, and OS media-session integration.
-- **Playlists** — named playlist tabs, drag reorder, m3u8 export, and a pinned "My Favorites".
-- **Tunedeck** — a resizable deck with a format/signal readout, play history and related-in-library,
-  plus an opt-in artist nexus (MusicBrainz identity, Wikipedia biography, in-library relations) that
-  stays fully functional with networking declined.
-- **Discover** — nine deterministic local recipes over your library and listening log; no model and
-  no network; save any shelf as a playlist.
-- **Listening & scrobbling** — an uncapped, snapshotting listens log, a stats dashboard, and Last.fm
-  scrobbling with an offline outbox.
-- **Podcasts** — a parallel domain: subscribe, auto-download and play from disk, with an
-  Apple-catalogue Discover pane.
-- **Tag write-back** — an explicit, staged, operator-reviewed flush of metadata and embedded-artwork
-  corrections to disk, with atomic writes, backup and rollback. Nothing is ever written implicitly.
-- **Theming** — a CSS-token layer with three built-in themes, a live per-token editor with WCAG AA
-  contrast warnings, and configurable font roles. Swapping a theme touches zero component code.
-- **Onboarding & settings** — a first-run wizard and a scoped settings cascade.
+Download the latest release from [GitHub Releases](https://github.com/thoughtreactordm/oscine/releases/latest).
 
-The CI matrix builds and tests both platforms on every push.
+| Platform | Package |
+|---|---|
+| Windows | `Oscine.Setup.<version>.exe` (NSIS installer) |
+| Debian, Ubuntu and derivatives | `oscine_<version>_amd64.deb` |
+| Other Linux distributions | `Oscine-<version>.AppImage` |
 
-## A caveat worth stating up front: no bit-perfect output
+Updates are checked manually from Settings. The Windows installer and AppImage builds download the update and restart into it. `.deb` installs are directed to the releases page, since the package is managed by apt.
 
-Oscine is built on Electron and the Web Audio API. Chromium always resamples audio to a single
-device sample rate, and it offers no exclusive-mode or WASAPI-exclusive output path.
+macOS is not supported.
 
-**That means Oscine cannot deliver bit-perfect playback.** A 24-bit/192 kHz file will be resampled
-to whatever rate the output device is running at. For most listening this is inaudible, and the
-trade buys a consistent decoder across every platform plus a mature audio graph for crossfade, gain
-and EQ. If bit-perfect or exclusive-mode output is a requirement for you, Oscine is the wrong
-player and no amount of configuration will change that.
+## Features
 
-This is decision **D1** in the design document, recorded with its rejected alternatives. It is a
-known, accepted cost rather than an oversight, and it would take a different audio backend to
-revisit.
+- **Library:** incremental scan on launch, filesystem watcher, FTS5 full-text search, virtualized Artist, Album and Song views, and a content-addressed artwork cache.
+- **Playback:** gapless playback or equal-power crossfade (per track boundary, never both), ReplayGain from tags or computed, a two-tier up-next queue, keyboard shortcuts, and OS media controls (MPRIS on Linux, system media controls on Windows).
+- **Playlists:** playlist tabs, drag reordering, m3u8 export and a pinned Favorites playlist.
+- **Tunedeck:** a resizable panel showing format and signal details, play history and related tracks in the library. An optional artist view pulls identity data from MusicBrainz and biographies from Wikipedia; it requires network access and is off by default.
+- **Discover:** ten rule-based recommendation shelves built from the library and listening history. No network access or ML model. Shelves can be saved as playlists.
+- **Listening history and scrobbling:** a full listens log, a statistics dashboard, and scrobbling to Last.fm and ListenBrainz with an offline queue.
+- **Podcasts:** subscriptions, automatic downloads, local playback and search of the Apple Podcasts catalogue.
+- **Tag write-back:** metadata and embedded artwork edits are stored in the database first and written to files only after the user reviews and confirms them. Each file write is atomic, backed up, hash-verified and rolled back on failure.
+- **Theming:** three built-in themes, a per-token theme editor with WCAG AA contrast warnings, configurable fonts, and shareable `.osctheme` files.
+- **Settings:** first-run setup, scoped settings, and profile export and import.
 
-## Development
+## Limitations
+
+Oscine does not support bit-perfect or exclusive-mode output. It uses Electron and the Web Audio API, and Chromium resamples all audio to the output device's sample rate with no WASAPI-exclusive path. A 24-bit/192 kHz file is played at the device rate. This is a deliberate trade-off, recorded as decision D1 in the design document: it gives one decoder across both platforms and a Web Audio graph for crossfade and gain. Changing it would require a different audio backend.
+
+## Design principles
+
+- The library is local files. No streaming services or stores.
+- Network features (artist info, scrobbling, podcasts) are opt-in. The app is fully usable offline.
+- Files are never modified without explicit user confirmation.
+- All lists are virtualized and must perform at 100,000 tracks.
+- Windows and Linux behave identically. No platform-specific code paths for paths or shells.
+- Themes are defined through CSS tokens. Changing a theme requires no component changes.
+
+The [design document](.kleron/wiki/fermata-design.md) records these principles and the fifteen architectural decisions (D1–D15) behind them. Contributions are reviewed against it.
+
+## Contributing
+
+Oscine is open source but does not accept general contributions. The project's direction is set by its maintainer and its design document. The following policy applies to issues and pull requests.
+
+### Bug reports and fixes
+
+Report bugs through [GitHub Issues](https://github.com/thoughtreactordm/oscine/issues). Include the Oscine version, operating system, install type (NSIS, AppImage or `.deb`), steps to reproduce, expected and actual behaviour, and logs where available.
+
+Bug fix pull requests are accepted. Fork the repository, keep the change limited to the fix, and reference the issue in the PR.
+
+### Feature requests
+
+Discuss feature proposals in the [Discord](https://discord.gg/u3npX42WbP) before writing code. Discussion is kept there so it is public and accessible to everyone.
+
+Feature pull requests from forks are accepted for review, but review does not imply acceptance. A feature PR must:
+
+- Describe what the change does, why it belongs in Oscine, and which design decisions (D-numbers) and invariants it affects.
+- Be as small as possible. Split large features into separate, sequential PRs to limit the scope of each change and reduce conflicts and duplicated work.
+- Follow the conventions and invariants in [`CLAUDE.md`](CLAUDE.md) and the design document. A PR that reverses a settled decision must show that the decision's "revisit when" condition has been met.
+- Pass `lint`, `format:check`, `typecheck`, `test` and `build` on Windows and Linux.
+
+### Use of AI tools
+
+AI-assisted contributions are accepted if the use of AI is disclosed. Oscine's own use of AI is documented in the [AI/LLM disclosure](https://oscine.app/disclosure). Each PR must state:
+
+- Which AI tools and models were used.
+- Which parts of the change they were used for (design, code, tests, documentation, PR description).
+- What the contributor reviewed and tested themselves.
+
+Keep any `Co-Authored-By` trailers added by AI tools. Contributors are responsible for every line they submit.
+
+Pull requests that appear to conceal the use of AI tools will be closed without review.
+
+### Changes outside the project's scope
+
+Changes that conflict with the design principles, such as streaming integration, a different audio backend or a macOS port, will not be merged. These are better suited to a separate project. The MIT License permits this; forks must be renamed and rebranded as described in [License and trademark](#license-and-trademark).
+
+## Building from source
+
+Requires Node.js 20 or later.
 
 ```bash
 npm install
-npm run dev        # launches the app with renderer HMR
-npm run build      # typecheck, then build main / preload / renderer
-npm run typecheck  # both the Node and the web project
+npm run dev        # run the app with hot reload
 npm test           # Vitest
-npm run lint       # ESLint (warnings are errors)
+npm run lint       # ESLint, warnings are errors
+npm run typecheck  # tsc (main) and vue-tsc (renderer)
+npm run build      # typecheck, then build main, preload and renderer
 ```
 
-`lint`, `format:check`, `typecheck`, `test` and `build` are the pre-push gate; CI runs all five on
-`ubuntu-latest` and `windows-latest`. Requires a current LTS Node (20 or newer).
+CI runs `lint`, `format:check`, `typecheck`, `test` and `build` on `ubuntu-latest` and `windows-latest`.
 
-## Packaging
+### Packaging
 
 ```bash
-npm run dist:linux  # AppImage + deb into release/
-npm run dist:win    # NSIS installer into release/
+npm run dist:linux  # AppImage and .deb in release/
+npm run dist:win    # NSIS installer in release/
 ```
 
-Run each on its own platform — the native dependencies (sharp, node-web-audio-api) resolve
-platform-specific prebuilt addons that are only installed there, so cross-building yields a broken
-app rather than a build error.
+Each platform must be packaged on that platform. The native dependencies (sharp, node-web-audio-api) install platform-specific prebuilt binaries, so a cross-platform build produces a broken app.
 
-The icon set in `build/` is generated from the title bar's mark by `npm run icons`, one render per
-size rather than one master downscaled, so 16 px stays legible on a 1x panel.
+The icons in `build/` are generated from `build/oscine-logo.svg` by `npm run icons`.
 
-## Layout
+### Project structure
 
 ```
 src/
-  main/      Node side: SQLite library, scanner + watcher, jobs (scan, ReplayGain),
-             playlists, podcasts, scrobbling, tag write-back, IPC handlers
-  preload/   the contextBridge surface, and nothing else
-  shared/    the IPC contract, imported by both sides so they cannot drift
-  renderer/  Vue 3 UI (panels as islands), plus the Web Audio engine behind an interface
-tests/       mirrors the process split: tests/main/ and tests/renderer/
+  main/      main process: SQLite library, scanner and watcher, background jobs,
+             playlists, podcasts, scrobbling, tag write-back, updates, IPC handlers
+  preload/   contextBridge API
+  shared/    IPC channel definitions and types used by both processes
+  renderer/  Vue 3 UI and the Web Audio playback engine
+tests/       tests/main/ and tests/renderer/, matching the process split
 ```
 
-The renderer runs with `contextIsolation` on, `nodeIntegration` off and `sandbox` enabled. It has no
-filesystem access; every library operation crosses a typed IPC boundary defined once in
-`src/shared`. Audio lives in the renderer because Web Audio has no main-process equivalent, behind an
-`AudioEngine` interface so the decode implementation can be replaced without the UI noticing.
+The renderer runs with `contextIsolation` and `sandbox` enabled and `nodeIntegration` disabled. It has no filesystem access; all library operations go through typed IPC channels defined in `src/shared`. Audio playback runs in the renderer, since Web Audio is not available in the main process, behind an `AudioEngine` interface.
 
-## Documentation
+### Documentation
 
-The design document is the authority on architecture and on decisions already settled — read it
-before proposing architectural change. It lives in this repository's Kleron wiki at
-[`.kleron/wiki/fermata-design.md`](.kleron/wiki/fermata-design.md), alongside the task board, so a
-clone carries the full project context. Its "Status as of 1.0" block maps what shipped beyond the
-original frozen scope. Subsystem contracts that outgrew the design doc have their own notes under
-[`docs/`](docs/) (artwork cache, ReplayGain). Project-wide conventions and invariants for
-contributors — and for coding agents — live in [`CLAUDE.md`](CLAUDE.md).
+- [User guide](https://oscine.app/learn)
+- [Design document](.kleron/wiki/fermata-design.md): architecture and settled decisions. Read it before proposing architectural changes.
+- [`docs/`](docs/): artwork cache and ReplayGain internals.
+- [`CLAUDE.md`](CLAUDE.md): conventions and invariants for contributors and coding agents.
 
-## License & brand
+## License and trademark
 
-The source code is licensed under the [MIT License](LICENSE) — free to use, fork, and distribute,
-including commercially.
+The source code is licensed under the [MIT License](LICENSE).
 
-The **Oscine™ name, logo, icon, wordmark, and visual identity** are trademarks of Thought Reactor
-and are **not** covered by the MIT License. Forking the code means renaming and rebranding: remove
-the Oscine name and logo assets and replace them with your own. Truthful nominative references
-("a fork of Oscine", "based on Oscine") are always fine.
+The Oscine™ name, logo, icon, wordmark and visual identity are trademarks of Thought Reactor and are not covered by the MIT License. Forks distributed as separate products must remove the Oscine name and brand assets. Factual references such as "a fork of Oscine" or "based on Oscine" are permitted.
 
-See [TRADEMARK.md](TRADEMARK.md) for the full brand policy and a list of the reserved assets.
+See [TRADEMARK.md](TRADEMARK.md) for the full policy and the list of reserved assets.
