@@ -25,9 +25,10 @@
  * the episode audio that feed points at, are requests the operator asked for by
  * asking for them; gating those behind this toggle would read as broken rather
  * than as careful. This key gates the lookups *Oscine* decides to make —
- * MusicBrainz and Wikipedia for artist information, and Apple's podcast
- * catalogue for Discover's search and recommendations (W9-5), since browsing a
- * catalogue is Oscine's idea of what to fetch rather than the operator's.
+ * MusicBrainz and Wikipedia for artist information, the Cover Art Archive for
+ * album covers (W7-15), and Apple's podcast catalogue for Discover's search and
+ * recommendations (W9-5), since browsing a catalogue is Oscine's idea of what to
+ * fetch rather than the operator's.
  */
 
 import { booleanValue, defineSetting, type SettingDescriptor } from './kernel'
@@ -44,7 +45,7 @@ export const NETWORK_SETTINGS: readonly SettingDescriptor[] = [
     control: { kind: 'toggle' },
     category: 'network',
     label: 'Allow online lookups',
-    help: 'Fetch artist info and browse the podcast catalog online. Off by default.',
+    help: 'Fetch artist info and album art, and browse the podcast catalog online. Off by default.',
     keywords: [
       'network',
       'internet',
@@ -55,6 +56,11 @@ export const NETWORK_SETTINGS: readonly SettingDescriptor[] = [
       'musicbrainz',
       'wikipedia',
       'wikidata',
+      'coverartarchive',
+      'cover art',
+      'album art',
+      'artwork',
+      'covers',
       'apple',
       'itunes',
       'podcast',

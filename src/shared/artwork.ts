@@ -47,6 +47,35 @@ export const INGESTIBLE_IMAGE_MIMES = ['image/jpeg', 'image/png'] as const
 export type IngestibleImageMime = (typeof INGESTIBLE_IMAGE_MIMES)[number]
 
 /**
+ * A cover the Cover Art Archive offers for a release, as a pair of addresses and
+ * no bytes — **W7-15**.
+ *
+ * The manifest names a full-resolution `image` and a set of `thumbnails`, both
+ * on a host that redirects the actual bytes elsewhere; the two URLs are carried
+ * unfetched so a caller can show the thumbnail and only pull the full image once
+ * the operator picks it. Fetched bytes then take the ordinary
+ * `ArtworkCacheService.setCover` door and become an override like any other — a
+ * candidate is a reference, never a stored blob, which is why it has no `hash`.
+ *
+ * CAA does not report pixel dimensions, so `width`/`height` are present only when
+ * a source that does (W7-17's iTunes fallback) fills them in.
+ */
+export interface CoverArtCandidate {
+  /** Which service offered it. One member today; the union grows with W7-17. */
+  source: 'coverartarchive'
+  /** True when CAA marks this the release's front cover. Front candidates sort first. */
+  front: boolean
+  /** A modestly-sized preview to show in a picker, addressed but not fetched. */
+  thumbUrl: string
+  /** The full-resolution image, fetched only when the operator picks this candidate. */
+  fullUrl: string
+  /** Pixel width, when the source reports it. CAA does not; iTunes will. */
+  width?: number
+  /** Pixel height, when the source reports it. CAA does not; iTunes will. */
+  height?: number
+}
+
+/**
  * The largest cover file the ingest accepts. Full-resolution album art is
  * routinely a few megabytes; this ceiling turns a pathological file away at the
  * seam without getting in a poweruser's way.
