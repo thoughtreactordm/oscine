@@ -56,7 +56,7 @@ import type {
 } from '@shared/settings'
 import type { SearchQuery } from '@shared/search'
 import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
-import type { RipProgress, RipRequest } from '@shared/cdrip'
+import type { RipProgress, RipRequest, RipResumeRequest } from '@shared/cdrip'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
 import type { UpdateStatus } from '@shared/update'
 
@@ -228,9 +228,13 @@ const api = {
     readToc: (driveId: string) => request('cdrip.readToc', { driveId }),
     lookup: (driveId: string) => request('cdrip.lookup', { driveId }),
     validateDestination: (absDir: string) => request('cdrip.validateDestination', { absDir }),
+    pickArtwork: () => request('cdrip.pickArtwork', null),
     pickDestination: () => request('cdrip.pickDestination', null),
     start: (ripRequest: RipRequest) => request('cdrip.start', ripRequest),
     cancel: () => request('cdrip.cancel', null),
+    unfinishedSession: () => request('cdrip.unfinished', null),
+    resume: (resumeRequest: RipResumeRequest) => request('cdrip.resume', resumeRequest),
+    dismissSession: (sessionId: number) => request('cdrip.dismiss', { sessionId }),
     onProgress: (listener: (progress: RipProgress) => void) => subscribe('cdrip.progress', listener)
   },
   /**

@@ -164,6 +164,40 @@ export interface RipRequest {
   year: number | null
   verify: boolean
   onCollision: RipCollision
+  /** MusicBrainz release, when the operator confirmed a match. */
+  releaseMbid?: string | null
+  /** Cover selected through the native image picker. */
+  artworkHash?: string | null
+}
+
+export type RipSessionState = 'running' | 'cancelled' | 'complete' | 'failed'
+
+/**
+ * An unfinished `running` session the Tools pane can offer — never auto-resumed.
+ *
+ * `remaining` counts `pending` and `failed` tracks. Written, skipped and
+ * verify-failed tracks have already landed and will not be retried.
+ */
+export interface RipResumeOffer {
+  sessionId: number
+  discId: string
+  tocHash: string
+  album: string
+  albumArtist: string
+  total: number
+  remaining: number
+  written: number
+}
+
+/** Continue a persisted session against the disc currently in `driveId`. */
+export interface RipResumeRequest {
+  sessionId: number
+  driveId: string
+  onCollision: RipCollision
+}
+
+export interface RipDismissSessionRequest {
+  sessionId: number
 }
 
 export type RipPhase = 'reading' | 'encoding' | 'tagging' | 'verifying'

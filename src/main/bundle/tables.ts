@@ -273,6 +273,19 @@ export const BUNDLE_TABLES: readonly BundleTable[] = [
       'to carry, the exporter would first need a way to carry the image the hash points at, which ' +
       'the bundle does not have. The exporter card decides both. Do not read the resemblance to ' +
       '`track_overrides` as a ruling.'
+  },
+  {
+    name: 'rip_sessions',
+    side: 'excluded',
+    why:
+      'A work queue for one machine’s optical drive. Importing another machine’s unfinished rip ' +
+      'would resume it against a disc and a root this one may not have, and `toc_hash` is a ' +
+      'statement about the tray in front of that drive, not a portable identity.'
+  },
+  {
+    name: 'rip_session_tracks',
+    side: 'excluded',
+    why: 'Rides with its parent session. The files it names live on this machine’s roots.'
   }
 ]
 

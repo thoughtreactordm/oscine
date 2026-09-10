@@ -154,9 +154,12 @@ import type {
   CdToc,
   DiscLookupResult,
   RipDestinationResult,
+  RipDismissSessionRequest,
   RipProgress,
   RipReport,
-  RipRequest
+  RipRequest,
+  RipResumeOffer,
+  RipResumeRequest
 } from './cdrip'
 import type { OverrideEditState, OverrideField, OverridePatch } from './overrides'
 import type { ArtworkRef } from './artwork'
@@ -476,7 +479,23 @@ export interface IpcContract {
    * Native folder picker for the rip destination. `null` when the operator
    * dismisses the dialog — the ordinary outcome `library.addRoot` also reports.
    */
+  'cdrip.pickArtwork': { request: null; response: ArtworkRef | null }
   'cdrip.pickDestination': { request: null; response: string | null }
+  /**
+   * The unfinished `running` rip, if any — **W18-8**. Offered, never auto-resumed:
+   * the disc may be gone, and spinning a drive at launch is hostile.
+   */
+  'cdrip.unfinished': { request: null; response: RipResumeOffer | null }
+  /**
+   * Continue a persisted session. Re-reads the TOC and rejects `conflict` when
+   * `toc_hash` does not match the disc in the drive.
+   */
+  'cdrip.resume': { request: RipResumeRequest; response: RipReport }
+  /**
+   * Marks a `running` session cancelled so the pane stops offering it.
+   * A no-op when the session is already finished or missing.
+   */
+  'cdrip.dismiss': { request: RipDismissSessionRequest; response: null }
   /**
    * Ingests a cover the operator picks from a native file dialog — **W16-10**,
    * design authority Decision A/B/C.
@@ -1398,7 +1417,11 @@ export const IPC_CHANNELS = [
   'cdrip.cancel',
   'cdrip.lookup',
   'cdrip.validateDestination',
+  'cdrip.pickArtwork',
   'cdrip.pickDestination',
+  'cdrip.unfinished',
+  'cdrip.resume',
+  'cdrip.dismiss',
   'artwork.setFromDialog',
   'artwork.setFromBytes',
   'artwork.clear',

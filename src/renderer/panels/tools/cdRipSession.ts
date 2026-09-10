@@ -1,3 +1,4 @@
+import type { ArtworkRef } from '@shared/artwork'
 import { computed, ref } from 'vue'
 import { OscineError } from '@shared/errors'
 import {
@@ -12,10 +13,13 @@ import {
   type RipDestinationResult,
   type RipProgress,
   type RipReport,
-  type RipRequest
+  type RipRequest,
+  type RipResumeOffer,
+  type RipResumeRequest
 } from '@shared/cdrip'
 import {
   applyProposal,
+  canOfferResume,
   canRip,
   destinationReason,
   discDetection,
@@ -23,6 +27,7 @@ import {
   includeState,
   needsReleasePick,
   pathPreview,
+  resumeOfferText,
   unmatchedNote,
   POLL_MS,
   type RipDraftTrack
@@ -41,9 +46,13 @@ export interface CdRipBridge {
   readToc(driveId: string): Promise<CdToc>
   lookup(driveId: string): Promise<DiscLookupResult>
   validateDestination(absDir: string): Promise<RipDestinationResult>
+  pickArtwork(): Promise<ArtworkRef | null>
   pickDestination(): Promise<string | null>
   start(request: RipRequest): Promise<RipReport>
   cancel(): Promise<void | null>
+  unfinishedSession(): Promise<RipResumeOffer | null>
+  resume(request: RipResumeRequest): Promise<RipReport>
+  dismissSession(sessionId: number): Promise<void | null>
   onProgress(listener: (progress: RipProgress) => void): () => void
 }
 
@@ -87,6 +96,11 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
   const pickerSettled = ref(false)
   const lookingUp = ref(false)
 
+  const artwork = ref<ArtworkRef | null>(null)
+  const pickingArtwork = ref(false)
+  const artworkError = ref('')
+  let artworkSeq = 0
+
   const album = ref('')
   const albumArtist = ref('')
   const year = ref<number | null>(null)
@@ -96,10 +110,12 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
   const template = ref(deps.settings.getTemplate())
   const destResult = ref<RipDestinationResult | null>(null)
   const collision = ref<RipCollision>('suffix')
+  const releaseMbid = ref<string | null>(null)
 
   const status = ref<RipPaneStatus>('idle')
   const progress = ref<RipProgress | null>(null)
   const report = ref<RipReport | null>(null)
+  const resumeOffer = ref<RipResumeOffer | null>(null)
 
   let pollId: ReturnType<typeof setInterval> | null = null
   let pollInFlight = false
@@ -111,8 +127,22 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
     discDetection({ drives: drives.value, toc: toc.value, noDisc: noDisc.value })
   )
   const summary = computed(() => (toc.value ? discSummary(toc.value) : null))
+  const canResume = computed(() =>
+    canOfferResume({
+      offer: resumeOffer.value,
+      discId: discId.value,
+      ripping: status.value === 'ripping'
+    })
+  )
+  const resumeText = computed(() =>
+    resumeOffer.value === null ? '' : resumeOfferText(resumeOffer.value)
+  )
   const showPicker = computed(
-    () => needsReleasePick(candidates.value) && !pickerSettled.value && status.value !== 'ripping'
+    () =>
+      needsReleasePick(candidates.value) &&
+      !pickerSettled.value &&
+      status.value !== 'ripping' &&
+      !canResume.value
   )
   const quietLine = computed(() =>
     unmatchedNote({
@@ -138,18 +168,45 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
   const ripEnabled = computed(() =>
     canRip({
       detection: detection.value,
-      ripping: ripping.value,
+      ripping: ripping.value || pickingArtwork.value,
       included: includedCount.value,
       destinationOk: destinationOk.value
     })
   )
 
+  async function pickArtwork(): Promise<void> {
+    if (ripping.value || pickingArtwork.value) return
+    const seq = ++artworkSeq
+    pickingArtwork.value = true
+    artworkError.value = ''
+    try {
+      const picked = await deps.cdrip.pickArtwork()
+      if (seq === artworkSeq && !ripping.value && picked) artwork.value = picked
+    } catch (error) {
+      if (seq === artworkSeq)
+        artworkError.value =
+          error instanceof Error ? error.message : 'That image could not be read.'
+    } finally {
+      pickingArtwork.value = false
+    }
+  }
+
+  function removeArtwork(): void {
+    if (ripping.value || pickingArtwork.value) return
+    artwork.value = null
+    artworkError.value = ''
+  }
+
   function resetDraft(): void {
+    artworkSeq++
+    artwork.value = null
+    artworkError.value = ''
     // Completed outcomes belong to the previous disc, just like its metadata.
     if (status.value !== 'ripping') dismissReport()
     album.value = ''
     albumArtist.value = ''
     year.value = null
+    releaseMbid.value = null
     tracks.value = []
     candidates.value = []
     selectedCandidate.value = null
@@ -179,6 +236,7 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
     album.value = proposal.album
     albumArtist.value = proposal.albumArtist
     year.value = proposal.year
+    releaseMbid.value = proposal.releaseMbid ?? null
     tracks.value = applyProposal(tracks.value, proposal)
   }
 
@@ -280,6 +338,7 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
     }
     void validateDestination()
     void pollOnce()
+    void refreshResumeOffer()
     pollId = clock.set(() => {
       void pollOnce()
     }, POLL_MS)
@@ -386,6 +445,7 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
   }
 
   function skipPicker(): void {
+    releaseMbid.value = null
     pickerSettled.value = true
   }
 
@@ -409,7 +469,9 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
       albumArtist: albumArtist.value,
       year: year.value,
       verify: deps.settings.getVerify(),
-      onCollision: collision.value
+      onCollision: collision.value,
+      artworkHash: artwork.value?.hash ?? null,
+      releaseMbid: releaseMbid.value
     }
   }
 
@@ -425,9 +487,55 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
       report.value = await deps.cdrip.start(request)
       status.value = 'done'
       deps.markLibraryChanged()
+      await refreshResumeOffer()
     } catch (error) {
       status.value = 'idle'
       notice.value = error instanceof Error ? error.message : 'The rip could not start.'
+      await refreshResumeOffer()
+    }
+  }
+
+  async function resumeRip(): Promise<void> {
+    const offer = resumeOffer.value
+    const id = driveId.value
+    if (offer === null || id === null || !canResume.value) return
+    status.value = 'ripping'
+    report.value = null
+    progress.value = null
+    notice.value = null
+    try {
+      report.value = await deps.cdrip.resume({
+        sessionId: offer.sessionId,
+        driveId: id,
+        onCollision: collision.value
+      })
+      status.value = 'done'
+      deps.markLibraryChanged()
+    } catch (error) {
+      status.value = 'idle'
+      notice.value = error instanceof Error ? error.message : 'The rip could not resume.'
+    } finally {
+      await refreshResumeOffer()
+    }
+  }
+
+  async function dismissResume(): Promise<void> {
+    const offer = resumeOffer.value
+    if (offer === null) return
+    try {
+      await deps.cdrip.dismissSession(offer.sessionId)
+    } catch (error) {
+      notice.value = error instanceof Error ? error.message : 'The session could not be dismissed.'
+    } finally {
+      await refreshResumeOffer()
+    }
+  }
+
+  async function refreshResumeOffer(): Promise<void> {
+    try {
+      resumeOffer.value = await deps.cdrip.unfinishedSession()
+    } catch {
+      resumeOffer.value = null
     }
   }
 
@@ -455,6 +563,11 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
     selectedCandidate,
     pickerSettled,
     lookingUp,
+    artwork,
+    pickingArtwork,
+    artworkError,
+    pickArtwork,
+    removeArtwork,
     album,
     albumArtist,
     year,
@@ -476,6 +589,9 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
     headerState,
     destinationOk,
     ripping,
+    canResume,
+    resumeOffer,
+    resumeText,
     ripEnabled,
     startPolling,
     stopPolling,
@@ -496,6 +612,8 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
     confirmCandidate,
     skipPicker,
     startRip,
+    resumeRip,
+    dismissResume,
     cancelRip,
     dismissReport,
     trackDurationSec: (number: number) => (toc.value ? trackDurationSec(toc.value, number) : 0)

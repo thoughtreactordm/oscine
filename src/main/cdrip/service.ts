@@ -5,6 +5,7 @@ import { Readable } from 'node:stream'
 import { File as TagFile } from 'node-taglib-sharp'
 import type Database from 'better-sqlite3'
 import { OscineError } from '@shared/errors'
+import { computeDiscId } from '@shared/discId'
 import { renderRipPath } from '@shared/ripPath'
 import type {
   CdDriveInfo,
@@ -15,7 +16,9 @@ import type {
   RipPhase,
   RipProgress,
   RipReport,
-  RipRequest
+  RipRequest,
+  RipResumeOffer,
+  RipResumeRequest
 } from '@shared/cdrip'
 import { toAbsPath } from '../db/paths'
 import {
@@ -23,10 +26,13 @@ import {
   applyWritableTags,
   type WritableTags
 } from '../library/writeback/writer'
+import type { ArtworkRef } from '@shared/artwork'
+import type { RipArtworkPicker, RipCover } from './artwork'
 import { CdDriveError, type CdDrive } from './drive'
 import type { DiscLookup } from './discLookup'
 import { EncoderError, type Encoder } from './encoder'
 import { commitRipPart, placeRipDest, removeQuietly, type RipDestResolver } from './ingest'
+import { hashToc, RipSessionStore } from './sessionStore'
 
 /**
  * The rip orchestrator — **W18-5**. Drive → sectors → encoder → tags → temp
@@ -74,6 +80,13 @@ export interface RipServiceDeps {
   readonly applyTags?: ApplyRipTags
   /** After the last rename. Omitted, the files land unindexed. */
   readonly ingest?: RipIngest
+  /** Draft cover picker; chosen bytes are embedded before the files are indexed. */
+  readonly artwork?: RipArtworkPicker
+  /**
+   * Durable checkpoints. Omitted, a crash loses the session — the W18-1..7
+   * path, and the test default. Production always passes one.
+   */
+  readonly sessions?: RipSessionStore
 }
 
 /**
@@ -100,6 +113,8 @@ export class RipService {
   private readonly chunkSectors: number
   private readonly applyTags: ApplyRipTags
   private readonly ingest: RipIngest | undefined
+  private readonly artwork: RipArtworkPicker | undefined
+  private readonly sessions: RipSessionStore | undefined
 
   /** Set for the lifetime of one rip; its `aborted` flag is what cancel flips. */
   private inFlight: { aborted: boolean } | null = null
@@ -115,6 +130,13 @@ export class RipService {
     this.chunkSectors = Math.min(MAX_SECTOR_CHUNK, Math.max(1, Math.trunc(chunk)))
     this.applyTags = deps.applyTags ?? applyRipTags
     this.ingest = deps.ingest
+    this.artwork = deps.artwork
+    this.sessions = deps.sessions
+  }
+
+  pickArtwork(): Promise<ArtworkRef | null> {
+    if (!this.artwork) throw new OscineError('internal', 'Artwork is unavailable.')
+    return this.artwork.pick()
   }
 
   listDrives(): Promise<CdDriveInfo[]> {
@@ -162,7 +184,249 @@ export class RipService {
       return range !== undefined && range.isAudio
     })
 
-    const total = jobs.length
+    const tocHash = hashToc(toc)
+    try {
+      const cover = request.artworkHash ? this.artwork?.resolve(request.artworkHash) : null
+      if (request.artworkHash && !cover)
+        throw new OscineError('not-found', 'Choose the album art again before ripping.')
+      const sessionId =
+        this.sessions && jobs.length > 0
+          ? this.openSession(request, jobs, computeDiscId(toc), tocHash, cover)
+          : null
+      const { outcomes, rippedAbs, written, skipped, failed } = await this.ripJobs(
+        request,
+        jobs,
+        jobs.length,
+        (index) => index,
+        ranges,
+        token,
+        onProgress,
+        sessionId,
+        cover
+      )
+      const trackIds = await this.ingestRipped(request.rootId, rippedAbs)
+      this.closeSession(sessionId, token.aborted ? 'cancelled' : 'complete')
+      return {
+        total: jobs.length,
+        written,
+        skipped,
+        failed,
+        cancelled: token.aborted,
+        outcomes,
+        trackIds
+      }
+    } finally {
+      this.inFlight = null
+    }
+  }
+
+  /**
+   * Continue a `running` session. Re-reads the TOC and refuses a `toc_hash`
+   * mismatch rather than writing a second album into the same folder.
+   *
+   * Tracks already `written` (or skipped / verify-failed) are not re-ripped.
+   * `failed` and `pending` are retried.
+   */
+  async resume(
+    request: RipResumeRequest,
+    onProgress: (progress: RipProgress) => void
+  ): Promise<RipReport> {
+    if (this.inFlight !== null) {
+      throw new OscineError('conflict', 'A CD rip is already running.')
+    }
+    if (!this.sessions) {
+      throw new OscineError('not-found', 'That rip session no longer exists.')
+    }
+    const session = this.sessions.load(request.sessionId)
+    if (session.state !== 'running') {
+      throw new OscineError('conflict', 'That rip session cannot be resumed.')
+    }
+
+    const token = { aborted: false }
+    this.inFlight = token
+
+    let toc: CdToc
+    try {
+      toc = await this.drive.readToc(request.driveId)
+    } catch (error) {
+      this.inFlight = null
+      throw toOscineDriveError(error)
+    }
+
+    if (hashToc(toc) !== session.tocHash) {
+      this.inFlight = null
+      throw new OscineError('conflict', 'The disc in the drive is not the one this rip started on.')
+    }
+
+    const probe = this.resolvePath(session.rootId, session.tracks[0]?.relPath ?? session.relDir)
+    if (probe === null) {
+      this.sessions.setState(session.id, 'failed')
+      this.inFlight = null
+      throw new OscineError(
+        'not-found',
+        'The destination folder for this rip is no longer in the library.'
+      )
+    }
+
+    const ripRequest: RipRequest = {
+      driveId: request.driveId,
+      rootId: session.rootId,
+      relDir: session.relDir,
+      template: session.template,
+      tracks: session.tracks.map((track) => ({
+        number: track.trackNumber,
+        title: track.title,
+        artist: track.artist
+      })),
+      album: session.album,
+      albumArtist: session.albumArtist,
+      year: session.year,
+      verify: session.verify,
+      onCollision: request.onCollision,
+      releaseMbid: session.releaseMbid
+    }
+
+    const ranges = trackRanges(toc)
+    const retryable = new Set(['pending', 'failed'])
+    const jobs = session.tracks
+      .filter((track) => retryable.has(track.status))
+      .map((track) => ({
+        number: track.trackNumber,
+        title: track.title,
+        artist: track.artist
+      }))
+      .filter((track) => {
+        const range = ranges.get(track.number)
+        return range !== undefined && range.isAudio
+      })
+
+    const indexByNumber = new Map(session.tracks.map((track, index) => [track.trackNumber, index]))
+    const priorOutcomes: RipOutcome[] = []
+    const rippedAbs: string[] = []
+    let written = 0
+    let skipped = 0
+    let failed = 0
+    for (const track of session.tracks) {
+      if (track.status === 'pending' || track.status === 'failed') continue
+      priorOutcomes.push({
+        trackNumber: track.trackNumber,
+        status: track.status,
+        relPath: track.relPath,
+        code: track.errorCode ?? undefined
+      })
+      if (track.status === 'written') written += 1
+      else if (track.status === 'skipped') skipped += 1
+      else failed += 1
+      if (track.status === 'written' || track.status === 'verify-failed') {
+        const abs = this.resolvePath(session.rootId, track.relPath)
+        if (abs !== null) rippedAbs.push(abs)
+      }
+    }
+
+    try {
+      const next = await this.ripJobs(
+        ripRequest,
+        jobs,
+        session.tracks.length,
+        (index, selection) => indexByNumber.get(selection.number) ?? index,
+        ranges,
+        token,
+        onProgress,
+        session.id,
+        session.artwork
+      )
+      rippedAbs.push(...next.rippedAbs)
+      const trackIds = await this.ingestRipped(session.rootId, rippedAbs)
+      this.closeSession(session.id, token.aborted ? 'cancelled' : 'complete')
+      return {
+        total: session.tracks.length,
+        written: written + next.written,
+        skipped: skipped + next.skipped,
+        failed: failed + next.failed,
+        cancelled: token.aborted,
+        outcomes: [...priorOutcomes, ...next.outcomes],
+        trackIds
+      }
+    } finally {
+      this.inFlight = null
+    }
+  }
+
+  unfinishedSession(): RipResumeOffer | null {
+    return this.sessions?.unfinished() ?? null
+  }
+
+  dismissSession(sessionId: number): void {
+    this.sessions?.dismiss(sessionId)
+  }
+
+  /** Stops the running rip between chunks. A no-op when nothing is running. */
+  cancel(): void {
+    if (this.inFlight !== null) this.inFlight.aborted = true
+  }
+
+  private openSession(
+    request: RipRequest,
+    jobs: RipRequest['tracks'],
+    discId: string,
+    tocHash: string,
+    artwork?: RipCover | null
+  ): number | null {
+    if (!this.sessions || jobs.length === 0) return null
+    this.sessions.cancelRunningWithTocHash(tocHash)
+    return this.sessions.create({
+      discId,
+      tocHash,
+      artwork,
+      releaseMbid: request.releaseMbid ?? null,
+      rootId: request.rootId,
+      relDir: request.relDir,
+      template: request.template,
+      album: request.album,
+      albumArtist: request.albumArtist,
+      year: request.year,
+      verify: request.verify,
+      tracks: jobs.map((track) => ({
+        number: track.number,
+        title: track.title,
+        artist: track.artist,
+        relPath: ripRelPath(request, track, this.encoder.ext)
+      }))
+    })
+  }
+
+  private closeSession(sessionId: number | null, state: 'cancelled' | 'complete'): void {
+    if (sessionId === null || !this.sessions) return
+    this.sessions.setState(sessionId, state)
+  }
+
+  private async ingestRipped(rootId: number, rippedAbs: readonly string[]): Promise<number[]> {
+    if (!this.ingest || rippedAbs.length === 0) return []
+    try {
+      return [...(await this.ingest(rootId, rippedAbs))]
+    } catch (error) {
+      console.warn('[cdrip] ingest failed:', error)
+      return []
+    }
+  }
+
+  private async ripJobs(
+    request: RipRequest,
+    jobs: RipRequest['tracks'],
+    trackCount: number,
+    trackIndexOf: (index: number, selection: RipRequest['tracks'][number]) => number,
+    ranges: Map<number, TrackRange>,
+    token: { aborted: boolean },
+    onProgress: (progress: RipProgress) => void,
+    sessionId: number | null,
+    artwork?: RipCover | null
+  ): Promise<{
+    outcomes: RipOutcome[]
+    rippedAbs: string[]
+    written: number
+    skipped: number
+    failed: number
+  }> {
     const outcomes: RipOutcome[] = []
     const rippedAbs: string[] = []
     let written = 0
@@ -177,68 +441,55 @@ export class RipService {
       onProgress(progress)
     }
 
-    try {
-      for (let trackIndex = 0; trackIndex < jobs.length; trackIndex++) {
-        if (token.aborted) break
-        const selection = jobs[trackIndex]!
-        const range = ranges.get(selection.number)!
-        const outcome = await this.ripOne(request, selection, range, token, (phase, done) => {
-          emit(
-            {
-              trackNumber: selection.number,
-              trackIndex,
-              trackCount: total,
-              phase,
-              sectorsDone: done,
-              sectorsTotal: range.count
-            },
-            false
-          )
-        })
-        if (token.aborted && outcome === null) break
-        if (outcome === null) continue
-        outcomes.push(outcome)
-        if (outcome.status === 'written') written += 1
-        else if (outcome.status === 'skipped') skipped += 1
-        else failed += 1
-        if (
-          (outcome.status === 'written' || outcome.status === 'verify-failed') &&
-          outcome.relPath !== undefined
-        ) {
-          const abs = this.resolvePath(request.rootId, outcome.relPath)
-          if (abs !== null) rippedAbs.push(abs)
-        }
+    for (let index = 0; index < jobs.length; index++) {
+      if (token.aborted) break
+      const selection = jobs[index]!
+      const range = ranges.get(selection.number)!
+      const trackIndex = trackIndexOf(index, selection)
+      if (sessionId !== null && this.sessions) this.sessions.beginTrack(sessionId, selection.number)
+      const result = await this.ripOne(request, selection, range, token, artwork, (phase, done) => {
         emit(
           {
             trackNumber: selection.number,
             trackIndex,
-            trackCount: total,
-            phase: 'tagging',
-            sectorsDone: range.count,
+            trackCount,
+            phase,
+            sectorsDone: done,
             sectorsTotal: range.count
           },
-          true
+          false
         )
+      })
+      if (token.aborted && result === null) break
+      if (result === null) continue
+      const { sha256, ...outcome } = result
+      if (sessionId !== null && this.sessions) {
+        this.sessions.recordOutcome(sessionId, outcome, sha256)
       }
-    } finally {
-      this.inFlight = null
-    }
-
-    let trackIds: number[] = []
-    if (this.ingest && rippedAbs.length > 0) {
-      try {
-        trackIds = [...(await this.ingest(request.rootId, rippedAbs))]
-      } catch (error) {
-        console.warn('[cdrip] ingest failed:', error)
+      outcomes.push(outcome)
+      if (outcome.status === 'written') written += 1
+      else if (outcome.status === 'skipped') skipped += 1
+      else failed += 1
+      if (
+        (outcome.status === 'written' || outcome.status === 'verify-failed') &&
+        outcome.relPath !== undefined
+      ) {
+        const abs = this.resolvePath(request.rootId, outcome.relPath)
+        if (abs !== null) rippedAbs.push(abs)
       }
+      emit(
+        {
+          trackNumber: selection.number,
+          trackIndex,
+          trackCount,
+          phase: 'tagging',
+          sectorsDone: range.count,
+          sectorsTotal: range.count
+        },
+        true
+      )
     }
-
-    return { total, written, skipped, failed, cancelled: token.aborted, outcomes, trackIds }
-  }
-
-  /** Stops the running rip between chunks. A no-op when nothing is running. */
-  cancel(): void {
-    if (this.inFlight !== null) this.inFlight.aborted = true
+    return { outcomes, rippedAbs, written, skipped, failed }
   }
 
   private async ripOne(
@@ -246,8 +497,9 @@ export class RipService {
     selection: RipRequest['tracks'][number],
     range: TrackRange,
     token: { aborted: boolean },
+    artwork: RipCover | null | undefined,
     onPhase: (phase: RipPhase, sectorsDone: number) => void
-  ): Promise<RipOutcome | null> {
+  ): Promise<(RipOutcome & { sha256?: string }) | null> {
     const relPath = ripRelPath(request, selection, this.encoder.ext)
     const destAbs = this.resolvePath(request.rootId, relPath)
     if (destAbs === null) {
@@ -310,6 +562,8 @@ export class RipService {
       return driveFailure(selection.number, readFail.error)
     }
 
+    const sha256 = firstHash.digest('hex')
+
     onPhase('encoding', range.count)
     onPhase('tagging', range.count)
     try {
@@ -321,7 +575,7 @@ export class RipService {
         discNo: 1,
         year: request.year,
         genres: [],
-        artwork: ARTWORK_UNCHANGED
+        artwork: artwork ? { kind: 'set', ...artwork } : ARTWORK_UNCHANGED
       })
     } catch (error) {
       await removeQuietly(partPath)
@@ -357,7 +611,7 @@ export class RipService {
         await removeQuietly(partPath)
         return driveFailure(selection.number, verifyFail.error)
       }
-      if (firstHash.digest('hex') !== secondHash.digest('hex')) {
+      if (sha256 !== secondHash.digest('hex')) {
         verifyFailed = true
         console.warn(
           `[cdrip] track ${selection.number} verify mismatch over sectors ` +
@@ -380,10 +634,11 @@ export class RipService {
         status: 'verify-failed',
         relPath: finalRel,
         startSector: range.start,
-        sectorCount: range.count
+        sectorCount: range.count,
+        sha256
       }
     }
-    return { trackNumber: selection.number, status: 'written', relPath: finalRel }
+    return { trackNumber: selection.number, status: 'written', relPath: finalRel, sha256 }
   }
 
   private async *readPcm(
@@ -508,7 +763,14 @@ function toOscineDriveError(error: unknown): OscineError {
   if (code === 'no-disc') return new OscineError('not-found', 'No disc in the drive.')
   if (code === 'device-busy') return new OscineError('conflict', 'The drive is busy.')
   if (code === 'unsupported-drive') {
-    return new OscineError('io-error', 'That optical drive is not supported.')
+    const addonMissing =
+      error instanceof CdDriveError && /addon could not be loaded/i.test(error.message)
+    return new OscineError(
+      'io-error',
+      addonMissing
+        ? 'The optical drive addon could not be loaded.'
+        : 'That optical drive is not supported.'
+    )
   }
   if (code === 'not-audio') return new OscineError('io-error', 'That track is not audio.')
   return new OscineError('io-error', 'The disc could not be read.')

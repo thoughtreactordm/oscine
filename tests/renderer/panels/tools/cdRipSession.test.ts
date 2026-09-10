@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OscineError } from '@shared/errors'
+import { computeDiscId } from '@shared/discId'
 import type {
   CdDriveInfo,
   CdToc,
@@ -8,7 +9,9 @@ import type {
   RipDestinationResult,
   RipProgress,
   RipReport,
-  RipRequest
+  RipRequest,
+  RipResumeOffer,
+  RipResumeRequest
 } from '@shared/cdrip'
 import {
   createCdRipSession,
@@ -86,6 +89,8 @@ function harness(
     lookupsAllowed?: boolean
     destination?: string
     start?: (request: RipRequest) => Promise<RipReport>
+    offer?: RipResumeOffer | null
+    resume?: (request: RipResumeRequest) => Promise<RipReport>
   } = {}
 ) {
   const listDrives = vi.fn(async () => overrides.drives ?? [drive])
@@ -105,6 +110,9 @@ function harness(
   const pickDestination = vi.fn(async () => '/library')
   const start = vi.fn(overrides.start ?? (async () => report()))
   const cancel = vi.fn(async () => undefined)
+  const unfinishedSession = vi.fn(async () => overrides.offer ?? null)
+  const resume = vi.fn(overrides.resume ?? (async () => report()))
+  const dismissSession = vi.fn(async () => null)
   const listeners: Array<(progress: RipProgress) => void> = []
 
   const cdrip: CdRipBridge = {
@@ -112,9 +120,13 @@ function harness(
     readToc,
     lookup,
     validateDestination,
+    pickArtwork: vi.fn(async () => null),
     pickDestination,
     start,
     cancel,
+    unfinishedSession,
+    resume,
+    dismissSession,
     onProgress: (listener) => {
       listeners.push(listener)
       return () => {
@@ -150,11 +162,15 @@ function harness(
   const session = createCdRipSession(deps)
   return {
     session,
+    cdrip,
     listDrives,
     readToc,
     lookup,
     cancel,
     start,
+    resume,
+    unfinishedSession,
+    dismissSession,
     cancelLookups,
     markLibraryChanged: deps.markLibraryChanged,
     emitProgress: (progress: RipProgress) => {
@@ -209,6 +225,19 @@ describe('cdRipSession poll', () => {
     await vi.advanceTimersByTimeAsync(POLL_MS * 5)
     expect(listDrives).toHaveBeenCalledTimes(2)
     expect(session.detection.value).toBe('no-drive')
+  })
+
+  it('keeps the no-drive state when the drive list itself fails, with the error visible', async () => {
+    vi.useFakeTimers()
+    const { session, listDrives } = harness()
+    listDrives.mockRejectedValue(
+      new OscineError('io-error', 'The optical drive addon could not be loaded.')
+    )
+    session.startPolling()
+    await settle()
+    expect(listDrives).toHaveBeenCalled()
+    expect(session.detection.value).toBe('no-drive')
+    expect(session.notice.value).toBe('The optical drive addon could not be loaded.')
   })
 
   it('maps an empty tray onto the no-disc state', async () => {
@@ -367,5 +396,131 @@ describe('cdRipSession rip', () => {
     await settle()
     expect(session.tracks.value).toHaveLength(99)
     expect(session.detection.value).toBe('ready')
+  })
+
+  it('offers resume when the unfinished session matches the disc in the drive', async () => {
+    vi.useFakeTimers()
+    const disc = toc(2)
+    const offer: RipResumeOffer = {
+      sessionId: 7,
+      discId: computeDiscId(disc),
+      tocHash: 'hash',
+      album: 'Kid A',
+      albumArtist: 'Radiohead',
+      total: 12,
+      remaining: 4,
+      written: 8
+    }
+    const { session, resume, unfinishedSession } = harness({ toc: disc, offer })
+    session.startPolling()
+    await settle()
+    expect(unfinishedSession).toHaveBeenCalled()
+    expect(session.canResume.value).toBe(true)
+    expect(session.resumeText.value).toBe('Resume ripping Kid A — 4 of 12 tracks remaining.')
+    expect(session.showPicker.value).toBe(false)
+
+    const pending = session.resumeRip()
+    expect(resume).toHaveBeenCalledWith({
+      sessionId: 7,
+      driveId: 'sr0',
+      onCollision: 'suffix'
+    })
+    await pending
+    expect(session.status.value).toBe('done')
+  })
+
+  it('does not offer resume for a different disc', async () => {
+    vi.useFakeTimers()
+    const { session } = harness({
+      offer: {
+        sessionId: 7,
+        discId: 'other-disc',
+        tocHash: 'hash',
+        album: 'Kid A',
+        albumArtist: 'Radiohead',
+        total: 12,
+        remaining: 4,
+        written: 8
+      }
+    })
+    session.startPolling()
+    await settle()
+    expect(session.canResume.value).toBe(false)
+  })
+
+  it('dismisses the unfinished session without starting a rip', async () => {
+    vi.useFakeTimers()
+    const disc = toc(2)
+    const offer: RipResumeOffer = {
+      sessionId: 7,
+      discId: computeDiscId(disc),
+      tocHash: 'hash',
+      album: 'Kid A',
+      albumArtist: 'Radiohead',
+      total: 12,
+      remaining: 4,
+      written: 8
+    }
+    const { session, dismissSession, unfinishedSession, start } = harness({ toc: disc, offer })
+    session.startPolling()
+    await settle()
+    unfinishedSession.mockResolvedValue(null)
+    await session.dismissResume()
+    expect(dismissSession).toHaveBeenCalledWith(7)
+    expect(start).not.toHaveBeenCalled()
+    expect(session.canResume.value).toBe(false)
+  })
+})
+
+describe('rip artwork draft', () => {
+  const cover = { present: true, hash: 'a'.repeat(64), mime: 'image/png' }
+
+  it('keeps a chosen cover on picker cancellation, sends it with the rip, and supports removal', async () => {
+    const { session, cdrip, start } = harness()
+    vi.useFakeTimers()
+    session.startPolling()
+    await settle()
+    cdrip.pickArtwork = vi.fn(async () => cover)
+    await session.pickArtwork()
+    expect(session.artwork.value).toEqual(cover)
+    cdrip.pickArtwork = vi.fn(async () => null)
+    await session.pickArtwork()
+    expect(session.artwork.value).toEqual(cover)
+    await session.startRip()
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ artworkHash: cover.hash }))
+    session.removeArtwork()
+    expect(session.artwork.value).toBeNull()
+  })
+
+  it('ignores a picker result for an ejected disc and disables ripping while picking', async () => {
+    const { session, cdrip } = harness()
+    vi.useFakeTimers()
+    session.startPolling()
+    await settle()
+    let resolve!: (value: typeof cover) => void
+    cdrip.pickArtwork = () =>
+      new Promise((done) => {
+        resolve = done
+      })
+    const pending = session.pickArtwork()
+    expect(session.ripEnabled.value).toBe(false)
+    cdrip.listDrives = async () => []
+    await session.refresh()
+    resolve(cover)
+    await pending
+    expect(session.artwork.value).toBeNull()
+    expect(session.pickingArtwork.value).toBe(false)
+  })
+
+  it('shows picker errors without losing the previous cover', async () => {
+    const { session, cdrip } = harness()
+    cdrip.pickArtwork = async () => cover
+    await session.pickArtwork()
+    cdrip.pickArtwork = async () => {
+      throw new Error('Choose a JPEG or PNG image.')
+    }
+    await session.pickArtwork()
+    expect(session.artwork.value).toEqual(cover)
+    expect(session.artworkError.value).toContain('JPEG or PNG')
   })
 })

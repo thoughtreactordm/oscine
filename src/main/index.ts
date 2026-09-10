@@ -34,6 +34,8 @@ import { createCdDrive } from './cdrip/drive'
 import { createDiscLookup } from './cdrip/discLookup'
 import { createFlacEncoder, resolveFlacBinaryPath } from './cdrip/encoder'
 import { RipService, ripDestResolver } from './cdrip/service'
+import { RipArtworkPicker } from './cdrip/artwork'
+import { RipSessionStore } from './cdrip/sessionStore'
 import { SqlitePodcastService } from './podcasts/service'
 import {
   createArtistIdentityService,
@@ -687,6 +689,14 @@ if (!app.requestSingleInstanceLock()) {
       locale: () => app.getLocale()
     })
 
+    const ripArtwork = new RipArtworkPicker(
+      pickCoverImage,
+      createDerivedArtworkStore({
+        cacheDir: artworkCachePath(),
+        processor: artworkProcessor
+      })
+    )
+
     const library = new SqliteLibraryService({
       db,
       artworkCacheDir: artworkCachePath(),
@@ -697,7 +707,10 @@ if (!app.requestSingleInstanceLock()) {
       // an artist photograph is referenced from a database it cannot see. Built
       // before the library so this is a plain function reference rather than a
       // late-bound hole.
-      externalArtworkReferences: () => images.referencedHashes(),
+      externalArtworkReferences: () => [
+        ...images.referencedHashes(),
+        ...ripArtwork.referencedHashes()
+      ],
       pickFolder: pickMusicFolder,
       pickImageFile: pickCoverImage,
       onProgress: broadcastScanProgress,
@@ -839,7 +852,9 @@ if (!app.requestSingleInstanceLock()) {
         })
       }),
       resolvePath: ripDestResolver(db),
-      ingest: (rootId, absPaths) => library.ingestRippedFiles(rootId, absPaths)
+      ingest: (rootId, absPaths) => library.ingestRippedFiles(rootId, absPaths),
+      artwork: ripArtwork,
+      sessions: new RipSessionStore(db)
     })
 
     // The command palette's finder (D23). Same connection, no tables of its own

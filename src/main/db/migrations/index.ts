@@ -21,6 +21,8 @@ import { trackOverridesGenreYear } from './019-track-overrides-genre-year'
 import { genreAliases } from './020-genre-aliases'
 import { artworkOverrides } from './021-artwork-overrides'
 import { trackGenresAlbum } from './022-track-genres-album'
+import { ripArtwork } from './024-rip-artwork'
+import { ripSessions } from './023-rip-sessions'
 
 /**
  * Every migration, in order.
@@ -53,5 +55,7 @@ export const MIGRATIONS: readonly Migration[] = [
   trackOverridesGenreYear,
   genreAliases,
   artworkOverrides,
-  trackGenresAlbum
+  trackGenresAlbum,
+  ripSessions,
+  ripArtwork
 ]

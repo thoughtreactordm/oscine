@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { audioDurationSec, type CdToc, type DiscMetadataProposal } from '@shared/cdrip'
 import {
   applyProposal,
+  canOfferResume,
   canRip,
   destinationReason,
   discDetection,
@@ -9,6 +10,7 @@ import {
   includeState,
   needsReleasePick,
   pathPreview,
+  resumeOfferText,
   unmatchedNote,
   type DiscDetection,
   type RipDraftTrack
@@ -204,5 +206,35 @@ describe('applyProposal', () => {
     )
     expect(next[0]).toMatchObject({ title: 'One', included: false })
     expect(next[1]).toMatchObject({ title: 'Two', included: true })
+  })
+})
+
+describe('resumeOfferText', () => {
+  const offer = {
+    sessionId: 1,
+    discId: 'x',
+    tocHash: 'h',
+    album: 'Kid A',
+    albumArtist: 'Radiohead',
+    total: 12,
+    remaining: 4,
+    written: 8
+  }
+
+  it('names the album and remaining tracks', () => {
+    expect(resumeOfferText(offer)).toBe('Resume ripping Kid A — 4 of 12 tracks remaining.')
+  })
+
+  it('falls back when the album was never filled in', () => {
+    expect(resumeOfferText({ ...offer, album: '  ' })).toBe(
+      'Resume ripping this disc — 4 of 12 tracks remaining.'
+    )
+  })
+
+  it('offers only when the disc in the tray matches', () => {
+    expect(canOfferResume({ offer, discId: 'x', ripping: false })).toBe(true)
+    expect(canOfferResume({ offer, discId: 'other', ripping: false })).toBe(false)
+    expect(canOfferResume({ offer, discId: 'x', ripping: true })).toBe(false)
+    expect(canOfferResume({ offer: null, discId: 'x', ripping: false })).toBe(false)
   })
 })

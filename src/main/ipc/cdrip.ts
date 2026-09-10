@@ -1,7 +1,13 @@
 import type { RipDestinationRoot } from '@shared/cdrip'
 import type { RipService } from '../cdrip/service'
 import { validateRipDestination } from '../cdrip/destination'
-import { assertCdripAbsDirRequest, assertCdripDriveIdRequest, assertRipRequest } from './validate'
+import {
+  assertCdripAbsDirRequest,
+  assertCdripDriveIdRequest,
+  assertRipDismissSessionRequest,
+  assertRipRequest,
+  assertRipResumeRequest
+} from './validate'
 import { emit, handle } from './registry'
 
 export interface CdripHandlerDeps {
@@ -37,7 +43,22 @@ export function registerCdripHandlers(deps: CdripHandlerDeps): void {
     return validateRipDestination(absDir, roots)
   })
 
+  handle('cdrip.pickArtwork', () => rip.pickArtwork())
+
   handle('cdrip.pickDestination', () => pickDestination())
+
+  handle('cdrip.unfinished', () => rip.unfinishedSession())
+
+  handle('cdrip.resume', (request, event) => {
+    const resumeRequest = assertRipResumeRequest(request)
+    return rip.resume(resumeRequest, (progress) => emit(event.sender, 'cdrip.progress', progress))
+  })
+
+  handle('cdrip.dismiss', (request) => {
+    const { sessionId } = assertRipDismissSessionRequest(request)
+    rip.dismissSession(sessionId)
+    return null
+  })
 
   handle('cdrip.start', (request, event) => {
     const ripRequest = assertRipRequest(request)

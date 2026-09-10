@@ -57,7 +57,9 @@ import { MAX_ARTWORK_INGEST_BYTES } from '@shared/artwork'
 import {
   MAX_RIP_TRACKS,
   type RipCollision,
+  type RipDismissSessionRequest,
   type RipRequest,
+  type RipResumeRequest,
   type RipTrackSelection
 } from '@shared/cdrip'
 import {
@@ -1747,8 +1749,16 @@ export function assertRipRequest(value: unknown): RipRequest {
     'albumArtist',
     'year',
     'verify',
-    'onCollision'
+    'onCollision',
+    'releaseMbid',
+    'artworkHash'
   ])
+  if (
+    raw.artworkHash != null &&
+    (typeof raw.artworkHash !== 'string' || !/^[a-f0-9]{64}$/.test(raw.artworkHash))
+  ) {
+    invalid('artworkHash must be a SHA-256 hash, or null.')
+  }
   if (typeof raw.verify !== 'boolean') invalid('verify must be a boolean.')
   if (typeof raw.onCollision !== 'string' || !RIP_COLLISIONS.has(raw.onCollision)) {
     invalid("onCollision must be 'skip', 'overwrite' or 'suffix'.")
@@ -1763,8 +1773,38 @@ export function assertRipRequest(value: unknown): RipRequest {
     albumArtist: assertTagText(raw.albumArtist, 'albumArtist'),
     year: raw.year === null ? null : assertYear(raw.year),
     verify: raw.verify,
+    onCollision: raw.onCollision as RipCollision,
+    artworkHash: raw.artworkHash as string | null | undefined,
+    releaseMbid: assertOptionalReleaseMbid(raw.releaseMbid)
+  }
+}
+
+export function assertRipResumeRequest(value: unknown): RipResumeRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['sessionId', 'driveId', 'onCollision'])
+  if (typeof raw.onCollision !== 'string' || !RIP_COLLISIONS.has(raw.onCollision)) {
+    invalid("onCollision must be 'skip', 'overwrite' or 'suffix'.")
+  }
+  return {
+    sessionId: assertPositiveInt(raw.sessionId, 'sessionId'),
+    driveId: assertDriveId(raw.driveId),
     onCollision: raw.onCollision as RipCollision
   }
+}
+
+export function assertRipDismissSessionRequest(value: unknown): RipDismissSessionRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['sessionId'])
+  return { sessionId: assertPositiveInt(raw.sessionId, 'sessionId') }
+}
+
+function assertOptionalReleaseMbid(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'string' || !isMbid(value)) {
+    invalid('releaseMbid must be a MusicBrainz identifier, or null.')
+  }
+  return value
 }
 
 function assertDriveId(value: unknown): string {

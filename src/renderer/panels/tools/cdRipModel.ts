@@ -8,7 +8,8 @@ import {
   type RipDestinationFailure,
   type RipDestinationResult,
   type RipOutcomeStatus,
-  type RipPhase
+  type RipPhase,
+  type RipResumeOffer
 } from '@shared/cdrip'
 import { renderRipPath } from '@shared/ripPath'
 import type { CheckState } from './tagWritebackModel'
@@ -125,6 +126,24 @@ export function canRip(input: {
   destinationOk: boolean
 }): boolean {
   return input.detection === 'ready' && !input.ripping && input.included > 0 && input.destinationOk
+}
+
+export function resumeOfferText(offer: RipResumeOffer): string {
+  const album = offer.album.trim() === '' ? 'this disc' : offer.album
+  return `Resume ripping ${album} — ${offer.remaining} of ${offer.total} tracks remaining.`
+}
+
+export function canOfferResume(input: {
+  offer: RipResumeOffer | null
+  discId: string | null
+  ripping: boolean
+}): boolean {
+  return (
+    input.offer !== null &&
+    input.discId !== null &&
+    input.offer.discId === input.discId &&
+    !input.ripping
+  )
 }
 
 export function includeState(total: number, included: number): CheckState {

@@ -9,6 +9,7 @@ import { RIP_COLLISION_OPTIONS, RIP_PHASE_LABEL } from '@renderer/panels/tools/c
 import { useBrowseStore } from '@renderer/stores/browse'
 import { useCdRipStore } from '@renderer/stores/cdRip'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
+import { artworkUrl } from '@shared/ipc'
 import type { RipOutcome } from '@shared/cdrip'
 
 /**
@@ -139,6 +140,29 @@ function onCollision(value: unknown): void {
       />
     </header>
 
+    <div
+      v-if="store.canResume"
+      class="flex shrink-0 items-center gap-2 border-b border-default px-4 py-2 text-xs"
+    >
+      <UIcon name="i-tabler-player-play" class="size-4 shrink-0 text-primary" />
+      <span class="min-w-0 flex-1 truncate text-muted">{{ store.resumeText }}</span>
+      <UButton
+        size="xs"
+        color="primary"
+        label="Resume"
+        :disabled="store.ripping"
+        @click="store.resumeRip()"
+      />
+      <UButton
+        size="xs"
+        color="neutral"
+        variant="ghost"
+        label="Dismiss"
+        :disabled="store.ripping"
+        @click="store.dismissResume()"
+      />
+    </div>
+
     <div v-if="store.status === 'ripping'" class="h-1 w-full shrink-0 bg-elevated">
       <div
         class="h-full bg-primary transition-[width] duration-150"
@@ -181,95 +205,164 @@ function onCollision(value: unknown): void {
       />
     </div>
 
-    <div v-else-if="store.detection === 'ready'" class="flex min-h-0 flex-1 flex-col">
-      <div class="shrink-0 space-y-3 border-b border-default px-4 py-3">
-        <p v-if="store.quietLine" class="text-[11px] text-dimmed">{{ store.quietLine }}</p>
+    <div v-else-if="store.detection === 'ready'" class="@container flex min-h-0 flex-1 flex-col">
+      <div class="max-h-[60%] shrink-0 space-y-3 overflow-y-auto border-b border-default px-4 py-3">
+        <p v-if="store.notice" class="text-[11px] text-warning">{{ store.notice }}</p>
+        <p v-else-if="store.quietLine" class="text-[11px] text-dimmed">{{ store.quietLine }}</p>
         <p v-else-if="store.lookingUp" class="text-[11px] text-dimmed">Looking up this disc…</p>
-        <div class="grid gap-2 sm:grid-cols-3">
-          <UInput
-            :model-value="store.album"
-            size="sm"
-            placeholder="Unknown Album"
-            aria-label="Album"
-            :disabled="store.ripping"
-            @update:model-value="store.setAlbum(String($event ?? ''))"
-          />
-          <UInput
-            :model-value="store.albumArtist"
-            size="sm"
-            placeholder="Unknown Artist"
-            aria-label="Album artist"
-            :disabled="store.ripping"
-            @update:model-value="store.setAlbumArtist(String($event ?? ''))"
-          />
-          <UInput
-            :model-value="store.year === null ? '' : String(store.year)"
-            size="sm"
-            placeholder="Year"
-            aria-label="Year"
-            :disabled="store.ripping"
-            @update:model-value="onYear($event)"
-          />
-        </div>
-        <div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-          <div class="min-w-0">
-            <label class="text-[11px] font-medium text-dimmed">Destination</label>
-            <div class="mt-1 flex gap-1">
-              <UInput
-                :model-value="store.destination"
-                size="sm"
-                class="min-w-0 flex-1"
-                aria-label="Rip destination"
-                :disabled="store.ripping"
-                @update:model-value="store.setDestinationPath(String($event ?? ''))"
+        <div class="rip-details grid items-start gap-4">
+          <div class="w-40 min-w-0">
+            <p class="text-[11px] font-medium text-dimmed">Album art</p>
+            <div
+              class="mt-1 flex aspect-square flex-col items-center justify-center gap-2 rounded-md border border-default bg-elevated"
+            >
+              <img
+                v-if="store.artwork?.hash"
+                :src="artworkUrl(store.artwork.hash, 'large')"
+                :alt="`Cover art for ${store.album || 'this disc'}`"
+                class="size-full rounded-md object-contain"
+                draggable="false"
               />
+              <template v-else>
+                <UIcon name="i-tabler-vinyl" class="size-10 text-dimmed" />
+                <span class="text-[11px] text-dimmed">No album art</span>
+              </template>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-1">
               <UButton
-                size="sm"
+                size="xs"
                 color="neutral"
                 variant="soft"
-                label="Choose…"
-                :disabled="store.ripping"
-                @click="store.pickDestination()"
+                :label="store.artwork ? 'Replace…' : 'Choose…'"
+                :loading="store.pickingArtwork"
+                :disabled="store.ripping || store.pickingArtwork"
+                aria-label="Choose album art"
+                @click="store.pickArtwork()"
+              />
+              <UButton
+                v-if="store.artwork"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                label="Remove"
+                :disabled="store.ripping || store.pickingArtwork"
+                @click="store.removeArtwork()"
               />
             </div>
-            <p v-if="store.destReason" class="mt-1 text-[11px] text-warning">
-              {{ store.destReason }}
-              <button
-                v-if="showAddRoot"
-                type="button"
-                class="ml-1 text-primary underline-offset-2 hover:underline"
-                @click="roots.addFolder()"
+            <p v-if="store.artworkError" role="alert" class="mt-1 text-[11px] text-warning">
+              {{ store.artworkError }}
+            </p>
+          </div>
+          <div class="min-w-0 space-y-2">
+            <div class="min-w-0">
+              <label for="rip-album" class="text-[11px] font-medium text-dimmed">Title</label>
+              <UInput
+                id="rip-album"
+                :model-value="store.album"
+                size="sm"
+                class="mt-1 w-full"
+                placeholder="Unknown Album"
+                aria-label="Album"
+                :disabled="store.ripping"
+                @update:model-value="store.setAlbum(String($event ?? ''))"
+              />
+            </div>
+            <div class="min-w-0">
+              <label for="rip-artist" class="text-[11px] font-medium text-dimmed">Artist</label>
+              <UInput
+                id="rip-artist"
+                :model-value="store.albumArtist"
+                size="sm"
+                class="mt-1 w-full"
+                placeholder="Unknown Artist"
+                aria-label="Album artist"
+                :disabled="store.ripping"
+                @update:model-value="store.setAlbumArtist(String($event ?? ''))"
+              />
+            </div>
+            <div class="min-w-0">
+              <label for="rip-year" class="text-[11px] font-medium text-dimmed">Year</label>
+              <UInput
+                id="rip-year"
+                :model-value="store.year === null ? '' : String(store.year)"
+                size="sm"
+                class="mt-1 w-full"
+                placeholder="Year"
+                aria-label="Year"
+                :disabled="store.ripping"
+                @update:model-value="onYear($event)"
+              />
+            </div>
+          </div>
+          <div class="rip-output min-w-0 space-y-2">
+            <div class="min-w-0">
+              <label for="rip-destination" class="text-[11px] font-medium text-dimmed"
+                >Destination</label
               >
-                Add as a library folder
-              </button>
-            </p>
-          </div>
-          <div class="min-w-0">
-            <label class="text-[11px] font-medium text-dimmed">Naming template</label>
-            <UInput
-              :model-value="store.template"
-              size="sm"
-              class="mt-1 w-full"
-              aria-label="Naming template"
-              :disabled="store.ripping"
-              @update:model-value="store.setTemplate(String($event ?? ''))"
-            />
-            <p v-if="store.preview" class="mt-1 truncate font-mono text-[11px] text-dimmed">
-              {{ store.preview }}
-            </p>
-          </div>
-          <div>
-            <label class="text-[11px] font-medium text-dimmed">If a file exists</label>
-            <USelect
-              :model-value="store.collision"
-              value-key="value"
-              :items="collisionItems"
-              size="sm"
-              class="mt-1 w-40"
-              :disabled="store.ripping"
-              aria-label="If a file exists"
-              @update:model-value="onCollision($event)"
-            />
+              <div class="mt-1 flex gap-1">
+                <UInput
+                  id="rip-destination"
+                  :model-value="store.destination"
+                  size="sm"
+                  class="min-w-0 flex-1"
+                  aria-label="Rip destination"
+                  :disabled="store.ripping"
+                  @update:model-value="store.setDestinationPath(String($event ?? ''))"
+                />
+                <UButton
+                  size="sm"
+                  color="neutral"
+                  variant="soft"
+                  label="Choose…"
+                  :disabled="store.ripping"
+                  @click="store.pickDestination()"
+                />
+              </div>
+              <p v-if="store.destReason" class="mt-1 text-[11px] text-warning">
+                {{ store.destReason }}
+                <button
+                  v-if="showAddRoot"
+                  type="button"
+                  class="ml-1 text-primary underline-offset-2 hover:underline"
+                  @click="roots.addFolder()"
+                >
+                  Add as a library folder
+                </button>
+              </p>
+            </div>
+            <div class="min-w-0">
+              <label for="rip-template" class="text-[11px] font-medium text-dimmed"
+                >Naming template</label
+              >
+              <UInput
+                id="rip-template"
+                :model-value="store.template"
+                size="sm"
+                class="mt-1 w-full"
+                aria-label="Naming template"
+                :disabled="store.ripping"
+                @update:model-value="store.setTemplate(String($event ?? ''))"
+              />
+              <p v-if="store.preview" class="mt-1 truncate font-mono text-[11px] text-dimmed">
+                {{ store.preview }}
+              </p>
+            </div>
+            <div>
+              <label for="rip-collision" class="text-[11px] font-medium text-dimmed"
+                >If a file exists</label
+              >
+              <USelect
+                id="rip-collision"
+                :model-value="store.collision"
+                value-key="value"
+                :items="collisionItems"
+                size="sm"
+                class="mt-1 w-full"
+                :disabled="store.ripping"
+                aria-label="If a file exists"
+                @update:model-value="onCollision($event)"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -300,7 +393,10 @@ function onCollision(value: unknown): void {
           <UIcon name="i-tabler-device-usb" class="mx-auto size-6 text-dimmed" />
           <p class="mt-2 text-sm font-medium text-default">No optical drive</p>
           <p class="mt-1 text-xs text-muted">
-            Connect a CD drive and press Refresh. Oscine only looks while this pane is open.
+            {{
+              store.notice ||
+              'Connect a CD drive and press Refresh. Oscine only looks while this pane is open.'
+            }}
           </p>
         </template>
         <template v-else-if="store.detection === 'no-disc'">
@@ -321,3 +417,25 @@ function onCollision(value: unknown): void {
     </div>
   </section>
 </template>
+
+<style scoped>
+@container (min-width: 28rem) {
+  .rip-details {
+    grid-template-columns: 10rem minmax(0, 1fr);
+  }
+
+  .rip-output {
+    grid-column: 1 / -1;
+  }
+}
+
+@container (min-width: 44rem) {
+  .rip-details {
+    grid-template-columns: 10rem minmax(0, 1fr) minmax(0, 1.25fr);
+  }
+
+  .rip-output {
+    grid-column: auto;
+  }
+}
+</style>
