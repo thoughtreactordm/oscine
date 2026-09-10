@@ -1,7 +1,7 @@
 ---
 taskId: 01M25X4H6VM3YZGXXMNEJ5QZ0G
 title: In-app updates — manual check-and-install over the GitHub Releases channel
-status: in-progress
+status: done
 priority: medium
 labels:
   - main
@@ -10,9 +10,9 @@ labels:
   - D10-adjacent
 workstream: W6
 workstreamId: W6-6
-order: 0
+order: 3
 created: '2026-09-10T14:56:48.346Z'
-updated: '2026-09-10T15:00:09.697Z'
+updated: '2026-09-10T15:29:44.642Z'
 ---
 No wiki page — this is polish-tier work on the existing packaging channel, not a new milestone, and it slots into W6 rather than reopening a D-number. It does touch the two settled positions below (deb, macOS); if the deb-exclusion and unsigned-NSIS posture want to be recorded as a decision rather than living only here, land that in `fermata-design` when the card is picked up.
 
