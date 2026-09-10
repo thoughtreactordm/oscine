@@ -87,6 +87,13 @@ const stageOwnsTransport = useStageTransport()
  * version: it keeps the title bar and tab row and drops only the transport row,
  * since the stage carries the transport there. The tab-bar preference is not
  * touched by either, only outvoted, and returns as it was on the way out.
+ *
+ * The transport row appears and disappears the same frame the navigation begins
+ * — never mid-animation. That is deliberate: the body's 5rem of give or take is
+ * spent under cover of the view cross-fade at the *start* of the move, on the
+ * view that is on its way out, rather than dropped on the settled incoming view
+ * at the *end*, where it reads as a wobble. The bar's own slide is decoupled
+ * from this (`player-rise`) so it can still travel after the row has gone.
  */
 const gridRows = computed(() => {
   if (zen.active) return 'grid-rows-[minmax(0,1fr)]'
@@ -459,9 +466,11 @@ onUnmounted(() => {
       The grid loses its row so the stage takes the height. On every other view,
       and with the merge off, the bar is here as it always was.
     -->
-    <div v-if="!stageOwnsTransport" class="min-h-0 border-t border-default bg-default">
-      <NowPlaying />
-    </div>
+    <Transition name="player-rise">
+      <div v-if="!stageOwnsTransport" class="min-h-0 border-t border-default bg-default">
+        <NowPlaying />
+      </div>
+    </Transition>
 
     <!--
       Mounted with the frame, like the title bar and the transport, and for the
@@ -571,6 +580,50 @@ onUnmounted(() => {
   opacity: 0;
 }
 
+/*
+ * The merged player slides rather than snapping, both ways, on the same 160ms
+ * ease the body views cross-fade with.
+ *
+ * With the player merged into Now Playing the transport bar's row is dropped
+ * while the stage carries it; leaving the stage for any other view brings it
+ * back, and without this the bar jumped between fully-present and fully-gone on
+ * a single frame. The row itself appears/disappears at the *start* of the
+ * navigation (see `gridRows`), so the bar's slide has to outlast its own row —
+ * which is why the two directions are built differently.
+ *
+ * Entering: the row is already there, so the bar rises into it in flow, up from
+ * below the window edge and clipped by `main`'s overflow.
+ */
+.player-rise-enter-active,
+.player-rise-leave-active {
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.player-rise-enter-from {
+  opacity: 0;
+  transform: translateY(100%);
+}
+
+/*
+ * Leaving: the row has already collapsed, so there is no track left to travel
+ * within. The bar is lifted to a fixed strip at the window's foot for the length
+ * of its slide — exactly where its row sat — and sinks down out of view over the
+ * body that has already reclaimed the height, so nothing lurches once it is gone.
+ */
+.player-rise-leave-active {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  height: 5rem;
+}
+
+.player-rise-leave-to {
+  opacity: 0;
+  transform: translateY(100%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .shell-sidebar,
   .shell-tunedeck,
@@ -579,14 +632,18 @@ onUnmounted(() => {
   .tab-back-enter-active,
   .tab-back-leave-active,
   .tab-fade-enter-active,
-  .tab-fade-leave-active {
+  .tab-fade-leave-active,
+  .player-rise-enter-active,
+  .player-rise-leave-active {
     transition-duration: 0ms;
   }
 
   .tab-forward-enter-from,
   .tab-forward-leave-to,
   .tab-back-enter-from,
-  .tab-back-leave-to {
+  .tab-back-leave-to,
+  .player-rise-enter-from,
+  .player-rise-leave-to {
     transform: none;
   }
 }
