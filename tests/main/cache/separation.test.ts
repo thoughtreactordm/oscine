@@ -24,6 +24,7 @@ import {
   EXPORT_EXCLUDED_ARTIFACTS,
   LIBRARY_DATABASE_ARTIFACT,
   SCROBBLE_CREDENTIALS_ARTIFACT,
+  THEMES_ARTIFACT,
   USER_DATA_ARTIFACTS
 } from '../../../src/main/db/artifacts'
 import { MIGRATIONS } from '../../../src/main/db/migrations'
@@ -135,6 +136,15 @@ describe('D11 exclusion', () => {
     // hand over carefully.
     expect(SCROBBLE_CREDENTIALS_ARTIFACT.kind).toBe('derived')
     expect(EXPORT_EXCLUDED_ARTIFACTS).toContain(SCROBBLE_CREDENTIALS_ARTIFACT.name)
+  })
+
+  it('keeps the themes folder authored, so a track bundle never carries it but a data backup would', () => {
+    // A theme is hand-authored work, not a statement about a track, so it is on
+    // the `authored` side — which keeps it out of `EXPORT_EXCLUDED_ARTIFACTS`.
+    // The D11 bundle carries neither authored nor derived *files*, so this is
+    // never in it either way; the point is that it is not swept up as disposable.
+    expect(THEMES_ARTIFACT.kind).toBe('authored')
+    expect(EXPORT_EXCLUDED_ARTIFACTS).not.toContain(THEMES_ARTIFACT.name)
   })
 
   it('gives every artifact a distinct name and a stated reason', () => {

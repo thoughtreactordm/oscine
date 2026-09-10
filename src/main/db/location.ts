@@ -6,7 +6,8 @@ import {
   CACHE_DATABASE_ARTIFACT,
   LIBRARY_DATABASE_ARTIFACT,
   PODCASTS_ARTIFACT,
-  SCROBBLE_CREDENTIALS_ARTIFACT
+  SCROBBLE_CREDENTIALS_ARTIFACT,
+  THEMES_ARTIFACT
 } from './artifacts'
 
 // Re-exported rather than written here: `artifacts.ts` is the one place a name
@@ -19,6 +20,7 @@ export const ARTWORK_CACHE_DIRECTORY = ARTWORK_CACHE_ARTIFACT.name
 export const ARTWORK_ORIGINALS_DIRECTORY = ARTWORK_ORIGINALS_ARTIFACT.name
 export const PODCASTS_DIRECTORY = PODCASTS_ARTIFACT.name
 export const SCROBBLE_CREDENTIALS_FILENAME = SCROBBLE_CREDENTIALS_ARTIFACT.name
+export const THEMES_DIRECTORY = THEMES_ARTIFACT.name
 
 /**
  * Where the library lives on this machine.
@@ -82,4 +84,15 @@ export function podcastsDirectoryPath(): string {
  */
 export function scrobbleCredentialsPath(): string {
   return join(app.getPath('userData'), SCROBBLE_CREDENTIALS_FILENAME)
+}
+
+/**
+ * Where the operator's `.osctheme` files live — the folder the Theme picker
+ * reads and the "Open themes folder…" action reveals.
+ *
+ * Under `userData` like everything else here, and machine-local: a theme is
+ * shared as a file the operator hands over, not by syncing this directory.
+ */
+export function themesDirectoryPath(): string {
+  return join(app.getPath('userData'), THEMES_DIRECTORY)
 }

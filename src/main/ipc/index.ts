@@ -5,6 +5,7 @@ import type { FavoriteService } from '../favorites/service'
 import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
 import type { TagWritebackService } from '../library/writeback/service'
+import type { UpdateService } from '../update'
 import type { ListenService } from '../listens/service'
 import type { PlaylistService } from '../library/playlists/service'
 import type {
@@ -19,6 +20,7 @@ import type { ScrobbleStatusService } from '../scrobble/status'
 import type { SearchService } from '../search/service'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
+import type { ThemeFileService } from '../theme/service'
 import type { StatsService } from '../stats/service'
 import type { TagStore } from '../tags/store'
 import type { ArtistBiographyService, ArtistImageService } from '../wikipedia'
@@ -113,6 +115,7 @@ export function registerIpcHandlers(
   playlists: PlaylistService,
   podcasts: PodcastService,
   settings: SettingsService,
+  themeFiles: ThemeFileService,
   history: PlayHistoryService,
   listens: ListenService,
   stats: StatsService,
@@ -128,7 +131,8 @@ export function registerIpcHandlers(
   search: SearchService,
   tags: TagStore,
   tagSuggestions: TagSuggestionService,
-  tagWriteback: TagWritebackService
+  tagWriteback: TagWritebackService,
+  updates: UpdateService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -169,6 +173,17 @@ export function registerIpcHandlers(
   handle('app.openExternal', (request) => {
     const { url } = assertOpenExternalRequest(request)
     void shell.openExternal(url)
+    return null
+  })
+
+  handle('update.status', () => updates.status())
+
+  handle('update.check', () => updates.check())
+
+  handle('update.download', () => updates.download())
+
+  handle('update.install', () => {
+    updates.install()
     return null
   })
 
@@ -666,6 +681,20 @@ export function registerIpcHandlers(
   handle('settings.importProfile', (request) =>
     settings.importProfile(assertImportSettingsProfileRequest(request))
   )
+
+  handle('theme.export', (request) => {
+    const name = (request as { name?: unknown } | null)?.name
+    if (typeof name !== 'string') {
+      throw new OscineError('invalid-request', 'A theme name is required.')
+    }
+    return themeFiles.exportTheme({ name })
+  })
+
+  handle('theme.listInstalled', () => themeFiles.listInstalled())
+
+  handle('theme.import', () => themeFiles.importTheme())
+
+  handle('theme.revealFolder', () => themeFiles.revealFolder())
 
   handle('net.cancelScope', (request) =>
     net.cancelScope(assertCancelNetScopeRequest(request).scope)

@@ -49,6 +49,7 @@ import type {
   ListRecentEpisodesQuery,
   SearchPodcastCatalogQuery
 } from '@shared/podcasts'
+import type { UpdateStatus } from '@shared/update'
 
 /**
  * The renderer's view of the IPC boundary.
@@ -348,6 +349,19 @@ export const settings = {
 }
 
 /**
+ * Portable `.osctheme` files — export the theme in force, list what has been
+ * dropped into the themes folder, import one from elsewhere, or reveal the
+ * folder. Applying a listed theme is not here: it is three ordinary
+ * `settings.set` writes the store already makes.
+ */
+export const theme = {
+  export: (name: string) => unwrap(window.oscine.theme.export(name)),
+  listInstalled: () => unwrap(window.oscine.theme.listInstalled()),
+  import: () => unwrap(window.oscine.theme.import()),
+  revealFolder: () => unwrap(window.oscine.theme.revealFolder())
+}
+
+/**
  * The renderer's half of D14: it can stop main fetching, and cannot start it.
  *
  * Deliberately not shaped like the other bridges. There is no `get` here and
@@ -422,6 +436,18 @@ export const appInfo = {
   getVersion: () => unwrap(window.oscine.appInfo.getVersion()),
   /** Opens an http/https link in the system browser; main refuses the rest. */
   openExternal: (url: string) => unwrap(window.oscine.appInfo.openExternal(url))
+}
+
+/**
+ * In-app updates — **W6-6**. Status and the three gestures; the renderer never
+ * sees a download URL.
+ */
+export const update = {
+  status: () => unwrap(window.oscine.update.status()),
+  check: () => unwrap(window.oscine.update.check()),
+  download: () => unwrap(window.oscine.update.download()),
+  install: () => unwrap(window.oscine.update.install()),
+  onChanged: (listener: (status: UpdateStatus) => void) => window.oscine.update.onChanged(listener)
 }
 
 export const versions = (): typeof window.oscine.versions => window.oscine.versions

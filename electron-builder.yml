@@ -15,11 +15,11 @@ publish:
   owner: thoughtreactordm
   repo: oscine
 # electron-builder always adds the production `dependencies` closure on top of
-# whatever is listed here, so the only packages in node_modules are the three
-# native ones plus music-metadata. Everything the renderer uses — Vue, Nuxt UI
-# and its Tailwind/esbuild/lightningcss toolchain — is a devDependency, because
-# Vite bundles it into out/renderer and shipping the build tools as well put
-# ~60 MB of esbuild and lightningcss inside the AppImage.
+# whatever is listed here, so the packages in node_modules are the three native
+# ones, music-metadata, and electron-updater (W6-6). Everything the renderer
+# uses — Vue, Nuxt UI and its Tailwind/esbuild/lightningcss toolchain — is a
+# devDependency, because Vite bundles it into out/renderer and shipping the
+# build tools as well put ~60 MB of esbuild and lightningcss inside the AppImage.
 files:
   - out/**
   - '!**/*.map'

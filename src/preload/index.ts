@@ -57,6 +57,7 @@ import type {
 import type { SearchQuery } from '@shared/search'
 import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
+import type { UpdateStatus } from '@shared/update'
 
 /**
  * The entire main/renderer seam.
@@ -121,6 +122,17 @@ const api = {
     getVersion: () => request('app.getVersion', null),
     /** Opens an http/https link in the system browser; main refuses the rest. */
     openExternal: (url: string) => request('app.openExternal', { url })
+  },
+  /**
+   * In-app updates — **W6-6**. Manual check-and-install; the renderer never
+   * sees a download URL or a filesystem path.
+   */
+  update: {
+    status: () => request('update.status', null),
+    check: () => request('update.check', null),
+    download: () => request('update.download', null),
+    install: () => request('update.install', null),
+    onChanged: (listener: (status: UpdateStatus) => void) => subscribe('update.changed', listener)
   },
   library: {
     /** Opens a native folder picker in main. Resolves `null` if cancelled. */
@@ -401,6 +413,16 @@ const api = {
       request('settings.importProfile', payload),
     onChanged: (listener: (changes: SettingsChange[]) => void) =>
       subscribe('settings.changed', listener)
+  },
+  theme: {
+    /** Save dialog, then the theme in force as an `.osctheme`. `null` if cancelled. */
+    export: (name: string) => request('theme.export', { name }),
+    /** The parsed `.osctheme` files in the themes folder, for the picker. */
+    listInstalled: () => request('theme.listInstalled', null),
+    /** Open dialog, then copy the chosen file into the themes folder. */
+    import: () => request('theme.import', null),
+    /** Reveal the themes folder in the OS file manager. */
+    revealFolder: () => request('theme.revealFolder', null)
   },
   net: {
     /**

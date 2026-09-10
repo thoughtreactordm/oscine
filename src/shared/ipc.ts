@@ -148,8 +148,10 @@ import type {
   WritebackReport,
   WritebackSelection
 } from './tagWriteback'
+import type { UpdateStatus } from './update'
 import type { OverrideEditState, OverrideField, OverridePatch } from './overrides'
 import type { ArtworkRef } from './artwork'
+import type { InstalledTheme } from './theme'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -189,6 +191,19 @@ export interface IpcContract {
    * Help and Open Source links are the only reason this exists.
    */
   'app.openExternal': { request: { url: string }; response: null }
+  /**
+   * In-app updates — **W6-6**. Manual check-and-install over GitHub Releases.
+   *
+   * `status` is the snapshot; `check` / `download` / `install` are the three
+   * gestures the Settings island offers. Dev builds answer `unsupported` and
+   * never construct the updater. A `.deb` (or other non-AppImage Linux install)
+   * answers `available-external` instead of starting a download — dpkg owns
+   * that tree, and the renderer opens the releases page.
+   */
+  'update.status': { request: null; response: UpdateStatus }
+  'update.check': { request: null; response: UpdateStatus }
+  'update.download': { request: null; response: UpdateStatus }
+  'update.install': { request: null; response: null }
   /** Opens a native folder picker in main. Resolves `null` if the user cancels. */
   'library.addRoot': { request: null; response: LibraryRoot | null }
   'library.listRoots': { request: null; response: LibraryRoot[] }
@@ -952,6 +967,33 @@ export interface IpcContract {
   }
 
   /**
+   * Write the theme in force to an `.osctheme` the operator names.
+   *
+   * The name they type rides in the request and becomes both the file's
+   * embedded name and the suggested filename. `null` when they dismiss the save
+   * dialog. Theme keys left the profile bundle (they are non-portable now), so
+   * this is how a theme travels — see `../theme/themeFile.ts`.
+   */
+  'theme.export': { request: { name: string }; response: { fileName: string } | null }
+  /**
+   * The `.osctheme` files in the themes folder, parsed, for the picker to list.
+   *
+   * Malformed files are skipped rather than failing the list — one broken theme
+   * dropped in must not hide the good ones.
+   */
+  'theme.listInstalled': { request: null; response: InstalledTheme[] }
+  /**
+   * Pick an `.osctheme` from anywhere and copy it into the themes folder.
+   *
+   * The convenience path for installing a theme without opening a file manager;
+   * dropping a file into the folder directly reaches the same place. `null` when
+   * the open dialog is dismissed.
+   */
+  'theme.import': { request: null; response: { id: string; name: string } | null }
+  /** Reveal the themes folder in the OS file manager, creating it if absent. */
+  'theme.revealFolder': { request: null; response: void }
+
+  /**
    * Abandon everything main is fetching on behalf of a scope.
    *
    * The renderer calls this when the thing that wanted the data goes away —
@@ -1229,6 +1271,12 @@ export interface IpcEventContract {
    * affordable to send on a schedule the operator never asked for.
    */
   'scrobble.statusChanged': ScrobbleTargetStatus[]
+  /**
+   * The updater's status moved — a check finished, a download advanced, an
+   * error landed. Broadcast rather than sender-only: there is one window, and
+   * the island hydrates from `update.status` then follows this.
+   */
+  'update.changed': UpdateStatus
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -1250,6 +1298,10 @@ export const IPC_CHANNELS = [
   'window.isFullScreen',
   'app.getVersion',
   'app.openExternal',
+  'update.status',
+  'update.check',
+  'update.download',
+  'update.install',
   'library.addRoot',
   'library.listRoots',
   'library.scanRoot',
@@ -1358,6 +1410,10 @@ export const IPC_CHANNELS = [
   'settings.exportProfile',
   'settings.readProfile',
   'settings.importProfile',
+  'theme.export',
+  'theme.listInstalled',
+  'theme.import',
+  'theme.revealFolder',
   'net.cancelScope',
   'scrobble.status',
   'scrobble.connect',
@@ -1384,7 +1440,8 @@ export const IPC_EVENT_CHANNELS = [
   'tagWriteback.applyProgress',
   'settings.changed',
   'listens.flushRequested',
-  'scrobble.statusChanged'
+  'scrobble.statusChanged',
+  'update.changed'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**

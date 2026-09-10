@@ -5,6 +5,8 @@ import { visibleRange } from '@renderer/panels/listViewport'
 import RebuildCountersAction from '@renderer/panels/settings/RebuildCountersAction.vue'
 import RerunOnboardingAction from '@renderer/panels/settings/RerunOnboardingAction.vue'
 import ScrobblingAccounts from '@renderer/panels/settings/ScrobblingAccounts.vue'
+import AppUpdates from '@renderer/panels/settings/AppUpdates.vue'
+import ThemeActions from '@renderer/panels/settings/theme/ThemeActions.vue'
 import SettingRow from '@renderer/panels/settings/SettingRow.vue'
 import { useSettings } from '@renderer/settings'
 import { useSettingsNavStore } from '@renderer/stores/settingsNav'
@@ -71,6 +73,13 @@ function revertSection(): void {
  * room.
  */
 const showScrobbling = computed(() => !catalog.value.spanning && section.value?.id === 'network')
+
+/**
+ * W6-6's updater island. Same guard as scrobbling: one section, hidden the
+ * moment a query spans several, because a download bar above a list of matching
+ * audio keys is furniture from the wrong room.
+ */
+const showUpdates = computed(() => !catalog.value.spanning && section.value?.id === 'about')
 
 /**
  * How tall whatever sits above the rows is, in pixels.
@@ -231,6 +240,16 @@ watch(
       </template>
 
       <!--
+        The Theme section's file actions — export the theme in force as an
+        `.osctheme`, import one, or open the themes folder. Here rather than as
+        generated rows for the same reason the Library actions are: none has a
+        stored value to be a row of, and themes travel as files, not settings.
+      -->
+      <template v-if="!catalog.spanning && section?.id === 'theme'">
+        <ThemeActions />
+      </template>
+
+      <!--
         Not behind a confirmation, unlike Reset all. A section is a scope the
         operator can see the whole of, every row in it carries its own revert,
         and the changed filter above says exactly what is about to go — which is
@@ -291,8 +310,14 @@ watch(
       <div v-if="showScrobbling" ref="leading">
         <ScrobblingAccounts />
       </div>
+      <div v-else-if="showUpdates" ref="leading">
+        <AppUpdates />
+      </div>
 
-      <div v-if="catalog.rows.length === 0" class="px-4 py-10 text-center text-xs text-dimmed">
+      <div
+        v-if="catalog.rows.length === 0 && !showUpdates"
+        class="px-4 py-10 text-center text-xs text-dimmed"
+      >
         <template v-if="catalog.filtered">
           Nothing matches “{{ nav.query.trim() }}”. Search runs over names, descriptions and
           keywords.
@@ -308,7 +333,7 @@ watch(
       </div>
 
       <div
-        v-else
+        v-else-if="catalog.rows.length > 0"
         :style="{ height: `${catalog.rows.length * SETTING_ROW_PX}px`, position: 'relative' }"
       >
         <SettingRow

@@ -8,16 +8,20 @@
  * the one setting not in the Theme section. Migration `008-theme-keys` carries
  * the stored row across.
  *
- * All four are durable. What the app looks like is exactly the kind of thing
- * W8-13's export bundle should carry to another machine — more so than most
- * keys, since an operator who has authored a theme has done real work here.
+ * All four are durable but **not portable**. A theme is not a configuration:
+ * communities trade named, self-contained themes, not a colleague's whole
+ * settings table with a palette buried in it. So these leave a settings profile
+ * (W8-13's export bundle holds them back on `portable: false`) and travel as
+ * their own `.osctheme` file instead — `../theme/themeFile.ts`, which carries
+ * the overrides, the base theme and the mode under a name a picker can list.
  *
  * `theme.reactive` is the fourth and the odd one: a durable key whose *effect*
- * is deliberately not durable. See its note below.
+ * is deliberately not durable, and which no `.osctheme` carries — its accent is
+ * this machine's now-playing colour, not part of the authored look. See its
+ * note below.
  */
 
 import {
-  BUILT_IN_THEMES,
   DEFAULT_THEME_ID,
   LEGACY_DEFAULT_THEME_ID,
   parseOverrides,
@@ -75,6 +79,8 @@ export const THEME_SETTINGS: readonly SettingDescriptor[] = [
   defineSetting<ThemeModePreference>({
     key: THEME_MODE_KEY,
     scope: 'durable',
+    // See the header: theme keys travel as an `.osctheme`, not in a profile.
+    portable: false,
     default: 'system',
     validate: enumValue<ThemeModePreference>(['system', 'light', 'dark']),
     control: {
@@ -95,6 +101,8 @@ export const THEME_SETTINGS: readonly SettingDescriptor[] = [
   defineSetting<string>({
     key: THEME_NAME_KEY,
     scope: 'durable',
+    // See the header: theme keys travel as an `.osctheme`, not in a profile.
+    portable: false,
     default: DEFAULT_THEME_ID,
     // v2: the default theme's id moved from `fermata` to `oscine` in the rename.
     // The theme is otherwise unchanged, so a profile holding the old id is
@@ -104,13 +112,11 @@ export const THEME_SETTINGS: readonly SettingDescriptor[] = [
     version: 2,
     upgrade: (value) => (value === LEGACY_DEFAULT_THEME_ID ? DEFAULT_THEME_ID : value),
     validate: themeIdValue(),
-    control: {
-      kind: 'select',
-      options: BUILT_IN_THEMES.map((theme) => ({
-        value: theme.id,
-        label: theme.label
-      }))
-    },
+    // A custom control rather than a static `select`: the picker merges the
+    // built-in themes with the operator's dropped-in `.osctheme` files, which
+    // are read at runtime and cannot live in a compile-time options list. See
+    // `ThemePickerControl.vue`.
+    control: { kind: 'custom', component: 'themePicker' },
     category: 'theme',
     label: 'Theme',
     help: 'Each theme carries its own light and dark variant.',
@@ -128,6 +134,8 @@ export const THEME_SETTINGS: readonly SettingDescriptor[] = [
   defineSetting<boolean>({
     key: THEME_REACTIVE_KEY,
     scope: 'durable',
+    // See the header: theme keys travel as an `.osctheme`, not in a profile.
+    portable: false,
     default: false,
     validate: booleanValue(),
     control: { kind: 'toggle' },
@@ -160,6 +168,8 @@ export const THEME_SETTINGS: readonly SettingDescriptor[] = [
   defineSetting<ThemeOverrides>({
     key: THEME_OVERRIDES_KEY,
     scope: 'durable',
+    // See the header: theme keys travel as an `.osctheme`, not in a profile.
+    portable: false,
     default: {},
     validate: overridesValue(),
     control: { kind: 'custom', component: 'themeEditor' },
