@@ -46,7 +46,10 @@ export const SETTING_CATEGORIES = [
   { id: 'interface', label: 'Interface', icon: 'i-tabler-layout-2', order: 40 },
   { id: 'theme', label: 'Theme', icon: 'i-tabler-palette', order: 45 },
   { id: 'podcasts', label: 'Podcasts', icon: 'i-tabler-microphone', order: 50 },
-  { id: 'network', label: 'Network', icon: 'i-tabler-world', order: 60 }
+  { id: 'network', label: 'Network', icon: 'i-tabler-world', order: 60 },
+  // Always on the rail: the in-app updater lives here as an island, not a
+  // stored key, so the section would otherwise vanish (W6-6).
+  { id: 'about', label: 'About', icon: 'i-tabler-info-circle', order: 70, alwaysSurface: true }
 ] as const
 
 export type SettingCategoryId = (typeof SETTING_CATEGORIES)[number]['id']
@@ -55,6 +58,13 @@ export function settingCategory(id: SettingCategoryId): (typeof SETTING_CATEGORI
   const found = SETTING_CATEGORIES.find((c) => c.id === id)
   if (!found) throw new RangeError(`unknown settings category: ${id}`)
   return found
+}
+
+/** True for a rail entry that must appear even when it holds no stored keys. */
+export function settingCategoryAlwaysSurfaced(
+  category: (typeof SETTING_CATEGORIES)[number]
+): boolean {
+  return 'alwaysSurface' in category && category.alwaysSurface === true
 }
 
 /**

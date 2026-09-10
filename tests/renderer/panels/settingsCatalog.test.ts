@@ -5,7 +5,9 @@ import {
   enumValue,
   integerValue,
   ONBOARDING_COMPLETED_KEY,
+  SETTING_CATEGORIES,
   SETTINGS_REGISTRY,
+  settingCategoryAlwaysSurfaced,
   type SettingDescriptor
 } from '@shared/settings'
 import {
@@ -99,23 +101,31 @@ describe('generated from descriptors', () => {
     expect(row?.descriptor.label).toBe('Test only toggle')
   })
 
-  it('gives a category a section exactly when a descriptor claims it', () => {
+  it('gives a category a section exactly when a descriptor claims it, plus always-surfaced ones', () => {
     // The rail is generated, not a list of categories anyone wrote down: a
-    // section exists for a category if and only if a non-internal descriptor
-    // names it. Asserted as a set equality rather than against whichever
-    // category happens to be empty today — 'network' was that category until
-    // W7-6 put the consent toggle in it, and the assertion rotted rather than
-    // caught anything.
+    // section exists for a category if a non-internal descriptor names it.
+    // About is the exception — W6-6's updater island has no stored key, so the
+    // category is flagged `alwaysSurface` rather than given a dummy descriptor.
     const claimed = new Set(
       SETTINGS_REGISTRY.filter((descriptor) => !descriptor.internal).map((d) => d.category)
     )
+    const always = new Set(
+      SETTING_CATEGORIES.filter(settingCategoryAlwaysSurfaced).map((entry) => entry.id)
+    )
     expect(new Set(buildSettingsCatalog(SETTINGS_REGISTRY).sections.map((s) => s.id))).toEqual(
-      claimed
+      new Set([...claimed, ...always])
     )
 
     const withFixture = buildSettingsCatalog(FIXTURE)
     expect(withFixture.sections.map((s) => s.id)).toEqual(['network'])
     expect(withFixture.category).toBe('network')
+  })
+
+  it('keeps the About section on the live registry even though it holds no keys', () => {
+    const catalog = buildSettingsCatalog(SETTINGS_REGISTRY, { category: 'about' })
+    expect(catalog.category).toBe('about')
+    expect(catalog.rows).toEqual([])
+    expect(catalog.sections.find((section) => section.id === 'about')?.total).toBe(0)
   })
 
   it('keeps internal keys off the surface', () => {

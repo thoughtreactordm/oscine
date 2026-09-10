@@ -16,6 +16,7 @@
 import {
   SETTING_CATEGORIES,
   SETTINGS_REGISTRY,
+  settingCategoryAlwaysSurfaced,
   type SettingCategoryId,
   type SettingDescriptor
 } from '@shared/settings'
@@ -238,7 +239,16 @@ export function buildSettingsCatalog(
       changed: inCategory.filter((descriptor) => changedKeys.has(descriptor.key)).length
     }
   })
-    .filter((section) => section.total > 0)
+    .filter((section) => {
+      if (section.total > 0) return true
+      // Always-surfaced categories (About) only appear against the live
+      // registry. A fixture catalog is a closed world of the descriptors it
+      // was handed, and injecting About into that world would make a test
+      // about "network-only keys" also assert a section nobody passed in.
+      if (descriptors !== SETTINGS_REGISTRY) return false
+      const meta = SETTING_CATEGORIES.find((category) => category.id === section.id)
+      return meta !== undefined && settingCategoryAlwaysSurfaced(meta)
+    })
     .sort((a, b) => categoryOrder(a.id) - categoryOrder(b.id))
 
   // A query spans every category: the operator who typed "crossfade" is asking

@@ -56,8 +56,16 @@ import { backfillOnboardingCompleted, SqliteSettingsService } from './settings'
 import { FsThemeFileService } from './theme/service'
 import { createArtistBiographyService, createArtistImageService } from './wikipedia'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
+import {
+  createGitHubPublishedVersionReader,
+  createUpdateService,
+  type AppUpdateDriver
+} from './update'
+import { readCappedText } from './net/http'
+import { OSCINE_USER_AGENT } from './net/userAgent'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
 import type { ScrobbleTarget } from '@shared/scrobble'
+import { detectUpdateChannel, updateChannelCanSelfUpdate, type UpdateStatus } from '@shared/update'
 import {
   AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
   LASTFM_LOVE_ON_FAVORITE,
@@ -264,6 +272,10 @@ function broadcastScrobbleStatus(): void {
   emit(mainWindow.webContents, 'scrobble.statusChanged', [...scrobbleStatus.status().targets])
 }
 
+function broadcastUpdateStatus(status: UpdateStatus): void {
+  if (mainWindow) emit(mainWindow.webContents, 'update.changed', status)
+}
+
 /**
  * The one URL the renderer is ever served from: the dev server in development,
  * the packaged HTML on disk otherwise. Used both to load the window and to
@@ -413,7 +425,7 @@ if (!app.requestSingleInstanceLock()) {
     }
   })
 
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
     const filePath = libraryDatabasePath()
     let db: BetterSqlite3.Database
     let listensMoved: boolean
@@ -760,6 +772,37 @@ if (!app.requestSingleInstanceLock()) {
       resolveArtwork: (trackId) => library.artworkWriteIntent(trackId)
     })
 
+    // W6-6 — manual in-app updates. The driver is loaded only for the two
+    // installs that actually self-update (NSIS, AppImage). A `.deb` never sees
+    // it, which is what keeps electron-updater's DebUpdater (sudo `dpkg -i`)
+    // off this path. Dev never constructs it either, so `npm run dev` does not
+    // touch GitHub.
+    const updateChannel = detectUpdateChannel({
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      appImagePath: process.env.APPIMAGE
+    })
+    let updater: AppUpdateDriver | null = null
+    if (updateChannelCanSelfUpdate(updateChannel)) {
+      const { autoUpdater } = await import('electron-updater')
+      updater = autoUpdater as AppUpdateDriver
+    }
+    const updates = createUpdateService(
+      {
+        isPackaged: app.isPackaged,
+        platform: process.platform,
+        appImagePath: process.env.APPIMAGE,
+        currentVersion: app.getVersion(),
+        updater,
+        readPublishedVersion: createGitHubPublishedVersionReader({
+          platform: process.platform,
+          userAgent: OSCINE_USER_AGENT,
+          readText: readCappedText
+        })
+      },
+      broadcastUpdateStatus
+    )
+
     // The command palette's finder (D23). Same connection, no tables of its own
     // and no network: it reuses `tracks_fts` for tracks and a light LIKE over
     // the small entity sets, and reaches nothing but this database.
@@ -862,7 +905,8 @@ if (!app.requestSingleInstanceLock()) {
       search,
       tags,
       tagSuggestions,
-      tagWriteback
+      tagWriteback,
+      updates
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

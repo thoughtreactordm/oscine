@@ -107,6 +107,8 @@ Every component is built against CSS custom-property tokens over Nuxt UI, shippi
 
 Both first-class. No Apple signing/notarization tax. Linux packaging via AppImage + deb. Path, filesystem and shell handling stays platform-neutral from the first commit, enforced by CI running on both.
 
+*Amended 2026-09-10 (W6-6)*: in-app updates are a **manual check-and-install** over the GitHub Releases channel that already publishes the NSIS installer, the AppImage and the deb. NSIS and AppImage self-update via `electron-updater`; a deb (or any other non-AppImage Linux install) cannot — dpkg/apt owns the install, so that path offers a "new version available" notice that opens the releases page instead of an in-app download. Current `electron-updater` ships a `DebUpdater` that would `dpkg -i` under sudo; that is still refused here. The Windows installer is unsigned; SmartScreen warns on each install, which is accepted for this channel. An Authenticode cert is later polish, not a revisit of D10. macOS remains out of scope, which is why signing is not mandatory here. Silent background auto-download is a later flag flip once the manual path is proven.
+
 ### D11 — Cross-machine: **independent library, explicit export/import**
 
 Each machine scans its own roots and owns its own SQLite database. An explicit export/import bundle carries playlists, ratings and play counts between them.

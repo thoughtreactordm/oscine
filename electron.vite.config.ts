@@ -257,7 +257,8 @@ export default defineConfig({
               'i-tabler-layout-2',
               'i-tabler-palette',
               'i-tabler-microphone',
-              'i-tabler-world'
+              'i-tabler-world',
+              'i-tabler-info-circle'
             ]
           }
         }
