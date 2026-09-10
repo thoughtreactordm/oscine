@@ -77,6 +77,34 @@ jobs:
       # its own job where a failure reads as "the native binary broke" and not
       # as "the lint job is red" — W6's packaging work is where that lands.
 
+  # The release job only runs on a push to main, so anything wrong with packaging
+  # used to surface after merge, with a draft release already open — which is how
+  # v1.0.2 was stranded by an artifact assertion that could never pass on Linux.
+  # This runs the same packaging command and the same artifact check on every
+  # pull request, without uploading anything, so a PR that would break the
+  # release is red before it can be merged.
+  package:
+    name: package (${{ matrix.os }})
+    needs: check
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Package
+        run: npm run build && npx electron-builder --publish never
+      - name: Check release artifacts
+        run: node scripts/release-artifacts.mjs
+
   # A push to main that carries a new package.json version cuts a release; a push
   # that does not (docs, refactors, anything without a version bump) does nothing
   # here. The version is the whole trigger: keying the tag off it means a release
@@ -132,8 +160,10 @@ jobs:
   # AppImage and deb. Every artifact is attached as-is — one installer for
   # Windows, one AppImage and one deb for Linux — so the release page offers a
   # distro-appropriate download rather than an archive to unpack. The
-  # `.blockmap` / `latest*.yml` electron-updater sidecars ride along: without
-  # them the in-app updater has nothing to check against (W6-6).
+  # electron-updater sidecars ride along: without them the in-app updater has
+  # nothing to check against (W6-6). scripts/release-artifacts.mjs is the one
+  # definition of what each platform attaches — the `package` job runs it on
+  # every PR, so this is the second time a given artifact set has been checked.
   release-build:
     name: release build (${{ matrix.os }})
     needs: release-gate
@@ -155,78 +185,26 @@ jobs:
         run: npm ci
 
       # `--publish never`: build the artifacts into release/ but do not upload
-      # them loose. The steps below are the only things that attach to the
+      # them loose. The step below is the only thing that attaches to the
       # release, so the page carries the three deliverables plus the
-      # electron-updater sidecars (`latest*.yml`, `*.blockmap`) rather than
-      # every file electron-builder writes into release/.
+      # electron-updater sidecars rather than every file electron-builder
+      # writes into release/.
       - name: Package
         run: npm run build && npx electron-builder --publish never
 
-      # The NSIS installer is a single self-contained deliverable, so it is
-      # attached directly — zipping one file would only add an extract step for
-      # the user. The `.exe.blockmap` and `latest.yml` sidecars go with it:
-      # electron-updater reads those, not the raw installer, to decide whether
-      # a newer build exists and to download it incrementally (W6-6).
+      # Windows attaches the NSIS installer directly — zipping one file would
+      # only add an extract step — with its `.exe.blockmap` and `latest.yml`.
+      # Linux attaches the AppImage and the .deb loose and labelled, so a .deb
+      # user does not download an AppImage they will never run, plus
+      # `latest-linux.yml`; the AppImage's blockmap is embedded in the AppImage,
+      # so there is no Linux `.blockmap` file (the script explains). The script
+      # asserts exactly one of each before uploading anything: a release that
+      # quietly ships one of its two Linux packages is worse than a failed job.
       # `--clobber` keeps a re-run idempotent by overwriting a prior upload.
-      - name: Upload installer (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - name: Upload artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = "${{ needs.release-gate.outputs.tag }}"
-          $exe = @(Get-ChildItem release/*.exe | Where-Object { $_.Name -notlike '*.blockmap' })
-          $blockmap = @(Get-ChildItem release/*.exe.blockmap)
-          $yml = @(Get-ChildItem release/latest.yml)
-          if ($exe.Count -ne 1 -or $blockmap.Count -ne 1 -or $yml.Count -ne 1) {
-            Write-Error "expected one .exe, one .exe.blockmap and latest.yml in release/, found $($exe.Count), $($blockmap.Count), $($yml.Count)"
-            Get-ChildItem release
-            exit 1
-          }
-          gh release upload $tag $exe[0].FullName $blockmap[0].FullName $yml[0].FullName --clobber
-
-      # Two Linux deliverables, attached separately rather than tarred together:
-      # the .deb for Debian/Ubuntu derivatives, the AppImage for every other
-      # distro. Both fall out of the single electron-builder run above — there is
-      # no second Linux build, and both carry the same glibc floor because they
-      # come from the same runner. Attaching them loose means a .deb user does
-      # not download an AppImage they will never run, and the .deb installs
-      # straight from the release URL without an extract step first.
-      #
-      # `file#label` is gh's display-label syntax; it is what makes the two
-      # choices legible on the release page, since electron-builder names the
-      # AppImage `Oscine-<version>.AppImage` and the deb `oscine_<version>_<arch>.deb`.
-      # `latest-linux.yml` and the `.AppImage.blockmap` sidecar are the AppImage
-      # updater's feed; they are not labelled because they are not a download
-      # the operator picks (W6-6).
-      - name: Upload packages (Linux)
-        if: runner.os == 'Linux'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ needs.release-gate.outputs.tag }}"
-          shopt -s nullglob
-          APPIMAGE=(release/*.AppImage)
-          DEB=(release/*.deb)
-          YML=(release/latest-linux.yml)
-          BLOCKMAP=(release/*.AppImage.blockmap)
-          # Assert rather than glob blindly: `ls … | head -1` takes its exit
-          # status from head, so a missing artifact would slip past `-e` and
-          # upload a file named `#label`. A release that quietly ships one of
-          # its two Linux packages is worse than a failed job. The updater
-          # sidecars are the same class of failure: without them a packaged
-          # AppImage cannot check for a newer build.
-          if [ ${#APPIMAGE[@]} -ne 1 ] || [ ${#DEB[@]} -ne 1 ] || [ ${#YML[@]} -ne 1 ] || [ ${#BLOCKMAP[@]} -ne 1 ]; then
-            echo "::error::expected one AppImage, one deb, latest-linux.yml and one AppImage.blockmap in release/, found ${#APPIMAGE[@]}, ${#DEB[@]}, ${#YML[@]}, ${#BLOCKMAP[@]}"
-            ls -la release/
-            exit 1
-          fi
-          gh release upload "$TAG" \
-            "${APPIMAGE[0]}#Linux — AppImage (portable, any distro)" \
-            "${DEB[0]}#Linux — .deb (Debian / Ubuntu)" \
-            "${YML[0]}" \
-            "${BLOCKMAP[0]}" \
-            --clobber
+        run: node scripts/release-artifacts.mjs --upload "${{ needs.release-gate.outputs.tag }}"
 
   # Flip the draft to a published release only once both platforms have uploaded,
   # so a release is never visible carrying just one OS's artifacts.
