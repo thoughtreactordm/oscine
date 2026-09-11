@@ -254,7 +254,13 @@ const api = {
     /** Set the tri-state clear (cover removed on flush) on a batch. */
     clear: (trackIds: readonly number[]) => request('artwork.clear', { trackIds: [...trackIds] }),
     /** Drop the override on a batch — back to the file's own cover. */
-    revert: (trackIds: readonly number[]) => request('artwork.revert', { trackIds: [...trackIds] })
+    revert: (trackIds: readonly number[]) => request('artwork.revert', { trackIds: [...trackIds] }),
+    /** Search the network for album covers — **W7-17**. Returns references, never bytes. */
+    searchCovers: (artist: string, album: string) =>
+      request('artwork.searchCovers', { artist, album }),
+    /** Apply a picked network cover to a batch — main fetches the bytes and stores the override. */
+    applyRemoteCover: (trackIds: readonly number[], url: string) =>
+      request('artwork.applyRemoteCover', { trackIds: [...trackIds], url })
   },
   history: {
     /** One play, at the moment the transport committed to it. Main stamps the time. */

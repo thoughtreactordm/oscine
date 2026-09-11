@@ -61,14 +61,26 @@ export type IngestibleImageMime = (typeof INGESTIBLE_IMAGE_MIMES)[number]
  * a source that does (W7-17's iTunes fallback) fills them in.
  */
 export interface CoverArtCandidate {
-  /** Which service offered it. One member today; the union grows with W7-17. */
-  source: 'coverartarchive'
-  /** True when CAA marks this the release's front cover. Front candidates sort first. */
+  /**
+   * Which service offered it. **W7-17** grew the union to `'itunes'` when the
+   * edit-time picker added Apple's catalogue as the fallback for releases
+   * MusicBrainz does not have — the promised second member.
+   */
+  source: 'coverartarchive' | 'itunes'
+  /** True when the source marks this the release's front cover. Front candidates sort first. */
   front: boolean
   /** A modestly-sized preview to show in a picker, addressed but not fetched. */
   thumbUrl: string
   /** The full-resolution image, fetched only when the operator picks this candidate. */
   fullUrl: string
+  /**
+   * A caption for the picker — the release/album title the candidate came from,
+   * when the search knew it. The edit-time picker (W7-17) fills this so the
+   * operator can tell two editions apart; the rip path leaves it unset.
+   */
+  title?: string
+  /** A second caption line — an artist credit, year or edition disambiguation. */
+  detail?: string
   /** Pixel width, when the source reports it. CAA does not; iTunes will. */
   width?: number
   /** Pixel height, when the source reports it. CAA does not; iTunes will. */

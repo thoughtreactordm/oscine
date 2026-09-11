@@ -593,6 +593,49 @@ export function assertArtworkFromBytesRequest(value: unknown): {
   return { trackIds, bytes, mime: raw.mime }
 }
 
+/** How long an artist or album term may be before it is certainly not a real one. */
+const MAX_COVER_SEARCH_TERM = 512
+/** A cover URL is a candidate this process just handed out; the host is re-checked in the service. */
+const MAX_COVER_URL = 2048
+
+/**
+ * The find step of the edit-time cover picker — **W7-17**. An artist and album
+ * to search on. Both are strings and either may be empty (a batch whose albums
+ * disagree carries no album); the service turns an empty search into an empty
+ * result rather than the seam rejecting it.
+ */
+export function assertArtworkSearchCoversRequest(value: unknown): {
+  artist: string
+  album: string
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artist', 'album'])
+  if (typeof raw.artist !== 'string') invalid('artist must be a string.')
+  if (typeof raw.album !== 'string') invalid('album must be a string.')
+  if (raw.artist.length > MAX_COVER_SEARCH_TERM || raw.album.length > MAX_COVER_SEARCH_TERM) {
+    invalid('search terms must not exceed the maximum length.')
+  }
+  return { artist: raw.artist, album: raw.album }
+}
+
+/**
+ * The apply step of the edit-time cover picker — **W7-17**. The tracks and the
+ * candidate URL to fetch. The URL is only length-checked here; the service
+ * re-parses it and re-checks its host against the source allowlist, which is the
+ * check that constrains where main will actually fetch from.
+ */
+export function assertArtworkApplyRemoteRequest(value: unknown): {
+  trackIds: number[]
+  url: string
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds', 'url'])
+  const trackIds = assertOverrideTrackIds(raw.trackIds)
+  if (typeof raw.url !== 'string' || raw.url.length === 0) invalid('url must be a non-empty string.')
+  if (raw.url.length > MAX_COVER_URL) invalid('url must not exceed the maximum length.')
+  return { trackIds, url: raw.url }
+}
+
 /** The reviewed batch to flush — a non-empty, capped list of selections (W16-6). */
 export function assertWritebackApplyRequest(value: unknown): { selections: WritebackSelection[] } {
   const raw = assertRecord(value, 'request')

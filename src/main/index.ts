@@ -32,6 +32,7 @@ import { TagWritebackDiffer } from './library/writeback/differ'
 import { TagWritebackService, trackPathResolver } from './library/writeback/service'
 import { createCdDrive } from './cdrip/drive'
 import { createCoverArtArchiveClient } from './artwork/coverArtArchive'
+import { createCoverSearchService } from './artwork/coverSearch'
 import { createDiscLookup } from './cdrip/discLookup'
 import { createFlacEncoder, resolveFlacBinaryPath } from './cdrip/encoder'
 import { RipService, ripDestResolver } from './cdrip/service'
@@ -842,6 +843,12 @@ if (!app.requestSingleInstanceLock()) {
     // encoder binary resolved from the packaged extraResources layout or the
     // repo-relative vendor copy. Lookup is on the same service so the Tools
     // pane's metadata match (W18-6) does not grow a second orchestrator.
+    // W7-15's Cover Art Archive client, shared by both cover-art surfaces: the
+    // rip prep (W7-16) that primes a matched release's front, and the edit-time
+    // picker (W7-17) below. One client on the 'cover-art' scope, kept apart from
+    // the rip's own 'cdrip' scope.
+    const coverArt = createCoverArtArchiveClient({ client: net.client, cache })
+
     const rip = new RipService({
       drive: createCdDrive(),
       lookup: createDiscLookup({ client: net.client, cache }),
@@ -856,9 +863,19 @@ if (!app.requestSingleInstanceLock()) {
       ingest: (rootId, absPaths) => library.ingestRippedFiles(rootId, absPaths),
       artwork: ripArtwork,
       // W7-16: the matched release's front cover, primed into the draft slot.
-      // Its own 'cover-art' scope (inside the client), kept apart from 'cdrip'.
-      coverArt: createCoverArtArchiveClient({ client: net.client, cache }),
+      coverArt,
       sessions: new RipSessionStore(db)
+    })
+
+    // W7-17: the edit-time network cover picker for tracks already in the
+    // library. Finds a release group for an indexed track (which carries no
+    // release MBID), resolves its front through the shared client, adds iTunes
+    // as the fallback, and stages a pick through the ordinary `setCover` ingest —
+    // so a network cover is an override indistinguishable from a file pick.
+    const coverSearch = createCoverSearchService({
+      client: net.client,
+      coverArt,
+      setCover: (trackIds, bytes, mime) => library.setArtworkFromBytes(trackIds, bytes, mime)
     })
 
     // The command palette's finder (D23). Same connection, no tables of its own
@@ -968,7 +985,8 @@ if (!app.requestSingleInstanceLock()) {
       tagWriteback,
       updates,
       rip,
-      pickRipDestination
+      pickRipDestination,
+      coverSearch
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

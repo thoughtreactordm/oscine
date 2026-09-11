@@ -162,7 +162,7 @@ import type {
   RipResumeRequest
 } from './cdrip'
 import type { OverrideEditState, OverrideField, OverridePatch } from './overrides'
-import type { ArtworkRef } from './artwork'
+import type { ArtworkRef, CoverArtCandidate } from './artwork'
 import type { InstalledTheme } from './theme'
 
 /**
@@ -545,6 +545,34 @@ export interface IpcContract {
    * cover (*absent*). The escape hatch from both a set and a clear.
    */
   'artwork.revert': { request: { trackIds: number[] }; response: null }
+  /**
+   * Searches the network for album covers for tracks already in the library —
+   * **W7-17**, the edit-time picker's find step. Given an artist and album, main
+   * runs a MusicBrainz release-group search (indexed tracks carry no release
+   * MBID, so the release must be found first), resolves each match's front cover
+   * through the Cover Art Archive, and adds iTunes album covers as the fallback
+   * for releases MusicBrainz does not have. Candidates are references, not bytes:
+   * `thumbUrl`/`fullUrl` are remote addresses the renderer previews through the
+   * `catalog-artwork` proxy and never fetches itself. All of it rides the
+   * `cover-art` scope, so closing the picker abandons in-flight lookups, and with
+   * `network.externalLookups` off the socket never opens and the list is empty.
+   */
+  'artwork.searchCovers': {
+    request: { artist: string; album: string }
+    response: CoverArtCandidate[]
+  }
+  /**
+   * Applies a network cover the operator picked — **W7-17**. Main re-checks the
+   * URL against the same source allowlist the preview proxy uses (the renderer
+   * cannot make main fetch an arbitrary origin), pulls the full-resolution bytes
+   * on the `cover-art` scope, and runs the identical validate-store-fan-out path
+   * `artwork.setFromBytes` does. A picked cover is therefore indistinguishable
+   * from the same bytes chosen via file — same `artworkHash`, same override.
+   */
+  'artwork.applyRemoteCover': {
+    request: { trackIds: number[]; url: string }
+    response: ArtworkRef
+  }
   /**
    * Appends one play to the trail. Main stamps the time; see the service.
    *
@@ -1435,6 +1463,8 @@ export const IPC_CHANNELS = [
   'artwork.setFromBytes',
   'artwork.clear',
   'artwork.revert',
+  'artwork.searchCovers',
+  'artwork.applyRemoteCover',
   'history.record',
   'history.list',
   'history.clear',
@@ -1576,12 +1606,28 @@ export function episodeUrl(episodeId: number): string {
 export const CATALOG_ARTWORK_HOST = 'catalog-artwork'
 
 /**
- * Hosts main is willing to proxy catalogue artwork from: Apple's podcast CDN
- * and nothing else. A leading dot on the suffix check is the load-bearing
- * character — without it `notmzstatic.com` matches.
+ * Hosts main is willing to proxy remote artwork from.
+ *
+ * Apple's CDN (`mzstatic.com`) is Podcast Discover's thumbnail host and, since
+ * **W7-17**, also the iTunes album-cover fallback the edit-time picker draws its
+ * previews from. The Cover Art Archive (`coverartarchive.org`) and the archive
+ * it 307-redirects the bytes to (`archive.org`, i.e. `ia*.us.archive.org`) are
+ * the picker's primary source. Nothing else: this list is the whole set of
+ * origins the proxy — and, since W7-17, the apply path — will reach, so the
+ * renderer cannot point either at an arbitrary host.
+ *
+ * A leading dot on each suffix check is the load-bearing character — without it
+ * `notmzstatic.com` matches `mzstatic.com`.
  */
 export function isCatalogArtworkHost(hostname: string): boolean {
-  return hostname === 'mzstatic.com' || hostname.endsWith('.mzstatic.com')
+  return (
+    hostname === 'mzstatic.com' ||
+    hostname.endsWith('.mzstatic.com') ||
+    hostname === 'coverartarchive.org' ||
+    hostname.endsWith('.coverartarchive.org') ||
+    hostname === 'archive.org' ||
+    hostname.endsWith('.archive.org')
+  )
 }
 
 /**

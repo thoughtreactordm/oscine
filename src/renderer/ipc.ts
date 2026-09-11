@@ -185,7 +185,13 @@ export const artwork = {
   /** Set the tri-state clear (cover removed on flush) on a batch. */
   clear: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.clear(trackIds)),
   /** Drop the override on a batch — back to the file's own cover. */
-  revert: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.revert(trackIds))
+  revert: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.revert(trackIds)),
+  /** Search the network for album covers — **W7-17**. Candidates are references, not bytes. */
+  searchCovers: (artist: string, album: string) =>
+    unwrap(window.oscine.artwork.searchCovers(artist, album)),
+  /** Apply a picked network cover to a batch; main fetches the bytes and writes the override. */
+  applyRemoteCover: (trackIds: readonly number[], url: string) =>
+    unwrap(window.oscine.artwork.applyRemoteCover(trackIds, url))
 }
 
 export const history = {
