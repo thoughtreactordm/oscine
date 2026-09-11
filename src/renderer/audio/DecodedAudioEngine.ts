@@ -89,7 +89,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     this.#context = contextLease.context
     this.#gain = this.#context.createGain()
     this.#gain.gain.value = this.#volume
-    this.#gain.connect(this.#context.destination)
+    this.#gain.connect(this.#contextLease.destination)
     // Per-engine, not per-context: the pool hands both scheduler slots the same
     // context, so one analyser on it would sum the outgoing and incoming tracks
     // through a crossfade and report a shape neither of them has.

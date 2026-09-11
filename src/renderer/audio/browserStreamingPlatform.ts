@@ -16,6 +16,15 @@ export interface BrowserStreamingPlatformOptions {
    * without it plays to the system default, which is what the tests want.
    */
   adoptContext?: (context: AudioContext) => void
+
+  /**
+   * Where master volume connects. Defaults to `context.destination`; the EQ
+   * router supplies its chain input instead, so a long track R1 sent to the
+   * `<audio>` path is equalized exactly as a decoded one is. Optional for the
+   * same reason `adoptContext` is: a platform built without it still plays,
+   * which is what the existing tests want.
+   */
+  resolveDestination?: (context: AudioContext) => AudioNode
 }
 
 /**
@@ -41,7 +50,7 @@ export function createBrowserStreamingPlatform(
   const source = context.createMediaElementSource(element)
   source.connect(normalizationGain)
   normalizationGain.connect(masterGain)
-  masterGain.connect(context.destination)
+  masterGain.connect(options.resolveDestination?.(context) ?? context.destination)
   // Ahead of master volume, matching the decoded path so the visualization does
   // not change shape when R1 sends a long track down this one.
   normalizationGain.connect(analyser)
