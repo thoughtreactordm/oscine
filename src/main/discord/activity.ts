@@ -2,6 +2,7 @@ import type { PresenceSignal } from '@shared/presence'
 import type { DiscordSettings } from '@shared/settings/discord'
 import { OSCINE_LOGO_ASSET_KEY } from './appId'
 import type { DiscordActivity } from './client'
+import { renderStatusLine } from './statusLine'
 
 /**
  * The pure signal→activity mapping — **W20-4**.
@@ -44,18 +45,21 @@ function toWholeSeconds(ms: number): number {
 
 /**
  * The first/second lines for a display mode. `generic` returns only the fixed
- * floor line; the title modes return the title, and `title-artist` adds the
- * artist as the second line when there is one (a track with no artist collapses
- * to title-only rather than showing a blank second line).
+ * floor line and never touches the template — the privacy floor leaks nothing, so
+ * no token may reach it (W20-6). The title modes render the operator's template
+ * into the first line (`details`, the field the status line mirrors), and
+ * `title-artist` adds the artist as the second line when there is one (a track
+ * with no artist collapses to title-only rather than showing a blank second line).
  */
 function detailLines(
-  display: DiscordSettings['display'],
+  settings: DiscordSettings,
   track: NonNullable<PresenceSignal['track']>
 ): { details: string; state?: string } {
-  if (display === 'generic') return { details: GENERIC_DETAILS }
-  if (display === 'title-only') return { details: track.title }
+  if (settings.display === 'generic') return { details: GENERIC_DETAILS }
+  const details = renderStatusLine(settings.statusTemplate, track)
+  if (settings.display === 'title-only') return { details }
   // title-artist
-  return track.artist ? { details: track.title, state: track.artist } : { details: track.title }
+  return track.artist ? { details, state: track.artist } : { details }
 }
 
 /**
@@ -95,15 +99,15 @@ export function buildActivity(
 
   if (paused && settings.whenPaused === 'hide') return null
 
-  const { details, state } = detailLines(settings.display, track)
+  const { details, state } = detailLines(settings, track)
 
   const activity: DiscordActivity = { type: DISCORD_ACTIVITY_TYPE_LISTENING, details }
 
   // The compact status line ("Listening to X") mirrors the song (details)
   // rather than the app name — except at the generic floor, where it must stay
-  // the app name so no title leaks into the status text. (A future W20 card
-  // lets the operator template this line with {title}/{artist} tokens; the field
-  // it points at stays the seam.)
+  // the app name so no title leaks into the status text. `details` is where the
+  // operator's status-line template renders (W20-6); pointing the status line at
+  // it is the seam that lets a templated line reach the compact text at all.
   activity.status_display_type =
     settings.display === 'generic' ? STATUS_DISPLAY_NAME : STATUS_DISPLAY_DETAILS
 

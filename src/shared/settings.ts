@@ -112,6 +112,7 @@ export {
   DISCORD_SETTINGS_DEFAULTS,
   DISCORD_SHOW_ALBUM_ART,
   DISCORD_SHOW_TIMESTAMP,
+  DISCORD_STATUS_TEMPLATE,
   DISCORD_WHEN_PAUSED
 } from './settings/discord'
 export type { DiscordDisplay, DiscordSettings, DiscordWhenPaused } from './settings/discord'

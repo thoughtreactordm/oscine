@@ -89,6 +89,7 @@ beforeEach(() => {
   settings = {
     enabled: true,
     display: 'title-artist',
+    statusTemplate: '{title}',
     showAlbumArt: false,
     showTimestamp: true,
     whenPaused: 'paused'

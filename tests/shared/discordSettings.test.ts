@@ -8,6 +8,7 @@ import {
   DISCORD_SETTINGS_DEFAULTS,
   DISCORD_SHOW_ALBUM_ART,
   DISCORD_SHOW_TIMESTAMP,
+  DISCORD_STATUS_TEMPLATE,
   DISCORD_WHEN_PAUSED,
   getSetting,
   NETWORK_EXTERNAL_LOOKUPS_KEY,
@@ -26,6 +27,7 @@ import {
 const DISCORD_KEYS = [
   DISCORD_ENABLED,
   DISCORD_DISPLAY,
+  DISCORD_STATUS_TEMPLATE,
   DISCORD_SHOW_ALBUM_ART,
   DISCORD_SHOW_TIMESTAMP,
   DISCORD_WHEN_PAUSED
@@ -44,7 +46,7 @@ function selectValues(key: string): readonly unknown[] {
 }
 
 describe('the Discord presence descriptors', () => {
-  it('registers all five keys as network rows, in order', () => {
+  it('registers every key as a network row, in order', () => {
     for (const key of DISCORD_KEYS) {
       expect(getSetting(key)?.category).toBe('network')
     }
@@ -55,6 +57,7 @@ describe('the Discord presence descriptors', () => {
     expect(discord).toEqual([
       DISCORD_ENABLED,
       DISCORD_DISPLAY,
+      DISCORD_STATUS_TEMPLATE,
       DISCORD_SHOW_ALBUM_ART,
       DISCORD_SHOW_TIMESTAMP,
       DISCORD_WHEN_PAUSED
@@ -85,6 +88,17 @@ describe('the Discord presence descriptors', () => {
       DISCORD_SETTINGS_DEFAULTS.showTimestamp
     )
     expect(descriptorFor(DISCORD_WHEN_PAUSED).default).toBe(DISCORD_SETTINGS_DEFAULTS.whenPaused)
+    expect(descriptorFor(DISCORD_STATUS_TEMPLATE).default).toBe(
+      DISCORD_SETTINGS_DEFAULTS.statusTemplate
+    )
+  })
+
+  it('defaults the status-line template to a bare {title}, so the line is unchanged out of the box', () => {
+    // The default must reproduce the pre-W20-6 behaviour exactly — the status
+    // line showed the title — so turning the feature on changes nothing until the
+    // operator edits the template.
+    expect(descriptorFor(DISCORD_STATUS_TEMPLATE).default).toBe('{title}')
+    expect(descriptorFor(DISCORD_STATUS_TEMPLATE).control?.kind).toBe('text')
   })
 
   it('offers exactly the values the W20-4 mapping switches on', () => {

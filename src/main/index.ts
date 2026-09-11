@@ -87,6 +87,7 @@ import {
   DISCORD_ENABLED,
   DISCORD_SHOW_ALBUM_ART,
   DISCORD_SHOW_TIMESTAMP,
+  DISCORD_STATUS_TEMPLATE,
   DISCORD_WHEN_PAUSED,
   LASTFM_LOVE_ON_FAVORITE,
   type DiscordDisplay,
@@ -683,6 +684,7 @@ if (!app.requestSingleInstanceLock()) {
       settings: () => ({
         enabled: settings.get<boolean>(DISCORD_ENABLED),
         display: settings.get<DiscordDisplay>(DISCORD_DISPLAY),
+        statusTemplate: settings.get<string>(DISCORD_STATUS_TEMPLATE),
         showAlbumArt: settings.get<boolean>(DISCORD_SHOW_ALBUM_ART),
         showTimestamp: settings.get<boolean>(DISCORD_SHOW_TIMESTAMP),
         whenPaused: settings.get<DiscordWhenPaused>(DISCORD_WHEN_PAUSED)

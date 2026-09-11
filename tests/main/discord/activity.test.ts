@@ -25,6 +25,7 @@ function settings(overrides: Partial<DiscordSettings> = {}): DiscordSettings {
   return {
     enabled: true,
     display: 'title-artist',
+    statusTemplate: '{title}',
     showAlbumArt: false,
     showTimestamp: true,
     whenPaused: 'paused',
@@ -195,6 +196,51 @@ describe('buildActivity — status line', () => {
   it('keeps the status line on the app name in generic mode — no title leak', () => {
     const activity = buildActivity(settings({ display: 'generic' }), playing(), NOW)
     expect(activity?.status_display_type).toBe(STATUS_DISPLAY_NAME)
+  })
+})
+
+describe('buildActivity — status-line template (W20-6)', () => {
+  it('renders the template into details in the title modes', () => {
+    for (const display of ['title-artist', 'title-only'] as const) {
+      const activity = buildActivity(
+        settings({ display, statusTemplate: '{artist} — {title}' }),
+        playing(),
+        NOW
+      )
+      expect(activity?.details).toBe('Massive Attack — Teardrop')
+    }
+  })
+
+  it('leaves the state second line to the display mode, not the template', () => {
+    const activity = buildActivity(
+      settings({ display: 'title-artist', statusTemplate: '{artist} — {title}' }),
+      playing(),
+      NOW
+    )
+    // details carries the templated line; state stays the plain artist.
+    expect(activity?.details).toBe('Massive Attack — Teardrop')
+    expect(activity?.state).toBe('Massive Attack')
+  })
+
+  it('generic ignores the template — no token can leak at the privacy floor', () => {
+    const activity = buildActivity(
+      settings({ display: 'generic', statusTemplate: '{artist} — {title}' }),
+      playing(),
+      NOW
+    )
+    expect(activity?.details).toBe(GENERIC_DETAILS)
+    const serialized = JSON.stringify(activity)
+    expect(serialized).not.toContain('Teardrop')
+    expect(serialized).not.toContain('Massive Attack')
+  })
+
+  it('collapses the punctuation a missing field strands', () => {
+    const activity = buildActivity(
+      settings({ display: 'title-only', statusTemplate: '{title} ({album})' }),
+      playing({ track: { ...TRACK, album: null } }),
+      NOW
+    )
+    expect(activity?.details).toBe('Teardrop')
   })
 })
 

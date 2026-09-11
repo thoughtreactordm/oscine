@@ -1,7 +1,7 @@
 ---
 taskId: 01M28SFR7JGKQWGXMSQE0MJAX0
 title: 'Presence: public cover-URL resolution behind the D14 consent gate'
-status: in-progress
+status: in-review
 priority: medium
 labels:
   - discord
@@ -12,9 +12,9 @@ workstreamId: W20-5
 dependsOn:
   - 01M28SEX6184ZE1T1SGX28N1VF
   - 01M28SE04CRPRVTV15AWEZQ4Q2
-order: 0
+order: 1
 created: '2026-09-11T17:50:44.977Z'
-updated: '2026-09-11T20:46:03.006Z'
+updated: '2026-09-11T21:58:54.932Z'
 ---
 ## Intent
 

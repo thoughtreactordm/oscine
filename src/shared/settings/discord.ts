@@ -22,15 +22,25 @@ import {
   booleanValue,
   defineSetting,
   enumValue,
+  stringValue,
   type SettingDescriptor,
   type SettingOption
 } from './kernel'
 
 export const DISCORD_ENABLED = 'discord.enabled'
 export const DISCORD_DISPLAY = 'discord.display'
+export const DISCORD_STATUS_TEMPLATE = 'discord.statusTemplate'
 export const DISCORD_SHOW_ALBUM_ART = 'discord.showAlbumArt'
 export const DISCORD_SHOW_TIMESTAMP = 'discord.showTimestamp'
 export const DISCORD_WHEN_PAUSED = 'discord.whenPaused'
+
+/**
+ * The longest template we store. Generous next to the tokens' own length — a
+ * realistic `{albumArtist} — {album} — {title}` is well under it — but bounded so
+ * a paste cannot smuggle an essay into the field. The *rendered* line is capped
+ * separately at the point of use (`STATUS_LINE_MAX_LENGTH`, Discord's own limit).
+ */
+export const DISCORD_STATUS_TEMPLATE_MAX_LENGTH = 128
 
 /**
  * How much identifying detail the presence card carries — the privacy lever.
@@ -55,6 +65,13 @@ export type DiscordWhenPaused = 'hide' | 'paused'
 export interface DiscordSettings {
   readonly enabled: boolean
   readonly display: DiscordDisplay
+  /**
+   * The template for the compact status line — the "Listening to X" text. Tokens
+   * (`{title}`, `{artist}`, `{album}`, `{albumArtist}`) render into `details`, the
+   * field the status line mirrors (W20-6). Meaningful only in the `title-*` modes;
+   * `generic` ignores it and holds the leak-free floor.
+   */
+  readonly statusTemplate: string
   readonly showAlbumArt: boolean
   readonly showTimestamp: boolean
   readonly whenPaused: DiscordWhenPaused
@@ -71,6 +88,7 @@ export interface DiscordSettings {
 export const DISCORD_SETTINGS_DEFAULTS: DiscordSettings = Object.freeze({
   enabled: false,
   display: 'title-artist',
+  statusTemplate: '{title}',
   showAlbumArt: false,
   showTimestamp: true,
   whenPaused: 'hide'
@@ -124,6 +142,32 @@ export const DISCORD_SETTINGS: readonly SettingDescriptor[] = [
     help: 'How much of the track the presence card names. Title and artist shows the most; “Listening to music” names nothing at all.',
     keywords: [...DISCORD_KEYWORDS, 'title', 'artist', 'privacy', 'detail', 'generic'],
     order: 130
+  }),
+  defineSetting<string>({
+    key: DISCORD_STATUS_TEMPLATE,
+    scope: 'durable',
+    portable: false,
+    default: DISCORD_SETTINGS_DEFAULTS.statusTemplate,
+    validate: stringValue({ maxLength: DISCORD_STATUS_TEMPLATE_MAX_LENGTH }),
+    control: { kind: 'text', placeholder: '{title}' },
+    category: 'network',
+    label: 'Status line template',
+    // No gate points at the display dial (gates open on a truthy key, and the
+    // dial is an enum) — but the template is inert at the “Listening to music”
+    // floor by design, so the help says so rather than leaving it a silent no-op.
+    help: 'The compact “Listening to X” line, as a template. Use {title}, {artist}, {album} and {albumArtist}; a token with no value is dropped, along with the punctuation left stranded beside it. Ignored at the “Listening to music” detail level, which names nothing.',
+    keywords: [
+      ...DISCORD_KEYWORDS,
+      'template',
+      'title',
+      'artist',
+      'album',
+      'token',
+      'custom',
+      'line',
+      'format'
+    ],
+    order: 135
   }),
   defineSetting<boolean>({
     key: DISCORD_SHOW_ALBUM_ART,

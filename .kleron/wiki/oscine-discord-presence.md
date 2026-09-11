@@ -96,6 +96,8 @@ itself and main resolves them before the window opens:
 - `discord.enabled` — master toggle, **default `false`**.
 - `discord.display` — select: *Title & artist* / *Title only* / generic *"Listening to music"*. The
   privacy dial over how much identifying detail is broadcast.
+- `discord.statusTemplate` — free-text template for the compact status line, **default `{title}`**
+  (so the line is unchanged out of the box). See below.
 - `discord.showAlbumArt` — toggle, **default `false`**, **D14-gated** (disabled/annotated when
   consent is off, exactly as other network-dependent settings behave), with help text stating it
   performs an online cover lookup.
@@ -104,6 +106,21 @@ itself and main resolves them before the window opens:
 
 Surfaced in `[[oscine-onboarding]]`'s Network step alongside scrobbling, since it is another
 opt-in third-party disclosure.
+
+**The templated status line (W20-6).** Discord's `status_display_type` (discord-api-docs#7674) can
+only *point* the compact "Listening to X" line at an existing activity field — `name`, `state`, or
+`details` — so it cannot carry arbitrary templated text on its own. W20-4 already points it at
+`details`; W20-6 makes `details` the render target of `discord.statusTemplate`, so the operator's
+template reaches the status line through that same seam rather than through a field Discord does not
+have. The renderer (`src/main/discord/statusLine.ts`, pure and unit-tested beside `buildActivity`)
+substitutes `{title}`/`{artist}`/`{album}`/`{albumArtist}` from the `PresenceTrack`, strips unknown
+tokens, collapses the punctuation a missing field strands (a leading dash, a doubled `— —`, an empty
+`()`), never renders blank (an all-empty template falls back to the title), and caps at Discord's
+128-char field limit. The **privacy floor holds**: `generic` mode ignores the template entirely and
+keeps the app-name status line, so no token can leak title or artist at the level that promised to
+name nothing — the template is meaningful only in the `title-*` modes. This is a mapping change, not
+a new consent surface: it templates a field already broadcast, reaches no network, and default
+`{title}` reproduces the pre-W20-6 line exactly.
 
 ## R12 — Discord IPC availability & rate-limits *(medium, platform)*
 
@@ -127,6 +144,7 @@ mechanism, not after it — the same discipline R1 established for the decode-me
 - **W20-3** — the pure `buildActivity(settings, signal)` mapping and the presence service.
 - **W20-4** — the `discord.*` settings descriptors, generated UI, and the onboarding Network step.
 - **W20-5** — public cover-URL resolution behind the D14 gate, feeding `largeImageKey`.
+- **W20-6** — the operator-templated status line: `discord.statusTemplate` + the pure `renderStatusLine` token renderer feeding `details`.
 
 ## Does not
 
