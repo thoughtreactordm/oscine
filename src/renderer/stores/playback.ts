@@ -7,12 +7,22 @@ import {
   type QueueSession
 } from '@shared/settings'
 import { createAudioEngineFactory } from '@renderer/audio'
-import { favorites, library, listens, playlists } from '@renderer/ipc'
+import { favorites, library, listens, playlists, presence } from '@renderer/ipc'
 import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMediaSession'
 import { createPlaybackController } from '@renderer/playback/controller'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
+import { createPresenceEmitter } from '@renderer/playback/presenceEmitter'
 import { restoredQueueSession, useSettings } from '@renderer/settings'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
+
+/**
+ * The pre-W20-4 seam for `discord.enabled`. The presence emitter reads this
+ * before every emit, so presence is dark end to end until the setting descriptor
+ * lands and this is replaced with `settings.get<boolean>('discord.enabled')`.
+ * `discord.enabled` cannot be read through `settings.get` yet — it throws on an
+ * unregistered key — which is why a constant stands in.
+ */
+const PRESENCE_ENABLED = false
 
 /**
  * Playback state for the whole app: what is loaded, where it has reached, and
@@ -172,6 +182,24 @@ export const usePlaybackStore = defineStore('playback', () => {
       else void settings.set<QueueSession>(QUEUE_SESSION_KEY, { ...EMPTY_QUEUE_SESSION })
     }
   )
+
+  // W20-1: Discord presence's now-playing emitter. It reads the same reactive
+  // fields the transport binds and pushes them renderer→main over
+  // `presence.update`, debounced to transitions plus a heartbeat. Never
+  // unsubscribed — like the media session, it is live for exactly as long as the
+  // renderer is. Gated off until W20-4 wires `discord.enabled`; the seam is the
+  // `enabled` getter below, so flipping the feature on is a one-line change here
+  // rather than a re-wire. `discord.enabled` is not a registered descriptor yet,
+  // so it cannot be read through `settings.get` (which throws on an unknown key)
+  // — the constant stands in until then.
+  createPresenceEmitter({
+    status: controller.status,
+    nowPlaying: controller.nowPlaying,
+    currentTime: controller.currentTime,
+    duration: controller.duration,
+    enabled: () => PRESENCE_ENABLED,
+    emit: (signal) => presence.update(signal)
+  })
 
   return controller
 })

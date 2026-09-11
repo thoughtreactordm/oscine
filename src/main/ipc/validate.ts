@@ -41,6 +41,7 @@ import {
 } from '@shared/tags'
 import { PLAY_HISTORY_CAP, type ListPlayHistoryQuery } from '@shared/history'
 import type { RecordListenRequest } from '@shared/listens'
+import type { PresenceSignal, PresenceTrack } from '@shared/presence'
 import {
   MAX_WRITEBACK_TRACKS,
   WRITEBACK_FIELDS,
@@ -1036,6 +1037,65 @@ export function assertRecordListenRequest(value: unknown): RecordListenRequest {
     trackId: assertPositiveInt(raw.trackId, 'trackId'),
     startedAt: assertPositiveInt(raw.startedAt, 'startedAt'),
     msListened
+  }
+}
+
+/**
+ * A presence signal — **W20-1**. The renderer's own emitter builds it, so this
+ * guards the two failure modes validation always guards: a bug sending the wrong
+ * shape, and a compromised renderer probing the seam.
+ *
+ * `track: null` is a first-class value — the "clear presence" signal — not an
+ * omission, so it is checked for explicitly before the record is inspected. The
+ * display strings are capped like any other free text, and the two millisecond
+ * fields admit zero (a track at its very start has position zero) but not a
+ * negative or a fraction of a millisecond.
+ */
+function assertPresenceMs(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    invalid(`${field} must be a non-negative integer.`)
+  }
+  return value
+}
+
+function assertPresenceString(value: unknown, field: string): string {
+  if (typeof value !== 'string') invalid(`${field} must be a string.`)
+  if (value.length > 1000) invalid(`${field} must not exceed 1000 characters.`)
+  return value
+}
+
+/** A nullable display string that may also be omitted entirely. */
+function assertOptionalPresenceString(value: unknown, field: string): string | null | undefined {
+  if (value === undefined || value === null) return value
+  return assertPresenceString(value, field)
+}
+
+function assertPresenceTrack(value: unknown): PresenceTrack {
+  const raw = assertRecord(value, 'track')
+  assertOnlyKeys(raw, ['title', 'artist', 'album', 'albumArtist', 'durationMs'])
+  const album = assertOptionalPresenceString(raw.album, 'track.album')
+  const albumArtist = assertOptionalPresenceString(raw.albumArtist, 'track.albumArtist')
+  return {
+    title: assertPresenceString(raw.title, 'track.title'),
+    artist: raw.artist === null ? null : assertPresenceString(raw.artist, 'track.artist'),
+    // Absent stays absent; an explicit `null` is preserved. Both are legal — a
+    // single has no album — and the mapping (W20-3) treats them the same.
+    ...(album === undefined ? {} : { album }),
+    ...(albumArtist === undefined ? {} : { albumArtist }),
+    durationMs: assertPresenceMs(raw.durationMs, 'track.durationMs')
+  }
+}
+
+export function assertPresenceSignal(value: unknown): PresenceSignal {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['track', 'positionMs', 'paused', 'playing'])
+  if (typeof raw.paused !== 'boolean') invalid('paused must be a boolean.')
+  if (typeof raw.playing !== 'boolean') invalid('playing must be a boolean.')
+  return {
+    track: raw.track === null ? null : assertPresenceTrack(raw.track),
+    positionMs: assertPresenceMs(raw.positionMs, 'positionMs'),
+    paused: raw.paused,
+    playing: raw.playing
   }
 }
 

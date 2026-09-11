@@ -19,6 +19,7 @@ import type {
 import type { NetService } from '../net'
 import type { ScrobbleAccountsService } from '../scrobble/accounts'
 import type { ScrobbleStatusService } from '../scrobble/status'
+import type { PresenceSink } from '../discord/presenceSink'
 import type { SearchService } from '../search/service'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
@@ -105,7 +106,8 @@ import {
   assertAddTagsRequest,
   assertRemoveTagRequest,
   assertRenameTagRequest,
-  assertSuggestTagsRequest
+  assertSuggestTagsRequest,
+  assertPresenceSignal
 } from './validate'
 import { registerCdripHandlers } from './cdrip'
 
@@ -140,7 +142,8 @@ export function registerIpcHandlers(
   updates: UpdateService,
   rip: RipService,
   pickRipDestination: () => Promise<string | null>,
-  coverSearch: CoverSearchService
+  coverSearch: CoverSearchService,
+  presence: PresenceSink
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -399,6 +402,16 @@ export function registerIpcHandlers(
 
   handle('listens.flushed', () => {
     listens.acknowledgeFlush()
+    return null
+  })
+
+  // W20-1: the throttled now-playing signal for Discord presence. A thin sink —
+  // validate the shape and forward it. The no-op sink swallows it today; W20-3
+  // swaps in the presence service. The handler returns `null` because the
+  // channel is fire-and-forget, and never throws: a `track: null` signal is the
+  // ordinary "clear presence" case, not a fault.
+  handle('presence.update', (request) => {
+    presence.update(assertPresenceSignal(request))
     return null
   })
 

@@ -19,6 +19,7 @@ import type {
   ListFavoritesQuery
 } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
+import type { PresenceSignal } from '@shared/presence'
 import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
 import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
@@ -207,6 +208,21 @@ export const listens = {
   flushed: () => unwrap(window.oscine.listens.flushed()),
   /** Returns an unsubscribe function. Call it on unmount. */
   onFlushRequested: (listener: () => void) => window.oscine.listens.onFlushRequested(listener)
+}
+
+export const presence = {
+  /**
+   * Push one now-playing signal to main for Discord presence — **W20-1**.
+   *
+   * Fire-and-forget by contract: not `unwrap`ped and not awaited. The failure of
+   * a presence update is about a moment already passing, so it is swallowed here
+   * rather than surfaced — the same discipline `ScrobbleTarget.nowPlaying` keeps.
+   */
+  update: (signal: PresenceSignal): void => {
+    void window.oscine.presence.update(signal).catch(() => {
+      // Nothing to retry and nowhere to show it: presence is best-effort.
+    })
+  }
 }
 
 export const stats = {

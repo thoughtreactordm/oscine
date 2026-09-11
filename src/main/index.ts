@@ -23,6 +23,7 @@ import { SqliteFavoriteService } from './favorites/service'
 import { TagStore } from './tags/store'
 import { SqliteSearchService } from './search/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
+import { createNoopPresenceSink } from './discord/presenceSink'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { createDerivedArtworkStore } from './library/derivedArtwork'
 import { SqliteLibraryService } from './library/sqliteService'
@@ -992,7 +993,10 @@ if (!app.requestSingleInstanceLock()) {
       updates,
       rip,
       pickRipDestination,
-      coverSearch
+      coverSearch,
+      // W20-1: presence's main-side sink. A no-op until W20-3 lands the presence
+      // service — the emitter is gated off (W20-4) so nothing reaches it yet.
+      createNoopPresenceSink()
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was
