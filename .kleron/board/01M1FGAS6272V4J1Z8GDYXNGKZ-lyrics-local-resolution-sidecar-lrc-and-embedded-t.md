@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FGAS6272V4J1Z8GDYXNGKZ
 title: 'Lyrics: local resolution — sidecar .lrc and embedded tags'
-status: in-review
+status: done
 priority: medium
 labels:
   - lyrics
@@ -11,9 +11,9 @@ workstream: W17
 workstreamId: W17-2
 dependsOn:
   - 01M1FGA0QA7ESY1H2H6BR18ASW
-order: 9
+order: 17
 created: '2026-09-01T22:09:44.129Z'
-updated: '2026-09-11T03:05:13.462Z'
+updated: '2026-09-11T22:38:18.892Z'
 ---
 ## Intent
 

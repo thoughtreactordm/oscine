@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FGA0QA7ESY1H2H6BR18ASW
 title: 'Lyrics: LRC parser and the shared lyrics contract'
-status: in-review
+status: done
 priority: medium
 labels:
   - lyrics
@@ -9,9 +9,9 @@ labels:
   - parser
 workstream: W17
 workstreamId: W17-1
-order: 8
+order: 16
 created: '2026-09-01T22:09:19.081Z'
-updated: '2026-09-11T03:05:13.445Z'
+updated: '2026-09-11T22:38:18.876Z'
 ---
 ## Intent
 

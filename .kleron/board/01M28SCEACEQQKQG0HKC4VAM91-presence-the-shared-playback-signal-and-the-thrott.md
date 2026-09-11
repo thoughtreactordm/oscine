@@ -1,7 +1,7 @@
 ---
 taskId: 01M28SCEACEQQKQG0HKC4VAM91
 title: 'Presence: the shared playback signal and the throttled presence.update channel'
-status: in-review
+status: done
 priority: medium
 labels:
   - discord
@@ -9,9 +9,9 @@ labels:
   - ipc
 workstream: W20
 workstreamId: W20-1
-order: 10
+order: 18
 created: '2026-09-11T17:48:56.523Z'
-updated: '2026-09-11T19:30:21.427Z'
+updated: '2026-09-11T22:38:18.909Z'
 ---
 ## Intent
 

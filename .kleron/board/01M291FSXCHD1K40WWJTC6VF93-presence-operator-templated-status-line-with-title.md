@@ -1,7 +1,7 @@
 ---
 taskId: 01M291FSXCHD1K40WWJTC6VF93
 title: 'Presence: operator-templated status line with {title}/{artist} tokens'
-status: in-progress
+status: done
 priority: medium
 labels:
   - discord
@@ -11,9 +11,9 @@ workstream: W20
 workstreamId: W20-6
 dependsOn:
   - 01M28SE04CRPRVTV15AWEZQ4Q2
-order: 0
+order: 8
 created: '2026-09-11T20:10:35.306Z'
-updated: '2026-09-11T21:58:56.141Z'
+updated: '2026-09-11T22:38:18.753Z'
 ---
 ## Intent
 

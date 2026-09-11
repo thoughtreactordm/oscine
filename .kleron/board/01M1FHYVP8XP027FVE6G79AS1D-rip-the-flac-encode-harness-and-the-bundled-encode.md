@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FHYVP8XP027FVE6G79AS1D
 title: 'Rip: the FLAC encode harness and the bundled encoder binary'
-status: in-review
+status: done
 priority: medium
 labels:
   - cdrip
@@ -12,9 +12,9 @@ workstream: W18
 workstreamId: W18-3
 dependsOn:
   - 01M1FHX2E9B7GSQRZHJ4MPFHX1
-order: 2
+order: 10
 created: '2026-09-01T22:38:10.632Z'
-updated: '2026-09-09T03:03:17.287Z'
+updated: '2026-09-11T22:38:18.778Z'
 ---
 ## Intent
 

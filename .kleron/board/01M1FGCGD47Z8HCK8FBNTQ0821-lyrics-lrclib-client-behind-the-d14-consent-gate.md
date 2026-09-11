@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FGCGD47Z8HCK8FBNTQ0821
 title: 'Lyrics: LRCLIB client behind the D14 consent gate'
-status: in-review
+status: done
 priority: medium
 labels:
   - lyrics
@@ -12,9 +12,9 @@ workstreamId: W17-4
 dependsOn:
   - 01M1FGA0QA7ESY1H2H6BR18ASW
   - 01M1FGAS6272V4J1Z8GDYXNGKZ
-order: 2
+order: 9
 created: '2026-09-01T22:10:40.676Z'
-updated: '2026-09-11T17:56:06.792Z'
+updated: '2026-09-11T22:38:18.765Z'
 ---
 ## Intent
 

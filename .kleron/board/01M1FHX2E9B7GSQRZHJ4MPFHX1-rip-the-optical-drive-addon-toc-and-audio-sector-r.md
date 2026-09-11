@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FHX2E9B7GSQRZHJ4MPFHX1
 title: 'Rip: the optical drive addon — TOC and audio sector reads'
-status: in-review
+status: done
 priority: high
 labels:
   - cdrip
@@ -13,7 +13,7 @@ workstream: W18
 workstreamId: W18-1
 order: 0
 created: '2026-09-01T22:37:12.009Z'
-updated: '2026-09-09T02:33:08.673Z'
+updated: '2026-09-11T22:38:18.639Z'
 ---
 ## Intent
 

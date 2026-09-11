@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJ24A6GBCQ31HBZYTRAT1P
 title: 'Rip: the Tools pane — disc detection, release match, track selection, progress'
-status: in-review
+status: done
 priority: medium
 labels:
   - cdrip
@@ -13,9 +13,9 @@ workstreamId: W18-7
 dependsOn:
   - 01M1FJ0P2N21SZFS5S8890MFHD
   - 01M1FJ1A7514VX99VMCYXJ7PHC
-order: 6
+order: 15
 created: '2026-09-01T22:39:57.766Z'
-updated: '2026-09-10T19:05:26.382Z'
+updated: '2026-09-11T22:38:18.860Z'
 ---
 ## Intent
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01M28SDCQGK4GVHW932D193TTY
 title: 'Presence: the Discord RPC client and connection lifecycle behind an interface'
-status: in-review
+status: done
 priority: medium
 labels:
   - discord
@@ -9,9 +9,9 @@ labels:
   - ipc-socket
 workstream: W20
 workstreamId: W20-2
-order: 11
+order: 19
 created: '2026-09-11T17:49:27.663Z'
-updated: '2026-09-11T19:30:23.645Z'
+updated: '2026-09-11T22:38:18.925Z'
 ---
 ## Intent
 

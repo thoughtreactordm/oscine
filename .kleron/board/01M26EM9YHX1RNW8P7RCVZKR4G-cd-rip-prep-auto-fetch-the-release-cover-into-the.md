@@ -1,7 +1,7 @@
 ---
 taskId: 01M26EM9YHX1RNW8P7RCVZKR4G
 title: 'CD-rip prep: auto-fetch the release cover into the session before ripping'
-status: in-review
+status: done
 priority: medium
 labels:
   - artwork
@@ -16,9 +16,9 @@ workstreamDependsOn:
   - W18
 dependsOn:
   - 01M26EKC87G2EH95B3FGHKGSR6
-order: 1
+order: 5
 created: '2026-09-10T20:02:30.991Z'
-updated: '2026-09-11T01:49:55.108Z'
+updated: '2026-09-11T22:38:18.714Z'
 ---
 ## Intent
 

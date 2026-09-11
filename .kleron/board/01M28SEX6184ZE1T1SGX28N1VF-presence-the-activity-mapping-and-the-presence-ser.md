@@ -1,7 +1,7 @@
 ---
 taskId: 01M28SEX6184ZE1T1SGX28N1VF
 title: 'Presence: the activity mapping and the presence service'
-status: in-review
+status: done
 priority: medium
 labels:
   - discord
@@ -11,9 +11,9 @@ workstreamId: W20-4
 dependsOn:
   - 01M28SCEACEQQKQG0HKC4VAM91
   - 01M28SDCQGK4GVHW932D193TTY
-order: 12
+order: 20
 created: '2026-09-11T17:50:17.280Z'
-updated: '2026-09-11T20:15:21.372Z'
+updated: '2026-09-11T22:38:18.942Z'
 ---
 ## Intent
 

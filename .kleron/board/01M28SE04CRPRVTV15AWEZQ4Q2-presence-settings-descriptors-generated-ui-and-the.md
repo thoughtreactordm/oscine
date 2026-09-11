@@ -1,7 +1,7 @@
 ---
 taskId: 01M28SE04CRPRVTV15AWEZQ4Q2
 title: 'Presence: settings descriptors, generated UI, and the onboarding network step'
-status: in-review
+status: done
 priority: medium
 labels:
   - discord
@@ -9,9 +9,9 @@ labels:
   - onboarding
 workstream: W20
 workstreamId: W20-3
-order: 1
+order: 6
 created: '2026-09-11T17:49:47.531Z'
-updated: '2026-09-11T20:45:59.114Z'
+updated: '2026-09-11T22:38:18.727Z'
 ---
 ## Intent
 

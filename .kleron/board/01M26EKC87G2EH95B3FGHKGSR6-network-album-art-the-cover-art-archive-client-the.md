@@ -3,7 +3,7 @@ taskId: 01M26EKC87G2EH95B3FGHKGSR6
 title: >-
   Network album art: the Cover Art Archive client, the cover-art scope, and
   naming it at the D14 gate
-status: in-review
+status: done
 priority: medium
 labels:
   - artwork
@@ -13,9 +13,9 @@ labels:
   - D14
 workstream: W7
 workstreamId: W7-15
-order: 1
+order: 4
 created: '2026-09-10T20:02:00.582Z'
-updated: '2026-09-10T20:20:52.756Z'
+updated: '2026-09-11T22:38:18.701Z'
 ---
 ## Intent
 
