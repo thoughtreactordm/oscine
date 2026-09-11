@@ -113,7 +113,15 @@ export const NET_SCOPES = [
    * surface with no disc in the drive, and a rip finishing must not cancel a cover
    * search the operator started elsewhere, nor the reverse.
    */
-  'cover-art'
+  'cover-art',
+  /**
+   * The playing track's lyrics lookup (W17-4). The unit of interest is the track
+   * on the stage: skipping to the next one abandons the previous track's LRCLIB
+   * request rather than letting it land into a pane that has already moved on,
+   * which also frees the rate-limit slot the new track's lookup would queue
+   * behind. Cancelled by the lyrics store on every track change.
+   */
+  'lyrics'
 ] as const
 
 export type NetScope = (typeof NET_SCOPES)[number]

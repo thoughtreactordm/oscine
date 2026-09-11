@@ -73,7 +73,14 @@ export const CACHE_ENTITIES = [
    * able to take it away, and `ArtworkCacheService.prune` reads these rows for
    * exactly that reason.
    */
-  'commons.image'
+  'commons.image',
+  /**
+   * Artist + title + album + duration → LRCLIB's lyrics for one track (W17-4).
+   * The key carries duration so a re-tagged cut cannot reuse another version's
+   * timings; the row holds the parsed document, or a negative for a track LRCLIB
+   * has nothing for.
+   */
+  'lyrics.lrclib'
 ] as const
 
 export type CacheEntity = (typeof CACHE_ENTITIES)[number]
@@ -207,7 +214,22 @@ export const DEFAULT_CACHE_TTLS: Readonly<Record<CacheEntity, EntityTtl>> = {
    * ordinary case for most of a library, and it must cost one request a week
    * rather than one per play.
    */
-  'commons.image': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS }
+  'commons.image': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
+
+  /**
+   * Thirty days positive. A track's lyrics on LRCLIB are as settled as the
+   * release itself — a synced transcription is authored once and rarely revised —
+   * and the document is a few kilobytes either way, shown only for the one track
+   * on the stage.
+   *
+   * Seven days negative, the shared cadence and load-bearing here for the same
+   * reason as the artist searches: a track LRCLIB has nothing for — a bootleg, a
+   * local recording, a brand-new release — would otherwise re-ask on every play,
+   * which over a shuffle session is exactly the sustained traffic a free
+   * community service should not have to absorb. Seven days is short enough that
+   * a track that gains lyrics upstream is picked up within the week.
+   */
+  'lyrics.lrclib': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS }
 }
 
 /**

@@ -59,7 +59,12 @@ export async function resolveLyrics(
 
   if (deps.fetchNetworkLyrics) {
     const network = await safe(() => deps.fetchNetworkLyrics!(audioAbsPath))
-    if (hasLines(network)) return network
+    // Instrumental is a real answer that carries no lines — W17-3 renders it as
+    // its own state — so the network tier accepts it where `hasLines` would not.
+    // Only the network tier can produce it; the local tiers never set the flag.
+    if (network !== null && (network.lines.length > 0 || network.instrumental === true)) {
+      return network
+    }
   }
 
   return null

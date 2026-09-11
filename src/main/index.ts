@@ -26,6 +26,7 @@ import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { createDerivedArtworkStore } from './library/derivedArtwork'
 import { SqliteLibraryService } from './library/sqliteService'
+import { createLyricsNetworkService } from './library/lyrics/network'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { TagWritebackDiffer } from './library/writeback/differ'
@@ -699,8 +700,13 @@ if (!app.requestSingleInstanceLock()) {
       })
     )
 
+    // Tier 3 of the lyrics chain (W17-4): LRCLIB behind the shared client and
+    // cache, on its own 'lyrics' scope. One more D14 source, no new HTTP stack.
+    const lyricsNetwork = createLyricsNetworkService({ client: net.client, cache })
+
     const library = new SqliteLibraryService({
       db,
+      lyricsNetwork,
       artworkCacheDir: artworkCachePath(),
       artworkOriginalsDir: artworkOriginalsPath(),
       artworkProcessor,

@@ -54,6 +54,7 @@ import {
 import type { EmbeddedArtworkReader } from './metadata'
 import { readSidecarLyrics } from './lyrics/sidecar'
 import { resolveLyrics } from './lyrics/service'
+import type { LyricsNetworkService } from './lyrics/network'
 import { reconcilePaths, scanRoot } from './scanner'
 import { LibraryStore, type RootConflict, type RootRow } from './store'
 import { ArtworkCacheService, isArtworkSidecarPath } from './artwork'
@@ -108,6 +109,13 @@ export interface SqliteLibraryDeps {
    * column is introduced. Overridable for tests.
    */
   readEmbeddedLyrics?: (audioAbsPath: string) => Promise<string | null>
+  /**
+   * Tier 3 of the lyrics chain: the cache-wrapped LRCLIB lookup (W17-4).
+   * Assembled once in `index.ts` with the shared net client and cache, and
+   * injected so the local tiers stay testable without a socket. Omitted and the
+   * chain ends after the two local tiers, exactly as it did before W17-4.
+   */
+  lyricsNetwork?: LyricsNetworkService
   /** Enables the derived artwork service. Omitted by tests that do not exercise it. */
   artworkCacheDir?: string
   /**
@@ -172,6 +180,7 @@ export class SqliteLibraryService implements LibraryService {
   private readonly readFormatDetail: FormatDetailReader
   private readonly readSidecarLyrics: (audioAbsPath: string) => Promise<LyricsDocument | null>
   private readonly readEmbeddedLyrics: (audioAbsPath: string) => Promise<string | null>
+  private readonly lyricsNetwork: LyricsNetworkService | null
   private readonly replayGain: ReplayGainJobService
   private readonly watcher: RootDirectoryWatcher
   private readonly artwork: ArtworkCacheService | null
@@ -205,6 +214,7 @@ export class SqliteLibraryService implements LibraryService {
     // file's embedded lyrics, so there is one on-demand `parseFile`, not two.
     this.readEmbeddedLyrics =
       deps.readEmbeddedLyrics ?? (async (path) => (await this.readMetadata(path)).lyrics)
+    this.lyricsNetwork = deps.lyricsNetwork ?? null
     this.originals = deps.artworkOriginalsDir
       ? createArtworkOriginalsStore({ dir: deps.artworkOriginalsDir })
       : null
@@ -576,10 +586,30 @@ export class SqliteLibraryService implements LibraryService {
     // error, so this returns `null` there too instead of rejecting.
     const absPath = this.store.resolveTrackPath(trackId)
     if (absPath === null) return null
+
+    // Tier 3 matches on the track's corrected tags and duration, not the path, so
+    // it is wired from the live projection rather than the file — and only when a
+    // network service was injected (the local-only tests leave it null). Built
+    // per call so it reads the current override state, and the query is resolved
+    // lazily inside the closure so the two local tiers cost no track lookup.
+    const network = this.lyricsNetwork
+    const fetchNetworkLyrics = network
+      ? async (): Promise<LyricsDocument | null> => {
+          const track = this.store.getTracksByIds({ ids: [trackId] })[0]
+          if (track === undefined) return null
+          return network.fetch({
+            artist: track.artist ?? track.albumArtist ?? '',
+            title: track.title,
+            album: track.album,
+            durationSec: track.durationSec
+          })
+        }
+      : undefined
+
     return resolveLyrics(absPath, {
       readSidecar: this.readSidecarLyrics,
-      readEmbeddedLyrics: this.readEmbeddedLyrics
-      // fetchNetworkLyrics: tier 3, filled by W17-4.
+      readEmbeddedLyrics: this.readEmbeddedLyrics,
+      fetchNetworkLyrics
     })
   }
 

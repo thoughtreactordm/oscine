@@ -23,7 +23,16 @@ export interface LyricsLoader {
 }
 
 export function createLyricsLoader(
-  fetch: (trackId: number) => Promise<LyricsDocument | null>
+  fetch: (trackId: number) => Promise<LyricsDocument | null>,
+  /**
+   * Abandon any in-flight network lookup before starting the next one — the
+   * renderer half of the 'lyrics' net scope (W17-4). Called on every load,
+   * including a clear, so skipping through tracks frees the previous track's
+   * LRCLIB request rather than letting it finish against a pane that has moved
+   * on. Injected (rather than importing the IPC bridge here) so the loader stays
+   * unit-testable under Node.
+   */
+  cancelInFlight?: () => void
 ): LyricsLoader {
   const document = shallowRef<LyricsDocument | null>(null)
   const trackId = shallowRef<number | null>(null)
@@ -42,6 +51,11 @@ export function createLyricsLoader(
 
   async function load(next: number | null): Promise<void> {
     const request = ++issued
+
+    // Abandon the previous track's in-flight lookup up front, whether we are
+    // loading a new track or clearing — the stale response is dropped by the
+    // guard below anyway, but cancelling frees the socket and the rate-limit slot.
+    cancelInFlight?.()
 
     if (next === null) {
       document.value = null

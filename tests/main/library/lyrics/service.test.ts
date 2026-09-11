@@ -79,6 +79,26 @@ describe('resolveLyrics — tier order', () => {
     expect(remote?.source).toBe('lrclib')
   })
 
+  it('returns an instrumental network answer even though it carries no lines', async () => {
+    // Instrumental is a real answer with zero lines; the network tier must not
+    // drop it the way it drops an empty document from a local tier.
+    const instrumental: LyricsDocument = {
+      lines: [],
+      synced: false,
+      offsetMs: 0,
+      source: 'lrclib',
+      instrumental: true
+    }
+    const doc = await resolveLyrics(PATH, deps({ fetchNetworkLyrics: async () => instrumental }))
+    expect(doc?.instrumental).toBe(true)
+    expect(doc?.source).toBe('lrclib')
+  })
+
+  it('does not treat an empty non-instrumental network document as lyrics', async () => {
+    const empty: LyricsDocument = { lines: [], synced: false, offsetMs: 0, source: 'lrclib' }
+    expect(await resolveLyrics(PATH, deps({ fetchNetworkLyrics: async () => empty }))).toBeNull()
+  })
+
   it('returns null when no tier has lyrics', async () => {
     expect(await resolveLyrics(PATH, deps({}))).toBeNull()
   })
