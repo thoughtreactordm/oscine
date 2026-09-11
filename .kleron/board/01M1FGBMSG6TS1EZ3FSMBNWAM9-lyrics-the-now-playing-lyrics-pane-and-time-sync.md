@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FGBMSG6TS1EZ3FSMBNWAM9
 title: 'Lyrics: the Now Playing lyrics pane and time sync'
-status: in-progress
+status: in-review
 priority: medium
 labels:
   - lyrics
@@ -12,9 +12,9 @@ workstreamId: W17-3
 dependsOn:
   - 01M1FGA0QA7ESY1H2H6BR18ASW
   - 01M1FGAS6272V4J1Z8GDYXNGKZ
-order: 0
+order: 1
 created: '2026-09-01T22:10:12.399Z'
-updated: '2026-09-11T03:05:15.148Z'
+updated: '2026-09-11T17:55:59.794Z'
 ---
 ## Intent
 
