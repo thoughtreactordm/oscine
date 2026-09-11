@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useLyricsStore } from '@renderer/stores/lyrics'
 import { useZenStore } from '@renderer/stores/zen'
 import { useElementSize } from '@renderer/shell/useElementSize'
 import { useStageTransport } from '@renderer/shell/useStageTransport'
@@ -36,6 +37,7 @@ import WaveformRibbon from '@renderer/panels/WaveformRibbon.vue'
  * used to record no longer applies once the controls are shared.
  */
 const playback = usePlaybackStore()
+const lyrics = useLyricsStore()
 const zen = useZenStore()
 const settings = useSettings()
 
@@ -60,6 +62,27 @@ const showLyricsToggle = computed(
 function toggleLyrics(): void {
   void settings.set<boolean>(NOW_PLAYING_LYRICS_KEY, !lyricsEnabled.value)
 }
+
+/**
+ * How the shown document was resolved, said quietly and inline with the toggle
+ * rather than floating at the foot of the pane. The pane is an island; the stage
+ * owns the show/hide control, so the provenance that reads as a caption on it
+ * belongs here beside it. Null unless lyrics are actually on screen with a known
+ * source, so the toggle stands alone when there is nothing to attribute.
+ */
+const lyricsSource = computed(() => {
+  if (!showLyrics.value) return null
+  switch (lyrics.document?.source) {
+    case 'sidecar':
+      return 'from .lrc sidecar'
+    case 'embedded':
+      return 'from file tags'
+    case 'lrclib':
+      return 'from LRCLIB'
+    default:
+      return null
+  }
+})
 
 /**
  * Whether this view is carrying the transport itself — in Zen, or when the
@@ -177,6 +200,7 @@ const byline = computed(() => {
       class="stage-lyrics-toggle"
       :class="{ 'stage-lyrics-toggle-shifted': zen.active }"
     >
+      <span v-if="lyricsSource" class="text-xs text-dimmed">{{ lyricsSource }}</span>
       <UTooltip :text="lyricsEnabled ? 'Hide lyrics' : 'Show lyrics'">
         <UButton
           :icon="lyricsEnabled ? 'i-tabler-microphone-2' : 'i-tabler-microphone-2-off'"
@@ -369,11 +393,18 @@ section {
  * — extended to the whole body rather than a second responsive scheme. The
  * render gate (`showLyrics`, min stage width) means this only ever applies with
  * the room for it, so it needs no width query of its own.
+ *
+ * `justify-content: center` is what keeps the pair honest on a wide window: once
+ * the lyrics column hits its `max-width` cap the leftover width would otherwise
+ * pool on the right and leave the record shoved against the left edge — the pair
+ * instead sits centred as a unit, with even gutters. The gap tightens on a narrow
+ * stage so the two never trade a readable column for whitespace.
  */
 .stage-has-lyrics {
   flex-direction: row;
   align-items: stretch;
-  gap: 2.5rem;
+  justify-content: center;
+  gap: clamp(1.5rem, 3vw, 2.5rem);
 }
 
 /*
@@ -382,17 +413,25 @@ section {
  * `width: auto` is load-bearing: `w-full` (width: 100%) otherwise becomes the
  * flex basis under `flex-basis: auto`, so the cluster claims the full row and the
  * lyrics column shrinks to zero width — a pane that renders but cannot be seen.
+ *
+ * The `max-width` is the fix for a narrow stage — the half-width window with
+ * Tunedeck open. `--stage-art-max` is sized off the viewport (`58vmin`), so
+ * without a cap the record refuses to give way and crushes the lyrics into a
+ * wrapping mess. Capping the cluster at a share of the row lets the art's
+ * `max-w-full` shrink it in step, so the two always split the width rather than
+ * the lyrics taking whatever the record leaves.
  */
 .stage-has-lyrics .stage-content {
   flex: 0 1 auto;
   width: auto;
+  max-width: 45%;
 }
 
 .stage-lyrics {
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
-  max-width: 42rem;
+  max-width: 44rem;
 }
 
 /*
@@ -459,6 +498,9 @@ section:hover .stage-exit,
   top: 0.75rem;
   right: 0.75rem;
   z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   opacity: 0;
   transition: opacity 200ms ease;
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useLyricsStore } from '@renderer/stores/lyrics'
 import { useElementSize } from '@renderer/shell/useElementSize'
@@ -70,20 +70,6 @@ const state = computed<LyricsState>(() => {
 /** The line list the two text states render. */
 const lines = computed(() => lyrics.document?.lines ?? [])
 
-/** How the document was resolved, said quietly — it makes a wrong match diagnosable. */
-const sourceLabel = computed(() => {
-  switch (lyrics.document?.source) {
-    case 'sidecar':
-      return 'from .lrc sidecar'
-    case 'embedded':
-      return 'from file tags'
-    case 'lrclib':
-      return 'from LRCLIB'
-    default:
-      return null
-  }
-})
-
 /* ---------------------------------------------------------------- timing --- */
 
 const cursor = computed<LyricsCursor | null>(() => {
@@ -130,6 +116,83 @@ const activeSrcIndex = computed(() => {
 
 const scrollerRef = ref<HTMLElement | null>(null)
 const { height: scrollerHeight } = useElementSize(scrollerRef)
+
+/* ------------------------------------------------------- overlay scrollbar --- */
+
+/**
+ * A drawn scrollbar rather than the native one. Chromium ignores transitions on
+ * the `::-webkit-scrollbar` pseudo-elements, so the native thumb can only snap
+ * on and off — and the pane's edge mask fades it out top and bottom besides. The
+ * native track is hidden (see the style block); this thumb is a sibling of the
+ * scroller, so it sits *outside* the mask and can fade in on hover on its own.
+ *
+ * It is a plain indicator you can also drag. Metrics are recomputed off the
+ * scroller on every scroll — programmatic autoscroll writes fire `scroll` too,
+ * so the same handler keeps it tracking whether the reader or the clock is
+ * driving — and whenever the box or the document resizes it.
+ */
+const MIN_THUMB_PX = 28
+const thumbVisible = ref(false)
+const thumbHeight = ref(0)
+const thumbTop = ref(0)
+const thumbActive = ref(false)
+
+function updateThumb(): void {
+  const el = scrollerRef.value
+  if (!el) {
+    thumbVisible.value = false
+    return
+  }
+  const { scrollHeight, clientHeight, scrollTop } = el
+  if (scrollHeight <= clientHeight + 1) {
+    thumbVisible.value = false
+    return
+  }
+  const h = Math.max(MIN_THUMB_PX, (clientHeight / scrollHeight) * clientHeight)
+  const maxTop = clientHeight - h
+  const range = scrollHeight - clientHeight
+  thumbHeight.value = h
+  thumbTop.value = range > 0 ? (scrollTop / range) * maxTop : 0
+  thumbVisible.value = true
+}
+
+// The box resizing (window, Tunedeck) and a new document both change the ratio
+// the thumb draws, and neither necessarily moves `scrollTop` — recompute once the
+// DOM has settled.
+watch([scrollerHeight, () => lyrics.document], () => {
+  void nextTick(updateThumb)
+})
+
+// Dragging the thumb scrolls the box and counts as manual intent, the same as a
+// wheel or a drag on the text — so autoscroll yields while the reader is dragging.
+let dragOriginY = 0
+let dragOriginScroll = 0
+function onThumbPointerMove(event: PointerEvent): void {
+  const el = scrollerRef.value
+  if (!el) return
+  const { scrollHeight, clientHeight } = el
+  const maxTop = clientHeight - thumbHeight.value
+  if (maxTop <= 0) return
+  const dy = event.clientY - dragOriginY
+  el.scrollTop = dragOriginScroll + (dy / maxTop) * (scrollHeight - clientHeight)
+  onManualScroll()
+}
+function onThumbPointerUp(): void {
+  thumbActive.value = false
+  window.removeEventListener('pointermove', onThumbPointerMove)
+  window.removeEventListener('pointerup', onThumbPointerUp)
+}
+function onThumbPointerDown(event: PointerEvent): void {
+  const el = scrollerRef.value
+  if (!el) return
+  event.preventDefault()
+  dragOriginY = event.clientY
+  dragOriginScroll = el.scrollTop
+  thumbActive.value = true
+  onManualScroll()
+  window.addEventListener('pointermove', onThumbPointerMove)
+  window.addEventListener('pointerup', onThumbPointerUp)
+}
 
 // Line elements by source index, for the centring maths. A plain array, not
 // reactive: it is read inside the scroll write, not rendered.
@@ -203,12 +266,12 @@ function centerOf(srcIndex: number): number | null {
   return el.offsetTop + el.offsetHeight / 2
 }
 
-/** Position the active line at the viewport centre, gliding toward the next. */
-function applyScroll(): void {
-  if (userScrolling.value) return
+/** Where the scroller wants to be: the active line at the viewport centre,
+ *  gliding toward the next. Null when there is nothing to centre on. */
+function scrollTarget(): number | null {
   const scroller = scrollerRef.value
   const c = cursor.value
-  if (!scroller || !c) return
+  if (!scroller || !c) return null
 
   const pos = c.activePosAt(smoothMs.value)
   let center: number | null
@@ -226,16 +289,61 @@ function applyScroll(): void {
       } else center = curCenter
     } else center = curCenter
   }
-  if (center === null) return
-  const target = Math.max(0, center - scroller.clientHeight / 2)
-  scroller.scrollTop = target
+  if (center === null) return null
+  return Math.max(0, center - scroller.clientHeight / 2)
+}
+
+/*
+ * The rendered scroll position, low-pass-filtered toward the target rather than
+ * snapped to it. Two things make a direct write hitch: the playhead the target
+ * is built from only refreshes on the engine's coarse 250 ms tick, so it steps
+ * rather than flows; and the active line grows as it becomes current, reflowing
+ * every line below it. Easing the position absorbs both — during a steady glide
+ * exponential smoothing tracks the target at constant velocity with a fixed,
+ * imperceptible lag, so the motion still reads as linear; at each 250 ms step or
+ * line-change reflow it catches up over a couple of frames instead of jumping.
+ */
+const SCROLL_TAU_MS = 110
+let renderedScrollTop = 0
+let lastSmoothFrameMs = 0
+
+/**
+ * Move the scroll toward the active line. `smooth` eases the rendered position;
+ * the instant form is for the moments there is nothing to glide from — a paused
+ * seek, a fresh document, a reduced-motion session — and it re-seeds the filter
+ * so the next glide picks up from where the snap left it.
+ */
+function applyScroll(smooth = false): void {
+  if (userScrolling.value) return
+  const scroller = scrollerRef.value
+  const target = scrollTarget()
+  if (!scroller || target === null) return
+
+  if (!smooth) {
+    renderedScrollTop = target
+    lastSmoothFrameMs = 0
+    scroller.scrollTop = target
+    return
+  }
+
+  const now = performance.now()
+  // The first smooth frame after an instant set re-seeds from the real position,
+  // so a manual scroll or a snap is where the glide resumes from.
+  if (lastSmoothFrameMs === 0) renderedScrollTop = scroller.scrollTop
+  const dt = lastSmoothFrameMs === 0 ? 16 : Math.min(64, now - lastSmoothFrameMs)
+  lastSmoothFrameMs = now
+  const alpha = 1 - Math.exp(-dt / SCROLL_TAU_MS)
+  renderedScrollTop += (target - renderedScrollTop) * alpha
+  // Land exactly once within a subpixel, so it settles rather than crawling.
+  if (Math.abs(target - renderedScrollTop) < 0.5) renderedScrollTop = target
+  scroller.scrollTop = renderedScrollTop
 }
 
 /* ----------------------------------------------------------- the rAF clock --- */
 
 const clock = createRafClock(() => {
   smoothMs.value = estimateTimeMs(anchorSec, anchorAtMs, playback.isPlaying, performance.now())
-  applyScroll()
+  applyScroll(true)
 })
 
 // The loop earns its keep only while there is motion to interpolate and someone
@@ -285,6 +393,9 @@ onBeforeUnmount(() => {
   clock.stop()
   if (loadingTimer !== null) clearTimeout(loadingTimer)
   if (resumeTimer !== null) clearTimeout(resumeTimer)
+  // Drop any in-flight thumb drag; the window listeners outlive the component.
+  window.removeEventListener('pointermove', onThumbPointerMove)
+  window.removeEventListener('pointerup', onThumbPointerUp)
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', onVisibility)
   }
@@ -321,6 +432,7 @@ watch(
       class="lyrics-scroller relative min-h-0 flex-1 overflow-y-auto"
       :class="state === 'synced' ? 'lyrics-scroller-synced' : ''"
       tabindex="0"
+      @scroll="updateThumb"
       @wheel="onManualScroll"
       @touchmove="onManualScroll"
       @keydown="onScrollKey"
@@ -377,10 +489,20 @@ watch(
       </div>
     </Transition>
 
-    <!-- Provenance, unobtrusive. W17-5's manual override hangs off this row. -->
-    <p v-if="sourceLabel" class="lyrics-source shrink-0 text-xs text-dimmed">
-      {{ sourceLabel }}
-    </p>
+    <!--
+      The drawn scrollbar. Hidden until the pane is hovered or the thumb is being
+      dragged, so it never competes with the lyrics at rest; a sibling of the
+      scroller so the pane's edge mask leaves it crisp. Only shown when there is
+      a text document with an overflow to describe.
+    -->
+    <div
+      v-show="thumbVisible && (state === 'synced' || state === 'plain')"
+      class="lyrics-scrollbar"
+      :class="{ 'is-active': thumbActive }"
+      :style="{ height: `${thumbHeight}px`, top: `${thumbTop}px` }"
+      aria-hidden="true"
+      @pointerdown="onThumbPointerDown"
+    />
   </section>
 </template>
 
@@ -390,13 +512,59 @@ watch(
 }
 
 .lyrics-scroller {
-  scrollbar-width: thin;
+  /*
+   * The native scrollbar is hidden in favour of the drawn one (`.lyrics-scrollbar`):
+   * Chromium neither fades its pseudo-element thumb nor keeps it clear of the
+   * edge mask below, and this pane wants both.
+   */
+  scrollbar-width: none;
   /*
    * Fade the text into the pane's top and bottom edges so lines arrive and
    * leave rather than snapping at a hard boundary — the same feathering the
    * transport scrim uses, done in the mask so it costs no extra element.
    */
   mask-image: linear-gradient(to bottom, transparent 0, black 12%, black 88%, transparent 100%);
+}
+
+.lyrics-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * The drawn thumb. Resting at zero opacity so it is absent until wanted, it
+ * fades in when the pane is hovered or while it is being dragged. Its colour is a
+ * foreground text token so it inverts with the theme and stays legible over the
+ * stage wash the pane floats on — the light-mode/dark-mode contrast the native
+ * `--ui-border-accented` thumb was losing.
+ */
+.lyrics-scrollbar {
+  position: absolute;
+  right: 2px;
+  z-index: 4;
+  width: 6px;
+  border-radius: 9999px;
+  background-color: var(--ui-text-muted);
+  opacity: 0;
+  cursor: grab;
+  transition: opacity 200ms ease;
+}
+
+/* Revealed but held back — a quiet indicator, not a full-strength thumb. It
+   firms up only while it is actually being dragged. */
+.lyrics-pane:hover .lyrics-scrollbar {
+  opacity: 0.45;
+}
+
+.lyrics-scrollbar.is-active {
+  opacity: 0.85;
+  background-color: var(--ui-text-highlighted);
+  cursor: grabbing;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lyrics-scrollbar {
+    transition-duration: 0ms;
+  }
 }
 
 .lyrics-line {
@@ -416,18 +584,36 @@ watch(
   line-height: 1.5;
 }
 
-/* Synced idle lines sit back so the active one carries the eye. */
+/*
+ * Synced lines share one font-size so the active-line emphasis is a transform,
+ * never a reflow. Animating `font-size` (or even just letting it differ between
+ * states) resizes the layout box, which moves every line below it and shifts the
+ * very target the scroll is centring on — a guaranteed jump on each line change.
+ * A `scale` changes what the eye sees without touching the box, so the layout the
+ * scroller reads stays still. Idle lines are scaled *down* from the active size
+ * rather than the active one scaled up, so the line actually being read renders
+ * at its native resolution and stays crisp; a downscaled idle line supersamples
+ * and reads fine dimmed.
+ */
+.lyrics-line-idle,
+.lyrics-line-active {
+  font-size: 1.2rem;
+  transform-origin: center;
+}
+
+/* Synced idle lines sit back so the active one carries the eye. 0.875 × 1.2rem
+   lands on the 1.05rem the idle line used to be sized at. */
 .lyrics-line-idle {
   color: var(--ui-text-dimmed);
-  font-size: 1.05rem;
   opacity: 0.7;
+  transform: scale(0.875);
 }
 
 .lyrics-line-active {
   color: var(--ui-text-highlighted);
-  font-size: 1.2rem;
   font-weight: 600;
   opacity: 1;
+  transform: scale(1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -455,10 +641,5 @@ watch(
 .lyrics-jump-leave-to {
   opacity: 0;
   transform: translate(-50%, 0.5rem);
-}
-
-.lyrics-source {
-  padding-top: 0.5rem;
-  text-align: center;
 }
 </style>
