@@ -631,7 +631,8 @@ export function assertArtworkApplyRemoteRequest(value: unknown): {
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['trackIds', 'url'])
   const trackIds = assertOverrideTrackIds(raw.trackIds)
-  if (typeof raw.url !== 'string' || raw.url.length === 0) invalid('url must be a non-empty string.')
+  if (typeof raw.url !== 'string' || raw.url.length === 0)
+    invalid('url must be a non-empty string.')
   if (raw.url.length > MAX_COVER_URL) invalid('url must not exceed the maximum length.')
   return { trackIds, url: raw.url }
 }

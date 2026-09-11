@@ -118,9 +118,7 @@ describe('parseItunesAlbumSearch', () => {
 
 describe('searchItunesAlbumCovers', () => {
   const BODY = JSON.stringify({
-    results: [
-      { collectionName: 'Rumours', artistName: 'Fleetwood Mac', artworkUrl600: ART_600 }
-    ]
+    results: [{ collectionName: 'Rumours', artistName: 'Fleetwood Mac', artworkUrl600: ART_600 }]
   })
 
   it('queries Apple for albums and returns candidates', async () => {

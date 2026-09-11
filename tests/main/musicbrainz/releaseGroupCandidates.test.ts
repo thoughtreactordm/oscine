@@ -107,8 +107,7 @@ describe('searchReleaseGroupCandidates', () => {
   })
 
   it('returns an empty list rather than a failure when there is nothing to ask', async () => {
-    const fetchImpl = (() =>
-      Promise.resolve(new Response('{}'))) as unknown as typeof fetch
+    const fetchImpl = (() => Promise.resolve(new Response('{}'))) as unknown as typeof fetch
     const result = await searchReleaseGroupCandidates(makeClient(fetchImpl), '', '')
     expect(result).toEqual({ ok: true, value: [] })
   })

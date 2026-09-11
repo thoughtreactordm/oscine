@@ -56,7 +56,8 @@ function routingFetch(): { fetchImpl: typeof fetch; calls: string[] } {
     const url = String(input)
     calls.push(url)
     if (url.endsWith('.jpg')) return Promise.resolve(new Response(JPEG_BYTES))
-    if (url.includes('musicbrainz.org')) return Promise.resolve(new Response(JSON.stringify(MB_REPLY)))
+    if (url.includes('musicbrainz.org'))
+      return Promise.resolve(new Response(JSON.stringify(MB_REPLY)))
     if (url.includes('coverartarchive.org')) {
       return Promise.resolve(new Response(JSON.stringify(CAA_MANIFEST)))
     }

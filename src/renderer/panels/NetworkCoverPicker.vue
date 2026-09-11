@@ -79,9 +79,7 @@ function pick(candidate: CoverArtCandidate): void {
       <div class="flex max-h-[80vh] flex-col">
         <header class="flex flex-col gap-2 border-b border-default p-4">
           <div class="flex items-center justify-between">
-            <h2 class="text-base font-semibold text-highlighted">
-              Get artwork from the internet
-            </h2>
+            <h2 class="text-base font-semibold text-highlighted">Get artwork from the internet</h2>
             <UButton
               type="button"
               size="xs"

@@ -277,8 +277,7 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
       coverCandidates.value = await artwork.searchCovers(artist, album)
     } catch (error) {
       coverCandidates.value = []
-      coverSearchError.value =
-        error instanceof Error ? error.message : 'The cover search failed.'
+      coverSearchError.value = error instanceof Error ? error.message : 'The cover search failed.'
     } finally {
       coverSearched.value = true
       coverSearching.value = false
