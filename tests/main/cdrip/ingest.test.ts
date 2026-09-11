@@ -46,6 +46,7 @@ function audioTags(overrides: Partial<TrackTags> = {}): TrackTags {
     channels: 2,
     bitDepth: 16,
     genre: null,
+    lyrics: null,
     replayGain: null,
     ...overrides
   }

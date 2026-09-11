@@ -45,6 +45,7 @@ function fileTags(over: Partial<TrackTags> = {}): TrackTags {
     bitDepth: 16,
     genre: 'Rock',
     replayGain: null,
+    lyrics: null,
     ...over
   }
 }

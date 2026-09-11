@@ -39,6 +39,7 @@ function tags(overrides: Partial<TrackTags> = {}): TrackTags {
     bitDepth: 16,
     genre: null,
     replayGain: null,
+    lyrics: null,
     ...overrides
   }
 }
@@ -248,6 +249,31 @@ describe('scanRoot', () => {
 
   it('rejects an unknown root without crashing the caller', async () => {
     await expect(service.scanRoot(4242)).rejects.toThrow(OscineError)
+  })
+})
+
+describe('getLyrics', () => {
+  it('returns null for a track that is not in the library', async () => {
+    expect(await service.getLyrics(9999)).toBeNull()
+  })
+
+  it('resolves a sidecar .lrc beside a scanned track through the real fs reader', async () => {
+    const path = musicFolder('Music', ['a.flac'])
+    // The sidecar path is derived from the rejoined track path, never stored.
+    writeFileSync(join(path, 'a.lrc'), '[00:01.00]hello world')
+    await addAndScan(path)
+
+    const { tracks } = await service.listTracks({
+      sort: 'title',
+      direction: 'asc',
+      offset: 0,
+      limit: 10
+    })
+    const doc = await service.getLyrics(tracks[0].id)
+
+    expect(doc?.source).toBe('sidecar')
+    expect(doc?.synced).toBe(true)
+    expect(doc?.lines[0]?.text).toBe('hello world')
   })
 })
 

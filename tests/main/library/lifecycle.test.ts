@@ -71,7 +71,8 @@ function tags(title: string): TrackTags {
     channels: 2,
     bitDepth: 16,
     genre: null,
-    replayGain: null
+    replayGain: null,
+    lyrics: null
   }
 }
 

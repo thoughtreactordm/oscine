@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { IAudioMetadata } from 'music-metadata'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  extractLyrics,
   normaliseCodec,
   readTrackFormatDetail,
   readTrackTags,
@@ -303,6 +304,59 @@ describe('toTrackTags', () => {
 
   it('converts duration from seconds to the millisecond column', () => {
     expect(toTrackTags(parsed({}, { duration: 312.4567 })).durationMs).toBe(312457)
+  })
+})
+
+describe('extractLyrics', () => {
+  function meta(common: object, native: object = {}): IAudioMetadata {
+    return { common, format: {}, native, quality: { warnings: [] } } as unknown as IAudioMetadata
+  }
+
+  it('prefers a common lyrics tag with plain text, verbatim', () => {
+    // Raw on purpose: LRC-in-USLT is returned untouched for the resolver's
+    // parseLrc to judge, not pre-parsed here.
+    const raw = '[00:01.00]la la\n[00:02.00]la'
+    expect(extractLyrics(meta({ lyrics: [{ text: raw, syncText: [] }] }))).toBe(raw)
+  })
+
+  it('rebuilds LRC lines from a structured SYLT syncText when there is no plain text', () => {
+    const doc = extractLyrics(
+      meta({
+        lyrics: [
+          {
+            text: undefined,
+            syncText: [
+              { text: 'first', timestamp: 1000 },
+              { text: 'second', timestamp: 65_120 }
+            ]
+          }
+        ]
+      })
+    )
+    expect(doc).toBe('[00:01.000]first\n[01:05.120]second')
+  })
+
+  it('falls back to native frames when common carries no lyrics', () => {
+    expect(
+      extractLyrics(meta({}, { 'ID3v2.3': [{ id: 'USLT:eng', value: { text: 'native words' } }] }))
+    ).toBe('native words')
+    expect(extractLyrics(meta({}, { vorbis: [{ id: 'LYRICS', value: 'vorbis words' }] }))).toBe(
+      'vorbis words'
+    )
+    expect(extractLyrics(meta({}, { iTunes: [{ id: '©lyr', value: 'mp4 words' }] }))).toBe(
+      'mp4 words'
+    )
+  })
+
+  it('is null when the file carries no lyrics at all', () => {
+    expect(extractLyrics(meta({}))).toBeNull()
+    expect(extractLyrics(meta({ lyrics: [] }))).toBeNull()
+    expect(extractLyrics(meta({ lyrics: [{ text: '   ', syncText: [] }] }))).toBeNull()
+  })
+
+  it('is surfaced on TrackTags.lyrics', () => {
+    expect(toTrackTags(meta({ lyrics: [{ text: 'hi', syncText: [] }] })).lyrics).toBe('hi')
+    expect(toTrackTags(meta({})).lyrics).toBeNull()
   })
 })
 
