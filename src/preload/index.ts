@@ -37,6 +37,7 @@ import type {
   ListFavoritesQuery
 } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
+import type { PresenceSignal } from '@shared/presence'
 import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
 import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
@@ -281,6 +282,15 @@ const api = {
       subscribe('listens.flushRequested', () => {
         listener()
       })
+  },
+  presence: {
+    /**
+     * Push one now-playing signal to main for Discord presence — **W20-1**.
+     *
+     * Fire-and-forget: the renderer emitter debounces to transitions plus a
+     * heartbeat and never awaits the result. `track: null` clears presence.
+     */
+    update: (signal: PresenceSignal) => request('presence.update', signal)
   },
   stats: {
     /**

@@ -1,16 +1,18 @@
 import { watch } from 'vue'
 import { defineStore } from 'pinia'
 import {
+  DISCORD_ENABLED,
   EMPTY_QUEUE_SESSION,
   QUEUE_SESSION_KEY,
   RESTORE_QUEUE_KEY,
   type QueueSession
 } from '@shared/settings'
 import { createAudioEngineFactory } from '@renderer/audio'
-import { favorites, library, listens, playlists } from '@renderer/ipc'
+import { favorites, library, listens, playlists, presence } from '@renderer/ipc'
 import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMediaSession'
 import { createPlaybackController } from '@renderer/playback/controller'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
+import { createPresenceEmitter } from '@renderer/playback/presenceEmitter'
 import { restoredQueueSession, useSettings } from '@renderer/settings'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 
@@ -172,6 +174,23 @@ export const usePlaybackStore = defineStore('playback', () => {
       else void settings.set<QueueSession>(QUEUE_SESSION_KEY, { ...EMPTY_QUEUE_SESSION })
     }
   )
+
+  // W20-1: Discord presence's now-playing emitter. It reads the same reactive
+  // fields the transport binds and pushes them renderer→main over
+  // `presence.update`, debounced to transitions plus a heartbeat. Never
+  // unsubscribed — like the media session, it is live for exactly as long as the
+  // renderer is. Gated off until W20-4 wires `discord.enabled`; the seam is the
+  // `enabled` is read live before every emit, so flipping `discord.enabled` in
+  // Settings turns presence on or off end to end without a re-wire — a disabled
+  // feature emits nothing at all (W20-3 registered the descriptor this reads).
+  createPresenceEmitter({
+    status: controller.status,
+    nowPlaying: controller.nowPlaying,
+    currentTime: controller.currentTime,
+    duration: controller.duration,
+    enabled: () => settings.get<boolean>(DISCORD_ENABLED) === true,
+    emit: (signal) => presence.update(signal)
+  })
 
   return controller
 })

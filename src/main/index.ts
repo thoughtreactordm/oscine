@@ -23,6 +23,12 @@ import { SqliteFavoriteService } from './favorites/service'
 import { TagStore } from './tags/store'
 import { SqliteSearchService } from './search/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
+import { DISCORD_APPLICATION_ID } from './discord/appId'
+import { createDiscordClient } from './discord/client'
+import { createPresenceArtworkResolver } from './discord/artwork'
+import { createPresenceService, type PresenceService } from './discord/service'
+import { discordSocketCandidates } from './discord/socketPaths'
+import { connectFirstSocket } from './discord/transport'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { createDerivedArtworkStore } from './library/derivedArtwork'
 import { SqliteLibraryService } from './library/sqliteService'
@@ -77,7 +83,15 @@ import type { ScrobbleTarget } from '@shared/scrobble'
 import { detectUpdateChannel, updateChannelCanSelfUpdate, type UpdateStatus } from '@shared/update'
 import {
   AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
+  DISCORD_DISPLAY,
+  DISCORD_ENABLED,
+  DISCORD_SHOW_ALBUM_ART,
+  DISCORD_SHOW_TIMESTAMP,
+  DISCORD_STATUS_TEMPLATE,
+  DISCORD_WHEN_PAUSED,
   LASTFM_LOVE_ON_FAVORITE,
+  type DiscordDisplay,
+  type DiscordWhenPaused,
   type SettingsChange
 } from '@shared/settings'
 
@@ -293,6 +307,13 @@ function requestListenFlush(): void {
  */
 let scrobbleStatus: ScrobbleStatusService | null = null
 
+/**
+ * Held at module scope for the same reason: the settings service is constructed
+ * before the presence service, but its `onChanged` callback must reach presence
+ * so a live `discord.*` change re-derives at once (W20-4).
+ */
+let presenceService: PresenceService | null = null
+
 function broadcastScrobbleStatus(): void {
   if (!mainWindow || !scrobbleStatus) return
   emit(mainWindow.webContents, 'scrobble.statusChanged', [...scrobbleStatus.status().targets])
@@ -497,6 +518,10 @@ if (!app.requestSingleInstanceLock()) {
         if (changes.some((change) => WINDOW_BACKGROUND_KEYS.includes(change.key))) {
           applyWindowBackground()
         }
+        // A live `discord.*` change re-derives presence now, rather than
+        // waiting for the next track (W20-4). Harmless until W20-3 registers the
+        // descriptors — no `discord.*` change can fire before then.
+        presenceService?.onSettingsChanged(changes)
       }
     })
 
@@ -637,6 +662,39 @@ if (!app.requestSingleInstanceLock()) {
     // Not passed to `createNetService`: the cache sits between the client and
     // its callers, never inside it. W7-9 takes both.
     const cache = openCacheService(cacheDatabasePath())
+
+    // W20-4/W20-5: presence, the Rich Presence sibling of the now-playing
+    // announcer, hanging off the same moment. The socket lives here in main (the
+    // renderer opens none — the invariant), behind the W20-2 client so a missing
+    // Discord is a quiet retry, never a throw (R12). The five `discord.*`
+    // descriptors (W20-3) are resolved fresh on every derivation, so a toggle
+    // takes effect live — and `onChanged` above re-derives the moment one flips,
+    // without waiting for the next track. Created here, after `cache`, so the
+    // album-art resolver (W20-5) can share the cache and net layers the cover-art
+    // surfaces use; the cover lookup rides the `discord` net scope, and a skip's
+    // `cancelScope('discord')` abandons whatever hop is in flight.
+    const discordClient = createDiscordClient({
+      clientId: DISCORD_APPLICATION_ID,
+      connect: connectFirstSocket,
+      candidates: () => discordSocketCandidates({ platform: process.platform, env: process.env })
+    })
+    const presenceArtwork = createPresenceArtworkResolver({ client: net.client, cache })
+    const presence = createPresenceService({
+      client: discordClient,
+      settings: () => ({
+        enabled: settings.get<boolean>(DISCORD_ENABLED),
+        display: settings.get<DiscordDisplay>(DISCORD_DISPLAY),
+        statusTemplate: settings.get<string>(DISCORD_STATUS_TEMPLATE),
+        showAlbumArt: settings.get<boolean>(DISCORD_SHOW_ALBUM_ART),
+        showTimestamp: settings.get<boolean>(DISCORD_SHOW_TIMESTAMP),
+        whenPaused: settings.get<DiscordWhenPaused>(DISCORD_WHEN_PAUSED)
+      }),
+      resolveCoverArt: (track) => presenceArtwork.resolve(track),
+      cancelCoverArt: () => {
+        net.cancelScope('discord')
+      }
+    })
+    presenceService = presence
 
     // R5's resolver, on the library connection and between the two above it. It
     // owns two columns of `artists` and reads nothing else, so it is its own
@@ -930,6 +988,10 @@ if (!app.requestSingleInstanceLock()) {
       rip.cancel()
       net.cancelScope('cdrip')
 
+      // Take presence down and disconnect the Discord socket before the window
+      // and database go, so a closed Oscine leaves no stale "Playing" card (W20-4).
+      presence.stop()
+
       // First of the awaited steps, because it is the only one that needs the
       // renderer alive and
       // the database open at the same time. The accumulator holds the in-flight
@@ -992,7 +1054,10 @@ if (!app.requestSingleInstanceLock()) {
       updates,
       rip,
       pickRipDestination,
-      coverSearch
+      coverSearch,
+      // W20-4: presence's main-side sink — the service that maps the signal to a
+      // Discord activity and drives the client, in place of W20-1's no-op stub.
+      presence
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

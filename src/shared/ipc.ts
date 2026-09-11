@@ -89,6 +89,7 @@ import type {
   ScrobbleTargetRequest,
   ScrobbleTargetStatus
 } from './scrobble'
+import type { PresenceSignal } from './presence'
 import type { RelatedQuery, RelatedResult } from './related'
 import type { DiscoverShelvesResult, SaveDiscoverShelfRequest } from './discover'
 import type {
@@ -1208,6 +1209,22 @@ export interface IpcContract {
   'scrobble.retry': { request: null; response: ScrobbleStatusResult }
 
   /**
+   * The throttled now-playing signal for Discord Rich Presence — **W20-1**, D31.
+   *
+   * Renderer→main, fire-and-forget: `response: null` and the emitter never awaits
+   * it. It is the sibling of the scrobble announcer above, hung off the same
+   * now-playing moment, but carries the position and paused state presence needs
+   * and scrobbling does not (`PresenceSignal`, `@shared/presence`).
+   *
+   * The renderer debounces it to state transitions plus a ~15s heartbeat — never
+   * per-frame, which would flood IPC and starve the renderer, and which Discord's
+   * ~1/15s rate limit would drop anyway. `track: null` / `playing: false` is the
+   * explicit "clear presence" signal. Main's consumer is a `PresenceSink`
+   * (`src/main/discord/`); W20-3 replaces the no-op with the presence service.
+   */
+  'presence.update': { request: PresenceSignal; response: null }
+
+  /**
    * Who is playing, as an identity rather than as a tag string (**R5**).
    *
    * `null` when the track has no artist credit, or has left the library while
@@ -1558,6 +1575,7 @@ export const IPC_CHANNELS = [
   'scrobble.cancelConnect',
   'scrobble.disconnect',
   'scrobble.retry',
+  'presence.update',
   'artist.resolve',
   'artist.searchCandidates',
   'artist.setMbid',

@@ -3,7 +3,7 @@ taskId: 01M26EN5FK3TBY9JE9MHFAN52C
 title: >-
   Edit-time artwork picker: search MusicBrainz + iTunes for a cover and stage it
   as an override
-status: in-progress
+status: in-review
 priority: medium
 labels:
   - artwork
@@ -18,9 +18,9 @@ workstreamDependsOn:
   - W16
 dependsOn:
   - 01M26EKC87G2EH95B3FGHKGSR6
-order: 1
+order: 2
 created: '2026-09-10T20:02:59.187Z'
-updated: '2026-09-11T01:49:53.685Z'
+updated: '2026-09-11T17:55:57.697Z'
 ---
 ## Intent
 
