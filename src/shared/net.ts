@@ -121,7 +121,16 @@ export const NET_SCOPES = [
    * which also frees the rate-limit slot the new track's lookup would queue
    * behind. Cancelled by the lyrics store on every track change.
    */
-  'lyrics'
+  'lyrics',
+  /**
+   * The playing track's Discord presence cover-art lookup (W20-5). The unit of
+   * interest is again the track on the stage: skipping abandons the previous
+   * track's MusicBrainz + Cover Art Archive resolution rather than letting a
+   * stale cover land on a card that has already moved on. Cancelled by the
+   * presence service (`discord/service.ts`) on every new moment and on teardown —
+   * the cancel host this closed union requires.
+   */
+  'discord'
 ] as const
 
 export type NetScope = (typeof NET_SCOPES)[number]

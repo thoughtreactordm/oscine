@@ -3,6 +3,7 @@ import type { PresenceSignal, PresenceTrack } from '@shared/presence'
 import type { DiscordSettings } from '@shared/settings/discord'
 import {
   buildActivity,
+  coverArtEligible,
   DISCORD_ACTIVITY_TYPE_LISTENING,
   GENERIC_DETAILS,
   STATUS_DISPLAY_DETAILS,
@@ -48,6 +49,49 @@ describe('buildActivity — clears', () => {
     expect(
       buildActivity(settings(), { track: null, positionMs: 0, paused: false, playing: false }, NOW)
     ).toBeNull()
+  })
+})
+
+describe('coverArtEligible', () => {
+  it('holds only when enabled, showing art, playing, and at title-artist', () => {
+    expect(coverArtEligible(settings({ showAlbumArt: true }), playing())).toBe(true)
+  })
+
+  it('is false when the album-art toggle is off', () => {
+    expect(coverArtEligible(settings({ showAlbumArt: false }), playing())).toBe(false)
+  })
+
+  it('is false below title-artist — the album is not shown at title-only or generic', () => {
+    expect(
+      coverArtEligible(settings({ showAlbumArt: true, display: 'title-only' }), playing())
+    ).toBe(false)
+    expect(coverArtEligible(settings({ showAlbumArt: true, display: 'generic' }), playing())).toBe(
+      false
+    )
+  })
+
+  it('is false when disabled, stopped, or a hidden pause', () => {
+    expect(coverArtEligible(settings({ showAlbumArt: true, enabled: false }), playing())).toBe(
+      false
+    )
+    expect(
+      coverArtEligible(settings({ showAlbumArt: true }), playing({ playing: false, track: null }))
+    ).toBe(false)
+    expect(
+      coverArtEligible(
+        settings({ showAlbumArt: true, whenPaused: 'hide' }),
+        playing({ paused: true })
+      )
+    ).toBe(false)
+  })
+
+  it('holds for a shown pause — a paused card still carries its cover', () => {
+    expect(
+      coverArtEligible(
+        settings({ showAlbumArt: true, whenPaused: 'paused' }),
+        playing({ paused: true })
+      )
+    ).toBe(true)
   })
 })
 

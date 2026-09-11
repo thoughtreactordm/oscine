@@ -80,7 +80,20 @@ export const CACHE_ENTITIES = [
    * timings; the row holds the parsed document, or a negative for a track LRCLIB
    * has nothing for.
    */
-  'lyrics.lrclib'
+  'lyrics.lrclib',
+  /**
+   * Album-artist + album (a track's free-text tags) → the release-group MBID
+   * MusicBrainz best-matches them to, for Discord presence's cover art (W20-5).
+   *
+   * The one hop that *must* be keyed on the free-text tag, because that is all
+   * the presence signal carries — an indexed track brings no MBID. Its value is
+   * an *identity*, though, and the cover manifest it feeds is keyed on that MBID
+   * (`coverartarchive.cover`), so a mistagged track can only ever mis-resolve its
+   * own cover and never poison a neighbour's entry. Negative-cached hard: an
+   * album MusicBrainz has never heard of — a bootleg, a local recording — must
+   * cost one search a week rather than one on every play of it (R5, R12).
+   */
+  'discord.release-match'
 ] as const
 
 export type CacheEntity = (typeof CACHE_ENTITIES)[number]
@@ -229,7 +242,20 @@ export const DEFAULT_CACHE_TTLS: Readonly<Record<CacheEntity, EntityTtl>> = {
    * community service should not have to absorb. Seven days is short enough that
    * a track that gains lyrics upstream is picked up within the week.
    */
-  'lyrics.lrclib': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS }
+  'lyrics.lrclib': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
+
+  /**
+   * Thirty days positive, the identity cadence. The mapping from an album's tags
+   * to its release group only moves when MusicBrainz gains, merges or renames the
+   * release — a curated edit on the scale of months — and the row is a single
+   * MBID string.
+   *
+   * Seven days negative, and load-bearing exactly as `musicbrainz.artist-search`
+   * is: an album MusicBrainz cannot match is the ordinary case for a bootleg or a
+   * local recording, and presence resolves the playing track on every change, so
+   * without the negative entry a shuffle session would re-search it once a play.
+   */
+  'discord.release-match': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS }
 }
 
 /**

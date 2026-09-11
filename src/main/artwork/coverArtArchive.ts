@@ -53,12 +53,19 @@ const COVER_ART_SCOPE: NetScope = 'cover-art'
 const COVER_ENTITY: CacheEntity = 'coverartarchive.cover'
 
 /** A release MBID's manifest. */
-function releaseCacheKey(mbid: string): string {
+export function releaseCacheKey(mbid: string): string {
   return `release:${mbid}`
 }
 
-/** A release-group MBID's manifest — the representative release's front. */
-function releaseGroupCacheKey(mbid: string): string {
+/**
+ * A release-group MBID's manifest — the representative release's front.
+ *
+ * Exported so a second caller on a different scope (W20-5's presence resolver)
+ * shares one cache row per release group with the picker: the manifest is keyed
+ * on the MBID, not on who asked for it, so a cover the operator once browsed for
+ * primes the one presence shows and vice versa.
+ */
+export function releaseGroupCacheKey(mbid: string): string {
   return `release-group:${mbid}`
 }
 
@@ -133,10 +140,11 @@ function parseManifest(manifest: CaaManifest): CoverArtCandidate[] {
  */
 export function fetchReleaseFront(
   client: NetClient,
-  mbid: string
+  mbid: string,
+  scope: NetScope = COVER_ART_SCOPE
 ): Promise<NetResult<CoverArtCandidate[]>> {
   if (!isMbid(mbid)) return Promise.resolve(rejectedMbid())
-  return fetchManifest(client, `${CAA_ORIGIN}/release/${mbid}`)
+  return fetchManifest(client, `${CAA_ORIGIN}/release/${mbid}`, scope)
 }
 
 /**
@@ -146,17 +154,19 @@ export function fetchReleaseFront(
  */
 export function fetchReleaseGroupFront(
   client: NetClient,
-  mbid: string
+  mbid: string,
+  scope: NetScope = COVER_ART_SCOPE
 ): Promise<NetResult<CoverArtCandidate[]>> {
   if (!isMbid(mbid)) return Promise.resolve(rejectedMbid())
-  return fetchManifest(client, `${CAA_ORIGIN}/release-group/${mbid}`)
+  return fetchManifest(client, `${CAA_ORIGIN}/release-group/${mbid}`, scope)
 }
 
 async function fetchManifest(
   client: NetClient,
-  url: string
+  url: string,
+  scope: NetScope = COVER_ART_SCOPE
 ): Promise<NetResult<CoverArtCandidate[]>> {
-  const result = await client.getJson<CaaManifest>({ url, scope: COVER_ART_SCOPE })
+  const result = await client.getJson<CaaManifest>({ url, scope })
   if (!result.ok) return result
   return netOk(parseManifest(result.value))
 }

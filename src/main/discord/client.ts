@@ -42,9 +42,24 @@ export interface DiscordActivity {
     end?: number
   }
   assets?: {
+    /**
+     * The large image: normally an *asset key* (an image uploaded to the app's Art
+     * Assets — our logo), but over the local IPC `SET_ACTIVITY` path Discord also
+     * accepts a raw external *URL* here and fetches it through its own media proxy.
+     * That is where a public cover URL goes (W20-5): the resolved URL replaces the
+     * logo key in this same field.
+     */
     large_image?: string
+    /**
+     * The newer-API / client-library external-image field. Nothing in this
+     * hand-rolled IPC client translates it, and Discord ignores it over
+     * `SET_ACTIVITY`, so a cover URL goes in `large_image` instead. Kept on the
+     * type only for wire completeness; presence never sets it.
+     */
+    large_url?: string
     large_text?: string
     small_image?: string
+    small_url?: string
     small_text?: string
   }
 }

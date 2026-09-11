@@ -8,6 +8,8 @@ import type {
   DiscordConnectionState
 } from '../../../src/main/discord/client'
 import { createPresenceService, PRESENCE_MIN_INTERVAL_MS } from '../../../src/main/discord/service'
+import { OSCINE_LOGO_ASSET_KEY } from '../../../src/main/discord/appId'
+import type { PresenceTrack } from '@shared/presence'
 
 /** A fake `DiscordClient` that records what it was driven to do. */
 function fakeClient() {
@@ -199,6 +201,153 @@ describe('presence service — clears', () => {
     // The queued 'B' must not fire after teardown.
     clock.advance(PRESENCE_MIN_INTERVAL_MS)
     expect(activities).toHaveLength(1)
+  })
+})
+
+describe('presence service — album art', () => {
+  /** A resolver whose answers the test releases by hand, one deferred per call. */
+  function coverHarness() {
+    const clock = clockHarness()
+    const { client, activities } = fakeClient()
+    const calls: PresenceTrack[] = []
+    const resolvers: Array<(url: string | null) => void> = []
+    const service = createPresenceService({
+      client,
+      settings: () => settings,
+      now: clock.now,
+      setTimeout: clock.setTimeout,
+      clearTimeout: clock.clearTimeout,
+      resolveCoverArt: (track) => {
+        calls.push(track)
+        return new Promise<string | null>((resolve) => {
+          resolvers.push(resolve)
+        })
+      },
+      cancelCoverArt: () => {}
+    })
+    return { service, activities, clock, calls, resolvers }
+  }
+
+  /** Let a resolved cover-lookup promise's `.then` run before asserting. */
+  const flush = (): Promise<void> => Promise.resolve()
+
+  it('shows the logo immediately and upgrades to the cover when it resolves', async () => {
+    settings.showAlbumArt = true
+    const { service, activities, clock, calls, resolvers } = coverHarness()
+    service.update(playing())
+
+    // The card is out at once carrying the logo — never blocked on the lookup.
+    expect(activities).toHaveLength(1)
+    expect(activities[0]?.assets?.large_image).toBe(OSCINE_LOGO_ASSET_KEY)
+    expect(calls).toHaveLength(1)
+
+    resolvers[0]('https://coverartarchive.org/release-group/x/front.jpg')
+    await flush()
+    // The upgrade is subject to the same throttle as any second send.
+    clock.advance(PRESENCE_MIN_INTERVAL_MS)
+    expect(activities).toHaveLength(2)
+    // The cover lands as a raw URL in `large_image` (the field the local IPC path
+    // fetches), the logo moves to the `small_image` badge, and `large_url` is never
+    // set.
+    expect(activities[1]?.assets?.large_image).toBe(
+      'https://coverartarchive.org/release-group/x/front.jpg'
+    )
+    expect(activities[1]?.assets?.small_image).toBe(OSCINE_LOGO_ASSET_KEY)
+    expect(activities[1]?.assets?.large_url).toBeUndefined()
+    // The base card carried the logo before the cover resolved.
+    expect(activities[0]?.assets?.large_image).toBe(OSCINE_LOGO_ASSET_KEY)
+    // The album caption survives the upgrade.
+    expect(activities[1]?.assets?.large_text).toBe(activities[0]?.assets?.large_text)
+  })
+
+  it('keeps the logo and issues no lookup when show-album-art is off', async () => {
+    settings.showAlbumArt = false
+    const { service, activities, calls } = coverHarness()
+    service.update(playing())
+    await flush()
+    expect(calls).toHaveLength(0)
+    expect(activities).toHaveLength(1)
+    expect(activities[0]?.assets?.large_image).toBe(OSCINE_LOGO_ASSET_KEY)
+  })
+
+  it('does not look up a cover below title-artist — the album is not shown there', async () => {
+    settings.showAlbumArt = true
+    settings.display = 'title-only'
+    const { service, calls } = coverHarness()
+    service.update(playing())
+    await flush()
+    expect(calls).toHaveLength(0)
+  })
+
+  it('abandons a stale lookup on track change and never lands its cover', async () => {
+    settings.showAlbumArt = true
+    const { service, activities, clock, calls, resolvers } = coverHarness()
+
+    service.update(playing(10_000, { track: { ...TRACK, title: 'A' } }))
+    clock.advance(PRESENCE_MIN_INTERVAL_MS)
+    service.update(playing(11_000, { track: { ...TRACK, title: 'B' } }))
+    expect(calls).toHaveLength(2)
+
+    // A's cover (the first deferred) arrives late, after B is on the stage — it
+    // was superseded, so it must be dropped.
+    resolvers[0]('https://coverartarchive.org/release-group/a/front.jpg')
+    await flush()
+    clock.advance(PRESENCE_MIN_INTERVAL_MS)
+    const covers = activities.map((a) => a?.assets?.large_image)
+    expect(covers).not.toContain('https://coverartarchive.org/release-group/a/front.jpg')
+  })
+
+  it('keeps the resolved cover across a heartbeat on the same track', async () => {
+    settings.showAlbumArt = true
+    const url = 'https://coverartarchive.org/release-group/x/front.jpg'
+    const { service, activities, clock, calls, resolvers } = coverHarness()
+
+    service.update(playing(30_000))
+    resolvers[0](url)
+    await flush()
+    clock.advance(PRESENCE_MIN_INTERVAL_MS)
+    expect(activities.at(-1)?.assets?.large_image).toBe(url)
+
+    // A heartbeat on the same track (position advanced, timestamps stable) must
+    // not flap the card back to the logo, and must not re-run the lookup.
+    service.update(playing(45_000))
+    clock.advance(PRESENCE_MIN_INTERVAL_MS)
+    expect(calls).toHaveLength(1)
+    expect(activities.at(-1)?.assets?.large_image).toBe(url)
+    // The logo-only base was never re-sent as the large image after the cover resolved.
+    expect(
+      activities.some((a, i) => i > 1 && a?.assets?.large_image === OSCINE_LOGO_ASSET_KEY)
+    ).toBe(false)
+  })
+
+  it('cancels the in-flight lookup on a track change and on teardown', () => {
+    settings.showAlbumArt = true
+    let cancels = 0
+    const clock = clockHarness()
+    const { client } = fakeClient()
+    const service = createPresenceService({
+      client,
+      settings: () => settings,
+      now: clock.now,
+      setTimeout: clock.setTimeout,
+      clearTimeout: clock.clearTimeout,
+      resolveCoverArt: () => new Promise<string | null>(() => {}),
+      cancelCoverArt: () => {
+        cancels += 1
+      }
+    })
+    service.update(playing(10_000, { track: { ...TRACK, title: 'A' } }))
+    const afterFirst = cancels
+    expect(afterFirst).toBeGreaterThan(0)
+    // A heartbeat on the same track does not cancel.
+    clock.advance(PRESENCE_MIN_INTERVAL_MS)
+    service.update(playing(25_000, { track: { ...TRACK, title: 'A' } }))
+    expect(cancels).toBe(afterFirst)
+    // A real track change does.
+    service.update(playing(11_000, { track: { ...TRACK, title: 'B' } }))
+    expect(cancels).toBe(afterFirst + 1)
+    service.stop()
+    expect(cancels).toBe(afterFirst + 2)
   })
 })
 

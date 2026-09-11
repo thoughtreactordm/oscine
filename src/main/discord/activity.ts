@@ -58,6 +58,28 @@ function detailLines(
   return track.artist ? { details: track.title, state: track.artist } : { details: track.title }
 }
 
+/**
+ * Whether the playing signal is one W20-5 should resolve a public cover for — the
+ * pure half of the album-art tier, kept here beside the mapping so the async
+ * upgrade in `service.ts` and the logo `buildActivity` lays down cannot disagree
+ * about when a cover applies.
+ *
+ * It mirrors `buildActivity`'s own gates — off/stopped/idle and a hidden pause
+ * all yield the logo, so none is worth a lookup — and then adds the one this tier
+ * owns: the cover is the *album's* art, so it is shown only where the album is,
+ * at `title-artist`. `title-only` withholds the album (the same reason it omits
+ * the `large_text` caption) and `generic` is the leak-nothing floor; both keep
+ * the logo. Consent is deliberately *not* checked here: that is the socket's job
+ * (D14), re-read live per request, and duplicating it is what the gate's
+ * placement prevents. When lookups are off the resolver simply returns no URL.
+ */
+export function coverArtEligible(settings: DiscordSettings, signal: PresenceSignal): boolean {
+  if (!settings.enabled || !settings.showAlbumArt) return false
+  if (!signal.playing || signal.track === null) return false
+  if (signal.paused && settings.whenPaused === 'hide') return false
+  return settings.display === 'title-artist'
+}
+
 export function buildActivity(
   settings: DiscordSettings,
   signal: PresenceSignal,
@@ -102,7 +124,12 @@ export function buildActivity(
     activity.timestamps = { start, end: start + toWholeSeconds(track.durationMs) }
   }
 
-  // The large image is the static logo for now (W20-5 swaps in the real cover).
+  // The large image is always the static logo here — the leak-free, zero-network
+  // base every card starts from. When `coverArtEligible` holds, the service
+  // (W20-5) resolves a public release cover and pushes an upgraded card carrying
+  // it as a raw URL in `large_image` (this same asset-key field, which the local
+  // IPC path also accepts a URL in), moving the logo to the small badge; a card is
+  // never blocked or blanked waiting on that lookup.
   // Its hover label is the slot a listener reads as the album — so it carries
   // the real album, never a constant that would read as a bogus one. Only at the
   // full-detail level and only when there is one: `title-only` and `generic`

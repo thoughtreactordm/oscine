@@ -25,6 +25,7 @@ import { SqliteSearchService } from './search/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
 import { DISCORD_APPLICATION_ID } from './discord/appId'
 import { createDiscordClient } from './discord/client'
+import { createPresenceArtworkResolver } from './discord/artwork'
 import { createPresenceService, type PresenceService } from './discord/service'
 import { discordSocketCandidates } from './discord/socketPaths'
 import { connectFirstSocket } from './discord/transport'
@@ -633,30 +634,6 @@ if (!app.requestSingleInstanceLock()) {
     })
     const nowPlaying = createNowPlayingAnnouncer({ targets: sendingTargets })
 
-    // W20-4: presence, the Rich Presence sibling of the now-playing announcer,
-    // hanging off the same moment. The socket lives here in main (the renderer
-    // opens none — the invariant), behind the W20-2 client so a missing Discord
-    // is a quiet retry, never a throw (R12). The five `discord.*` descriptors
-    // (W20-3) are resolved fresh on every derivation, so a toggle takes effect
-    // live — and `onChanged` above re-derives the moment one flips, without
-    // waiting for the next track.
-    const discordClient = createDiscordClient({
-      clientId: DISCORD_APPLICATION_ID,
-      connect: connectFirstSocket,
-      candidates: () => discordSocketCandidates({ platform: process.platform, env: process.env })
-    })
-    const presence = createPresenceService({
-      client: discordClient,
-      settings: () => ({
-        enabled: settings.get<boolean>(DISCORD_ENABLED),
-        display: settings.get<DiscordDisplay>(DISCORD_DISPLAY),
-        showAlbumArt: settings.get<boolean>(DISCORD_SHOW_ALBUM_ART),
-        showTimestamp: settings.get<boolean>(DISCORD_SHOW_TIMESTAMP),
-        whenPaused: settings.get<DiscordWhenPaused>(DISCORD_WHEN_PAUSED)
-      })
-    })
-    presenceService = presence
-
     const scrobble = createScrobbleAccounts({
       targets: scrobbleTargets,
       onChanged: () => {
@@ -684,6 +661,38 @@ if (!app.requestSingleInstanceLock()) {
     // Not passed to `createNetService`: the cache sits between the client and
     // its callers, never inside it. W7-9 takes both.
     const cache = openCacheService(cacheDatabasePath())
+
+    // W20-4/W20-5: presence, the Rich Presence sibling of the now-playing
+    // announcer, hanging off the same moment. The socket lives here in main (the
+    // renderer opens none — the invariant), behind the W20-2 client so a missing
+    // Discord is a quiet retry, never a throw (R12). The five `discord.*`
+    // descriptors (W20-3) are resolved fresh on every derivation, so a toggle
+    // takes effect live — and `onChanged` above re-derives the moment one flips,
+    // without waiting for the next track. Created here, after `cache`, so the
+    // album-art resolver (W20-5) can share the cache and net layers the cover-art
+    // surfaces use; the cover lookup rides the `discord` net scope, and a skip's
+    // `cancelScope('discord')` abandons whatever hop is in flight.
+    const discordClient = createDiscordClient({
+      clientId: DISCORD_APPLICATION_ID,
+      connect: connectFirstSocket,
+      candidates: () => discordSocketCandidates({ platform: process.platform, env: process.env })
+    })
+    const presenceArtwork = createPresenceArtworkResolver({ client: net.client, cache })
+    const presence = createPresenceService({
+      client: discordClient,
+      settings: () => ({
+        enabled: settings.get<boolean>(DISCORD_ENABLED),
+        display: settings.get<DiscordDisplay>(DISCORD_DISPLAY),
+        showAlbumArt: settings.get<boolean>(DISCORD_SHOW_ALBUM_ART),
+        showTimestamp: settings.get<boolean>(DISCORD_SHOW_TIMESTAMP),
+        whenPaused: settings.get<DiscordWhenPaused>(DISCORD_WHEN_PAUSED)
+      }),
+      resolveCoverArt: (track) => presenceArtwork.resolve(track),
+      cancelCoverArt: () => {
+        net.cancelScope('discord')
+      }
+    })
+    presenceService = presence
 
     // R5's resolver, on the library connection and between the two above it. It
     // owns two columns of `artists` and reads nothing else, so it is its own
