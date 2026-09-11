@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FGD9VFEQSBSP51ESQ19SRZ
 title: 'Lyrics: manual match and per-track timing offset (migration)'
-status: backlog
+status: todo
 priority: low
 labels:
   - lyrics
@@ -12,9 +12,9 @@ workstreamId: W17-5
 dependsOn:
   - 01M1FGBMSG6TS1EZ3FSMBNWAM9
   - 01M1FGCGD47Z8HCK8FBNTQ0821
-order: 14
+order: 5
 created: '2026-09-01T22:11:06.735Z'
-updated: '2026-09-01T22:11:36.048Z'
+updated: '2026-09-11T02:40:22.379Z'
 ---
 ## Intent
 
