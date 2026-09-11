@@ -27,6 +27,14 @@ import type { DiscordConnector, DiscordSocket } from './transport'
 export interface DiscordActivity {
   /** Activity type; `2` is "Listening to". */
   type?: number
+  /**
+   * Which field the compact status line ("Listening to X") mirrors: `0` = the
+   * application name (Discord's default), `1` = `state`, `2` = `details`. Added
+   * by Discord in discord-api-docs#7674; older clients ignore it and fall back to
+   * the app name. W20-4 sets it so the status line can show the song rather than
+   * "Oscine".
+   */
+  status_display_type?: number
   details?: string
   state?: string
   timestamps?: {

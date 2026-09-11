@@ -16,13 +16,17 @@ import { restoredQueueSession, useSettings } from '@renderer/settings'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 
 /**
- * The pre-W20-4 seam for `discord.enabled`. The presence emitter reads this
+ * The pre-W20-3 seam for `discord.enabled`. The presence emitter reads this
  * before every emit, so presence is dark end to end until the setting descriptor
- * lands and this is replaced with `settings.get<boolean>('discord.enabled')`.
+ * lands (W20-3) and this is replaced with `settings.get<boolean>('discord.enabled')`.
  * `discord.enabled` cannot be read through `settings.get` yet — it throws on an
- * unregistered key — which is why a constant stands in.
+ * unregistered key — so a constant stands in, driven by the `VITE_PRESENCE_DEV`
+ * dev flag: unset (the default) keeps presence dark; `VITE_PRESENCE_DEV=1 npm run
+ * dev` opens it, matching the main-side accessor, so the whole W20-4 path can be
+ * exercised end to end before the settings UI exists.
  */
-const PRESENCE_ENABLED = false
+const PRESENCE_ENABLED =
+  (import.meta.env as Record<string, string | undefined>).VITE_PRESENCE_DEV === '1'
 
 /**
  * Playback state for the whole app: what is loaded, where it has reached, and

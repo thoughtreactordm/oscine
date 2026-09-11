@@ -101,6 +101,16 @@ export {
 } from './settings/theme'
 export type { ThemeModePreference } from './settings/theme'
 export { NETWORK_EXTERNAL_LOOKUPS_KEY, NETWORK_SETTINGS } from './settings/network'
+// W20-4 exposes the Discord settings *type* and defaults the presence mapping
+// reads; W20-3 adds the descriptors and folds them into SETTINGS_REGISTRY.
+export {
+  DISCORD_DISPLAY,
+  DISCORD_ENABLED,
+  DISCORD_SETTINGS_DEFAULTS,
+  DISCORD_SHOW_TIMESTAMP,
+  DISCORD_WHEN_PAUSED
+} from './settings/discord'
+export type { DiscordDisplay, DiscordSettings, DiscordWhenPaused } from './settings/discord'
 export {
   LASTFM_API_KEY,
   LASTFM_API_SECRET,

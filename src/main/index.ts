@@ -23,7 +23,11 @@ import { SqliteFavoriteService } from './favorites/service'
 import { TagStore } from './tags/store'
 import { SqliteSearchService } from './search/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
-import { createNoopPresenceSink } from './discord/presenceSink'
+import { DISCORD_APPLICATION_ID } from './discord/appId'
+import { createDiscordClient } from './discord/client'
+import { createPresenceService, type PresenceService } from './discord/service'
+import { discordSocketCandidates } from './discord/socketPaths'
+import { connectFirstSocket } from './discord/transport'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { createDerivedArtworkStore } from './library/derivedArtwork'
 import { SqliteLibraryService } from './library/sqliteService'
@@ -78,6 +82,7 @@ import type { ScrobbleTarget } from '@shared/scrobble'
 import { detectUpdateChannel, updateChannelCanSelfUpdate, type UpdateStatus } from '@shared/update'
 import {
   AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
+  DISCORD_SETTINGS_DEFAULTS,
   LASTFM_LOVE_ON_FAVORITE,
   type SettingsChange
 } from '@shared/settings'
@@ -294,6 +299,13 @@ function requestListenFlush(): void {
  */
 let scrobbleStatus: ScrobbleStatusService | null = null
 
+/**
+ * Held at module scope for the same reason: the settings service is constructed
+ * before the presence service, but its `onChanged` callback must reach presence
+ * so a live `discord.*` change re-derives at once (W20-4).
+ */
+let presenceService: PresenceService | null = null
+
 function broadcastScrobbleStatus(): void {
   if (!mainWindow || !scrobbleStatus) return
   emit(mainWindow.webContents, 'scrobble.statusChanged', [...scrobbleStatus.status().targets])
@@ -498,6 +510,10 @@ if (!app.requestSingleInstanceLock()) {
         if (changes.some((change) => WINDOW_BACKGROUND_KEYS.includes(change.key))) {
           applyWindowBackground()
         }
+        // A live `discord.*` change re-derives presence now, rather than
+        // waiting for the next track (W20-4). Harmless until W20-3 registers the
+        // descriptors — no `discord.*` change can fire before then.
+        presenceService?.onSettingsChanged(changes)
       }
     })
 
@@ -610,6 +626,26 @@ if (!app.requestSingleInstanceLock()) {
       onPass: () => broadcastScrobbleStatus()
     })
     const nowPlaying = createNowPlayingAnnouncer({ targets: sendingTargets })
+
+    // W20-4: presence, the Rich Presence sibling of the now-playing announcer,
+    // hanging off the same moment. The socket lives here in main (the renderer
+    // opens none — the invariant), behind the W20-2 client so a missing Discord
+    // is a quiet retry, never a throw (R12). Settings are read fresh on every
+    // derivation so a W20-3 toggle takes effect live. Until W20-3 registers the
+    // `discord.*` descriptors there is nothing to read, so the accessor returns
+    // the defaults with `enabled` driven by the VITE_PRESENCE_DEV dev flag —
+    // set it to exercise presence end to end before the settings UI exists.
+    const presenceDevEnabled = process.env.VITE_PRESENCE_DEV === '1'
+    const discordClient = createDiscordClient({
+      clientId: DISCORD_APPLICATION_ID,
+      connect: connectFirstSocket,
+      candidates: () => discordSocketCandidates({ platform: process.platform, env: process.env })
+    })
+    const presence = createPresenceService({
+      client: discordClient,
+      settings: () => ({ ...DISCORD_SETTINGS_DEFAULTS, enabled: presenceDevEnabled })
+    })
+    presenceService = presence
 
     const scrobble = createScrobbleAccounts({
       targets: scrobbleTargets,
@@ -931,6 +967,10 @@ if (!app.requestSingleInstanceLock()) {
       rip.cancel()
       net.cancelScope('cdrip')
 
+      // Take presence down and disconnect the Discord socket before the window
+      // and database go, so a closed Oscine leaves no stale "Playing" card (W20-4).
+      presence.stop()
+
       // First of the awaited steps, because it is the only one that needs the
       // renderer alive and
       // the database open at the same time. The accumulator holds the in-flight
@@ -994,9 +1034,9 @@ if (!app.requestSingleInstanceLock()) {
       rip,
       pickRipDestination,
       coverSearch,
-      // W20-1: presence's main-side sink. A no-op until W20-3 lands the presence
-      // service — the emitter is gated off (W20-4) so nothing reaches it yet.
-      createNoopPresenceSink()
+      // W20-4: presence's main-side sink — the service that maps the signal to a
+      // Discord activity and drives the client, in place of W20-1's no-op stub.
+      presence
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was
