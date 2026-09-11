@@ -149,8 +149,20 @@ import type {
   WritebackSelection
 } from './tagWriteback'
 import type { UpdateStatus } from './update'
+import type {
+  CdDriveInfo,
+  CdToc,
+  DiscLookupResult,
+  RipDestinationResult,
+  RipDismissSessionRequest,
+  RipProgress,
+  RipReport,
+  RipRequest,
+  RipResumeOffer,
+  RipResumeRequest
+} from './cdrip'
 import type { OverrideEditState, OverrideField, OverridePatch } from './overrides'
-import type { ArtworkRef } from './artwork'
+import type { ArtworkRef, CoverArtCandidate } from './artwork'
 import type { InstalledTheme } from './theme'
 
 /**
@@ -421,6 +433,78 @@ export interface IpcContract {
    */
   'tagWriteback.cancelApply': { request: null; response: null }
   /**
+   * Optical drives the native addon can see — **W18-5**, for the Tools pane's
+   * detection (W18-6). Ids are opaque; the renderer never interprets them.
+   */
+  'cdrip.listDrives': { request: null; response: CdDriveInfo[] }
+  /**
+   * Table of contents for the disc in `driveId`, including data tracks so the
+   * disc ID stays honest. Audio-only filtering is the caller's job.
+   */
+  'cdrip.readToc': { request: { driveId: string }; response: CdToc }
+  /**
+   * Rips the confirmed selection, one audio track at a time.
+   *
+   * Live progress arrives on `cdrip.progress`; the resolved {@link RipReport}
+   * is the per-track summary, complete even if a coalesced progress event was
+   * missed. Rejects `conflict` if a rip is already running. One track's failure
+   * never aborts the batch.
+   */
+  'cdrip.start': { request: RipRequest; response: RipReport }
+  /**
+   * Stops the running rip between sector chunks, not only between tracks.
+   *
+   * Cooperative: the in-flight `READ CD` finishes, the encoder is signalled,
+   * and the awaited `cdrip.start` still resolves — with `cancelled: true` and
+   * the outcomes for the tracks it finished. A no-op when nothing is running.
+   */
+  'cdrip.cancel': { request: null; response: null }
+  /**
+   * MusicBrainz / CD-TEXT / manual proposal for the disc in `driveId` — **W18-2**,
+   * for the Tools pane's match picker (W18-7). Main re-reads the TOC so the
+   * disc ID is honest. Consent is D14's gate on the socket, not a second check
+   * here: a declined lookup still returns CD-TEXT or empty manual fields.
+   */
+  'cdrip.lookup': { request: { driveId: string }; response: DiscLookupResult }
+  /**
+   * Whether `absDir` is a legal rip destination — **W18-4**, called from the
+   * Tools pane so Rip can disable itself before a start that would bounce.
+   * Stats the folder in main; the renderer never imports `fs`.
+   */
+  'cdrip.validateDestination': {
+    request: { absDir: string }
+    response: RipDestinationResult
+  }
+  /**
+   * Native folder picker for the rip destination. `null` when the operator
+   * dismisses the dialog — the ordinary outcome `library.addRoot` also reports.
+   */
+  'cdrip.pickArtwork': { request: null; response: ArtworkRef | null }
+  /**
+   * Auto-fetch the matched release's front cover from the Cover Art Archive into
+   * the draft slot — **W7-16**. `null` for a disc with no `releaseMbid`, a
+   * release CAA has no front for, or with external lookups off: the pane shows no
+   * proposed cover and `pickArtwork` stays the way in. Never rejects for a
+   * missing cover.
+   */
+  'cdrip.proposeArtwork': { request: { releaseMbid: string | null }; response: ArtworkRef | null }
+  'cdrip.pickDestination': { request: null; response: string | null }
+  /**
+   * The unfinished `running` rip, if any — **W18-8**. Offered, never auto-resumed:
+   * the disc may be gone, and spinning a drive at launch is hostile.
+   */
+  'cdrip.unfinished': { request: null; response: RipResumeOffer | null }
+  /**
+   * Continue a persisted session. Re-reads the TOC and rejects `conflict` when
+   * `toc_hash` does not match the disc in the drive.
+   */
+  'cdrip.resume': { request: RipResumeRequest; response: RipReport }
+  /**
+   * Marks a `running` session cancelled so the pane stops offering it.
+   * A no-op when the session is already finished or missing.
+   */
+  'cdrip.dismiss': { request: RipDismissSessionRequest; response: null }
+  /**
    * Ingests a cover the operator picks from a native file dialog — **W16-10**,
    * design authority Decision A/B/C.
    *
@@ -461,6 +545,34 @@ export interface IpcContract {
    * cover (*absent*). The escape hatch from both a set and a clear.
    */
   'artwork.revert': { request: { trackIds: number[] }; response: null }
+  /**
+   * Searches the network for album covers for tracks already in the library —
+   * **W7-17**, the edit-time picker's find step. Given an artist and album, main
+   * runs a MusicBrainz release-group search (indexed tracks carry no release
+   * MBID, so the release must be found first), resolves each match's front cover
+   * through the Cover Art Archive, and adds iTunes album covers as the fallback
+   * for releases MusicBrainz does not have. Candidates are references, not bytes:
+   * `thumbUrl`/`fullUrl` are remote addresses the renderer previews through the
+   * `catalog-artwork` proxy and never fetches itself. All of it rides the
+   * `cover-art` scope, so closing the picker abandons in-flight lookups, and with
+   * `network.externalLookups` off the socket never opens and the list is empty.
+   */
+  'artwork.searchCovers': {
+    request: { artist: string; album: string }
+    response: CoverArtCandidate[]
+  }
+  /**
+   * Applies a network cover the operator picked — **W7-17**. Main re-checks the
+   * URL against the same source allowlist the preview proxy uses (the renderer
+   * cannot make main fetch an arbitrary origin), pulls the full-resolution bytes
+   * on the `cover-art` scope, and runs the identical validate-store-fan-out path
+   * `artwork.setFromBytes` does. A picked cover is therefore indistinguishable
+   * from the same bytes chosen via file — same `artworkHash`, same override.
+   */
+  'artwork.applyRemoteCover': {
+    request: { trackIds: number[]; url: string }
+    response: ArtworkRef
+  }
   /**
    * Appends one play to the trail. Main stamps the time; see the service.
    *
@@ -1233,6 +1345,8 @@ export interface IpcEventContract {
   'podcasts.downloadProgress': EpisodeDownloadProgress
   /** Cumulative progress of a running tag write-back flush — **W16-6**. */
   'tagWriteback.applyProgress': WritebackProgress
+  /** Per-track rip progress, coalesced in main so a sector stream cannot freeze Cancel. */
+  'cdrip.progress': RipProgress
   /**
    * Durable keys that just changed, and their new values.
    *
@@ -1333,10 +1447,24 @@ export const IPC_CHANNELS = [
   'tagWriteback.pending',
   'tagWriteback.apply',
   'tagWriteback.cancelApply',
+  'cdrip.listDrives',
+  'cdrip.readToc',
+  'cdrip.start',
+  'cdrip.cancel',
+  'cdrip.lookup',
+  'cdrip.validateDestination',
+  'cdrip.pickArtwork',
+  'cdrip.proposeArtwork',
+  'cdrip.pickDestination',
+  'cdrip.unfinished',
+  'cdrip.resume',
+  'cdrip.dismiss',
   'artwork.setFromDialog',
   'artwork.setFromBytes',
   'artwork.clear',
   'artwork.revert',
+  'artwork.searchCovers',
+  'artwork.applyRemoteCover',
   'history.record',
   'history.list',
   'history.clear',
@@ -1438,6 +1566,7 @@ export const IPC_EVENT_CHANNELS = [
   'library.replayGainProgress',
   'podcasts.downloadProgress',
   'tagWriteback.applyProgress',
+  'cdrip.progress',
   'settings.changed',
   'listens.flushRequested',
   'scrobble.statusChanged',
@@ -1477,12 +1606,28 @@ export function episodeUrl(episodeId: number): string {
 export const CATALOG_ARTWORK_HOST = 'catalog-artwork'
 
 /**
- * Hosts main is willing to proxy catalogue artwork from: Apple's podcast CDN
- * and nothing else. A leading dot on the suffix check is the load-bearing
- * character — without it `notmzstatic.com` matches.
+ * Hosts main is willing to proxy remote artwork from.
+ *
+ * Apple's CDN (`mzstatic.com`) is Podcast Discover's thumbnail host and, since
+ * **W7-17**, also the iTunes album-cover fallback the edit-time picker draws its
+ * previews from. The Cover Art Archive (`coverartarchive.org`) and the archive
+ * it 307-redirects the bytes to (`archive.org`, i.e. `ia*.us.archive.org`) are
+ * the picker's primary source. Nothing else: this list is the whole set of
+ * origins the proxy — and, since W7-17, the apply path — will reach, so the
+ * renderer cannot point either at an arbitrary host.
+ *
+ * A leading dot on each suffix check is the load-bearing character — without it
+ * `notmzstatic.com` matches `mzstatic.com`.
  */
 export function isCatalogArtworkHost(hostname: string): boolean {
-  return hostname === 'mzstatic.com' || hostname.endsWith('.mzstatic.com')
+  return (
+    hostname === 'mzstatic.com' ||
+    hostname.endsWith('.mzstatic.com') ||
+    hostname === 'coverartarchive.org' ||
+    hostname.endsWith('.coverartarchive.org') ||
+    hostname === 'archive.org' ||
+    hostname.endsWith('.archive.org')
+  )
 }
 
 /**

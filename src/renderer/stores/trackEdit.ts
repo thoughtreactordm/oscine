@@ -6,7 +6,7 @@ import {
   type OverrideField,
   type OverridePatch
 } from '@shared/overrides'
-import type { ArtworkRef } from '@shared/artwork'
+import type { ArtworkRef, CoverArtCandidate } from '@shared/artwork'
 import { artwork, overrides } from '@renderer/ipc'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 
@@ -69,6 +69,18 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
   // still the editor's confirm — without this, a cover-only session leaves
   // the button disabled because no text field changed.
   const artworkDirty = ref(false)
+
+  // The network cover picker (W7-17): a modal over the editor that searches
+  // MusicBrainz + iTunes for a cover. Candidates are references the renderer
+  // previews through the `oscine://catalog-artwork` proxy and never fetches
+  // itself; only the picked one is fetched, in main, and becomes an override.
+  const networkPickerOpen = ref(false)
+  const coverCandidates = ref<CoverArtCandidate[]>([])
+  const coverSearching = ref(false)
+  // Distinguishes "not searched yet" from "searched, found nothing" so the
+  // picker shows a prompt before the first search and an empty state after.
+  const coverSearched = ref(false)
+  const coverSearchError = ref<string | null>(null)
 
   const libraryRoots = useLibraryRootsStore()
 
@@ -238,6 +250,66 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
     }
   }
 
+  /** Opens the network picker and runs a first search from the current fields. */
+  function openNetworkPicker(): void {
+    if (trackIds.value.length === 0) return
+    networkPickerOpen.value = true
+    coverCandidates.value = []
+    coverSearched.value = false
+    coverSearchError.value = null
+    void searchCovers(values.artist, values.album)
+  }
+
+  function closeNetworkPicker(): void {
+    networkPickerOpen.value = false
+  }
+
+  /**
+   * Searches the network for covers. An empty result is a normal answer — no
+   * match, or online lookups are off — so it sets `coverSearched` rather than an
+   * error; the file picker beside it never depended on the socket.
+   */
+  async function searchCovers(artist: string, album: string): Promise<void> {
+    if (coverSearching.value) return
+    coverSearching.value = true
+    coverSearchError.value = null
+    try {
+      coverCandidates.value = await artwork.searchCovers(artist, album)
+    } catch (error) {
+      coverCandidates.value = []
+      coverSearchError.value =
+        error instanceof Error ? error.message : 'The cover search failed.'
+    } finally {
+      coverSearched.value = true
+      coverSearching.value = false
+    }
+  }
+
+  /**
+   * Applies a picked candidate. Main fetches the bytes and writes the override,
+   * so the local state moves exactly as it does after a file pick, and the
+   * picker closes.
+   */
+  async function applyRemoteCover(url: string): Promise<void> {
+    if (artworkBusy.value || trackIds.value.length === 0) return
+    artworkBusy.value = true
+    errorMessage.value = null
+    try {
+      const result = await artwork.applyRemoteCover([...trackIds.value], url)
+      artworkRef.value = result
+      artworkMixed.value = false
+      artworkOverridden.value = true
+      artworkDirty.value = true
+      libraryRoots.markChanged()
+      networkPickerOpen.value = false
+    } catch (error) {
+      coverSearchError.value =
+        error instanceof Error ? error.message : 'The cover could not be applied.'
+    } finally {
+      artworkBusy.value = false
+    }
+  }
+
   async function save(): Promise<void> {
     if (saving.value || trackIds.value.length === 0) return
     saving.value = true
@@ -282,6 +354,11 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
     artworkMixed,
     artworkOverridden,
     artworkBusy,
+    networkPickerOpen,
+    coverCandidates,
+    coverSearching,
+    coverSearched,
+    coverSearchError,
     edit,
     toggleRevert,
     changed,
@@ -290,6 +367,10 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
     setCover,
     removeCover,
     revertCover,
+    openNetworkPicker,
+    closeNetworkPicker,
+    searchCovers,
+    applyRemoteCover,
     close
   }
 })

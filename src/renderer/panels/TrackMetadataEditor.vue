@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { OverrideField } from '@shared/overrides'
 import { artworkUrl, hasArtwork } from '@shared/ipc'
 import { useTrackEditStore } from '@renderer/stores/trackEdit'
+import NetworkCoverPicker from '@renderer/panels/NetworkCoverPicker.vue'
 
 /**
  * The track-metadata editor — **W16 (editor)**, D7's correction layer made
@@ -144,6 +145,17 @@ function placeholder(field: FieldSpec): string {
                 type="button"
                 size="xs"
                 color="neutral"
+                variant="soft"
+                block
+                icon="i-tabler-world-search"
+                label="Get artwork from the internet…"
+                :disabled="store.artworkBusy"
+                @click="store.openNetworkPicker()"
+              />
+              <UButton
+                type="button"
+                size="xs"
+                color="neutral"
                 variant="ghost"
                 block
                 icon="i-tabler-photo-off"
@@ -226,6 +238,7 @@ function placeholder(field: FieldSpec): string {
       </div>
     </template>
   </UModal>
+  <NetworkCoverPicker />
 </template>
 
 <style scoped>

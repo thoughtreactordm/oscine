@@ -67,4 +67,22 @@ describe('catalogue artwork routes', () => {
     expect(catalogArtworkUrl('')).toBeNull()
     expect(catalogArtworkUrl('not a url')).toBeNull()
   })
+
+  // W7-17 widened the allowlist to the edit-time cover picker's sources: the
+  // Cover Art Archive and the archive.org host its bytes redirect to.
+  it('proxies the Cover Art Archive and archive.org, and their subdomains', () => {
+    expect(isCatalogArtworkHost('coverartarchive.org')).toBe(true)
+    expect(isCatalogArtworkHost('archive.org')).toBe(true)
+    expect(isCatalogArtworkHost('ia800000.us.archive.org')).toBe(true)
+    const caa = 'https://coverartarchive.org/release/x/1-500.jpg'
+    expect(catalogArtworkUrl(caa)).toBe(
+      `${TRACK_SCHEME}://${CATALOG_ARTWORK_HOST}/?u=${encodeURIComponent(caa)}`
+    )
+  })
+
+  it('still refuses hosts that merely end in an allowlisted name', () => {
+    expect(isCatalogArtworkHost('notarchive.org')).toBe(false)
+    expect(isCatalogArtworkHost('coverartarchive.org.evil.test')).toBe(false)
+    expect(catalogArtworkUrl('https://archive.org.evil.test/x.jpg')).toBeNull()
+  })
 })

@@ -56,6 +56,7 @@ import type {
 } from '@shared/settings'
 import type { SearchQuery } from '@shared/search'
 import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
+import type { RipProgress, RipRequest, RipResumeRequest } from '@shared/cdrip'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
 import type { UpdateStatus } from '@shared/update'
 
@@ -218,6 +219,27 @@ const api = {
       subscribe('tagWriteback.applyProgress', listener)
   },
   /**
+   * CD rip — **W18-5**. Drive list and TOC for the Tools pane, plus the session
+   * that turns a confirmed selection into files. Progress is coalesced in main;
+   * cancel is observed between sector chunks.
+   */
+  cdrip: {
+    listDrives: () => request('cdrip.listDrives', null),
+    readToc: (driveId: string) => request('cdrip.readToc', { driveId }),
+    lookup: (driveId: string) => request('cdrip.lookup', { driveId }),
+    validateDestination: (absDir: string) => request('cdrip.validateDestination', { absDir }),
+    pickArtwork: () => request('cdrip.pickArtwork', null),
+    proposeArtwork: (releaseMbid: string | null) =>
+      request('cdrip.proposeArtwork', { releaseMbid }),
+    pickDestination: () => request('cdrip.pickDestination', null),
+    start: (ripRequest: RipRequest) => request('cdrip.start', ripRequest),
+    cancel: () => request('cdrip.cancel', null),
+    unfinishedSession: () => request('cdrip.unfinished', null),
+    resume: (resumeRequest: RipResumeRequest) => request('cdrip.resume', resumeRequest),
+    dismissSession: (sessionId: number) => request('cdrip.dismiss', { sessionId }),
+    onProgress: (listener: (progress: RipProgress) => void) => subscribe('cdrip.progress', listener)
+  },
+  /**
    * Cover ingest — **W16-10**. Bytes travel renderer→main only: `setFromBytes`
    * ships a dropped/pasted image one way, and nothing here ever returns bytes —
    * the answer is a reference the renderer re-addresses through `oscine://`.
@@ -232,7 +254,13 @@ const api = {
     /** Set the tri-state clear (cover removed on flush) on a batch. */
     clear: (trackIds: readonly number[]) => request('artwork.clear', { trackIds: [...trackIds] }),
     /** Drop the override on a batch — back to the file's own cover. */
-    revert: (trackIds: readonly number[]) => request('artwork.revert', { trackIds: [...trackIds] })
+    revert: (trackIds: readonly number[]) => request('artwork.revert', { trackIds: [...trackIds] }),
+    /** Search the network for album covers — **W7-17**. Returns references, never bytes. */
+    searchCovers: (artist: string, album: string) =>
+      request('artwork.searchCovers', { artist, album }),
+    /** Apply a picked network cover to a batch — main fetches the bytes and stores the override. */
+    applyRemoteCover: (trackIds: readonly number[], url: string) =>
+      request('artwork.applyRemoteCover', { trackIds: [...trackIds], url })
   },
   history: {
     /** One play, at the moment the transport committed to it. Main stamps the time. */

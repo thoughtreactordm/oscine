@@ -30,6 +30,14 @@ import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { TagWritebackDiffer } from './library/writeback/differ'
 import { TagWritebackService, trackPathResolver } from './library/writeback/service'
+import { createCdDrive } from './cdrip/drive'
+import { createCoverArtArchiveClient } from './artwork/coverArtArchive'
+import { createCoverSearchService } from './artwork/coverSearch'
+import { createDiscLookup } from './cdrip/discLookup'
+import { createFlacEncoder, resolveFlacBinaryPath } from './cdrip/encoder'
+import { RipService, ripDestResolver } from './cdrip/service'
+import { RipArtworkPicker } from './cdrip/artwork'
+import { RipSessionStore } from './cdrip/sessionStore'
 import { SqlitePodcastService } from './podcasts/service'
 import {
   createArtistIdentityService,
@@ -92,6 +100,23 @@ async function pickMusicFolder(): Promise<string | null> {
   const options: Electron.OpenDialogOptions = {
     title: 'Add music folder',
     buttonLabel: 'Add folder',
+    properties: ['openDirectory', 'createDirectory', 'dontAddToRecent']
+  }
+
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options)
+
+  // Cancelling is an ordinary outcome, not an error — the contract says so.
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+}
+
+/** W18-7's rip destination. Same dialog shape as add-root; a different title. */
+async function pickRipDestination(): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    title: 'Choose rip destination',
+    buttonLabel: 'Choose folder',
     properties: ['openDirectory', 'createDirectory', 'dontAddToRecent']
   }
 
@@ -666,6 +691,14 @@ if (!app.requestSingleInstanceLock()) {
       locale: () => app.getLocale()
     })
 
+    const ripArtwork = new RipArtworkPicker(
+      pickCoverImage,
+      createDerivedArtworkStore({
+        cacheDir: artworkCachePath(),
+        processor: artworkProcessor
+      })
+    )
+
     const library = new SqliteLibraryService({
       db,
       artworkCacheDir: artworkCachePath(),
@@ -676,7 +709,10 @@ if (!app.requestSingleInstanceLock()) {
       // an artist photograph is referenced from a database it cannot see. Built
       // before the library so this is a plain function reference rather than a
       // late-bound hole.
-      externalArtworkReferences: () => images.referencedHashes(),
+      externalArtworkReferences: () => [
+        ...images.referencedHashes(),
+        ...ripArtwork.referencedHashes()
+      ],
       pickFolder: pickMusicFolder,
       pickImageFile: pickCoverImage,
       onProgress: broadcastScanProgress,
@@ -803,6 +839,45 @@ if (!app.requestSingleInstanceLock()) {
       broadcastUpdateStatus
     )
 
+    // W18-5 — the CD-rip session. Lazy native load, fake-drive tests, and the
+    // encoder binary resolved from the packaged extraResources layout or the
+    // repo-relative vendor copy. Lookup is on the same service so the Tools
+    // pane's metadata match (W18-6) does not grow a second orchestrator.
+    // W7-15's Cover Art Archive client, shared by both cover-art surfaces: the
+    // rip prep (W7-16) that primes a matched release's front, and the edit-time
+    // picker (W7-17) below. One client on the 'cover-art' scope, kept apart from
+    // the rip's own 'cdrip' scope.
+    const coverArt = createCoverArtArchiveClient({ client: net.client, cache })
+
+    const rip = new RipService({
+      drive: createCdDrive(),
+      lookup: createDiscLookup({ client: net.client, cache }),
+      encoder: createFlacEncoder({
+        binaryPath: resolveFlacBinaryPath({
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          appRoot: app.getAppPath()
+        })
+      }),
+      resolvePath: ripDestResolver(db),
+      ingest: (rootId, absPaths) => library.ingestRippedFiles(rootId, absPaths),
+      artwork: ripArtwork,
+      // W7-16: the matched release's front cover, primed into the draft slot.
+      coverArt,
+      sessions: new RipSessionStore(db)
+    })
+
+    // W7-17: the edit-time network cover picker for tracks already in the
+    // library. Finds a release group for an indexed track (which carries no
+    // release MBID), resolves its front through the shared client, adds iTunes
+    // as the fallback, and stages a pick through the ordinary `setCover` ingest —
+    // so a network cover is an override indistinguishable from a file pick.
+    const coverSearch = createCoverSearchService({
+      client: net.client,
+      coverArt,
+      setCover: (trackIds, bytes, mime) => library.setArtworkFromBytes(trackIds, bytes, mime)
+    })
+
     // The command palette's finder (D23). Same connection, no tables of its own
     // and no network: it reuses `tracks_fts` for tracks and a light LIKE over
     // the small entity sets, and reaches nothing but this database.
@@ -846,6 +921,8 @@ if (!app.requestSingleInstanceLock()) {
       // drain costs a retry, never a scrobble.
       scrobbleDrain.stop()
       net.cancelScope('scrobble')
+      rip.cancel()
+      net.cancelScope('cdrip')
 
       // First of the awaited steps, because it is the only one that needs the
       // renderer alive and
@@ -906,7 +983,10 @@ if (!app.requestSingleInstanceLock()) {
       tags,
       tagSuggestions,
       tagWriteback,
-      updates
+      updates,
+      rip,
+      pickRipDestination,
+      coverSearch
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

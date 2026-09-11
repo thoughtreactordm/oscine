@@ -25,6 +25,7 @@ import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
 import type { DiscoverRecipeId } from '@shared/discover'
 import type { SearchQuery } from '@shared/search'
 import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
+import type { RipProgress, RipRequest, RipResumeRequest } from '@shared/cdrip'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
 import type {
   AddTracksToPlaylistRequest,
@@ -151,6 +152,24 @@ export const tagWriteback = {
     window.oscine.tagWriteback.onApplyProgress(listener)
 }
 
+export const cdrip = {
+  listDrives: () => unwrap(window.oscine.cdrip.listDrives()),
+  readToc: (driveId: string) => unwrap(window.oscine.cdrip.readToc(driveId)),
+  lookup: (driveId: string) => unwrap(window.oscine.cdrip.lookup(driveId)),
+  validateDestination: (absDir: string) => unwrap(window.oscine.cdrip.validateDestination(absDir)),
+  pickDestination: () => unwrap(window.oscine.cdrip.pickDestination()),
+  pickArtwork: () => unwrap(window.oscine.cdrip.pickArtwork()),
+  proposeArtwork: (releaseMbid: string | null) =>
+    unwrap(window.oscine.cdrip.proposeArtwork(releaseMbid)),
+  start: (request: RipRequest) => unwrap(window.oscine.cdrip.start(request)),
+  cancel: () => unwrap(window.oscine.cdrip.cancel()),
+  unfinishedSession: () => unwrap(window.oscine.cdrip.unfinishedSession()),
+  resume: (request: RipResumeRequest) => unwrap(window.oscine.cdrip.resume(request)),
+  dismissSession: (sessionId: number) => unwrap(window.oscine.cdrip.dismissSession(sessionId)),
+  onProgress: (listener: (progress: RipProgress) => void) =>
+    window.oscine.cdrip.onProgress(listener)
+}
+
 /**
  * Cover ingest — **W16-10**. Image bytes only ever travel renderer→main; every
  * result is an {@link ArtworkRef} the renderer re-addresses through `oscine://`,
@@ -166,7 +185,13 @@ export const artwork = {
   /** Set the tri-state clear (cover removed on flush) on a batch. */
   clear: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.clear(trackIds)),
   /** Drop the override on a batch — back to the file's own cover. */
-  revert: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.revert(trackIds))
+  revert: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.revert(trackIds)),
+  /** Search the network for album covers — **W7-17**. Candidates are references, not bytes. */
+  searchCovers: (artist: string, album: string) =>
+    unwrap(window.oscine.artwork.searchCovers(artist, album)),
+  /** Apply a picked network cover to a batch; main fetches the bytes and writes the override. */
+  applyRemoteCover: (trackIds: readonly number[], url: string) =>
+    unwrap(window.oscine.artwork.applyRemoteCover(trackIds, url))
 }
 
 export const history = {

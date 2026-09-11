@@ -38,7 +38,10 @@ import {
   assertStatsOverTimeQuery,
   assertStatsQuery,
   assertStatsSummaryQuery,
-  assertToggleFavoriteRequest
+  assertToggleFavoriteRequest,
+  assertRipRequest,
+  assertRipResumeRequest,
+  assertCdripAbsDirRequest
 } from '../../../src/main/ipc/validate'
 
 describe('library browse IPC validation', () => {
@@ -581,5 +584,56 @@ describe('stats IPC validation', () => {
     ]) {
       expect(() => assertStatsOverTimeQuery(bad)).toThrow(OscineError)
     }
+  })
+})
+
+describe('cdrip IPC validation', () => {
+  const valid = {
+    driveId: 'sr0',
+    rootId: 1,
+    relDir: '',
+    template: '{track:02} {title}',
+    tracks: [{ number: 1, title: 'One', artist: 'A' }],
+    album: 'Album',
+    albumArtist: 'Artist',
+    year: 2000,
+    verify: false,
+    onCollision: 'skip' as const
+  }
+
+  it('accepts a well-formed rip request and normalises an empty relDir', () => {
+    expect(assertRipRequest(valid)).toMatchObject({ relDir: '', year: 2000, verify: false })
+    expect(assertRipRequest({ ...valid, year: null, relDir: 'Incoming/' }).relDir).toBe('Incoming')
+  })
+
+  it('rejects a path that escapes the destination and an empty track list', () => {
+    expect(() => assertRipRequest({ ...valid, relDir: '../out' })).toThrow(OscineError)
+    expect(() => assertRipRequest({ ...valid, tracks: [] })).toThrow(OscineError)
+    expect(() => assertRipRequest({ ...valid, onCollision: 'rename' })).toThrow(OscineError)
+    expect(() => assertRipRequest({ ...valid, releaseMbid: 'not-a-mbid' })).toThrow(OscineError)
+  })
+
+  it('accepts only content hashes for selected artwork', () => {
+    expect(assertRipRequest({ ...valid, artworkHash: 'a'.repeat(64) }).artworkHash).toBe(
+      'a'.repeat(64)
+    )
+    for (const artworkHash of ['../image.png', '', 'A'.repeat(64), 123, {}]) {
+      expect(() => assertRipRequest({ ...valid, artworkHash })).toThrow(OscineError)
+    }
+  })
+
+  it('accepts a resume request and refuses a missing session id', () => {
+    expect(assertRipResumeRequest({ sessionId: 3, driveId: 'sr0', onCollision: 'suffix' })).toEqual(
+      { sessionId: 3, driveId: 'sr0', onCollision: 'suffix' }
+    )
+    expect(() =>
+      assertRipResumeRequest({ sessionId: 0, driveId: 'sr0', onCollision: 'suffix' })
+    ).toThrow(OscineError)
+  })
+
+  it('accepts a destination folder path and refuses an empty one', () => {
+    expect(assertCdripAbsDirRequest({ absDir: '/home/music' })).toEqual({ absDir: '/home/music' })
+    expect(() => assertCdripAbsDirRequest({ absDir: '' })).toThrow(OscineError)
+    expect(() => assertCdripAbsDirRequest({ absDir: 1 })).toThrow(OscineError)
   })
 })

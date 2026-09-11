@@ -55,6 +55,14 @@ import {
 } from '@shared/overrides'
 import { MAX_ARTWORK_INGEST_BYTES } from '@shared/artwork'
 import {
+  MAX_RIP_TRACKS,
+  type RipCollision,
+  type RipDismissSessionRequest,
+  type RipRequest,
+  type RipResumeRequest,
+  type RipTrackSelection
+} from '@shared/cdrip'
+import {
   MAX_STATS_BUCKETS,
   MAX_STATS_ROWS,
   STATS_BUCKET_MS,
@@ -583,6 +591,49 @@ export function assertArtworkFromBytesRequest(value: unknown): {
   if (typeof raw.mime !== 'string') invalid('mime must be a string.')
   if (raw.mime.length > 255) invalid('mime must not exceed 255 characters.')
   return { trackIds, bytes, mime: raw.mime }
+}
+
+/** How long an artist or album term may be before it is certainly not a real one. */
+const MAX_COVER_SEARCH_TERM = 512
+/** A cover URL is a candidate this process just handed out; the host is re-checked in the service. */
+const MAX_COVER_URL = 2048
+
+/**
+ * The find step of the edit-time cover picker — **W7-17**. An artist and album
+ * to search on. Both are strings and either may be empty (a batch whose albums
+ * disagree carries no album); the service turns an empty search into an empty
+ * result rather than the seam rejecting it.
+ */
+export function assertArtworkSearchCoversRequest(value: unknown): {
+  artist: string
+  album: string
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['artist', 'album'])
+  if (typeof raw.artist !== 'string') invalid('artist must be a string.')
+  if (typeof raw.album !== 'string') invalid('album must be a string.')
+  if (raw.artist.length > MAX_COVER_SEARCH_TERM || raw.album.length > MAX_COVER_SEARCH_TERM) {
+    invalid('search terms must not exceed the maximum length.')
+  }
+  return { artist: raw.artist, album: raw.album }
+}
+
+/**
+ * The apply step of the edit-time cover picker — **W7-17**. The tracks and the
+ * candidate URL to fetch. The URL is only length-checked here; the service
+ * re-parses it and re-checks its host against the source allowlist, which is the
+ * check that constrains where main will actually fetch from.
+ */
+export function assertArtworkApplyRemoteRequest(value: unknown): {
+  trackIds: number[]
+  url: string
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds', 'url'])
+  const trackIds = assertOverrideTrackIds(raw.trackIds)
+  if (typeof raw.url !== 'string' || raw.url.length === 0) invalid('url must be a non-empty string.')
+  if (raw.url.length > MAX_COVER_URL) invalid('url must not exceed the maximum length.')
+  return { trackIds, url: raw.url }
 }
 
 /** The reviewed batch to flush — a non-empty, capped list of selections (W16-6). */
@@ -1707,4 +1758,160 @@ export function assertGetArtistLinksRequest(value: unknown): GetArtistLinksReque
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['artistId'])
   return { artistId: assertPositiveInt(raw.artistId, 'artistId') }
+}
+
+const RIP_COLLISIONS: ReadonlySet<string> = new Set(['skip', 'overwrite', 'suffix'])
+
+export function assertCdripDriveIdRequest(value: unknown): { driveId: string } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['driveId'])
+  return { driveId: assertDriveId(raw.driveId) }
+}
+
+/** The folder the Tools pane wants validated as a rip destination. */
+export function assertCdripAbsDirRequest(value: unknown): { absDir: string } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['absDir'])
+  if (typeof raw.absDir !== 'string' || raw.absDir.length === 0) {
+    invalid('absDir must be a non-empty string.')
+  }
+  if (raw.absDir.length > 4096) invalid('absDir must not exceed 4096 characters.')
+  return { absDir: raw.absDir }
+}
+
+export function assertCdripProposeArtworkRequest(value: unknown): { releaseMbid: string | null } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['releaseMbid'])
+  const { releaseMbid } = raw
+  if (releaseMbid === null) return { releaseMbid: null }
+  if (typeof releaseMbid !== 'string' || !isMbid(releaseMbid)) {
+    invalid('releaseMbid must be a MusicBrainz identifier or null.')
+  }
+  return { releaseMbid }
+}
+
+/** The confirmed rip — destination already validated, metadata already chosen. */
+export function assertRipRequest(value: unknown): RipRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, [
+    'driveId',
+    'rootId',
+    'relDir',
+    'template',
+    'tracks',
+    'album',
+    'albumArtist',
+    'year',
+    'verify',
+    'onCollision',
+    'releaseMbid',
+    'artworkHash'
+  ])
+  if (
+    raw.artworkHash != null &&
+    (typeof raw.artworkHash !== 'string' || !/^[a-f0-9]{64}$/.test(raw.artworkHash))
+  ) {
+    invalid('artworkHash must be a SHA-256 hash, or null.')
+  }
+  if (typeof raw.verify !== 'boolean') invalid('verify must be a boolean.')
+  if (typeof raw.onCollision !== 'string' || !RIP_COLLISIONS.has(raw.onCollision)) {
+    invalid("onCollision must be 'skip', 'overwrite' or 'suffix'.")
+  }
+  return {
+    driveId: assertDriveId(raw.driveId),
+    rootId: assertPositiveInt(raw.rootId, 'rootId'),
+    relDir: assertRelDir(raw.relDir),
+    template: assertRipTemplate(raw.template),
+    tracks: assertRipTracks(raw.tracks),
+    album: assertTagText(raw.album, 'album'),
+    albumArtist: assertTagText(raw.albumArtist, 'albumArtist'),
+    year: raw.year === null ? null : assertYear(raw.year),
+    verify: raw.verify,
+    onCollision: raw.onCollision as RipCollision,
+    artworkHash: raw.artworkHash as string | null | undefined,
+    releaseMbid: assertOptionalReleaseMbid(raw.releaseMbid)
+  }
+}
+
+export function assertRipResumeRequest(value: unknown): RipResumeRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['sessionId', 'driveId', 'onCollision'])
+  if (typeof raw.onCollision !== 'string' || !RIP_COLLISIONS.has(raw.onCollision)) {
+    invalid("onCollision must be 'skip', 'overwrite' or 'suffix'.")
+  }
+  return {
+    sessionId: assertPositiveInt(raw.sessionId, 'sessionId'),
+    driveId: assertDriveId(raw.driveId),
+    onCollision: raw.onCollision as RipCollision
+  }
+}
+
+export function assertRipDismissSessionRequest(value: unknown): RipDismissSessionRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['sessionId'])
+  return { sessionId: assertPositiveInt(raw.sessionId, 'sessionId') }
+}
+
+function assertOptionalReleaseMbid(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'string' || !isMbid(value)) {
+    invalid('releaseMbid must be a MusicBrainz identifier, or null.')
+  }
+  return value
+}
+
+function assertDriveId(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0)
+    invalid('driveId must be a non-empty string.')
+  if (value.length > 4096) invalid('driveId must not exceed 4096 characters.')
+  return value
+}
+
+function assertRipTemplate(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    invalid('template must be a non-empty string.')
+  }
+  if (value.length > 512) invalid('template must not exceed 512 characters.')
+  return value
+}
+
+function assertRelDir(value: unknown): string {
+  if (typeof value !== 'string') invalid('relDir must be a string.')
+  if (value.length > 4096) invalid('relDir must not exceed 4096 characters.')
+  const winSep = String.fromCharCode(0x5c)
+  if (value.includes(winSep)) invalid('relDir must use POSIX separators.')
+  if (value.startsWith('/')) invalid('relDir must be relative.')
+  if (/^[a-zA-Z]:/.test(value)) invalid('relDir must be relative.')
+  const segments = value.split('/').filter((segment) => segment !== '' && segment !== '.')
+  if (segments.some((segment) => segment === '..')) invalid('relDir must not contain ..')
+  return segments.join('/')
+}
+
+function assertRipTracks(value: unknown): RipTrackSelection[] {
+  if (!Array.isArray(value)) invalid('tracks must be an array.')
+  if (value.length === 0) invalid('tracks must not be empty.')
+  if (value.length > MAX_RIP_TRACKS) {
+    invalid(`tracks must not exceed ${MAX_RIP_TRACKS} entries.`)
+  }
+  return value.map((entry, index) => assertRipTrack(entry, index))
+}
+
+function assertRipTrack(value: unknown, index: number): RipTrackSelection {
+  const raw = assertRecord(value, `tracks[${index}]`)
+  assertOnlyKeys(raw, ['number', 'title', 'artist'])
+  const number = raw.number
+  if (
+    typeof number !== 'number' ||
+    !Number.isInteger(number) ||
+    number < 1 ||
+    number > MAX_RIP_TRACKS
+  ) {
+    invalid(`tracks[${index}].number must be an integer between 1 and ${MAX_RIP_TRACKS}.`)
+  }
+  return {
+    number,
+    title: assertTagText(raw.title, `tracks[${index}].title`),
+    artist: assertTagText(raw.artist, `tracks[${index}].artist`)
+  }
 }

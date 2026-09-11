@@ -74,7 +74,9 @@ describe('openDatabase', () => {
         'track-overrides-genre-year',
         'genre-aliases',
         'artwork-overrides',
-        'track-genres-album'
+        'track-genres-album',
+        'rip-sessions',
+        'rip-artwork'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -127,7 +129,9 @@ describe('openDatabase', () => {
         'track-overrides-genre-year',
         'genre-aliases',
         'artwork-overrides',
-        'track-genres-album'
+        'track-genres-album',
+        'rip-sessions',
+        'rip-artwork'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -169,7 +173,9 @@ describe('openDatabase', () => {
         'track-overrides-genre-year',
         'genre-aliases',
         'artwork-overrides',
-        'track-genres-album'
+        'track-genres-album',
+        'rip-sessions',
+        'rip-artwork'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
@@ -743,6 +749,41 @@ describe('referential integrity', () => {
           .prepare('INSERT INTO roots (label, path, added_at) VALUES (?, ?, ?)')
           .run('Dup', '/srv/music', 1)
       ).toThrow(/UNIQUE/i)
+    } finally {
+      db.close()
+    }
+  })
+})
+
+describe('migration 023 rip sessions', () => {
+  const BEFORE_023 = MIGRATIONS.findIndex((step) => step.name === 'rip-sessions')
+
+  it('applies on a fresh database', () => {
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.to).toBe(HEAD)
+      const names = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all()
+        .map((row) => (row as { name: string }).name)
+      expect(names).toEqual(expect.arrayContaining(['rip_sessions', 'rip_session_tracks']))
+    } finally {
+      db.close()
+    }
+  })
+
+  it('applies cleanly on a database stopped at 022 without losing rows', () => {
+    const old = new Database(file)
+    migrate(old, MIGRATIONS.slice(0, BEFORE_023))
+    expect(old.pragma('user_version', { simple: true })).toBe(BEFORE_023)
+    const seeded = seedRootAndTrack(old)
+    old.close()
+
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.from).toBe(BEFORE_023)
+      expect(migration.applied.map((step) => step.name)).toEqual(['rip-sessions', 'rip-artwork'])
+      expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
       db.close()
     }

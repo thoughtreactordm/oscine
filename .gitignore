@@ -34,3 +34,10 @@ Thumbs.db
 
 # Agent worktrees
 .claude/worktrees/
+
+# Locally built optical addon; CI produces each platform's prebuild.
+native/cdrip/build/
+native/cdrip/prebuilds/
+
+# Per-platform FLAC encoder from `npm run fetch:flac`.
+resources/bin/

@@ -61,6 +61,7 @@ import { RootDirectoryWatcher, type DirectoryWatchAdapter, type WatchMode } from
 import type { LibraryService } from './service'
 import type { ReplayGainAnalyzer } from '../replaygain/analyzer'
 import { ReplayGainJobService } from '../replaygain/jobService'
+import { ingestRippedTracks } from '../cdrip/ingest'
 import { toRelPath } from '../db/paths'
 
 /**
@@ -273,6 +274,41 @@ export class SqliteLibraryService implements LibraryService {
 
   async scanRoot(rootId: number): Promise<ScanSummary> {
     return this.startScan(rootId)
+  }
+
+  /**
+   * Index files a rip just renamed into this root — **W18-6**.
+   *
+   * Serialized on the same per-root queue as the watcher, so a burst for the
+   * same paths waits and then no-ops. Artwork follows the rows, same as a
+   * watch reconcile. Returns track ids in `absPaths` order.
+   */
+  async ingestRippedFiles(rootId: number, absPaths: readonly string[]): Promise<number[]> {
+    if (absPaths.length === 0) return []
+    const previous = this.watchQueues.get(rootId) ?? Promise.resolve()
+    let result: number[] = []
+    const next = previous
+      .catch(() => {})
+      .then(async () => {
+        const running = this.inFlight.get(rootId)
+        if (running) await running
+        const root = this.store.getRoot(rootId)
+        if (!root || this.closing) return
+        const changedAlbums = new Set<number>()
+        result = await ingestRippedTracks(this.store, root, absPaths, {
+          readMetadata: this.readMetadata,
+          onAlbumsChanged: (albumIds) => {
+            for (const albumId of albumIds) changedAlbums.add(albumId)
+          }
+        })
+        await this.queueArtwork([...changedAlbums], true)
+      })
+      .finally(() => {
+        if (this.watchQueues.get(rootId) === next) this.watchQueues.delete(rootId)
+      })
+    this.watchQueues.set(rootId, next)
+    await next
+    return result
   }
 
   async listTracks(query: ListTracksQuery): Promise<ListTracksResult> {

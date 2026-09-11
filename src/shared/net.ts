@@ -101,7 +101,19 @@ export const NET_SCOPES = [
    * disconnected. The rows survive — persist first, submit second — so an
    * abandoned drain costs a retry, never a scrobble.
    */
-  'scrobble'
+  'scrobble',
+  /** A rip's metadata lookup. Closing its pane or cancelling abandons queued and in-flight work. */
+  'cdrip',
+  /**
+   * A cover-art lookup, owned by whatever surface the operator opened it from —
+   * the rip pane priming a release's front, or the cover-edit panel searching for
+   * one. Closing that surface abandons the manifest and image fetches in flight.
+   *
+   * Its own scope rather than `'cdrip'`: the edit-time picker is a distinct
+   * surface with no disc in the drive, and a rip finishing must not cancel a cover
+   * search the operator started elsewhere, nor the reverse.
+   */
+  'cover-art'
 ] as const
 
 export type NetScope = (typeof NET_SCOPES)[number]
