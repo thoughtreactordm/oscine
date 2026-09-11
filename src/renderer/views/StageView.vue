@@ -377,12 +377,15 @@ section {
 }
 
 /*
- * The record cluster gives up its `flex-1` claim on the whole body so it sizes
- * to the art cap and leaves the rest to the lyrics; without this it would split
- * the width evenly and shrink the record for no reason.
+ * The record cluster gives up both its `flex-1` claim and its `w-full` on the
+ * whole body so it sizes to the art cap and leaves the rest to the lyrics.
+ * `width: auto` is load-bearing: `w-full` (width: 100%) otherwise becomes the
+ * flex basis under `flex-basis: auto`, so the cluster claims the full row and the
+ * lyrics column shrinks to zero width — a pane that renders but cannot be seen.
  */
 .stage-has-lyrics .stage-content {
   flex: 0 1 auto;
+  width: auto;
 }
 
 .stage-lyrics {
