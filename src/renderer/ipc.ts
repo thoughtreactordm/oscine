@@ -95,6 +95,8 @@ export const library = {
     unwrap(window.oscine.library.getTracksByIds(query)),
   /** Catalog and neighbourhood relations for one track. Local index only. */
   getRelated: (trackId: number) => unwrap(window.oscine.library.getRelated(trackId)),
+  /** Resolved lyrics for one track — sidecar `.lrc`, then embedded tags. `null` when none. */
+  getLyrics: (trackId: number) => unwrap(window.oscine.library.getLyrics(trackId)),
   /** The album and album-artist a track sits in — the Tags pane's batch scope. */
   trackFacets: (trackId: number) => unwrap(window.oscine.library.trackFacets(trackId)),
   getTrackAudioMetadata: (trackId: number) =>

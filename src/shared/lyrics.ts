@@ -76,6 +76,16 @@ export interface LyricsDocument {
   readonly artist?: string
   readonly album?: string
   readonly length?: string
+
+  /**
+   * `true` when the *source* declares the track has no lyrics because it is
+   * instrumental — a different answer from "none found", and one the pane says
+   * out loud rather than showing the empty state. Only the network path
+   * (W17-4, LRCLIB's `instrumental` flag) ever sets it; {@link parseLrc} and the
+   * local sidecar/embedded resolver never do, so it is optional and absent on
+   * every locally-parsed document.
+   */
+  readonly instrumental?: boolean
 }
 
 /**
