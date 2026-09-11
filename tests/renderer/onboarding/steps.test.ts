@@ -5,6 +5,7 @@ import {
   AUDIO_REPLAY_GAIN_FALLBACK_DB,
   AUDIO_REPLAY_GAIN_MODE,
   AUDIO_REPLAY_GAIN_PREAMP_DB,
+  DISCORD_ENABLED,
   NETWORK_EXTERNAL_LOOKUPS_KEY,
   SETTINGS_REGISTRY,
   THEME_MODE_KEY,
@@ -80,9 +81,9 @@ describe('onboarding steps', () => {
     expectSurfaceMatchesFullView(audio!)
   })
 
-  it('draws the network surface from W7’s consent key', () => {
+  it('draws the network surface from W7’s consent key and the Discord toggle', () => {
     const network = ONBOARDING_STEPS.find((step) => step.id === 'network')
-    expect(network?.keys).toEqual([NETWORK_EXTERNAL_LOOKUPS_KEY])
+    expect(network?.keys).toEqual([NETWORK_EXTERNAL_LOOKUPS_KEY, DISCORD_ENABLED])
     expectSurfaceMatchesFullView(network!)
   })
 

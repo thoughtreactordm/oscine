@@ -84,7 +84,13 @@ function setup() {
 }
 
 beforeEach(() => {
-  settings = { enabled: true, display: 'title-artist', showTimestamp: true, whenPaused: 'paused' }
+  settings = {
+    enabled: true,
+    display: 'title-artist',
+    showAlbumArt: false,
+    showTimestamp: true,
+    whenPaused: 'paused'
+  }
 })
 
 describe('presence service — enable gate', () => {

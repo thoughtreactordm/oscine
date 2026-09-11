@@ -24,6 +24,7 @@ function settings(overrides: Partial<DiscordSettings> = {}): DiscordSettings {
   return {
     enabled: true,
     display: 'title-artist',
+    showAlbumArt: false,
     showTimestamp: true,
     whenPaused: 'paused',
     ...overrides

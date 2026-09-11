@@ -82,8 +82,14 @@ import type { ScrobbleTarget } from '@shared/scrobble'
 import { detectUpdateChannel, updateChannelCanSelfUpdate, type UpdateStatus } from '@shared/update'
 import {
   AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
-  DISCORD_SETTINGS_DEFAULTS,
+  DISCORD_DISPLAY,
+  DISCORD_ENABLED,
+  DISCORD_SHOW_ALBUM_ART,
+  DISCORD_SHOW_TIMESTAMP,
+  DISCORD_WHEN_PAUSED,
   LASTFM_LOVE_ON_FAVORITE,
+  type DiscordDisplay,
+  type DiscordWhenPaused,
   type SettingsChange
 } from '@shared/settings'
 
@@ -630,12 +636,10 @@ if (!app.requestSingleInstanceLock()) {
     // W20-4: presence, the Rich Presence sibling of the now-playing announcer,
     // hanging off the same moment. The socket lives here in main (the renderer
     // opens none — the invariant), behind the W20-2 client so a missing Discord
-    // is a quiet retry, never a throw (R12). Settings are read fresh on every
-    // derivation so a W20-3 toggle takes effect live. Until W20-3 registers the
-    // `discord.*` descriptors there is nothing to read, so the accessor returns
-    // the defaults with `enabled` driven by the VITE_PRESENCE_DEV dev flag —
-    // set it to exercise presence end to end before the settings UI exists.
-    const presenceDevEnabled = process.env.VITE_PRESENCE_DEV === '1'
+    // is a quiet retry, never a throw (R12). The five `discord.*` descriptors
+    // (W20-3) are resolved fresh on every derivation, so a toggle takes effect
+    // live — and `onChanged` above re-derives the moment one flips, without
+    // waiting for the next track.
     const discordClient = createDiscordClient({
       clientId: DISCORD_APPLICATION_ID,
       connect: connectFirstSocket,
@@ -643,7 +647,13 @@ if (!app.requestSingleInstanceLock()) {
     })
     const presence = createPresenceService({
       client: discordClient,
-      settings: () => ({ ...DISCORD_SETTINGS_DEFAULTS, enabled: presenceDevEnabled })
+      settings: () => ({
+        enabled: settings.get<boolean>(DISCORD_ENABLED),
+        display: settings.get<DiscordDisplay>(DISCORD_DISPLAY),
+        showAlbumArt: settings.get<boolean>(DISCORD_SHOW_ALBUM_ART),
+        showTimestamp: settings.get<boolean>(DISCORD_SHOW_TIMESTAMP),
+        whenPaused: settings.get<DiscordWhenPaused>(DISCORD_WHEN_PAUSED)
+      })
     })
     presenceService = presence
 

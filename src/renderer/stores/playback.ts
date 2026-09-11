@@ -1,6 +1,7 @@
 import { watch } from 'vue'
 import { defineStore } from 'pinia'
 import {
+  DISCORD_ENABLED,
   EMPTY_QUEUE_SESSION,
   QUEUE_SESSION_KEY,
   RESTORE_QUEUE_KEY,
@@ -14,19 +15,6 @@ import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
 import { createPresenceEmitter } from '@renderer/playback/presenceEmitter'
 import { restoredQueueSession, useSettings } from '@renderer/settings'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
-
-/**
- * The pre-W20-3 seam for `discord.enabled`. The presence emitter reads this
- * before every emit, so presence is dark end to end until the setting descriptor
- * lands (W20-3) and this is replaced with `settings.get<boolean>('discord.enabled')`.
- * `discord.enabled` cannot be read through `settings.get` yet — it throws on an
- * unregistered key — so a constant stands in, driven by the `VITE_PRESENCE_DEV`
- * dev flag: unset (the default) keeps presence dark; `VITE_PRESENCE_DEV=1 npm run
- * dev` opens it, matching the main-side accessor, so the whole W20-4 path can be
- * exercised end to end before the settings UI exists.
- */
-const PRESENCE_ENABLED =
-  (import.meta.env as Record<string, string | undefined>).VITE_PRESENCE_DEV === '1'
 
 /**
  * Playback state for the whole app: what is loaded, where it has reached, and
@@ -192,16 +180,15 @@ export const usePlaybackStore = defineStore('playback', () => {
   // `presence.update`, debounced to transitions plus a heartbeat. Never
   // unsubscribed — like the media session, it is live for exactly as long as the
   // renderer is. Gated off until W20-4 wires `discord.enabled`; the seam is the
-  // `enabled` getter below, so flipping the feature on is a one-line change here
-  // rather than a re-wire. `discord.enabled` is not a registered descriptor yet,
-  // so it cannot be read through `settings.get` (which throws on an unknown key)
-  // — the constant stands in until then.
+  // `enabled` is read live before every emit, so flipping `discord.enabled` in
+  // Settings turns presence on or off end to end without a re-wire — a disabled
+  // feature emits nothing at all (W20-3 registered the descriptor this reads).
   createPresenceEmitter({
     status: controller.status,
     nowPlaying: controller.nowPlaying,
     currentTime: controller.currentTime,
     duration: controller.duration,
-    enabled: () => PRESENCE_ENABLED,
+    enabled: () => settings.get<boolean>(DISCORD_ENABLED) === true,
     emit: (signal) => presence.update(signal)
   })
 

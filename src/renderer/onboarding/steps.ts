@@ -14,6 +14,7 @@ import { isSurfacedSetting, settingsRowFor, type SettingsRow } from '../panels/s
 import {
   AUDIO_OUTPUT_DEVICE,
   AUDIO_REPLAY_GAIN_MODE,
+  DISCORD_ENABLED,
   NETWORK_EXTERNAL_LOOKUPS_KEY,
   SETTINGS_REGISTRY,
   THEME_MODE_KEY,
@@ -98,11 +99,16 @@ const AUDIO_STEP: OnboardingStep = {
 const NETWORK_STEP: OnboardingStep = {
   id: 'network',
   kind: 'surface',
-  title: 'Online lookups',
+  title: 'Online & sharing',
   blurb:
-    'Oscine can fetch artist info and album art, and browse the podcast catalog. Off stays on this machine. Either choice is fine — you can change this later.',
+    'Oscine can fetch artist info and album art and browse the podcast catalog, and show what you’re playing on Discord. Both are off to start and stay opt-in — either choice is fine, and you can change them later.',
   skippable: true,
-  keys: [NETWORK_EXTERNAL_LOOKUPS_KEY]
+  // The D14 consent toggle, and the Discord presence master switch beside it —
+  // the other opt-in third-party disclosure, met in the same place as the
+  // network-facing choices. Its cover-art toggle is gated on the consent key
+  // above and stays out of onboarding; this is only the mention that flips it
+  // on. The step still appears only when the consent key is surfaced (below).
+  keys: [NETWORK_EXTERNAL_LOOKUPS_KEY, DISCORD_ENABLED]
 }
 
 const SCAN_STEP: OnboardingStep = {

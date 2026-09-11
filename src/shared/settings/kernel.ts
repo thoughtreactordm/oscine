@@ -118,6 +118,26 @@ export type SettingControl<T> =
   | { kind: 'custom'; component: string }
 
 /**
+ * A key whose value has to be truthy before this one does anything.
+ *
+ * Declared on the descriptor so the generated row can disable the control and
+ * say why, rather than letting the operator flip a toggle that silently no-ops.
+ * The dependency is *presentational* — the point of use re-checks the gate key
+ * live and is the real enforcement — but a disabled control that names what to
+ * turn on is how the surface stays honest about a setting that would otherwise
+ * do nothing. It rides no cascade and gates no writes; it decides one thing,
+ * whether the row is live. The one gate today is `discord.showAlbumArt` on
+ * `network.externalLookups` (D14): a public cover lookup is an online request,
+ * so it hangs off the same consent every other network-dependent choice does.
+ */
+export interface SettingGate {
+  /** The key that opens this one. Open exactly when that key's value is `true`. */
+  readonly key: string
+  /** Shown under the help while the gate is shut — what to turn on, and where. */
+  readonly note: string
+}
+
+/**
  * Migrate one version step.
  *
  * Called once per bump rather than once per gap, so a key at version 4 never
@@ -162,6 +182,14 @@ export interface SettingDefinition<
   keywords?: readonly string[]
   /** Position within the category. Required unless `internal`. */
   order?: number
+  /**
+   * Another key that must be truthy for this one to be live on the surface.
+   *
+   * Optional; most keys stand alone. Set it and the generated row disables its
+   * control and shows the gate's note whenever the named key is not `true` —
+   * see `SettingGate`.
+   */
+  gatedBy?: SettingGate
   /**
    * State the registry owns but nobody sets by hand.
    *
@@ -212,6 +240,8 @@ export interface SettingDescriptor<
   readonly help: string
   readonly keywords: readonly string[]
   readonly order: number
+  /** The key that has to be truthy for this row to be live, or null. */
+  readonly gatedBy: SettingGate | null
   readonly internal: boolean
   readonly advanced: boolean
   readonly requiresRestart: boolean
@@ -253,6 +283,7 @@ export function defineSetting<
     help,
     keywords = [],
     order = 0,
+    gatedBy,
     internal = false,
     advanced = false,
     requiresRestart = false
@@ -301,6 +332,12 @@ export function defineSetting<
   if (control?.kind === 'custom' && !control.component.trim()) {
     fail('a custom control must name a component')
   }
+  if (gatedBy) {
+    // A key that gated on itself would disable its own control forever, and a
+    // gate with no note is a disabled control that never says why.
+    if (gatedBy.key === key) fail('a setting cannot gate on itself')
+    if (!gatedBy.note.trim()) fail('a gate needs a note explaining the dependency')
+  }
 
   return Object.freeze({
     key,
@@ -317,6 +354,7 @@ export function defineSetting<
     help,
     keywords: Object.freeze([...keywords]),
     order,
+    gatedBy: gatedBy ? Object.freeze({ ...gatedBy }) : null,
     internal,
     advanced,
     requiresRestart
