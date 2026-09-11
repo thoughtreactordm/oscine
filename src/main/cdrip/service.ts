@@ -27,6 +27,7 @@ import {
   type WritableTags
 } from '../library/writeback/writer'
 import type { ArtworkRef } from '@shared/artwork'
+import type { CoverArtArchiveClient } from '../artwork/coverArtArchive'
 import type { RipArtworkPicker, RipCover } from './artwork'
 import { CdDriveError, type CdDrive } from './drive'
 import type { DiscLookup } from './discLookup'
@@ -83,6 +84,14 @@ export interface RipServiceDeps {
   /** Draft cover picker; chosen bytes are embedded before the files are indexed. */
   readonly artwork?: RipArtworkPicker
   /**
+   * The Cover Art Archive, for auto-fetching a matched release's front cover —
+   * **W7-16**. Omitted, `proposeArtwork` is a no-op and only the file picker
+   * fills the slot. Its requests enrol in the `'cover-art'` scope by
+   * construction, so an edit-time cover search and a rip's priming stay
+   * independent (net.ts).
+   */
+  readonly coverArt?: CoverArtArchiveClient
+  /**
    * Durable checkpoints. Omitted, a crash loses the session — the W18-1..7
    * path, and the test default. Production always passes one.
    */
@@ -114,6 +123,7 @@ export class RipService {
   private readonly applyTags: ApplyRipTags
   private readonly ingest: RipIngest | undefined
   private readonly artwork: RipArtworkPicker | undefined
+  private readonly coverArt: CoverArtArchiveClient | undefined
   private readonly sessions: RipSessionStore | undefined
 
   /** Set for the lifetime of one rip; its `aborted` flag is what cancel flips. */
@@ -131,12 +141,27 @@ export class RipService {
     this.applyTags = deps.applyTags ?? applyRipTags
     this.ingest = deps.ingest
     this.artwork = deps.artwork
+    this.coverArt = deps.coverArt
     this.sessions = deps.sessions
   }
 
   pickArtwork(): Promise<ArtworkRef | null> {
     if (!this.artwork) throw new OscineError('internal', 'Artwork is unavailable.')
     return this.artwork.pick()
+  }
+
+  /**
+   * Auto-fetch the matched release's front cover into the draft slot — **W7-16**.
+   *
+   * Best-effort by construction: no release MBID, no artwork picker or CAA
+   * client, an offline/consent-off socket, or a release CAA has no front for all
+   * resolve to `null` — the pane shows no proposed cover and the file picker
+   * remains the way in. Never throws for a missing cover, so a doomed auto-fetch
+   * cannot block a rip.
+   */
+  proposeArtwork(releaseMbid: string | null): Promise<ArtworkRef | null> {
+    if (!this.artwork || !this.coverArt || releaseMbid === null) return Promise.resolve(null)
+    return this.artwork.proposeFromRelease(this.coverArt, releaseMbid)
   }
 
   listDrives(): Promise<CdDriveInfo[]> {

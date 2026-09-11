@@ -159,6 +159,8 @@ export const cdrip = {
   validateDestination: (absDir: string) => unwrap(window.oscine.cdrip.validateDestination(absDir)),
   pickDestination: () => unwrap(window.oscine.cdrip.pickDestination()),
   pickArtwork: () => unwrap(window.oscine.cdrip.pickArtwork()),
+  proposeArtwork: (releaseMbid: string | null) =>
+    unwrap(window.oscine.cdrip.proposeArtwork(releaseMbid)),
   start: (request: RipRequest) => unwrap(window.oscine.cdrip.start(request)),
   cancel: () => unwrap(window.oscine.cdrip.cancel()),
   unfinishedSession: () => unwrap(window.oscine.cdrip.unfinishedSession()),

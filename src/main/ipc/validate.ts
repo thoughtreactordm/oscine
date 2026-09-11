@@ -1736,6 +1736,17 @@ export function assertCdripAbsDirRequest(value: unknown): { absDir: string } {
   return { absDir: raw.absDir }
 }
 
+export function assertCdripProposeArtworkRequest(value: unknown): { releaseMbid: string | null } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['releaseMbid'])
+  const { releaseMbid } = raw
+  if (releaseMbid === null) return { releaseMbid: null }
+  if (typeof releaseMbid !== 'string' || !isMbid(releaseMbid)) {
+    invalid('releaseMbid must be a MusicBrainz identifier or null.')
+  }
+  return { releaseMbid }
+}
+
 /** The confirmed rip — destination already validated, metadata already chosen. */
 export function assertRipRequest(value: unknown): RipRequest {
   const raw = assertRecord(value, 'request')

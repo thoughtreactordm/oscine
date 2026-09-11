@@ -31,6 +31,7 @@ import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles
 import { TagWritebackDiffer } from './library/writeback/differ'
 import { TagWritebackService, trackPathResolver } from './library/writeback/service'
 import { createCdDrive } from './cdrip/drive'
+import { createCoverArtArchiveClient } from './artwork/coverArtArchive'
 import { createDiscLookup } from './cdrip/discLookup'
 import { createFlacEncoder, resolveFlacBinaryPath } from './cdrip/encoder'
 import { RipService, ripDestResolver } from './cdrip/service'
@@ -854,6 +855,9 @@ if (!app.requestSingleInstanceLock()) {
       resolvePath: ripDestResolver(db),
       ingest: (rootId, absPaths) => library.ingestRippedFiles(rootId, absPaths),
       artwork: ripArtwork,
+      // W7-16: the matched release's front cover, primed into the draft slot.
+      // Its own 'cover-art' scope (inside the client), kept apart from 'cdrip'.
+      coverArt: createCoverArtArchiveClient({ client: net.client, cache }),
       sessions: new RipSessionStore(db)
     })
 

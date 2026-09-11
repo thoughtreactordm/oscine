@@ -47,6 +47,7 @@ export interface CdRipBridge {
   lookup(driveId: string): Promise<DiscLookupResult>
   validateDestination(absDir: string): Promise<RipDestinationResult>
   pickArtwork(): Promise<ArtworkRef | null>
+  proposeArtwork(releaseMbid: string | null): Promise<ArtworkRef | null>
   pickDestination(): Promise<string | null>
   start(request: RipRequest): Promise<RipReport>
   cancel(): Promise<void | null>
@@ -98,6 +99,7 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
 
   const artwork = ref<ArtworkRef | null>(null)
   const pickingArtwork = ref(false)
+  const proposingArtwork = ref(false)
   const artworkError = ref('')
   let artworkSeq = 0
 
@@ -168,14 +170,14 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
   const ripEnabled = computed(() =>
     canRip({
       detection: detection.value,
-      ripping: ripping.value || pickingArtwork.value,
+      ripping: ripping.value || pickingArtwork.value || proposingArtwork.value,
       included: includedCount.value,
       destinationOk: destinationOk.value
     })
   )
 
   async function pickArtwork(): Promise<void> {
-    if (ripping.value || pickingArtwork.value) return
+    if (ripping.value || pickingArtwork.value || proposingArtwork.value) return
     const seq = ++artworkSeq
     pickingArtwork.value = true
     artworkError.value = ''
@@ -191,8 +193,36 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
     }
   }
 
+  /**
+   * Prime the draft slot with the matched release's front cover — **W7-16**. A
+   * proposal, not an application: it fills an empty slot the operator can then
+   * replace or clear. Best-effort, so a failed or empty fetch leaves the slot as
+   * it was and never surfaces an error the operator must act on — the file
+   * picker stays the way in.
+   *
+   * Serialised against `pickArtwork` by `proposingArtwork` so the single main-
+   * process slot cannot end up holding a superseded cover: while a network fetch
+   * is in flight the file picker and Rip are held, and a disc change abandons the
+   * result through `artworkSeq`.
+   */
+  async function proposeArtwork(releaseMbid: string | null): Promise<void> {
+    if (releaseMbid === null || !deps.settings.lookupsAllowed()) return
+    if (ripping.value || pickingArtwork.value || proposingArtwork.value) return
+    const seq = ++artworkSeq
+    proposingArtwork.value = true
+    try {
+      const proposed = await deps.cdrip.proposeArtwork(releaseMbid)
+      if (seq !== artworkSeq) return
+      if (!ripping.value && proposed) artwork.value = proposed
+    } catch {
+      // An auto-fetch that fails is a non-event: no proposed cover, no error.
+    } finally {
+      if (seq === artworkSeq) proposingArtwork.value = false
+    }
+  }
+
   function removeArtwork(): void {
-    if (ripping.value || pickingArtwork.value) return
+    if (ripping.value || pickingArtwork.value || proposingArtwork.value) return
     artwork.value = null
     artworkError.value = ''
   }
@@ -200,6 +230,9 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
   function resetDraft(): void {
     artworkSeq++
     artwork.value = null
+    // A disc change abandons an in-flight auto-fetch: the bumped seq drops its
+    // result, and the flag is cleared here so the pane is never stuck loading.
+    proposingArtwork.value = false
     artworkError.value = ''
     // Completed outcomes belong to the previous disc, just like its metadata.
     if (status.value !== 'ripping') dismissReport()
@@ -254,7 +287,10 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
       }
       pickerSettled.value = true
       const fallback = result.candidates[0]
-      if (fallback) applyCandidate(fallback)
+      if (fallback) {
+        applyCandidate(fallback)
+        void proposeArtwork(releaseMbid.value)
+      }
     } catch (error) {
       if (seq !== lookupSeq) return
       notice.value = error instanceof Error ? error.message : 'The disc lookup failed.'
@@ -442,6 +478,7 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
     if (!proposal) return
     applyCandidate(proposal)
     pickerSettled.value = true
+    void proposeArtwork(releaseMbid.value)
   }
 
   function skipPicker(): void {
@@ -565,8 +602,10 @@ export function createCdRipSession(deps: CdRipSessionDeps) {
     lookingUp,
     artwork,
     pickingArtwork,
+    proposingArtwork,
     artworkError,
     pickArtwork,
+    proposeArtwork,
     removeArtwork,
     album,
     albumArtist,

@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RipArtworkPicker } from '../../../src/main/cdrip/artwork'
-import { MAX_ARTWORK_INGEST_BYTES } from '@shared/artwork'
+import type { CoverArtArchiveClient } from '../../../src/main/artwork/coverArtArchive'
+import { MAX_ARTWORK_INGEST_BYTES, type CoverArtCandidate } from '@shared/artwork'
+import { netFailed, netOk, type NetResult } from '@shared/net'
 
 let dir: string
 beforeEach(() => {
@@ -55,5 +57,74 @@ describe('rip artwork picker', () => {
     const { picker, pick } = harness()
     pick.mockResolvedValueOnce(join(dir, 'gone.jpg'))
     await expect(picker.pick()).rejects.toMatchObject({ message: 'That image could not be read.' })
+  })
+})
+
+const MBID = '11111111-1111-4111-8111-111111111111'
+
+function candidate(front: boolean, fullUrl: string): CoverArtCandidate {
+  return { source: 'coverartarchive', front, thumbUrl: `${fullUrl}/thumb`, fullUrl }
+}
+
+function coverArt(overrides: {
+  front?: NetResult<CoverArtCandidate[]>
+  bytes?: NetResult<Uint8Array>
+}): CoverArtArchiveClient {
+  return {
+    releaseFront: vi.fn(async () => overrides.front ?? netOk([])),
+    releaseGroupFront: vi.fn(async () => netOk<CoverArtCandidate[]>([])),
+    fetchImageBytes: vi.fn(async () => overrides.bytes ?? netOk(Buffer.from([0xff, 0xd8, 0xff, 1])))
+  }
+}
+
+describe('rip artwork proposal from a matched release', () => {
+  it('drops a release front through the identical validate-and-store path', async () => {
+    const { picker, store } = harness()
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 1])
+    const client = coverArt({
+      front: netOk([candidate(false, 'back'), candidate(true, 'front')]),
+      bytes: netOk(bytes)
+    })
+    const ref = await picker.proposeFromRelease(client, MBID)
+    expect(ref).toEqual({ present: true, hash: 'a'.repeat(64), mime: 'image/jpeg' })
+    // The bytes fetched were the front candidate's, and the slot is the one the
+    // file picker fills — resolvable and protected from cache pruning.
+    expect(client.fetchImageBytes).toHaveBeenCalledWith('front')
+    expect(picker.resolve(ref!.hash!)).toEqual({ bytes, mime: 'image/jpeg' })
+    expect(picker.referencedHashes()).toEqual([ref!.hash])
+    expect(store).toHaveBeenCalledTimes(1)
+  })
+
+  it('proposes nothing for a release with no front cover, leaving any pick intact', async () => {
+    const { picker } = harness()
+    const chosen = await picker.pick()
+    // A manifest with only non-front images, and an empty (404 → empty) manifest.
+    expect(
+      await picker.proposeFromRelease(coverArt({ front: netOk([candidate(false, 'x')]) }), MBID)
+    ).toBeNull()
+    expect(await picker.proposeFromRelease(coverArt({ front: netOk([]) }), MBID)).toBeNull()
+    expect(picker.referencedHashes()).toEqual([chosen!.hash])
+  })
+
+  it('proposes nothing when the manifest or image fetch fails', async () => {
+    const { picker, store } = harness()
+    store.mockClear()
+    const offline = netFailed<CoverArtCandidate[]>({ kind: 'unavailable', message: 'offline' })
+    expect(await picker.proposeFromRelease(coverArt({ front: offline }), MBID)).toBeNull()
+    const imageGone = netFailed<Uint8Array>({ kind: 'not-found', message: 'gone' })
+    const client = coverArt({ front: netOk([candidate(true, 'front')]), bytes: imageGone })
+    expect(await picker.proposeFromRelease(client, MBID)).toBeNull()
+    expect(store).not.toHaveBeenCalled()
+  })
+
+  it('proposes nothing when a hostile manifest names bytes that are not an image', async () => {
+    const { picker, store } = harness()
+    store.mockClear()
+    const client = coverArt({
+      front: netOk([candidate(true, 'front')]),
+      bytes: netOk(Buffer.from('not an image'))
+    })
+    expect(await picker.proposeFromRelease(client, MBID)).toBeNull()
+    expect(store).not.toHaveBeenCalled()
   })
 })

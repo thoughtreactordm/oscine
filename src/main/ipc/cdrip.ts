@@ -4,6 +4,7 @@ import { validateRipDestination } from '../cdrip/destination'
 import {
   assertCdripAbsDirRequest,
   assertCdripDriveIdRequest,
+  assertCdripProposeArtworkRequest,
   assertRipDismissSessionRequest,
   assertRipRequest,
   assertRipResumeRequest
@@ -44,6 +45,11 @@ export function registerCdripHandlers(deps: CdripHandlerDeps): void {
   })
 
   handle('cdrip.pickArtwork', () => rip.pickArtwork())
+
+  handle('cdrip.proposeArtwork', (request) => {
+    const { releaseMbid } = assertCdripProposeArtworkRequest(request)
+    return rip.proposeArtwork(releaseMbid)
+  })
 
   handle('cdrip.pickDestination', () => pickDestination())
 

@@ -229,6 +229,8 @@ const api = {
     lookup: (driveId: string) => request('cdrip.lookup', { driveId }),
     validateDestination: (absDir: string) => request('cdrip.validateDestination', { absDir }),
     pickArtwork: () => request('cdrip.pickArtwork', null),
+    proposeArtwork: (releaseMbid: string | null) =>
+      request('cdrip.proposeArtwork', { releaseMbid }),
     pickDestination: () => request('cdrip.pickDestination', null),
     start: (ripRequest: RipRequest) => request('cdrip.start', ripRequest),
     cancel: () => request('cdrip.cancel', null),

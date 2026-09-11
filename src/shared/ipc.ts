@@ -480,6 +480,14 @@ export interface IpcContract {
    * dismisses the dialog — the ordinary outcome `library.addRoot` also reports.
    */
   'cdrip.pickArtwork': { request: null; response: ArtworkRef | null }
+  /**
+   * Auto-fetch the matched release's front cover from the Cover Art Archive into
+   * the draft slot — **W7-16**. `null` for a disc with no `releaseMbid`, a
+   * release CAA has no front for, or with external lookups off: the pane shows no
+   * proposed cover and `pickArtwork` stays the way in. Never rejects for a
+   * missing cover.
+   */
+  'cdrip.proposeArtwork': { request: { releaseMbid: string | null }; response: ArtworkRef | null }
   'cdrip.pickDestination': { request: null; response: string | null }
   /**
    * The unfinished `running` rip, if any — **W18-8**. Offered, never auto-resumed:
@@ -1418,6 +1426,7 @@ export const IPC_CHANNELS = [
   'cdrip.lookup',
   'cdrip.validateDestination',
   'cdrip.pickArtwork',
+  'cdrip.proposeArtwork',
   'cdrip.pickDestination',
   'cdrip.unfinished',
   'cdrip.resume',

@@ -223,6 +223,10 @@ function onCollision(value: unknown): void {
                 class="size-full rounded-md object-contain"
                 draggable="false"
               />
+              <template v-else-if="store.proposingArtwork">
+                <UIcon name="i-tabler-loader-2" class="size-8 animate-spin text-dimmed" />
+                <span class="text-[11px] text-dimmed">Fetching cover…</span>
+              </template>
               <template v-else>
                 <UIcon name="i-tabler-vinyl" class="size-10 text-dimmed" />
                 <span class="text-[11px] text-dimmed">No album art</span>
@@ -234,8 +238,8 @@ function onCollision(value: unknown): void {
                 color="neutral"
                 variant="soft"
                 :label="store.artwork ? 'Replace…' : 'Choose…'"
-                :loading="store.pickingArtwork"
-                :disabled="store.ripping || store.pickingArtwork"
+                :loading="store.pickingArtwork || store.proposingArtwork"
+                :disabled="store.ripping || store.pickingArtwork || store.proposingArtwork"
                 aria-label="Choose album art"
                 @click="store.pickArtwork()"
               />
@@ -245,7 +249,7 @@ function onCollision(value: unknown): void {
                 color="neutral"
                 variant="ghost"
                 label="Remove"
-                :disabled="store.ripping || store.pickingArtwork"
+                :disabled="store.ripping || store.pickingArtwork || store.proposingArtwork"
                 @click="store.removeArtwork()"
               />
             </div>

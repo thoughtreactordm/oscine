@@ -121,6 +121,7 @@ function harness(
     lookup,
     validateDestination,
     pickArtwork: vi.fn(async () => null),
+    proposeArtwork: vi.fn(async () => null),
     pickDestination,
     start,
     cancel,
@@ -522,5 +523,102 @@ describe('rip artwork draft', () => {
     await session.pickArtwork()
     expect(session.artwork.value).toEqual(cover)
     expect(session.artworkError.value).toContain('JPEG or PNG')
+  })
+})
+
+describe('rip artwork auto-fetch from a matched release', () => {
+  const netCover = { present: true, hash: 'c'.repeat(64), mime: 'image/jpeg' }
+  const cover = { present: true, hash: 'a'.repeat(64), mime: 'image/png' }
+  const mbid = '11111111-1111-4111-8111-111111111111'
+
+  function matched() {
+    return [
+      proposal('musicbrainz', {
+        album: 'One',
+        albumArtist: 'A',
+        releaseMbid: mbid,
+        tracks: [
+          { number: 1, title: 'One', artist: 'A' },
+          { number: 2, title: 'Two', artist: 'A' }
+        ]
+      })
+    ]
+  }
+
+  it('primes the draft slot with the release front on confirm', async () => {
+    vi.useFakeTimers()
+    const { session, cdrip } = harness({ lookup: { discId: 'x', candidates: matched() } })
+    cdrip.proposeArtwork = vi.fn(async () => netCover)
+    session.startPolling()
+    await settle()
+    session.selectCandidate(0)
+    session.confirmCandidate()
+    await settle()
+    expect(cdrip.proposeArtwork).toHaveBeenCalledWith(mbid)
+    expect(session.artwork.value).toEqual(netCover)
+  })
+
+  it('does not fetch for a disc with no release match', async () => {
+    vi.useFakeTimers()
+    // The default harness lookup is a single manual candidate: no releaseMbid.
+    const { session, cdrip } = harness()
+    session.startPolling()
+    await settle()
+    expect(cdrip.proposeArtwork).not.toHaveBeenCalled()
+    expect(session.artwork.value).toBeNull()
+  })
+
+  it('does not fetch when external lookups are off', async () => {
+    vi.useFakeTimers()
+    const { session, cdrip } = harness({
+      lookup: { discId: 'x', candidates: matched() },
+      lookupsAllowed: false
+    })
+    session.startPolling()
+    await settle()
+    session.selectCandidate(0)
+    session.confirmCandidate()
+    await settle()
+    expect(cdrip.proposeArtwork).not.toHaveBeenCalled()
+    expect(session.artwork.value).toBeNull()
+  })
+
+  it('abandons an in-flight fetch when the disc changes, and blocks ripping meanwhile', async () => {
+    vi.useFakeTimers()
+    const { session, cdrip } = harness({ lookup: { discId: 'x', candidates: matched() } })
+    let resolve!: (value: typeof netCover) => void
+    cdrip.proposeArtwork = () =>
+      new Promise((done) => {
+        resolve = done
+      })
+    session.startPolling()
+    await settle()
+    session.selectCandidate(0)
+    session.confirmCandidate()
+    expect(session.proposingArtwork.value).toBe(true)
+    expect(session.ripEnabled.value).toBe(false)
+    cdrip.listDrives = async () => []
+    await session.refresh()
+    resolve(netCover)
+    await settle()
+    expect(session.artwork.value).toBeNull()
+    expect(session.proposingArtwork.value).toBe(false)
+  })
+
+  it('lets a file pick replace the proposed cover, and rips with the file bytes', async () => {
+    vi.useFakeTimers()
+    const { session, cdrip, start } = harness({ lookup: { discId: 'x', candidates: matched() } })
+    cdrip.proposeArtwork = async () => netCover
+    session.startPolling()
+    await settle()
+    session.selectCandidate(0)
+    session.confirmCandidate()
+    await settle()
+    expect(session.artwork.value).toEqual(netCover)
+    cdrip.pickArtwork = async () => cover
+    await session.pickArtwork()
+    expect(session.artwork.value).toEqual(cover)
+    await session.startRip()
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ artworkHash: cover.hash }))
   })
 })
