@@ -26,20 +26,6 @@ import {
 const playback = usePlaybackStore()
 const lyrics = useLyricsStore()
 
-/* ------------------------------------------------------------------ fetch --- */
-
-// The track is the transport's; the store guards against a slow fetch for a
-// track already skipped past (its monotonic `issued`). Immediate so the pane is
-// populated the moment it mounts onto whatever is already playing.
-watch(
-  () => playback.nowPlaying?.id ?? null,
-  (id) => {
-    userScrolling.value = false
-    void lyrics.load(id)
-  },
-  { immediate: true }
-)
-
 /* ------------------------------------------------------- deferred loading --- */
 
 /**
@@ -308,6 +294,22 @@ function lineClass(index: number): string {
   if (state.value !== 'synced') return 'lyrics-line-plain'
   return index === activeSrcIndex.value ? 'lyrics-line-active' : 'lyrics-line-idle'
 }
+
+/* ------------------------------------------------------------------ fetch --- */
+
+// Kept last in setup: it runs immediately, so it must not reference a `const`
+// (like `userScrolling`) before that binding is initialized. The track is the
+// transport's; the store guards against a slow fetch for a track already skipped
+// past (its monotonic `issued`). Immediate so the pane is populated the moment
+// it mounts onto whatever is already playing.
+watch(
+  () => playback.nowPlaying?.id ?? null,
+  (id) => {
+    userScrolling.value = false
+    void lyrics.load(id)
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
