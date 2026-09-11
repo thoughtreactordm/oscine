@@ -1,5 +1,5 @@
 import { parseFile } from 'music-metadata'
-import type { IAudioMetadata } from 'music-metadata'
+import type { IAudioMetadata, ILyricsTag, ITag } from 'music-metadata'
 import type { BitrateMode, TrackFormatDetail } from '@shared/library'
 
 /**
@@ -39,6 +39,16 @@ export interface TrackTags {
   genre: string | null
   /** `null` when the file carries no `REPLAYGAIN_*` tags at all. */
   replayGain: ReplayGain | null
+  /**
+   * The file's embedded lyrics as raw text, or `null` — W17's tier-2 source.
+   *
+   * Raw on purpose: whatever the tag holds, verbatim. See {@link extractLyrics}.
+   * The scanner never writes this to a column — it rides along in the on-demand
+   * read (the lyrics resolver reuses the `MetadataReader` seam) so the feature
+   * stays schema v1 and the scan path untouched, per W17-2. `parseLrc` (later,
+   * in the resolver) is what decides whether the text is timed.
+   */
+  lyrics: string | null
 }
 
 /** Injection seam: the scanner takes one of these rather than importing a parser. */
@@ -173,6 +183,96 @@ export function normaliseCodec(codec?: string, container?: string): string | nul
   return lower
 }
 
+/** ID3/Vorbis/MP4 lyric frame ids, upper-cased for a case-fold match. */
+const LYRIC_FRAME_IDS = new Set([
+  'USLT',
+  'SYLT',
+  'LYRICS',
+  'UNSYNCEDLYRICS',
+  'SYNCEDLYRICS',
+  '©LYR'
+])
+
+/**
+ * The file's embedded lyrics as one raw string, or `null`.
+ *
+ * Deliberately *raw* — whatever the tag holds, verbatim — because most embedded
+ * *synced* lyrics are LRC text stuffed into an unsynced frame, so only the
+ * shared `parseLrc` (run later, in the resolver) is entitled to decide whether a
+ * blob is timed. This surfaces text and does not parse it.
+ *
+ * `music-metadata` folds ID3 `USLT`/`SYLT`, Vorbis `LYRICS`/`UNSYNCEDLYRICS`/
+ * `SYNCEDLYRICS` and MP4 `©lyr` onto `common.lyrics`, so that is preferred; the
+ * native-frame sweep is the fallback for a container its generic mapper missed.
+ * A tag's plain `text` wins over its `syncText`: the plain form is the common
+ * case and needs no reconstruction.
+ */
+export function extractLyrics(metadata: IAudioMetadata): string | null {
+  for (const tag of metadata.common.lyrics ?? []) {
+    const plain = text(tag.text)
+    if (plain !== null) return plain
+    const rebuilt = syncTextToLrc(tag)
+    if (rebuilt !== null) return rebuilt
+  }
+  return nativeLyrics(metadata.native)
+}
+
+/**
+ * Rebuild an LRC document from a structured `SYLT` frame.
+ *
+ * `syncText` timestamps are taken as milliseconds — the near-universal choice,
+ * and what a re-parse expects — even though ID3 permits an MPEG-frame format.
+ * `SYLT` is thin enough across the ecosystem that trading exactness on a
+ * frame-timed file for simplicity is the right call; it is stated here so the
+ * assumption is not silent.
+ */
+function syncTextToLrc(tag: ILyricsTag): string | null {
+  const lines: string[] = []
+  for (const item of tag.syncText ?? []) {
+    const body = typeof item.text === 'string' ? item.text : ''
+    if (typeof item.timestamp === 'number' && Number.isFinite(item.timestamp)) {
+      lines.push(`${lrcStamp(item.timestamp)}${body}`)
+    } else if (body !== '') {
+      lines.push(body)
+    }
+  }
+  const joined = lines.join('\n').trim()
+  return joined === '' ? null : joined
+}
+
+/** `[mm:ss.mmm]` for a millisecond offset, the form `parseLrc` reads back at full precision. */
+function lrcStamp(ms: number): string {
+  const totalMs = Math.max(0, Math.round(ms))
+  const minutes = Math.floor(totalMs / 60_000)
+  const seconds = Math.floor((totalMs % 60_000) / 1000)
+  const millis = totalMs % 1000
+  const pad = (value: number, width: number): string => String(value).padStart(width, '0')
+  return `[${pad(minutes, 2)}:${pad(seconds, 2)}.${pad(millis, 3)}]`
+}
+
+/** Fallback sweep of native frames for a container `common.lyrics` did not cover. */
+function nativeLyrics(native: IAudioMetadata['native']): string | null {
+  for (const tags of Object.values(native)) {
+    for (const tag of tags) {
+      // Frame ids sometimes carry a `:descriptor` suffix (`USLT:eng`); key on the id.
+      const id = tag.id.split(':')[0].toUpperCase()
+      if (!LYRIC_FRAME_IDS.has(id)) continue
+      const value = nativeLyricText(tag.value)
+      if (value !== null) return value
+    }
+  }
+  return null
+}
+
+/** A native lyric frame's value is a bare string (Vorbis/MP4) or a `{ text }` object (ID3). */
+function nativeLyricText(value: ITag['value']): string | null {
+  if (typeof value === 'string') return text(value)
+  if (value !== null && typeof value === 'object' && 'text' in value) {
+    return text((value as { text?: unknown }).text)
+  }
+  return null
+}
+
 function toReplayGain(common: IAudioMetadata['common']): ReplayGain | null {
   const gain: ReplayGain = {
     trackGainDb: finite(common.replaygain_track_gain?.dB),
@@ -207,7 +307,8 @@ export function toTrackTags(metadata: IAudioMetadata): TrackTags {
     channels: positiveInt(format.numberOfChannels),
     bitDepth: positiveInt(format.bitsPerSample),
     genre: primaryGenre(common.genre),
-    replayGain: toReplayGain(common)
+    replayGain: toReplayGain(common),
+    lyrics: extractLyrics(metadata)
   }
 }
 

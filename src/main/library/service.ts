@@ -22,6 +22,7 @@ import type {
   TrackFacets,
   TrackFormatDetail
 } from '@shared/library'
+import type { LyricsDocument } from '@shared/lyrics'
 import type { RelatedQuery, RelatedResult } from '@shared/related'
 import type { AlbumCard } from '@shared/albums'
 import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
@@ -171,6 +172,13 @@ export interface LibraryService {
    * are different states and the pane says so.
    */
   getTrackFormatDetail(trackId: number): Promise<TrackFormatDetail | null>
+  /**
+   * Resolves one track's lyrics through the tier chain (sidecar, embedded, and
+   * later network). `null` means no tier had lyrics — or the track is no longer
+   * in the library. Never rejects for a missing or moved file; that is "no
+   * lyrics", not an error.
+   */
+  getLyrics(trackId: number): Promise<LyricsDocument | null>
   /**
    * Absolute path for a track id, or `null` if unknown.
    *

@@ -268,6 +268,11 @@ export function registerIpcHandlers(
     return detail
   })
 
+  handle('lyrics.get', async (request) => {
+    const { trackId } = assertRecord(request, 'request')
+    return library.getLyrics(assertPositiveInt(trackId, 'trackId'))
+  })
+
   handle('library.getTrackFileUrl', async (request) => {
     const { trackId } = assertRecord(request, 'request')
     const id = assertPositiveInt(trackId, 'trackId')

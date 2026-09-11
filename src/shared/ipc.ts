@@ -80,6 +80,7 @@ import type {
   TrackFacets,
   TrackFormatDetail
 } from './library'
+import type { LyricsDocument } from './lyrics'
 import type { CancelNetScopeRequest, CancelNetScopeResult, NetResult } from './net'
 import type {
   ScrobbleConnection,
@@ -322,6 +323,14 @@ export interface IpcContract {
    * reasoning behind the custom protocol.
    */
   'library.getTrackFileUrl': { request: { trackId: number }; response: string }
+  /**
+   * Resolves one track's lyrics through the tier chain — sidecar `.lrc`, then
+   * embedded tags, then (once W17-4 lands) the network — and returns the winning
+   * document or `null` when none has lyrics. `LyricsDocument.source` carries
+   * which tier won. Main-process only: the renderer opens no file and no socket,
+   * per the invariant, so this is where the resolution happens.
+   */
+  'lyrics.get': { request: { trackId: number }; response: LyricsDocument | null }
   'library.startReplayGain': { request: null; response: ReplayGainJobProgress }
   'library.getReplayGainJob': { request: null; response: ReplayGainJobProgress | null }
   'library.cancelReplayGain': {
@@ -1321,6 +1330,7 @@ export const IPC_CHANNELS = [
   'library.getTrackAudioMetadata',
   'library.getTrackFormatDetail',
   'library.getTrackFileUrl',
+  'lyrics.get',
   'library.startReplayGain',
   'library.getReplayGainJob',
   'library.cancelReplayGain',

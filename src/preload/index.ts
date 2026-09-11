@@ -167,6 +167,8 @@ const api = {
       request('library.getTrackAudioMetadata', { trackId }),
     /** On-demand format block for the signal readout. Re-parsed, not indexed. */
     getTrackFormatDetail: (trackId: number) => request('library.getTrackFormatDetail', { trackId }),
+    /** Resolved lyrics for one track — sidecar, then embedded tags. Resolution stays in main. */
+    getLyrics: (trackId: number) => request('lyrics.get', { trackId }),
     /** Opaque `oscine://` URL for the track's bytes. Never a filesystem path. */
     getTrackFileUrl: (trackId: number) => request('library.getTrackFileUrl', { trackId }),
     startReplayGain: () => request('library.startReplayGain', null),

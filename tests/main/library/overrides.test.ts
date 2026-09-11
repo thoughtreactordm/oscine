@@ -35,6 +35,7 @@ function fileTags(over: Partial<TrackTags>): TrackTags {
     bitDepth: null,
     genre: null,
     replayGain: null,
+    lyrics: null,
     ...over
   }
 }

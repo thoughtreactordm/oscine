@@ -61,6 +61,7 @@ function matchingRead(over: Partial<TrackTags> = {}): TrackTags {
     bitDepth: null,
     genre: 'Ambient',
     replayGain: null,
+    lyrics: null,
     ...over
   }
 }

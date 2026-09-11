@@ -31,6 +31,7 @@ import {
   type TrackFacets,
   type TrackFormatDetail
 } from '@shared/library'
+import type { LyricsDocument } from '@shared/lyrics'
 import type { RelatedQuery, RelatedResult } from '@shared/related'
 import type { AlbumCard } from '@shared/albums'
 import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
@@ -51,6 +52,8 @@ import {
   type TrackTags
 } from './metadata'
 import type { EmbeddedArtworkReader } from './metadata'
+import { readSidecarLyrics } from './lyrics/sidecar'
+import { resolveLyrics } from './lyrics/service'
 import { reconcilePaths, scanRoot } from './scanner'
 import { LibraryStore, type RootConflict, type RootRow } from './store'
 import { ArtworkCacheService, isArtworkSidecarPath } from './artwork'
@@ -92,6 +95,18 @@ export interface SqliteLibraryDeps {
   readMetadata?: MetadataReader
   /** The same, for the readout pane's on-demand format lookup. */
   readFormatDetail?: FormatDetailReader
+  /**
+   * Tier 1 of the lyrics chain: the sidecar `.lrc` reader. Overridable so lyrics
+   * tests need no files on disk; production uses the fs-backed reader.
+   */
+  readSidecarLyrics?: (audioAbsPath: string) => Promise<LyricsDocument | null>
+  /**
+   * Tier 2 of the lyrics chain: the file's embedded lyrics as raw text.
+   * Defaults to reusing {@link readMetadata} — the same on-demand `parseFile`,
+   * whose `TrackTags.lyrics` is exactly this field — so no second reader or scan
+   * column is introduced. Overridable for tests.
+   */
+  readEmbeddedLyrics?: (audioAbsPath: string) => Promise<string | null>
   /** Enables the derived artwork service. Omitted by tests that do not exercise it. */
   artworkCacheDir?: string
   /**
@@ -154,6 +169,8 @@ export class SqliteLibraryService implements LibraryService {
   private readonly store: LibraryStore
   private readonly readMetadata: MetadataReader
   private readonly readFormatDetail: FormatDetailReader
+  private readonly readSidecarLyrics: (audioAbsPath: string) => Promise<LyricsDocument | null>
+  private readonly readEmbeddedLyrics: (audioAbsPath: string) => Promise<string | null>
   private readonly replayGain: ReplayGainJobService
   private readonly watcher: RootDirectoryWatcher
   private readonly artwork: ArtworkCacheService | null
@@ -182,6 +199,11 @@ export class SqliteLibraryService implements LibraryService {
     this.discover = new DiscoverEngine(deps.db)
     this.readMetadata = deps.readMetadata ?? readTrackTags
     this.readFormatDetail = deps.readFormatDetail ?? readTrackFormatDetail
+    this.readSidecarLyrics = deps.readSidecarLyrics ?? ((path) => readSidecarLyrics(path))
+    // The embedded tier reuses the metadata reader: `TrackTags.lyrics` is the
+    // file's embedded lyrics, so there is one on-demand `parseFile`, not two.
+    this.readEmbeddedLyrics =
+      deps.readEmbeddedLyrics ?? (async (path) => (await this.readMetadata(path)).lyrics)
     this.originals = deps.artworkOriginalsDir
       ? createArtworkOriginalsStore({ dir: deps.artworkOriginalsDir })
       : null
@@ -508,6 +530,21 @@ export class SqliteLibraryService implements LibraryService {
     const absPath = this.store.resolveTrackPath(trackId)
     if (absPath === null) return null
     return this.readFormatDetail(absPath)
+  }
+
+  async getLyrics(trackId: number): Promise<LyricsDocument | null> {
+    // The path is resolved here and reaches the tier readers and nothing else —
+    // the same arrangement as `getTrackFormatDetail`. A track that is no longer
+    // indexed is `null`; a file that moved after indexing is handled inside the
+    // resolver, which treats an unreadable tier as "no lyrics" rather than an
+    // error, so this returns `null` there too instead of rejecting.
+    const absPath = this.store.resolveTrackPath(trackId)
+    if (absPath === null) return null
+    return resolveLyrics(absPath, {
+      readSidecar: this.readSidecarLyrics,
+      readEmbeddedLyrics: this.readEmbeddedLyrics
+      // fetchNetworkLyrics: tier 3, filled by W17-4.
+    })
   }
 
   async resolveTrackPath(trackId: number): Promise<string | null> {
