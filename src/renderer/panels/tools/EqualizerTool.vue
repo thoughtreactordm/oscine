@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import type { DropdownMenuItem } from '@nuxt/ui'
+import { parseParametricEq } from '@shared/audio/parametricEq'
 import { useEqualizerStore } from '@renderer/stores/equalizer'
 import EqualizerCurve from '@renderer/panels/tools/EqualizerCurve.vue'
 import EqualizerBandTable from '@renderer/panels/tools/EqualizerBandTable.vue'
@@ -21,6 +22,7 @@ import {
  * the sole writer of the three `audio.eq.*` keys.
  */
 const eq = useEqualizerStore()
+const toast = useToast()
 
 /** ±12 by default; ±24 for the operator cutting a room mode. Display-only, not stored. */
 const displayGainDb = ref<number>(DEFAULT_DISPLAY_GAIN_DB)
@@ -88,6 +90,36 @@ function cancelPrompt(): void {
   prompt.value = null
 }
 
+// ── AutoEq / Equalizer APO text import ───────────────────────────────────────
+const importOpen = ref(false)
+const importText = ref('')
+const importError = ref('')
+
+function openImport(): void {
+  importText.value = ''
+  importError.value = ''
+  importOpen.value = true
+}
+
+function runImport(): void {
+  const result = parseParametricEq(importText.value)
+  if (!result) {
+    importError.value =
+      'No parametric filters found. Paste an AutoEq / Equalizer APO ParametricEQ.txt profile.'
+    return
+  }
+  eq.active = result.spec
+  importOpen.value = false
+  toast.add({
+    title: `Imported ${result.filtersRead} ${result.filtersRead === 1 ? 'filter' : 'filters'}.${
+      eq.enabled ? '' : ' Turn on the EQ to hear it.'
+    }`,
+    description: result.warnings.length > 0 ? result.warnings.join(' ') : undefined,
+    icon: 'i-tabler-file-import',
+    color: result.warnings.length > 0 ? 'warning' : 'primary'
+  })
+}
+
 /**
  * The preset actions, folded into one menu beside the selector so the top bar has
  * room for the spectrum toggle. Save is offered only when a recalled preset has
@@ -116,7 +148,10 @@ const presetMenu = computed<DropdownMenuItem[][]>(() => [
       onSelect: deleteSelected
     }
   ],
-  [{ label: 'Reset to flat', icon: 'i-tabler-baseline', onSelect: resetFlat }]
+  [
+    { label: 'Import text…', icon: 'i-tabler-file-import', onSelect: openImport },
+    { label: 'Reset to flat', icon: 'i-tabler-baseline', onSelect: resetFlat }
+  ]
 ])
 
 watch(prompt, async (value) => {
@@ -225,6 +260,38 @@ watch(prompt, async (value) => {
         <UButton color="neutral" variant="ghost" @click="cancelPrompt()">Cancel</UButton>
         <UButton color="primary" :disabled="!canConfirmPrompt" @click="confirmPrompt()">
           {{ prompt?.mode === 'rename' ? 'Rename' : 'Save' }}
+        </UButton>
+      </template>
+    </UModal>
+
+    <!-- Paste an AutoEq / Equalizer APO ParametricEQ.txt profile. -->
+    <UModal
+      :open="importOpen"
+      title="Import EQ profile"
+      description="Paste an AutoEq / Equalizer APO ParametricEQ.txt — e.g. an oratory1990 profile."
+      :ui="{ footer: 'justify-end' }"
+      @update:open="(value: boolean) => (importOpen = value)"
+    >
+      <template #body>
+        <textarea
+          v-model="importText"
+          rows="10"
+          spellcheck="false"
+          class="w-full resize-y rounded-md border border-default bg-elevated px-3 py-2 font-mono text-xs text-default focus:outline-none focus:ring-1 focus:ring-primary"
+          placeholder="Preamp: -6.7 dB&#10;Filter 1: ON PK Fc 105 Hz Gain 5.5 dB Q 0.70&#10;Filter 2: ON HSC Fc 10000 Hz Gain -2.0 dB Q 0.70"
+          aria-label="Parametric EQ profile text"
+        />
+        <p v-if="importError" role="alert" class="mt-2 text-xs text-error">{{ importError }}</p>
+      </template>
+      <template #footer>
+        <UButton color="neutral" variant="ghost" @click="importOpen = false">Cancel</UButton>
+        <UButton
+          color="primary"
+          icon="i-tabler-file-import"
+          :disabled="importText.trim().length === 0"
+          @click="runImport"
+        >
+          Import
         </UButton>
       </template>
     </UModal>
