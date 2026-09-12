@@ -260,6 +260,16 @@ describe('drawn curve', () => {
     expect(curvePath(curve, geometry).startsWith('M')).toBe(true)
     expect(curveAreaPath(curve, geometry).endsWith('Z')).toBe(true)
   })
+
+  it('excludes the pre-amp so the drawn shape stays on the handles it describes', () => {
+    // A pre-amp offset is a uniform level, not part of the shape: the curve for a
+    // cut pre-amp is identical to the curve at 0, so the line never leaves the
+    // band handles and fills, which are drawn at their own 0-referenced gains.
+    const bands = [band({ gainDb: 6 })]
+    const level = compositeCurve(spec(bands, { preampDb: 0 }), 48000)
+    const cut = compositeCurve(spec(bands, { preampDb: -9 }), 48000)
+    expect(Array.from(cut)).toEqual(Array.from(level))
+  })
 })
 
 describe('gridlines', () => {

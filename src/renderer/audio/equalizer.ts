@@ -53,6 +53,14 @@ const BYPASS_RAMP_TIME_CONSTANT = 0.015
 /** Frequency a parked biquad sits at. Inaudible at 0 dB, so any value is flat. */
 const PARKED_FREQUENCY_HZ = 1000
 
+/**
+ * The time-domain window the clip tap reads each frame — a power of two large
+ * enough to cover a display frame's worth of samples at 48 kHz (~800), so no
+ * sample slips between two `rAF` reads unseen. Small: the indicator wants a peak,
+ * not a spectrum.
+ */
+const CLIP_ANALYSER_FFT_SIZE = 1024
+
 /** The slice of Web Audio the chain needs. Keeps the router testable with no Web Audio. */
 export interface EqAudioParam {
   value: number
@@ -61,7 +69,17 @@ export interface EqAudioParam {
 
 export interface EqAudioNode {
   connect(destination: EqAudioNode): unknown
-  disconnect(): void
+  /** No argument tears down every edge; a node argument drops just that one edge. */
+  disconnect(destination?: EqAudioNode): void
+}
+
+/**
+ * The read-only sliver of `AnalyserNode` the clip tap uses. Only the time-domain
+ * read and `fftSize` — no frequency data, so the fake in the tests is three lines.
+ */
+export interface EqAnalyserNode extends EqAudioNode {
+  fftSize: number
+  getFloatTimeDomainData(array: Float32Array): void
 }
 
 export interface EqGainNode extends EqAudioNode {
@@ -86,6 +104,7 @@ export interface BiquadCapableContext {
   readonly destination: EqAudioNode
   createGain(): EqGainNode
   createBiquadFilter(): EqBiquadFilterNode
+  createAnalyser(): EqAnalyserNode
 }
 
 /**
@@ -102,6 +121,34 @@ interface EqChain {
   dry: EqGainNode
   wet: EqGainNode
   output: EqGainNode
+  /** The clip tap, present only while at least one `ClipTap` is subscribed. */
+  analyser: EqAnalyserNode | null
+}
+
+/**
+ * A live subscription to the EQ output's peak level, for the R11 clip indicator.
+ *
+ * The analyser it reads is attached lazily to every chain on the first tap and
+ * torn down on the last, so an operator who never opens the equalizer pane pays
+ * for nothing. It taps `output` — after the pre-amp, the bands and the dry/wet
+ * mix — so it sees exactly what the EQ sends on toward the device, which is the
+ * only clipping it can honestly claim.
+ */
+export interface ClipTap {
+  /** The largest output sample magnitude across every live chain, this instant. */
+  peak(): number
+  /** Release this tap; the analysers come down when the last tap goes. Idempotent. */
+  release(): void
+}
+
+/** The largest sample magnitude in a time-domain buffer — full scale is 1.0. */
+export function peakMagnitude(samples: Float32Array): number {
+  let peak = 0
+  for (let i = 0; i < samples.length; i++) {
+    const magnitude = Math.abs(samples[i])
+    if (magnitude > peak) peak = magnitude
+  }
+  return peak
 }
 
 function clampFrequencyHz(hz: number, nyquistHz: number): number {
@@ -123,6 +170,10 @@ function clampQ(q: number): number {
 export class EqualizerRouter {
   readonly #chains = new Set<EqChain>()
   #spec: EqualizerSpec = FLAT_EQUALIZER_SPEC
+  /** Live `ClipTap` count. The analysers exist iff this is non-zero. */
+  #clipTaps = 0
+  /** One reusable read buffer for every chain and every frame — no per-poll alloc. */
+  readonly #clipSamples = new Float32Array(CLIP_ANALYSER_FFT_SIZE)
 
   get spec(): EqualizerSpec {
     return this.#spec
@@ -162,9 +213,13 @@ export class EqualizerRouter {
     dry.connect(output)
     output.connect(context.destination)
 
-    const chain: EqChain = { context, input, preamp, biquads, dry, wet, output }
+    const chain: EqChain = { context, input, preamp, biquads, dry, wet, output, analyser: null }
     this.#chains.add(chain)
     this.#applyImmediate(chain, this.#spec)
+    // A context built while the pane is open joins the tap; one built while it is
+    // shut stays analyser-free until the first subscription. Either way the tap
+    // hangs off `output`, which is already wired to `destination` above.
+    if (this.#clipTaps > 0) this.#attachAnalyser(chain)
     // The one bridge from the minimal node world the router is built and tested
     // in to the real Web Audio graph: at runtime `input` is the `GainNode` the
     // context actually created, and the caller connects a real master gain into
@@ -190,6 +245,69 @@ export class EqualizerRouter {
         console.warn('[audio] could not apply the equalizer spec to a context:', error)
       }
     }
+  }
+
+  /**
+   * Begin observing the EQ output's peak level. The first tap attaches an
+   * analyser to every live chain; the last one released tears them all down.
+   *
+   * The returned `release` is idempotent — a leaked poll releasing twice must not
+   * drive the count negative and strand the analysers attached — so the pane can
+   * call it from an unmount hook without bookkeeping.
+   */
+  subscribeClip(): ClipTap {
+    this.#prune()
+    this.#clipTaps += 1
+    if (this.#clipTaps === 1) {
+      for (const chain of this.#chains) this.#attachAnalyser(chain)
+    }
+    let released = false
+    return {
+      peak: () => this.#readClipPeak(),
+      release: () => {
+        if (released) return
+        released = true
+        this.#clipTaps -= 1
+        if (this.#clipTaps === 0) {
+          for (const chain of this.#chains) this.#detachAnalyser(chain)
+        }
+      }
+    }
+  }
+
+  /** Hang a clip-reading analyser off a chain's output, once. */
+  #attachAnalyser(chain: EqChain): void {
+    if (chain.analyser) return
+    const analyser = chain.context.createAnalyser()
+    analyser.fftSize = CLIP_ANALYSER_FFT_SIZE
+    // A leaf tap: `output` already reaches `destination`, so the analyser only
+    // listens and is left unconnected onward — the same shape the waveform
+    // analysers use (see `DecodedAudioEngine`), so it never becomes a second
+    // route out.
+    chain.output.connect(analyser)
+    chain.analyser = analyser
+  }
+
+  /** Remove a chain's clip tap, dropping just the `output → analyser` edge. */
+  #detachAnalyser(chain: EqChain): void {
+    if (!chain.analyser) return
+    // Disconnect the specific edge, not `output` wholesale — `output → destination`
+    // must survive, or detaching the indicator would silence the chain.
+    chain.output.disconnect(chain.analyser)
+    chain.analyser = null
+  }
+
+  /** The largest output sample across every live chain's analyser, right now. */
+  #readClipPeak(): number {
+    this.#prune()
+    let peak = 0
+    for (const chain of this.#chains) {
+      if (!chain.analyser) continue
+      chain.analyser.getFloatTimeDomainData(this.#clipSamples)
+      const chainPeak = peakMagnitude(this.#clipSamples)
+      if (chainPeak > peak) peak = chainPeak
+    }
+    return peak
   }
 
   /** Snap a newly built chain to the spec with direct assignments. */

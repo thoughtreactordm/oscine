@@ -5,7 +5,11 @@ import {
   AUDIO_EQ_PRESETS,
   sameSettingValue
 } from '@shared/settings'
-import { type EqualizerPreset, type EqualizerSpec } from '@shared/audio/equalizer'
+import {
+  EQUALIZER_GAIN_DB_LIMIT,
+  type EqualizerPreset,
+  type EqualizerSpec
+} from '@shared/audio/equalizer'
 
 /**
  * The equalizer pane's state and the only writer of its three settings keys.
@@ -46,6 +50,12 @@ export interface EqualizerState {
   appliedPreset: ComputedRef<EqualizerPreset | null>
   /** True when a preset is selected and the live curve has drifted from it. */
   dirty: ComputedRef<boolean>
+  /**
+   * Set the pre-amp (R11's headroom control), clamped to the node's ±24 dB. The
+   * one gain that sits before every band, so lowering it is what buys headroom for
+   * a boost without redrawing the curve — see `suggestedPreampDb`.
+   */
+  setPreamp: (db: number) => void
   /** Save the current curve as a new named preset; returns its generated id. */
   savePreset: (name: string) => string
   /**
@@ -115,6 +125,14 @@ export function createEqualizerState(
     selectedId.value = id
   }
 
+  function setPreamp(db: number): void {
+    if (!Number.isFinite(db)) return
+    const preampDb = Math.min(EQUALIZER_GAIN_DB_LIMIT, Math.max(-EQUALIZER_GAIN_DB_LIMIT, db))
+    // A whole-spec write so the settings watcher repaints the audio; other fields
+    // are carried through untouched.
+    active.value = { ...active.value, preampDb }
+  }
+
   function applyPreset(id: string): void {
     const preset = presets.value.find((entry) => entry.id === id)
     if (!preset) return
@@ -143,10 +161,76 @@ export function createEqualizerState(
     appliedPresetId: computed(() => selectedId.value),
     appliedPreset,
     dirty,
+    setPreamp,
     savePreset,
     updatePreset,
     applyPreset,
     renamePreset,
     deletePreset
+  }
+}
+
+// ── The clip indicator's latch (R11) ────────────────────────────────────────
+
+/**
+ * A sample at or beyond this magnitude is treated as clipping the EQ output.
+ * Just shy of full scale (1.0) so a value pinned at the ceiling reads as a clip
+ * without demanding an exact 1.0 that dither or resampling would round past.
+ */
+export const CLIP_THRESHOLD = 0.999
+
+/**
+ * How long the indicator stays lit after a clip, in milliseconds. A clip is often
+ * a single sample on one kick; without a latch it would flash for one frame and be
+ * gone before the eye caught it. ~1.5 s is long enough to see, short enough not to
+ * outlive the boost that caused it.
+ */
+export const DEFAULT_CLIP_HOLD_MS = 1500
+
+export interface ClipLatch {
+  /** Whether the indicator is currently lit. */
+  readonly lit: boolean
+  /**
+   * Fold in this frame's output peak, observed at `nowMs`. A peak at or past the
+   * threshold lights the indicator and (re)arms the hold; otherwise the hold is
+   * aged and cleared once it has elapsed.
+   */
+  push(peak: number, nowMs: number): void
+  /** Clear immediately — the operator clicked the indicator to acknowledge it. */
+  clear(): void
+}
+
+export interface ClipLatchOptions {
+  holdMs?: number
+  threshold?: number
+}
+
+/**
+ * The clip indicator's state, as a pure time-driven machine so the latch timing
+ * is asserted against synthetic timestamps rather than a real `rAF` clock. The
+ * Pinia store drives `push` once per frame with the router's peak and
+ * `performance.now()`; the component clears it on click.
+ */
+export function createClipLatch(options: ClipLatchOptions = {}): ClipLatch {
+  const holdMs = options.holdMs ?? DEFAULT_CLIP_HOLD_MS
+  const threshold = options.threshold ?? CLIP_THRESHOLD
+  let lit = false
+  let litUntil = -Infinity
+  return {
+    get lit(): boolean {
+      return lit
+    },
+    push(peak: number, nowMs: number): void {
+      if (peak >= threshold) {
+        lit = true
+        litUntil = nowMs + holdMs
+      } else if (lit && nowMs >= litUntil) {
+        lit = false
+      }
+    },
+    clear(): void {
+      lit = false
+      litUntil = -Infinity
+    }
   }
 }

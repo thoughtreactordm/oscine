@@ -3,6 +3,9 @@ import { computed, type WritableComputedRef } from 'vue'
 import { AUDIO_EQ_ACTIVE, AUDIO_EQ_ENABLED, AUDIO_EQ_PRESETS } from '@shared/settings'
 import type { EqualizerSpec } from '@shared/audio/equalizer'
 import {
+  CLIP_THRESHOLD,
+  DEFAULT_CLIP_HOLD_MS,
+  createClipLatch,
   createEqualizerState,
   type EqualizerSettings
 } from '../../../src/renderer/stores/equalizerState'
@@ -216,5 +219,76 @@ describe('createEqualizerState', () => {
     eq.updatePreset('nope')
 
     expect(eq.presets.value.map((p) => p.id)).toEqual([id])
+  })
+
+  it('setPreamp writes only the pre-amp, carrying the bands through', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    eq.active.value = bassBoost
+
+    eq.setPreamp(-9)
+
+    expect(eq.active.value.preampDb).toBe(-9)
+    expect(eq.active.value.bands).toEqual(bassBoost.bands)
+    expect(eq.active.value.enabled).toBe(true)
+  })
+
+  it('setPreamp clamps to the node range and drops a non-finite value', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    eq.active.value = bassBoost
+
+    eq.setPreamp(-100)
+    expect(eq.active.value.preampDb).toBe(-24)
+    eq.setPreamp(100)
+    expect(eq.active.value.preampDb).toBe(24)
+
+    eq.setPreamp(Number.NaN)
+    // Unchanged: a NaN mid-keystroke must not reach the settings validator.
+    expect(eq.active.value.preampDb).toBe(24)
+  })
+})
+
+describe('createClipLatch', () => {
+  it('lights on a sample at full scale and not on one just below', () => {
+    const litLatch = createClipLatch()
+    litLatch.push(1.0, 0)
+    expect(litLatch.lit).toBe(true)
+
+    const quietLatch = createClipLatch()
+    quietLatch.push(0.99, 0)
+    expect(quietLatch.lit).toBe(false)
+    // The threshold is exactly `CLIP_THRESHOLD`.
+    quietLatch.push(CLIP_THRESHOLD, 0)
+    expect(quietLatch.lit).toBe(true)
+  })
+
+  it('holds for the stated duration and then clears on its own', () => {
+    const latch = createClipLatch()
+    latch.push(1.0, 1000)
+    // Still within the hold window.
+    latch.push(0, 1000 + DEFAULT_CLIP_HOLD_MS - 1)
+    expect(latch.lit).toBe(true)
+    // The window has elapsed.
+    latch.push(0, 1000 + DEFAULT_CLIP_HOLD_MS)
+    expect(latch.lit).toBe(false)
+  })
+
+  it('re-arms the hold on a later clip', () => {
+    const latch = createClipLatch({ holdMs: 100 })
+    latch.push(1.0, 0)
+    latch.push(1.0, 90) // fresh clip pushes the window forward
+    latch.push(0, 150) // would have expired at 100, but 90 + 100 = 190
+    expect(latch.lit).toBe(true)
+    latch.push(0, 190)
+    expect(latch.lit).toBe(false)
+  })
+
+  it('clears immediately when the operator acknowledges it', () => {
+    const latch = createClipLatch()
+    latch.push(1.0, 0)
+    expect(latch.lit).toBe(true)
+    latch.clear()
+    expect(latch.lit).toBe(false)
   })
 })

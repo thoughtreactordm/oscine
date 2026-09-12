@@ -193,5 +193,9 @@ export const usePlaybackStore = defineStore('playback', () => {
     emit: (signal) => presence.update(signal)
   })
 
-  return controller
+  // The equalizer pane's clip tap. Exposed alongside the controller's surface
+  // rather than threaded through it: the tap belongs to the EQ chain on every
+  // context (see `audio/equalizer.ts`), not to a scheduler slot, so it rides the
+  // factory the same way the output device does.
+  return Object.assign(controller, { subscribeEqualizerClip: audio.subscribeEqualizerClip })
 })

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { parseParametricEq } from '@shared/audio/parametricEq'
+import { FALLBACK_SAMPLE_RATE_HZ, suggestedPreampDb } from '@renderer/audio/eqResponse'
 import { useEqualizerStore } from '@renderer/stores/equalizer'
 import EqualizerCurve from '@renderer/panels/tools/EqualizerCurve.vue'
 import EqualizerBandTable from '@renderer/panels/tools/EqualizerBandTable.vue'
@@ -9,6 +10,7 @@ import {
   DEFAULT_DISPLAY_GAIN_DB,
   DISPLAY_GAIN_RANGES,
   flattenedSpec,
+  formatGain,
   presetDisplayName
 } from '@renderer/panels/tools/equalizerModel'
 
@@ -30,6 +32,43 @@ const rangeItems = DISPLAY_GAIN_RANGES.map((db) => ({ label: `±${db} dB`, value
 
 /** Whether the curve carries the live spectrum behind it. Display-only, not stored. */
 const showSpectrum = ref(false)
+
+// ── Pre-amp, auto-gain and the clip indicator (R11) ──────────────────────────
+
+/** The slider's range: cut deep for headroom, boost only a little, default 0. */
+const PREAMP_MIN_DB = -24
+const PREAMP_MAX_DB = 12
+/** 0.1 dB, so the slider and stepper move in tenths rather than snapping to half-dB. */
+const PREAMP_STEP_DB = 0.1
+
+function setPreamp(value: number | number[] | null | undefined): void {
+  if (value === null || value === undefined) return
+  // `setPreamp` drops a non-finite value; the slider hands a number, the numeric
+  // entry a number or nothing mid-edit.
+  eq.setPreamp(typeof value === 'number' ? value : (value[0] ?? Number.NaN))
+}
+
+/**
+ * What Auto would set, computed live off the current curve at the rate the pane
+ * draws at so the button can show it before it is pressed. Independent of the
+ * pre-amp already set (see `suggestedPreampDb`), so applying it and looking again
+ * shows the same number rather than creeping toward silence.
+ */
+const autoPreampDb = computed(() => suggestedPreampDb(eq.active, FALLBACK_SAMPLE_RATE_HZ))
+const autoLabel = computed(() => `Auto: ${formatGain(autoPreampDb.value)}`)
+/** Already applied: pressing Auto would be a no-op, so the button rests disabled. */
+const autoApplied = computed(() => Math.abs(autoPreampDb.value - eq.active.preampDb) < 0.05)
+
+function applyAuto(): void {
+  eq.setPreamp(autoPreampDb.value)
+}
+
+// The clip indicator polls the EQ output only while this pane is mounted: the
+// analyser is attached on the first frame and released on unmount, so an operator
+// who never opens the pane pays nothing and a leaked frame cannot outlive the
+// pane — the shape W18-7's leaked interval taught.
+onMounted(() => eq.startClipMonitor())
+onUnmounted(() => eq.stopClipMonitor())
 
 const presetItems = computed(() =>
   eq.presets.map((preset) => ({
@@ -220,6 +259,60 @@ watch(prompt, async (value) => {
           @update:model-value="displayGainDb = Number($event)"
         />
       </div>
+    </div>
+
+    <!-- Headroom: the pre-amp, its auto-set, and the honest clip light (R11). -->
+    <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-default px-3 py-2">
+      <span class="shrink-0 text-xs font-medium text-muted">Preamp</span>
+      <USlider
+        :model-value="eq.active.preampDb"
+        :min="PREAMP_MIN_DB"
+        :max="PREAMP_MAX_DB"
+        :step="PREAMP_STEP_DB"
+        size="xs"
+        class="min-w-32 max-w-56 flex-1"
+        aria-label="Equalizer pre-amp"
+        @update:model-value="setPreamp($event)"
+      />
+      <UInputNumber
+        :model-value="eq.active.preampDb"
+        :min="PREAMP_MIN_DB"
+        :max="PREAMP_MAX_DB"
+        :step="PREAMP_STEP_DB"
+        :format-options="{ minimumFractionDigits: 1, maximumFractionDigits: 2 }"
+        size="xs"
+        class="w-24"
+        aria-label="Equalizer pre-amp, dB"
+        @update:model-value="setPreamp($event)"
+      />
+      <span class="shrink-0 text-[11px] text-dimmed">dB</span>
+
+      <UButton
+        size="xs"
+        color="neutral"
+        variant="outline"
+        icon="i-tabler-wand"
+        :label="autoLabel"
+        :disabled="autoApplied"
+        title="Set the pre-amp to just cancel the curve's loudest boost"
+        @click="applyAuto"
+      />
+
+      <UTooltip
+        text="Clipping in the EQ output — lower the pre-amp or the boost. Click to clear."
+        class="ml-auto"
+      >
+        <UButton
+          size="xs"
+          :color="eq.clipping ? 'error' : 'neutral'"
+          :variant="eq.clipping ? 'solid' : 'ghost'"
+          :icon="eq.clipping ? 'i-tabler-alert-triangle-filled' : 'i-tabler-activity'"
+          label="Clip"
+          :aria-pressed="eq.clipping"
+          aria-label="EQ output clipping indicator"
+          @click="eq.clearClip"
+        />
+      </UTooltip>
     </div>
 
     <EqualizerCurve :max-gain-db="displayGainDb" :show-spectrum="showSpectrum" />

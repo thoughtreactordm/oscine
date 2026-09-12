@@ -7,7 +7,8 @@ import {
   fractionForFrequency,
   logFrequencyAt,
   responseCurveDb,
-  specMagnitudeDb
+  specMagnitudeDb,
+  suggestedPreampDb
 } from '../../../src/renderer/audio/eqResponse'
 
 const FS = 48000
@@ -263,5 +264,61 @@ describe('eqResponse', () => {
     // The endpoints map exactly.
     expect(logFrequencyAt(0, 20, 20000)).toBeCloseTo(20, 10)
     expect(logFrequencyAt(1, 20, 20000)).toBeCloseTo(20000, 6)
+  })
+})
+
+describe('suggestedPreampDb', () => {
+  /** The composite peak of a curve over the same grid the suggestion scans. */
+  function compositePeak(s: EqualizerSpec): number {
+    const curve = responseCurveDb({ ...s, enabled: true, preampDb: 0 }, FS, 512, 20, 20000)
+    return Math.max(...curve)
+  }
+
+  it('returns 0 for a flat spec — nothing to make room for', () => {
+    expect(suggestedPreampDb(spec([]), FS)).toBe(0)
+  })
+
+  it('never boosts: a cutting-only curve suggests 0', () => {
+    const cut = spec([band({ type: 'peaking', frequencyHz: 1000, gainDb: -6, q: 1 })])
+    expect(suggestedPreampDb(cut, FS)).toBe(0)
+  })
+
+  it('is the exact negative of the composite maximum for a boosting curve', () => {
+    const boost = spec([band({ type: 'peaking', frequencyHz: 1000, gainDb: 6, q: 1 })])
+    expect(suggestedPreampDb(boost, FS)).toBeCloseTo(-compositePeak(boost), 6)
+  })
+
+  it('accounts for two overlapping boosts adding, not just the largest band gain', () => {
+    // Two +4 dB peaks at neighbouring centres sum to more than +4 dB where they
+    // meet — the case a max-band-gain shortcut gets wrong.
+    const overlapping = spec([
+      band({ id: 'a', type: 'peaking', frequencyHz: 900, gainDb: 4, q: 1 }),
+      band({ id: 'b', type: 'peaking', frequencyHz: 1100, gainDb: 4, q: 1 })
+    ])
+    const suggestion = suggestedPreampDb(overlapping, FS)
+    expect(suggestion).toBeLessThan(-4)
+    expect(suggestion).toBeCloseTo(-compositePeak(overlapping), 6)
+  })
+
+  it('ignores the pre-amp already set, so pressing Auto twice is idempotent', () => {
+    const bands = [band({ type: 'peaking', frequencyHz: 1000, gainDb: 6, q: 1 })]
+    const first = suggestedPreampDb(spec(bands, { preampDb: 0 }), FS)
+    // Apply it, then ask again: the suggestion is a property of the shape, so it
+    // does not compound with the pre-amp now in place.
+    const second = suggestedPreampDb(spec(bands, { preampDb: first }), FS)
+    expect(second).toBeCloseTo(first, 10)
+  })
+
+  it('skips a disabled band and computes as if the master were on', () => {
+    const withDisabled = spec(
+      [
+        band({ id: 'on', type: 'peaking', frequencyHz: 1000, gainDb: 6, q: 1 }),
+        band({ id: 'off', type: 'peaking', frequencyHz: 1000, gainDb: 12, q: 1, enabled: false })
+      ],
+      { enabled: false }
+    )
+    // The 12 dB band is bypassed, so only the 6 dB one drives the headroom.
+    const onlyEnabled = spec([band({ type: 'peaking', frequencyHz: 1000, gainDb: 6, q: 1 })])
+    expect(suggestedPreampDb(withDisabled, FS)).toBeCloseTo(suggestedPreampDb(onlyEnabled, FS), 6)
   })
 })

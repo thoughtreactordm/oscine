@@ -386,13 +386,25 @@ export function presetDisplayName(name: string, dirty: boolean): string {
  * component dims the plot for that state rather than flattening it, which would
  * make the compare toggle jump the curve every press. Individual bands still
  * gate on their own `enabled`.
+ *
+ * The pre-amp (R11) is excluded: it is a uniform level offset, not part of the
+ * *shape*, and folding it in would slide the composite line off the handles and
+ * band fills — which are drawn at their own 0-referenced gains — so lowering the
+ * pre-amp would visually tear the curve away from everything it describes. The
+ * pre-amp's effect is read numerically and by the clip indicator instead.
  */
 export function compositeCurve(
   spec: EqualizerSpec,
   sampleRateHz: number,
   points = CURVE_POINTS
 ): Float32Array {
-  return responseCurveDb({ ...spec, enabled: true }, sampleRateHz, points, MIN_HZ, MAX_HZ)
+  return responseCurveDb(
+    { ...spec, enabled: true, preampDb: 0 },
+    sampleRateHz,
+    points,
+    MIN_HZ,
+    MAX_HZ
+  )
 }
 
 /**

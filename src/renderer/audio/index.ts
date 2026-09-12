@@ -43,7 +43,9 @@ export {
   EqualizerRouter,
   EQUALIZER_BAND_LIMIT,
   FLAT_EQUALIZER_SPEC,
+  peakMagnitude,
   type BiquadCapableContext,
+  type ClipTap,
   type EqualizerBand,
   type EqualizerSpec
 } from './equalizer'
@@ -67,7 +69,7 @@ import { GuardedAudioEngine } from './GuardedAudioEngine'
 import { StreamingAudioEngine } from './StreamingAudioEngine'
 import { createBrowserStreamingPlatform } from './browserStreamingPlatform'
 import { AudioOutputRouter } from './outputDevice'
-import { EqualizerRouter, type EqualizerSpec } from './equalizer'
+import { EqualizerRouter, type ClipTap, type EqualizerSpec } from './equalizer'
 import type { R1Policy } from './r1Admission'
 import { R1ReservationLedger } from './r1Admission'
 
@@ -102,6 +104,12 @@ export interface AudioEngineFactory {
    * default flat spec means nothing calls this until W19-3 wires the settings.
    */
   setEqualizer: (spec: EqualizerSpec) => void
+  /**
+   * Subscribe to the EQ output's peak level for the R11 clip indicator. Lazily
+   * attaches an analyser to every context on the first tap and detaches on the
+   * last, so nothing runs until the equalizer pane opens.
+   */
+  subscribeEqualizerClip: () => ClipTap
 }
 
 /**
@@ -180,6 +188,7 @@ export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): AudioE
     get outputDeviceSelectable() {
       return router.supported
     },
-    setEqualizer: (spec) => equalizer.setSpec(spec)
+    setEqualizer: (spec) => equalizer.setSpec(spec),
+    subscribeEqualizerClip: () => equalizer.subscribeClip()
   }
 }

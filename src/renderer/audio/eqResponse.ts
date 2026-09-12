@@ -254,6 +254,48 @@ export function responseCurveDb(
 }
 
 /**
+ * Points the headroom scan samples the composite over. Denser than the drawn
+ * curve so a narrow boost peak sitting between two display points is not missed —
+ * the whole job of this number is to find the maximum, and a coarse grid rounds
+ * it down.
+ */
+const PREAMP_GRID_POINTS = 512
+
+/**
+ * The pre-amp that just cancels the loudest boost a curve makes: the negative of
+ * the composite response's maximum over the audible grid, floored at 0 so Auto
+ * never *boosts* (a cutting-only curve has no positive peak and needs none).
+ *
+ * Computed from the whole composite — R11's point — not from the largest single
+ * band gain: two overlapping +4 dB peaks add to more than +4 dB where they meet,
+ * and a max-band-gain shortcut would leave that summed peak clipping the output.
+ * `responseCurveDb` is the one place the magnitude is evaluated, so this reads the
+ * exact curve the pane draws and the router builds.
+ *
+ * The band composite is evaluated with the spec forced enabled and its own
+ * pre-amp stripped, so the suggestion is a property of the *shape* alone. That is
+ * what makes pressing Auto idempotent: it does not fold in the pre-amp already
+ * set, so applying it and asking again returns the same value rather than
+ * compounding toward silence.
+ */
+export function suggestedPreampDb(spec: EqualizerSpec, sampleRateHz: number): number {
+  const shapeOnly: EqualizerSpec = { ...spec, enabled: true, preampDb: 0 }
+  const curve = responseCurveDb(
+    shapeOnly,
+    sampleRateHz,
+    PREAMP_GRID_POINTS,
+    MIN_DISPLAY_FREQUENCY_HZ,
+    MAX_DISPLAY_FREQUENCY_HZ
+  )
+  let peakDb = 0
+  for (const db of curve) if (db > peakDb) peakDb = db
+  // A flat or cutting-only curve has no positive peak, so this returns 0 — the
+  // never-boost rule — and a boosting one returns the exact negative of its peak.
+  // The `> 0` guard also keeps the flat case at +0 rather than -0.
+  return peakDb > 0 ? -peakDb : 0
+}
+
+/**
  * The x-axis mapping, kept here rather than in the component so the pane's
  * hit-testing and the drawn curve cannot drift apart. `fraction` 0 → `minHz`,
  * 1 → `maxHz`, log-spaced between.
