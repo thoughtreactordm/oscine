@@ -22,6 +22,8 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import {
   AUDIO_DECODE_RESIDENCY_BUDGET_MB,
   AUDIO_DECODE_TRACK_CAP_MB,
+  AUDIO_EQ_ACTIVE,
+  AUDIO_EQ_ENABLED,
   AUDIO_OUTPUT_DEVICE,
   AUDIO_PREFETCH_DEPTH,
   AUDIO_REPLAY_GAIN_FALLBACK_DB,
@@ -29,6 +31,7 @@ import {
   AUDIO_REPLAY_GAIN_PREAMP_DB,
   MIB
 } from '@shared/settings'
+import { FLAT_EQUALIZER_SPEC, type EqualizerSpec } from '../audio/equalizer'
 import {
   DEFAULT_NORMALIZATION_POLICY,
   type NormalizationMode,
@@ -60,6 +63,16 @@ export interface AudioPreferenceBinding {
   prefetchDepth: ComputedRef<number>
   /** Writable: the settings control assigns to it. `''` is the system default. */
   outputDevice: Ref<string>
+  /**
+   * The EQ curve the contexts should carry, assembled here once like every other
+   * key. `audio.eq.enabled` is the master switch and `audio.eq.active` the curve;
+   * combining them means the pushed spec's `enabled` is the master's answer while
+   * the bands survive untouched. That distinction is load-bearing downstream: a
+   * disabled EQ is `enabled: false` with its bands intact, not an empty band list
+   * — an empty list is a flat EQ still in circuit, which W19-5's clip indicator
+   * would read differently.
+   */
+  equalizer: ComputedRef<EqualizerSpec>
 }
 
 /**
@@ -78,7 +91,8 @@ export function bindAudioPreferences(settings?: SettingsReader): AudioPreference
       normalization: computed(() => ({ ...DEFAULT_NORMALIZATION_POLICY, mode: mode.value })),
       decodePolicy: computed(() => defaultDecodePolicy()),
       prefetchDepth: computed(() => AUDIO_PREFETCH_DEPTH.default),
-      outputDevice: ref(AUDIO_OUTPUT_DEVICE.default)
+      outputDevice: ref(AUDIO_OUTPUT_DEVICE.default),
+      equalizer: computed(() => FLAT_EQUALIZER_SPEC)
     }
   }
 
@@ -95,7 +109,11 @@ export function bindAudioPreferences(settings?: SettingsReader): AudioPreference
       maxDecodedResidencyBytes: settings.get<number>(AUDIO_DECODE_RESIDENCY_BUDGET_MB.key) * MIB
     })),
     prefetchDepth: computed(() => settings.get<number>(AUDIO_PREFETCH_DEPTH.key)),
-    outputDevice: settings.value<string>(AUDIO_OUTPUT_DEVICE.key)
+    outputDevice: settings.value<string>(AUDIO_OUTPUT_DEVICE.key),
+    equalizer: computed(() => ({
+      ...settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key),
+      enabled: settings.get<boolean>(AUDIO_EQ_ENABLED.key)
+    }))
   }
 }
 

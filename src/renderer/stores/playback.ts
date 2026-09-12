@@ -62,6 +62,7 @@ export const usePlaybackStore = defineStore('playback', () => {
   const controller = createPlaybackController({
     createEngine: audio.createEngine,
     setOutputDevice: audio.setOutputDevice,
+    setEqualizer: audio.setEqualizer,
     fetchPage: (query) => library.listTracks(query),
     fetchPlaylistEntries: (query) => playlists.listEntries(query),
     // D18's collection. One verb, because `favorites.list` answers in the

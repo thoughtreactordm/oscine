@@ -14,6 +14,9 @@ import {
   type WaveformBuffer
 } from '../audio/AudioEngine'
 import type { R1AdmissionDecision } from '../audio/r1Admission'
+// A pure type from the shared layer — no DOM, so it is safe under the node
+// config the note above guards against, unlike the audio barrel.
+import type { EqualizerSpec } from '@shared/audio/equalizer'
 import type {
   GetTracksByIdsQuery,
   LibraryBrowseFilters,
@@ -157,6 +160,15 @@ export interface PlaybackControllerDeps {
    * default, which is what a test with a fake engine wants.
    */
   setOutputDevice?: (deviceId: string) => Promise<void>
+  /**
+   * The EQ curve, for the same reason `setOutputDevice` is here: it is a property
+   * of the contexts the engine factory built, not of an engine slot — a slot
+   * engine that could set the EQ could fight the other slot for it across a
+   * crossfade, the failure D30 exists to prevent. It goes around the scheduler,
+   * not through it. Omitting it is supported and means no EQ, which is what a test
+   * with a fake engine wants.
+   */
+  setEqualizer?: (spec: EqualizerSpec) => void
   /**
    * Binds the OS now-playing surface — SMTC on Windows, MPRIS on Linux.
    *
@@ -1543,6 +1555,20 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     },
     { immediate: true }
   )
+  /**
+   * Immediate for the same reason as the device: the EQ is a property the
+   * contexts are built into, so the router has to hold the stored curve before
+   * the first one is created, not only when the operator next moves a band.
+   * Recall is a plain assignment — applying a preset writes `audio.eq.active` and
+   * this watcher does the rest, so there is no separate apply path to keep in step.
+   */
+  const stopEqualizerWatch = watch(
+    audioPreferences.equalizer,
+    (spec) => {
+      deps.setEqualizer?.(spec)
+    },
+    { immediate: true }
+  )
 
   /** Stop playback and invalidate current and prefetched work. */
   function stop(): void {
@@ -1601,6 +1627,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     stopDecodePolicyWatch()
     stopPrefetchDepthWatch()
     stopOutputDeviceWatch()
+    stopEqualizerWatch()
     for (const off of unsubscribes) off()
     unsubscribes = []
     scheduler?.dispose()

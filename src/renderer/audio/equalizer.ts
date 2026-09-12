@@ -16,40 +16,24 @@
  * live chain, and applied again to each new context as it is attached.
  */
 
+import {
+  EQUALIZER_BAND_LIMIT,
+  FLAT_EQUALIZER_SPEC,
+  type EqualizerBand,
+  type EqualizerSpec
+} from '@shared/audio/equalizer'
 import { dbToLinear } from './normalization'
 
-export interface EqualizerBand {
-  /** Stable; survives reorder, and is what per-entity assignment would reference. */
-  id: string
-  type: 'peaking' | 'lowshelf' | 'highshelf' | 'lowpass' | 'highpass' | 'notch'
-  /** Clamped to 20 .. min(20000, nyquist) at the node. */
-  frequencyHz: number
-  /** Clamped to ±24; ignored by lowpass/highpass/notch. */
-  gainDb: number
-  /** Clamped to 0.1 .. 18. */
-  q: number
-  enabled: boolean
-}
-
-export interface EqualizerSpec {
-  enabled: boolean
-  preampDb: number
-  bands: readonly EqualizerBand[]
-}
-
-/** The biquad pool is fixed at this size; the spec can carry no more bands. */
-export const EQUALIZER_BAND_LIMIT = 12
-
-/**
- * Off, no gain, no bands. The default, and why this whole card changes nothing
- * audible: a flat, disabled spec ramps the chain to its dry path and the biquads
- * never enter the signal.
- */
-export const FLAT_EQUALIZER_SPEC: EqualizerSpec = Object.freeze({
-  enabled: false,
-  preampDb: 0,
-  bands: Object.freeze([]) as readonly EqualizerBand[]
-})
+// The spec vocabulary now lives in `@shared/audio/equalizer` so the settings
+// layer can validate a stored curve before it reaches these biquads; the router
+// re-exports it so `index.ts`, `eqResponse.ts` and every existing importer that
+// reaches for `./equalizer` are unaffected.
+export {
+  EQUALIZER_BAND_LIMIT,
+  FLAT_EQUALIZER_SPEC,
+  type EqualizerBand,
+  type EqualizerSpec
+} from '@shared/audio/equalizer'
 
 /**
  * ~10ms. A raw `.value =` on `frequency`, `gain` or `Q` steps the parameter
