@@ -1,4 +1,4 @@
-import { watch } from 'vue'
+import { markRaw, watch } from 'vue'
 import { defineStore } from 'pinia'
 import {
   DISCORD_ENABLED,
@@ -225,6 +225,11 @@ export const usePlaybackStore = defineStore('playback', () => {
   // factory the same way the output device does.
   return Object.assign(controller, {
     subscribeEqualizerClip: audio.subscribeEqualizerClip,
-    equalizerAssignment
+    // `markRaw` so Pinia does not deep-reactive this object: its members are refs
+    // (`suspended`, `assignments`), and a reactive proxy would unwrap them the
+    // moment the equalizer store reads `equalizerAssignment.suspended`, capturing
+    // a plain boolean that never updates. Raw, the refs survive the hop and the
+    // pane's banner and list stay reactive.
+    equalizerAssignment: markRaw(equalizerAssignment)
   })
 })
