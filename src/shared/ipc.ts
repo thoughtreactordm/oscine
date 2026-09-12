@@ -128,6 +128,8 @@ import type {
   GetSettingOverridesRequest,
   GetSettingOverridesResult,
   ImportSettingsProfileRequest,
+  ListSettingAssignmentsRequest,
+  ListSettingAssignmentsResult,
   ResetSettingsRequest,
   SetSettingRequest,
   SettingsChange,
@@ -1049,6 +1051,19 @@ export interface IpcContract {
     response: GetSettingOverridesResult
   }
   /**
+   * Every entity that overrides one key, across all scopes — the inverse read.
+   *
+   * Per-key rather than per-scope, because the question it answers ("which albums
+   * and artists point at a preset?") spans every scope at once and no single
+   * `getOverrides` call can. Raw rows for the same reason that one gives them: the
+   * renderer resolves, and does the dangling check its list needs, against the
+   * preset set only it holds.
+   */
+  'settings.listAssignments': {
+    request: ListSettingAssignmentsRequest
+    response: ListSettingAssignmentsResult
+  }
+  /**
    * Write one key, revalidated in main.
    *
    * The renderer validates too, so the control can refuse a bad value without a
@@ -1560,6 +1575,7 @@ export const IPC_CHANNELS = [
   'podcasts.browseCategory',
   'settings.getAll',
   'settings.getOverrides',
+  'settings.listAssignments',
   'settings.set',
   'settings.reset',
   'settings.exportProfile',

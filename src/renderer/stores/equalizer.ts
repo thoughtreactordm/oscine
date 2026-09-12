@@ -68,5 +68,22 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     clipping.value = false
   }
 
-  return { ...state, clipping, startClipMonitor, stopClipMonitor, clearClip }
+  // W19-6: the per-entity assignment surface, owned by the always-on binding in
+  // the playback store so assignments apply with the pane closed. Re-exposed here
+  // so the EQ pane has one store to talk to for its list, its suspend banner and
+  // its resume button.
+  const assignment = usePlaybackStore().equalizerAssignment
+
+  return {
+    ...state,
+    clipping,
+    startClipMonitor,
+    stopClipMonitor,
+    clearClip,
+    assignmentSuspended: assignment.suspended,
+    assignments: assignment.assignments,
+    refreshAssignments: assignment.refreshAssignments,
+    resumeAssignments: assignment.resume,
+    assign: assignment.assign
+  }
 })

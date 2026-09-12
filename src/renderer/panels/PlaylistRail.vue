@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { ContextMenuItem } from '@nuxt/ui'
+import { eqPresetMenuItem } from '@renderer/panels/eqAssignMenu'
 import { visibleRange } from '@renderer/panels/listViewport'
 import { createPlaylistRail, PLAYLIST_NAME_MAX_LENGTH } from '@renderer/panels/playlistRail'
 import type { DropSide } from '@renderer/panels/playlistReorder'
@@ -220,6 +221,11 @@ function menu(playlist: Playlist): ContextMenuItem[] {
       icon: 'i-tabler-cursor-text',
       onSelect: () => model.beginRename(playlist.id)
     },
+    { type: 'separator' },
+    // W19-6: assign an EQ preset to this playlist — it applies while a track from
+    // the playlist plays.
+    eqPresetMenuItem({ kind: 'playlist', id: playlist.id }),
+    { type: 'separator' },
     {
       label: 'Delete',
       icon: 'i-tabler-trash',

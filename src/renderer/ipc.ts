@@ -40,6 +40,7 @@ import type {
 import type {
   GetSettingOverridesRequest,
   ImportSettingsProfileRequest,
+  ListSettingAssignmentsRequest,
   ResetSettingsRequest,
   SetSettingRequest,
   SettingsChange
@@ -380,6 +381,8 @@ export const settings = {
   getAll: () => unwrap(window.oscine.settings.getAll()),
   getOverrides: (payload: GetSettingOverridesRequest) =>
     unwrap(window.oscine.settings.getOverrides(payload)),
+  listAssignments: (payload: ListSettingAssignmentsRequest) =>
+    unwrap(window.oscine.settings.listAssignments(payload)),
   set: (payload: SetSettingRequest) => unwrap(window.oscine.settings.set(payload)),
   reset: (payload: ResetSettingsRequest) => unwrap(window.oscine.settings.reset(payload)),
   exportProfile: () => unwrap(window.oscine.settings.exportProfile()),

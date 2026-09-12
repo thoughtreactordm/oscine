@@ -8,12 +8,29 @@
  */
 
 import type BetterSqlite3 from 'better-sqlite3'
-import type { SettingNotice, SettingScopeRef, StoredSetting } from '@shared/settings'
+import type {
+  SettingEntityKind,
+  SettingNotice,
+  SettingScopeRef,
+  StoredSetting
+} from '@shared/settings'
 
 interface SettingRow {
   key: string
   value: string
   version: number
+}
+
+/**
+ * One entity-scoped row for a key: which entity it sits at, and its value.
+ *
+ * The scope is an entity, never global — the query that produces these excludes
+ * the global row — so its id is a number, and its kind is narrowed accordingly
+ * for the service that filters these against a descriptor's cascade.
+ */
+export interface KeyScopeRead {
+  scope: { kind: SettingEntityKind; id: number }
+  stored: StoredSetting
 }
 
 /** What one scope's rows resolved to, plus the ones that were unreadable. */
@@ -96,6 +113,53 @@ export class SettingsStore {
     } catch {
       return null
     }
+  }
+
+  /**
+   * Every entity-scoped row for one key, across all scopes; the global row is
+   * excluded on purpose.
+   *
+   * The inverse of the point lookup `readKey` does: not "what does this scope
+   * hold" but "which scopes hold this key". It backs the assignments list — the
+   * one question the cascade never asks at play time, because a boundary resolves
+   * one entity and never enumerates them all, and so the one the store has to be
+   * asked directly. Served by the `settings_scope`-adjacent path rather than a
+   * key index, so it is a small scan of the overrides, not of the table.
+   *
+   * A row whose JSON will not parse is reported as malformed rather than dropped
+   * silently, the way `readScope` does it: an assignment the operator made and
+   * cannot see would be worse than one they can see is broken.
+   */
+  readKeyScopes(key: string): { rows: KeyScopeRead[]; malformed: SettingNotice[] } {
+    const raw = this.db
+      .prepare<
+        [string],
+        { scope_kind: string; scope_id: number | null; value: string; version: number }
+      >(
+        'SELECT scope_kind, scope_id, value, version FROM settings ' +
+          "WHERE key = ? AND scope_kind != 'global'"
+      )
+      .all(key)
+
+    const rows: KeyScopeRead[] = []
+    const malformed: SettingNotice[] = []
+
+    for (const row of raw) {
+      try {
+        rows.push({
+          scope: { kind: row.scope_kind as SettingEntityKind, id: row.scope_id as number },
+          stored: { value: JSON.parse(row.value) as unknown, version: row.version }
+        })
+      } catch (error) {
+        malformed.push({
+          key,
+          reason: `stored value is not valid JSON: ${(error as Error).message}`,
+          rejected: row.value
+        })
+      }
+    }
+
+    return { rows, malformed }
   }
 
   /**

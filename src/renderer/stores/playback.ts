@@ -8,9 +8,17 @@ import {
   type QueueSession
 } from '@shared/settings'
 import { createAudioEngineFactory } from '@renderer/audio'
-import { favorites, library, listens, playlists, presence } from '@renderer/ipc'
+import {
+  favorites,
+  library,
+  listens,
+  playlists,
+  presence,
+  settings as settingsIpc
+} from '@renderer/ipc'
 import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMediaSession'
 import { createPlaybackController } from '@renderer/playback/controller'
+import { createEqAssignmentBinding } from '@renderer/playback/eqAssignmentBinding'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
 import { createPresenceEmitter } from '@renderer/playback/presenceEmitter'
 import { restoredQueueSession, useSettings } from '@renderer/settings'
@@ -193,9 +201,30 @@ export const usePlaybackStore = defineStore('playback', () => {
     emit: (signal) => presence.update(signal)
   })
 
+  // W19-6: per-entity EQ preset assignments. Always-on like the presence emitter
+  // above — an assignment must apply during playback whether or not the EQ pane
+  // is mounted — so it is built here rather than in the equalizer store. It
+  // observes the audible track and writes `audio.eq.active` through the same
+  // watcher every other EQ write goes through.
+  const equalizerAssignment = createEqAssignmentBinding({
+    nowPlaying: controller.nowPlaying,
+    playingPlaylistId: controller.playingPlaylistId,
+    settings,
+    library: {
+      trackFacets: (trackId) => library.trackFacets(trackId),
+      listAlbums: (query) => library.listAlbums(query),
+      listArtists: (query) => library.listArtists(query),
+      listPlaylists: () => playlists.list(),
+      listAssignments: (key) => settingsIpc.listAssignments({ key })
+    }
+  })
+
   // The equalizer pane's clip tap. Exposed alongside the controller's surface
   // rather than threaded through it: the tap belongs to the EQ chain on every
   // context (see `audio/equalizer.ts`), not to a scheduler slot, so it rides the
   // factory the same way the output device does.
-  return Object.assign(controller, { subscribeEqualizerClip: audio.subscribeEqualizerClip })
+  return Object.assign(controller, {
+    subscribeEqualizerClip: audio.subscribeEqualizerClip,
+    equalizerAssignment
+  })
 })

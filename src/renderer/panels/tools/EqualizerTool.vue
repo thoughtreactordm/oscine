@@ -67,8 +67,26 @@ function applyAuto(): void {
 // analyser is attached on the first frame and released on unmount, so an operator
 // who never opens the pane pays nothing and a leaked frame cannot outlive the
 // pane — the shape W18-7's leaked interval taught.
-onMounted(() => eq.startClipMonitor())
+onMounted(() => {
+  eq.startClipMonitor()
+  // W19-6: the assignments list is a snapshot, refreshed on open and whenever the
+  // preset set moves — deleting a preset is what makes an assignment dangle, and
+  // the list is where that has to become visible.
+  void eq.refreshAssignments()
+})
 onUnmounted(() => eq.stopClipMonitor())
+
+watch(
+  () => eq.presets,
+  () => void eq.refreshAssignments()
+)
+
+/** A short label for an assignment's entity kind, for the list. */
+const SCOPE_LABEL: Record<string, string> = {
+  album: 'Album',
+  artist: 'Artist',
+  playlist: 'Playlist'
+}
 
 const presetItems = computed(() =>
   eq.presets.map((preset) => ({
@@ -315,12 +333,78 @@ watch(prompt, async (value) => {
       </UTooltip>
     </div>
 
+    <!-- W19-6: a manual edit has suspended the playing entity's assignment. Say
+         so, and offer the one click that lets assignments drive the curve again. -->
+    <div
+      v-if="eq.assignmentSuspended"
+      class="flex shrink-0 items-center gap-2 border-b border-default bg-elevated px-3 py-1.5"
+    >
+      <UIcon name="i-tabler-hand-stop" class="size-4 shrink-0 text-warning" />
+      <span class="text-xs text-muted">
+        Assignments are suspended — your manual edit is playing.
+      </span>
+      <UButton
+        size="xs"
+        color="neutral"
+        variant="outline"
+        icon="i-tabler-player-play"
+        label="Resume"
+        class="ml-auto"
+        @click="eq.resumeAssignments()"
+      />
+    </div>
+
     <EqualizerCurve :max-gain-db="displayGainDb" :show-spectrum="showSpectrum" />
 
     <!-- Fixed height so adding or removing bands scrolls the table rather than
          resizing the plot and sliding the curve up or down. -->
     <div class="h-56 shrink-0 overflow-y-auto">
       <EqualizerBandTable />
+    </div>
+
+    <!-- W19-6: every entity assigned a preset, so an assignment is discoverable
+         and revocable from one place rather than being a haunting. -->
+    <div
+      v-if="eq.assignments.length > 0"
+      class="min-h-0 flex-1 overflow-y-auto border-t border-default px-3 py-2"
+    >
+      <div class="mb-1.5 flex items-center gap-2">
+        <UIcon name="i-tabler-link" class="size-4 text-dimmed" />
+        <span class="text-xs font-medium text-muted">Assigned to</span>
+      </div>
+      <ul class="flex flex-col gap-1">
+        <li
+          v-for="row in eq.assignments"
+          :key="`${row.scope.kind}:${row.scope.id}`"
+          class="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-elevated"
+        >
+          <span class="shrink-0 text-[11px] uppercase text-dimmed">
+            {{ SCOPE_LABEL[row.scope.kind] ?? row.scope.kind }}
+          </span>
+          <span class="min-w-0 flex-1 truncate text-default" :title="row.entityName">
+            {{ row.entityName }}
+          </span>
+          <span
+            v-if="row.dangling"
+            class="shrink-0 text-xs text-error"
+            title="The assigned preset was deleted — this entity plays flat until reassigned."
+          >
+            preset deleted
+          </span>
+          <span v-else class="shrink-0 truncate text-xs text-muted" :title="row.presetName ?? ''">
+            {{ row.presetName }}
+          </span>
+          <UButton
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            icon="i-tabler-x"
+            :aria-label="`Remove EQ assignment from ${row.entityName}`"
+            title="Remove this assignment"
+            @click="eq.assign(row.scope, null)"
+          />
+        </li>
+      </ul>
     </div>
 
     <!-- Save as… / Rename name prompt. -->

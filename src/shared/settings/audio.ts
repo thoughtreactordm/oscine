@@ -299,6 +299,60 @@ export const AUDIO_EQ_PRESETS = defineSetting<readonly EqualizerPreset[]>({
 })
 
 /**
+ * A preset reference — a stable `EqualizerPreset.id`, or null for "no assignment".
+ *
+ * The value is the id and never the name: an operator renaming a preset must not
+ * silently reassign every album that pointed at it, and an id that has been
+ * deleted must *dangle* — resolve to no preset, visibly — rather than resolve to
+ * an error or to the wrong curve. So the validator accepts any non-empty string:
+ * whether the id still names a live preset is a question for the resolver, which
+ * has the preset list, not for the descriptor, which does not.
+ */
+function presetIdValue(): SettingValidator<string | null> {
+  return (raw) => {
+    if (raw === null) return acceptValue(null)
+    if (typeof raw === 'string' && raw.length > 0 && raw.length <= 256) return acceptValue(raw)
+    return rejectValue('expected an equalizer preset id or null')
+  }
+}
+
+/**
+ * Cascades an EQ preset onto an album, artist or playlist (W19-6).
+ *
+ * The second half of the stream's promise: a preset bound to an album applies
+ * itself when a track from that album plays. It rides the W8 cascade like
+ * `AUDIO_CROSSFADE_MS` does, so most-specific-first resolution and the
+ * inherited/overridden affordance come for free — the entity kinds survive in
+ * the descriptor's type, and the resolver at play time probes them in order.
+ *
+ * No `track` scope: a per-track EQ preset is niche, and dropping it keeps the
+ * assignments list — every entity that points here — short enough to read whole.
+ * No `genre` scope either: `track_genres` is a many-to-many with no principled
+ * tiebreak, and smuggling an ambiguous resolution into the one mechanism that is
+ * currently unambiguous would be the wrong trade (its own card, if ever).
+ *
+ * `internal`, and so carries no control and no global settings row: the global
+ * level exists only as the cascade's floor (null — no assignment), and the
+ * operator assigns through the entity context menu and the equalizer pane, both
+ * of which write this key per entity through `setOverride`. A visible global
+ * "default preset" would instead push a curve onto *all* playback and fight the
+ * live `audio.eq.active` — exactly the failure this feature must avoid.
+ */
+export const AUDIO_EQ_PRESET_ID = defineSetting<string | null>({
+  key: 'audio.eq.presetId',
+  scope: 'durable',
+  version: 1,
+  default: null,
+  validate: presetIdValue(),
+  cascade: ['album', 'artist', 'playlist'],
+  category: 'audio',
+  internal: true,
+  label: 'Equalizer preset',
+  help: 'The equalizer preset assigned to this album, artist or playlist.',
+  keywords: ['eq', 'equalizer', 'equaliser', 'preset', 'assign', 'album', 'artist', 'playlist']
+})
+
+/**
  * The default device is the empty string, and the empty string is not a device
  * id — it is "whatever the OS says", which is what `setSinkId('')` means.
  *
@@ -493,6 +547,7 @@ export const AUDIO_SETTINGS: readonly SettingDescriptor[] = [
   AUDIO_EQ_ENABLED,
   AUDIO_EQ_ACTIVE,
   AUDIO_EQ_PRESETS,
+  AUDIO_EQ_PRESET_ID,
   AUDIO_OUTPUT_DEVICE,
   AUDIO_DECODE_TRACK_CAP_MB,
   AUDIO_DECODE_RESIDENCY_BUDGET_MB,

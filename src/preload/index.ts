@@ -51,6 +51,7 @@ import type {
 import type {
   GetSettingOverridesRequest,
   ImportSettingsProfileRequest,
+  ListSettingAssignmentsRequest,
   ResetSettingsRequest,
   SetSettingRequest,
   SettingsChange
@@ -441,6 +442,9 @@ const api = {
     /** One entity's override rows, for a renderer resolving its own cascade. */
     getOverrides: (payload: GetSettingOverridesRequest) =>
       request('settings.getOverrides', payload),
+    /** Every entity that overrides one key, across all scopes — the inverse read. */
+    listAssignments: (payload: ListSettingAssignmentsRequest) =>
+      request('settings.listAssignments', payload),
     set: (payload: SetSettingRequest) => request('settings.set', payload),
     /** One key, one category, or every durable key. */
     reset: (payload: ResetSettingsRequest) => request('settings.reset', payload),

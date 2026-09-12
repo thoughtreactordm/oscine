@@ -72,6 +72,7 @@ import {
   assertListTracksQuery,
   assertMoveEntriesRequest,
   assertGetSettingOverridesRequest,
+  assertListSettingAssignmentsRequest,
   assertGetTracksByIdsQuery,
   assertRelatedQuery,
   assertImportSettingsProfileRequest,
@@ -704,6 +705,10 @@ export function registerIpcHandlers(
 
   handle('settings.getOverrides', (request) =>
     settings.getOverrides(assertGetSettingOverridesRequest(request).scope)
+  )
+
+  handle('settings.listAssignments', (request) =>
+    settings.listAssignments(assertListSettingAssignmentsRequest(request).key)
   )
 
   handle('settings.set', (request) => settings.set(assertSetSettingRequest(request)))
