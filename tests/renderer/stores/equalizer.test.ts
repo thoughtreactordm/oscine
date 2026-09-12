@@ -1,11 +1,40 @@
 import { describe, expect, it } from 'vitest'
-import { AUDIO_EQ_ACTIVE, AUDIO_EQ_PRESETS } from '@shared/settings'
+import { computed, type WritableComputedRef } from 'vue'
+import { AUDIO_EQ_ACTIVE, AUDIO_EQ_ENABLED, AUDIO_EQ_PRESETS } from '@shared/settings'
 import type { EqualizerSpec } from '@shared/audio/equalizer'
 import {
   createEqualizerState,
   type EqualizerSettings
 } from '../../../src/renderer/stores/equalizerState'
 import { settingsStoreFixture } from '../settings/fixture'
+
+/**
+ * A settings surface that records which keys are written, layered over the real
+ * fixture so `value()` builds its writable computed against *this* set — that is
+ * what lets the count catch an `active.value =` assignment, not only a direct
+ * `set` call.
+ */
+function countingSettings(base: EqualizerSettings): {
+  settings: EqualizerSettings
+  writes: string[]
+} {
+  const writes: string[] = []
+  const settings: EqualizerSettings = {
+    get: <T>(key: string): T => base.get<T>(key),
+    set: <T>(key: string, next: T): unknown => {
+      writes.push(key)
+      return base.set<T>(key, next)
+    },
+    value: <T>(key: string): WritableComputedRef<T> =>
+      computed<T>({
+        get: () => settings.get<T>(key),
+        set: (next: T) => {
+          settings.set<T>(key, next)
+        }
+      })
+  }
+  return { settings, writes }
+}
 
 function sequentialIds(): () => string {
   let n = 0
@@ -139,5 +168,53 @@ describe('createEqualizerState', () => {
     expect(eq.enabled.value).toBe(true)
     expect(store.settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key).bands).toHaveLength(1)
     expect(store.settings.get<readonly unknown[]>(AUDIO_EQ_PRESETS.key)).toEqual([])
+  })
+
+  it('the master toggle writes audio.eq.enabled and nothing else', () => {
+    const store = settingsStoreFixture()
+    const counting = countingSettings(store.settings)
+    const eq = state(counting.settings)
+
+    eq.enabled.value = true
+
+    expect(counting.writes).toEqual([AUDIO_EQ_ENABLED.key])
+  })
+
+  it('writes audio.eq.active exactly once for one curve change', () => {
+    const store = settingsStoreFixture()
+    const counting = countingSettings(store.settings)
+    const eq = state(counting.settings)
+
+    eq.active.value = bassBoost
+
+    expect(counting.writes).toEqual([AUDIO_EQ_ACTIVE.key])
+  })
+
+  it('overwrites a preset in place, keeping its id and name and clearing dirty', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    eq.active.value = bassBoost
+    const id = eq.savePreset('Bass boost')
+
+    const edited: EqualizerSpec = { ...bassBoost, preampDb: -6 }
+    eq.active.value = edited
+    expect(eq.dirty.value).toBe(true)
+
+    eq.updatePreset(id)
+
+    expect(eq.dirty.value).toBe(false)
+    expect(eq.appliedPresetId.value).toBe(id)
+    const reloaded = state(store.settings)
+    expect(reloaded.presets.value).toEqual([{ id, name: 'Bass boost', spec: edited }])
+  })
+
+  it('updatePreset ignores an unknown id', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    const id = eq.savePreset('Bass boost')
+
+    eq.updatePreset('nope')
+
+    expect(eq.presets.value.map((p) => p.id)).toEqual([id])
   })
 })

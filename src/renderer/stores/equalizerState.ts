@@ -48,6 +48,13 @@ export interface EqualizerState {
   dirty: ComputedRef<boolean>
   /** Save the current curve as a new named preset; returns its generated id. */
   savePreset: (name: string) => string
+  /**
+   * Overwrite an existing preset's spec with the live curve, keeping its id and
+   * name. This is the preset bar's "Save" (against "Save as…"): it clears the
+   * dirty flag without minting a new preset, so a future per-entity reference
+   * (W19-6) to this id survives the edit. No-op if the id is unknown.
+   */
+  updatePreset: (id: string) => void
   /** Recall a preset's curve into `audio.eq.active`. No-op if the id is unknown. */
   applyPreset: (id: string) => void
   renamePreset: (id: string, name: string) => void
@@ -98,6 +105,16 @@ export function createEqualizerState(
     return preset.id
   }
 
+  function updatePreset(id: string): void {
+    if (!presets.value.some((preset) => preset.id === id)) return
+    // Only the spec moves; id and name are kept, so a reference to this preset
+    // survives the overwrite. Re-selecting it clears `dirty` — the curve now is
+    // the preset again.
+    const spec = structuredClone(active.value)
+    writePresets(presets.value.map((preset) => (preset.id === id ? { ...preset, spec } : preset)))
+    selectedId.value = id
+  }
+
   function applyPreset(id: string): void {
     const preset = presets.value.find((entry) => entry.id === id)
     if (!preset) return
@@ -127,6 +144,7 @@ export function createEqualizerState(
     appliedPreset,
     dirty,
     savePreset,
+    updatePreset,
     applyPreset,
     renamePreset,
     deletePreset

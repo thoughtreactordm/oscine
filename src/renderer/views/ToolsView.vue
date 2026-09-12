@@ -2,7 +2,13 @@
 import { computed } from 'vue'
 import TagWritebackReview from '@renderer/panels/tools/TagWritebackReview.vue'
 import CdRipPane from '@renderer/panels/tools/CdRipPane.vue'
-import { CD_RIP_TOOL, TAG_WRITEBACK_TOOL, useToolsStore } from '@renderer/stores/tools'
+import EqualizerTool from '@renderer/panels/tools/EqualizerTool.vue'
+import {
+  CD_RIP_TOOL,
+  EQUALIZER_TOOL,
+  TAG_WRITEBACK_TOOL,
+  useToolsStore
+} from '@renderer/stores/tools'
 
 /**
  * The Tools tab's body — **W16-6 / W18-7**. Renders whichever tool the rail has
@@ -16,5 +22,6 @@ const active = computed(() => tools.activeToolId)
   <div class="h-full min-h-0 bg-default">
     <TagWritebackReview v-if="active === TAG_WRITEBACK_TOOL" />
     <CdRipPane v-else-if="active === CD_RIP_TOOL" />
+    <EqualizerTool v-else-if="active === EQUALIZER_TOOL" />
   </div>
 </template>

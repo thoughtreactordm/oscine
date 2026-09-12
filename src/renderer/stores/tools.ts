@@ -23,9 +23,13 @@ export const TAG_WRITEBACK_TOOL = 'tag-writeback'
 /** CD rip — **W18-7**. Second entry; adding it is this constant and a ToolsView branch. */
 export const CD_RIP_TOOL = 'cd-rip'
 
+/** The parametric equalizer — **W19-4**. Third entry; the same constant-plus-branch seam. */
+export const EQUALIZER_TOOL = 'equalizer'
+
 export const TOOLS: readonly ToolDescriptor[] = [
   { id: TAG_WRITEBACK_TOOL, label: 'Tag write-back', icon: 'i-tabler-file-pencil' },
-  { id: CD_RIP_TOOL, label: 'Rip CD', icon: 'i-tabler-disc' }
+  { id: CD_RIP_TOOL, label: 'Rip CD', icon: 'i-tabler-disc' },
+  { id: EQUALIZER_TOOL, label: 'Equalizer', icon: 'i-tabler-adjustments' }
 ]
 
 export const useToolsStore = defineStore('tools', () => {
