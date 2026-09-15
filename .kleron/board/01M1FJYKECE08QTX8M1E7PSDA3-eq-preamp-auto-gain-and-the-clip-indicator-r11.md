@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJYKECE08QTX8M1E7PSDA3
 title: 'EQ: preamp, auto-gain and the clip indicator (R11)'
-status: backlog
+status: in-review
 priority: high
 labels:
   - eq
@@ -13,9 +13,9 @@ workstreamId: W19-5
 dependsOn:
   - 01M1FJVCQN5B4BZKETP8H0DDQC
   - 01M1FJXM0N7Q7RQV88PQ3CHV03
-order: 29
+order: 2
 created: '2026-09-01T22:55:30.763Z'
-updated: '2026-09-01T22:55:30.763Z'
+updated: '2026-09-12T02:44:52.749Z'
 ---
 ## Intent
 

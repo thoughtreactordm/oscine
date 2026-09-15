@@ -99,6 +99,12 @@ export const OPEN_SOURCE_CREDITS: readonly OpenSourceCredit[] = [
     url: 'https://tabler.io/icons'
   },
   {
+    name: 'AutoEq (oratory1990 measurements)',
+    purpose: 'The bundled headphone & IEM EQ device library',
+    license: 'MIT',
+    url: 'https://github.com/jaakkopasanen/AutoEq'
+  },
+  {
     name: 'Vite',
     purpose: 'The build tool',
     license: 'MIT',

@@ -107,6 +107,7 @@ function harness(options: { duration?: number; sampleRate?: number } = {}) {
   const release = vi.fn()
   const lease: DecodedAudioContextLease<AudioContext> = {
     context: context as unknown as AudioContext,
+    destination: context.destination as unknown as AudioNode,
     timeline,
     release
   }

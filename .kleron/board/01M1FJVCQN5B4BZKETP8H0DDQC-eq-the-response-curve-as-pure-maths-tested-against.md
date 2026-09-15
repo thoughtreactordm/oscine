@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJVCQN5B4BZKETP8H0DDQC
 title: 'EQ: the response curve as pure maths, tested against Web Audio'
-status: backlog
+status: in-review
 priority: medium
 labels:
   - eq
@@ -10,9 +10,9 @@ labels:
   - tests
 workstream: W19
 workstreamId: W19-2
-order: 24
+order: 1
 created: '2026-09-01T22:53:45.588Z'
-updated: '2026-09-01T22:53:45.588Z'
+updated: '2026-09-12T00:04:15.728Z'
 ---
 ## Intent
 

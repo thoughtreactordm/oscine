@@ -30,7 +30,9 @@ import {
   type GetAllSettingsResult,
   type GetSettingOverridesResult,
   type ImportSettingsProfileRequest,
+  type ListSettingAssignmentsResult,
   type ResetSettingsRequest,
+  type SettingAssignment,
   type SetSettingRequest,
   type SettingCascade,
   type SettingDescriptor,
@@ -66,6 +68,8 @@ export interface SettingsService {
   getAll(): GetAllSettingsResult
   /** The raw override rows at one scope, for a renderer that resolves its own. */
   getOverrides(scope: SettingScopeRef): GetSettingOverridesResult
+  /** Every entity that overrides one key, across all scopes. The inverse read. */
+  listAssignments(key: string): ListSettingAssignmentsResult
   set(request: SetSettingRequest): SettingsChange[]
   reset(request: ResetSettingsRequest): SettingsChange[]
   /**
@@ -258,6 +262,29 @@ export class SqliteSettingsService implements SettingsService {
     }
 
     return { scope, stored: kept, notices: malformed }
+  }
+
+  /**
+   * Every entity that overrides one key, across all scopes.
+   *
+   * The inverse of `getOverrides`, filtered the same way: a row for a key this
+   * build does not know, or one at a scope kind the key does not cascade to, is
+   * dropped rather than returned — the first has no descriptor to resolve it and
+   * the second could not have been written by this build. Neither is deleted; the
+   * unknown-key preservation rule holds on a read.
+   */
+  listAssignments(key: string): ListSettingAssignmentsResult {
+    const descriptor = this.byKey.get(key)
+    const { rows, malformed } = this.store.readKeyScopes(key)
+
+    const assignments: SettingAssignment[] =
+      descriptor && descriptor.scope === 'durable'
+        ? rows
+            .filter((row) => descriptor.cascade.includes(row.scope.kind))
+            .map((row) => ({ scope: row.scope, stored: row.stored }))
+        : []
+
+    return { key, assignments, notices: malformed }
   }
 
   loadNotices(): readonly SettingNotice[] {

@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJWETAJMAMQ5VE07A2J9QP
 title: 'EQ: settings keys, named presets, and the push down to the graph'
-status: backlog
+status: in-review
 priority: medium
 labels:
   - eq
@@ -12,9 +12,9 @@ workstream: W19
 workstreamId: W19-3
 dependsOn:
   - 01M1FJTEY74ZBMDN5V15FX5CN1
-order: 25
+order: 2
 created: '2026-09-01T22:54:20.490Z'
-updated: '2026-09-01T22:54:20.490Z'
+updated: '2026-09-12T00:28:05.246Z'
 ---
 ## Intent
 

@@ -40,6 +40,16 @@ export {
   type SinkCapableContext
 } from './outputDevice'
 export {
+  EqualizerRouter,
+  EQUALIZER_BAND_LIMIT,
+  FLAT_EQUALIZER_SPEC,
+  peakMagnitude,
+  type BiquadCapableContext,
+  type ClipTap,
+  type EqualizerBand,
+  type EqualizerSpec
+} from './equalizer'
+export {
   DEFAULT_R1_POLICY,
   R1_POLICY_LIMITS,
   decideR1Admission,
@@ -59,6 +69,7 @@ import { GuardedAudioEngine } from './GuardedAudioEngine'
 import { StreamingAudioEngine } from './StreamingAudioEngine'
 import { createBrowserStreamingPlatform } from './browserStreamingPlatform'
 import { AudioOutputRouter } from './outputDevice'
+import { EqualizerRouter, type ClipTap, type EqualizerSpec } from './equalizer'
 import type { R1Policy } from './r1Admission'
 import { R1ReservationLedger } from './r1Admission'
 
@@ -87,6 +98,18 @@ export interface AudioEngineFactory {
   readonly outputDeviceId: string
   /** False when this runtime's `AudioContext` has no `setSinkId`. */
   readonly outputDeviceSelectable: boolean
+  /**
+   * Apply an EQ spec to every context this factory has built and every one it
+   * will. A fact about the contexts, not a slot — see `equalizer.ts`. Live; the
+   * default flat spec means nothing calls this until W19-3 wires the settings.
+   */
+  setEqualizer: (spec: EqualizerSpec) => void
+  /**
+   * Subscribe to the EQ output's peak level for the R11 clip indicator. Lazily
+   * attaches an analyser to every context on the first tap and detaches on the
+   * last, so nothing runs until the equalizer pane opens.
+   */
+  subscribeEqualizerClip: () => ClipTap
 }
 
 /**
@@ -105,7 +128,14 @@ export interface AudioEngineFactory {
 export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): AudioEngineFactory {
   const decodedBuffers = new DecodedBufferLedger()
   const router = new AudioOutputRouter()
-  const decodedContext = new DecodedAudioContextPool(() => router.adopt(new AudioContext()))
+  const equalizer = new EqualizerRouter()
+  // The sink is adopted first, then the EQ chain is built on the same context —
+  // both routers keep every live and future context pointed at one desired
+  // value, the pattern `outputDevice.ts` documents.
+  const decodedContext = new DecodedAudioContextPool(
+    () => router.adopt(new AudioContext()),
+    (context) => equalizer.attach(context)
+  )
   const reservations = new R1ReservationLedger()
 
   const createEngine = (): AudioEngine =>
@@ -113,7 +143,10 @@ export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): AudioE
       decoded: new DecodedAudioEngine(decodedBuffers, decodedContext.acquire()),
       createStreaming: () =>
         new StreamingAudioEngine(
-          createBrowserStreamingPlatform({ adoptContext: (context) => router.adopt(context) })
+          createBrowserStreamingPlatform({
+            adoptContext: (context) => router.adopt(context),
+            resolveDestination: (context) => equalizer.attach(context)
+          })
         ),
       policy,
       reservations,
@@ -154,6 +187,8 @@ export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): AudioE
     },
     get outputDeviceSelectable() {
       return router.supported
-    }
+    },
+    setEqualizer: (spec) => equalizer.setSpec(spec),
+    subscribeEqualizerClip: () => equalizer.subscribeClip()
   }
 }

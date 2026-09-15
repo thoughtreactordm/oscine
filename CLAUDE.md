@@ -38,6 +38,7 @@ W5 Playlists & Queue, W6 Packaging & Ops, W7 Tunedeck, W8 Settings, W9 Podcasts.
 | Build | `npm run build` (typechecks first) |
 | Package | `npm run dist:win` (NSIS) · `npm run dist:linux` (AppImage + deb) · `npm run dist` for the host platform · `npm run pack` for an unpacked tree, no installer |
 | App icons | `npm run icons` (regenerates `build/`) |
+| Device EQ library | `npm run eq:devices` (regenerates the bundled oratory1990 profiles from the pinned AutoEq commit) |
 | Native ABI check | `npm run verify:native` |
 | Seed test library | `npm run seed:synthetic` |
 | Mixed-format fixture | `npm run probe:fixture` (needs ffmpeg) |

@@ -6,6 +6,7 @@ import RebuildCountersAction from '@renderer/panels/settings/RebuildCountersActi
 import RerunOnboardingAction from '@renderer/panels/settings/RerunOnboardingAction.vue'
 import ScrobblingAccounts from '@renderer/panels/settings/ScrobblingAccounts.vue'
 import AppUpdates from '@renderer/panels/settings/AppUpdates.vue'
+import AudioEqualizerNote from '@renderer/panels/settings/AudioEqualizerNote.vue'
 import ThemeActions from '@renderer/panels/settings/theme/ThemeActions.vue'
 import SettingRow from '@renderer/panels/settings/SettingRow.vue'
 import { useSettings } from '@renderer/settings'
@@ -80,6 +81,14 @@ const showScrobbling = computed(() => !catalog.value.spanning && section.value?.
  * audio keys is furniture from the wrong room.
  */
 const showUpdates = computed(() => !catalog.value.spanning && section.value?.id === 'about')
+
+/**
+ * W19-4's pointer at the equalizer, drawn above the Audio rows. Same guard as the
+ * others: one section, hidden the moment a query spans several. The EQ is not a
+ * settings row — it is a Tools surface — so Audio gets a line that says where it
+ * went rather than a control that could not do it justice.
+ */
+const showAudioNote = computed(() => !catalog.value.spanning && section.value?.id === 'audio')
 
 /**
  * How tall whatever sits above the rows is, in pixels.
@@ -312,6 +321,9 @@ watch(
       </div>
       <div v-else-if="showUpdates" ref="leading">
         <AppUpdates />
+      </div>
+      <div v-else-if="showAudioNote" ref="leading">
+        <AudioEqualizerNote />
       </div>
 
       <div

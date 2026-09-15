@@ -95,6 +95,7 @@ import {
   SETTINGS_IMPORT_MODES,
   type GetSettingOverridesRequest,
   type ImportSettingsProfileRequest,
+  type ListSettingAssignmentsRequest,
   type ResetSettingsRequest,
   type SetSettingRequest,
   type SettingScopeKind,
@@ -1582,6 +1583,15 @@ export function assertGetSettingOverridesRequest(value: unknown): GetSettingOver
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['scope'])
   return { scope: assertScopeRef(raw.scope) }
+}
+
+export function assertListSettingAssignmentsRequest(value: unknown): ListSettingAssignmentsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['key'])
+  if (typeof raw.key !== 'string' || raw.key.trim() === '') {
+    invalid('key must be a non-empty string.')
+  }
+  return { key: raw.key }
 }
 
 /**

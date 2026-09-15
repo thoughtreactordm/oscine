@@ -140,6 +140,32 @@ export interface GetSettingOverridesRequest {
   scope: SettingScopeRef
 }
 
+/** One entity that overrides a key: the entity scope, and the raw stored value. */
+export interface SettingAssignment {
+  scope: { kind: SettingEntityKind; id: number }
+  stored: StoredSetting
+}
+
+/**
+ * Every entity that overrides one key, across all scopes.
+ *
+ * The inverse of `GetSettingOverridesResult`: that answers "what does this scope
+ * hold", this answers "which scopes hold this key". Raw `StoredSetting`s for the
+ * same reason — resolution, and the dangling check a preset id needs, are the
+ * renderer's, which alone holds the list to resolve against. The global row is
+ * never here: an assignment is a thing done *to an entity*.
+ */
+export interface ListSettingAssignmentsResult {
+  key: string
+  assignments: SettingAssignment[]
+  /** Rows that were not readable at all — malformed JSON, not bad values. */
+  notices: SettingNotice[]
+}
+
+export interface ListSettingAssignmentsRequest {
+  key: string
+}
+
 export interface SetSettingRequest {
   key: string
   value: unknown
