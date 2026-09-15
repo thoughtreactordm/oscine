@@ -170,6 +170,14 @@ export interface PlaybackControllerDeps {
    */
   setEqualizer?: (spec: EqualizerSpec) => void
   /**
+   * The current track's per-entity EQ override (W19-6), or null when it carries
+   * none. The EQ the engine plays is `override ?? global`, layered in
+   * `bindAudioPreferences`: an assignment masks the operator's global curve for
+   * the track it applies to and never writes it. The binding in the store keeps
+   * this in step with the audible track.
+   */
+  eqOverride?: Ref<EqualizerSpec | null>
+  /**
    * Binds the OS now-playing surface — SMTC on Windows, MPRIS on Linux.
    *
    * Injected rather than constructed here for the same reason the engine is:
@@ -385,7 +393,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    * projection of the three registry keys, and `setNormalizationMode` below
    * writes the key rather than the ref.
    */
-  const audioPreferences = bindAudioPreferences(deps.settings)
+  const audioPreferences = bindAudioPreferences(deps.settings, deps.eqOverride)
   const normalizationPolicy = audioPreferences.normalization
   const normalizationMode = computed(() => normalizationPolicy.value.mode)
   const nowPlaying = ref<Track | null>(null)

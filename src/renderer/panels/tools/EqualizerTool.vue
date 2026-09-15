@@ -63,6 +63,49 @@ function applyAuto(): void {
   eq.setPreamp(autoPreampDb.value)
 }
 
+/**
+ * Bracket a preamp *slider* drag so its stream of writes is one undo step, not
+ * thirty (W19-10). The stepper and the numeric field commit discretely and need no
+ * bracket. The end listener is on `window` because a slider drag can release off
+ * the thumb; `once` cleans it up whichever way the pointer ends.
+ */
+function beginPreampDrag(): void {
+  eq.beginInteractive()
+  const end = (): void => eq.endInteractive()
+  window.addEventListener('pointerup', end, { once: true })
+  window.addEventListener('pointercancel', end, { once: true })
+}
+
+// ── Undo/redo (W19-10) ─────────────────────────────────────────────────────────
+// Ctrl/⌘+Z and Ctrl/⌘+Shift+Z (plus Ctrl+Y) drive the store's curve history while
+// the pane is mounted. A text field keeps its own native undo — an operator typing
+// a frequency wants their keystrokes back, not the whole curve — so a keystroke
+// aimed at an input is left alone.
+function isTextEntry(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null
+  if (!el) return false
+  return (
+    el.tagName === 'INPUT' ||
+    el.tagName === 'TEXTAREA' ||
+    el.tagName === 'SELECT' ||
+    el.isContentEditable
+  )
+}
+
+function onUndoKey(event: KeyboardEvent): void {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+  if (isTextEntry(event.target)) return
+  const key = event.key.toLowerCase()
+  if (key === 'z') {
+    event.preventDefault()
+    if (event.shiftKey) eq.redo()
+    else eq.undo()
+  } else if (key === 'y' && !event.shiftKey) {
+    event.preventDefault()
+    eq.redo()
+  }
+}
+
 // The clip indicator polls the EQ output only while this pane is mounted: the
 // analyser is attached on the first frame and released on unmount, so an operator
 // who never opens the pane pays nothing and a leaked frame cannot outlive the
@@ -73,8 +116,12 @@ onMounted(() => {
   // preset set moves — deleting a preset is what makes an assignment dangle, and
   // the list is where that has to become visible.
   void eq.refreshAssignments()
+  window.addEventListener('keydown', onUndoKey)
 })
-onUnmounted(() => eq.stopClipMonitor())
+onUnmounted(() => {
+  eq.stopClipMonitor()
+  window.removeEventListener('keydown', onUndoKey)
+})
 
 watch(
   () => eq.presets,
@@ -256,6 +303,30 @@ watch(prompt, async (value) => {
         </UDropdownMenu>
       </UFieldGroup>
 
+      <!-- Undo/redo over the curve (W19-10). Keyboard is Ctrl/⌘+Z / +Shift+Z. -->
+      <UFieldGroup>
+        <UButton
+          size="xs"
+          color="neutral"
+          variant="outline"
+          icon="i-tabler-arrow-back-up"
+          :disabled="!eq.canUndo"
+          aria-label="Undo equalizer change"
+          title="Undo (Ctrl+Z)"
+          @click="eq.undo()"
+        />
+        <UButton
+          size="xs"
+          color="neutral"
+          variant="outline"
+          icon="i-tabler-arrow-forward-up"
+          :disabled="!eq.canRedo"
+          aria-label="Redo equalizer change"
+          title="Redo (Ctrl+Shift+Z)"
+          @click="eq.redo()"
+        />
+      </UFieldGroup>
+
       <UButton
         size="xs"
         :color="showSpectrum ? 'primary' : 'neutral'"
@@ -265,6 +336,32 @@ watch(prompt, async (value) => {
         :aria-pressed="showSpectrum"
         @click="showSpectrum = !showSpectrum"
       />
+
+      <!-- In-situ override editing (W19-11): flip the editor's target from the
+           global curve to the audible track's per-entity override, so it can be
+           dialed in by ear and saved to the preset without touching the global.
+           A persistent mode that follows tracks — the badge says whether it is
+           actually on an override or falling through to the global. -->
+      <UButton
+        size="xs"
+        :color="eq.editingOverride ? 'primary' : 'neutral'"
+        :variant="eq.editingOverride ? 'soft' : 'ghost'"
+        icon="i-tabler-pencil"
+        label="Edit override"
+        :aria-pressed="eq.editingOverride"
+        @click="eq.editingOverride = !eq.editingOverride"
+      />
+      <span
+        v-if="eq.editingOverride"
+        class="shrink-0 text-xs"
+        :class="eq.editingOverrideActive ? 'text-primary' : 'text-muted'"
+      >
+        {{
+          eq.editingOverrideActive
+            ? "Editing this track's override"
+            : 'No override — editing global'
+        }}
+      </span>
 
       <div class="ml-auto">
         <USelect
@@ -290,6 +387,7 @@ watch(prompt, async (value) => {
         size="xs"
         class="min-w-32 max-w-56 flex-1"
         aria-label="Equalizer pre-amp"
+        @pointerdown="beginPreampDrag"
         @update:model-value="setPreamp($event)"
       />
       <UInputNumber
@@ -331,27 +429,6 @@ watch(prompt, async (value) => {
           @click="eq.clearClip"
         />
       </UTooltip>
-    </div>
-
-    <!-- W19-6: a manual edit has suspended the playing entity's assignment. Say
-         so, and offer the one click that lets assignments drive the curve again. -->
-    <div
-      v-if="eq.assignmentSuspended"
-      class="flex shrink-0 items-center gap-2 border-b border-default bg-elevated px-3 py-1.5"
-    >
-      <UIcon name="i-tabler-hand-stop" class="size-4 shrink-0 text-warning" />
-      <span class="text-xs text-muted">
-        Assignments are suspended — your manual edit is playing.
-      </span>
-      <UButton
-        size="xs"
-        color="neutral"
-        variant="outline"
-        icon="i-tabler-player-play"
-        label="Resume"
-        class="ml-auto"
-        @click="eq.resumeAssignments()"
-      />
     </div>
 
     <EqualizerCurve :max-gain-db="displayGainDb" :show-spectrum="showSpectrum" />

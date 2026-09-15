@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { nextTick, ref } from 'vue'
-import {
-  AUDIO_EQ_ACTIVE,
-  AUDIO_EQ_ENABLED,
-  AUDIO_EQ_PRESET_ID,
-  AUDIO_EQ_PRESETS
-} from '@shared/settings'
+import { AUDIO_EQ_ACTIVE, AUDIO_EQ_PRESET_ID, AUDIO_EQ_PRESETS } from '@shared/settings'
 import type { EqualizerPreset, EqualizerSpec } from '@shared/audio/equalizer'
 import type { Track } from '@shared/library'
 import {
@@ -21,10 +16,12 @@ const loudSpec: EqualizerSpec = {
 }
 const loud: EqualizerPreset = { id: 'p1', name: 'Loud', spec: loudSpec }
 
-/** A library whose track always resolves to one album and no artist. */
-function libraryOnAlbum(albumId: number): AssignmentLibrary {
+type Facets = { albumId: number | null; artistId: number | null }
+
+/** A library that resolves each track id to fixed album/artist ids. */
+function libraryByTrack(map: Record<number, Facets>): AssignmentLibrary {
   return {
-    trackFacets: async () => ({ albumId, artistId: null }),
+    trackFacets: async (trackId) => map[trackId] ?? { albumId: null, artistId: null },
     listAlbums: async () => ({ albums: [], total: 0 }),
     listArtists: async () => ({ artists: [], total: 0 }),
     listPlaylists: async () => [],
@@ -37,70 +34,87 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await nextTick()
 }
 
-describe('createEqAssignmentBinding — suspend on manual edit', () => {
-  it('flips suspended when the operator edits the curve of an assigned track', async () => {
+type Settings = ReturnType<typeof settingsStoreFixture>['settings']
+
+function makeBinding(settings: Settings, library: AssignmentLibrary) {
+  const nowPlaying = ref<Track | null>(null)
+  const playingPlaylistId = ref<number | null>(null)
+  const overrides: (EqualizerSpec | null)[] = []
+  const binding = createEqAssignmentBinding({
+    nowPlaying,
+    playingPlaylistId,
+    settings,
+    library,
+    applyOverride: (spec) => overrides.push(spec)
+  })
+  return { nowPlaying, playingPlaylistId, binding, overrides, last: () => overrides.at(-1) }
+}
+
+describe('createEqAssignmentBinding — override layer', () => {
+  it('reports the assigned preset curve as the override, and never writes the global', async () => {
     const { settings } = settingsStoreFixture()
-    await settings.set(AUDIO_EQ_ENABLED.key, true)
     await settings.set(AUDIO_EQ_PRESETS.key, [loud])
     await settings.setOverride(AUDIO_EQ_PRESET_ID, { kind: 'album', id: 10 }, 'p1')
+    const globalBefore = settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)
 
-    const nowPlaying = ref<Track | null>(null)
-    const playingPlaylistId = ref<number | null>(null)
-    const binding = createEqAssignmentBinding({
-      nowPlaying,
-      playingPlaylistId,
-      settings,
-      library: libraryOnAlbum(10)
-    })
-
-    // A track on the assigned album starts. The assignment should reach the curve.
-    nowPlaying.value = { id: 1 } as Track
-    await settle()
-    expect(settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)).toEqual(loudSpec)
-    expect(binding.suspended.value).toBe(false)
-
-    // The operator drags a band — a write to the curve the applier did not make.
-    const editedSpec: EqualizerSpec = {
-      ...loudSpec,
-      bands: [{ ...loudSpec.bands[0], gainDb: -6 }]
-    }
-    settings.value<EqualizerSpec>(AUDIO_EQ_ACTIVE.key).value = editedSpec
+    const h = makeBinding(settings, libraryByTrack({ 1: { albumId: 10, artistId: null } }))
+    h.nowPlaying.value = { id: 1 } as Track
     await settle()
 
-    // The edit stands — reconcile must not revert it — and it suspends the
-    // assignment, which is what lights the pane's banner and its Resume button.
-    expect(settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)).toEqual(editedSpec)
-    expect(binding.suspended.value).toBe(true)
+    expect(h.last()).toEqual(loudSpec)
+    // The operator's global curve is a derived-over base, never mutated.
+    expect(settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)).toEqual(globalBefore)
   })
 
-  it('resume re-applies the assignment after a suspension', async () => {
+  it('reports no override when the track carries no assignment', async () => {
     const { settings } = settingsStoreFixture()
-    await settings.set(AUDIO_EQ_ENABLED.key, true)
     await settings.set(AUDIO_EQ_PRESETS.key, [loud])
     await settings.setOverride(AUDIO_EQ_PRESET_ID, { kind: 'album', id: 10 }, 'p1')
 
-    const nowPlaying = ref<Track | null>(null)
-    const playingPlaylistId = ref<number | null>(null)
-    const binding = createEqAssignmentBinding({
-      nowPlaying,
-      playingPlaylistId,
+    const h = makeBinding(settings, libraryByTrack({ 1: { albumId: 20, artistId: null } }))
+    h.nowPlaying.value = { id: 1 } as Track
+    await settle()
+
+    expect(h.last()).toBeNull()
+  })
+
+  it('clears the override when moving from an assigned track to an unassigned one', async () => {
+    const { settings } = settingsStoreFixture()
+    await settings.set(AUDIO_EQ_PRESETS.key, [loud])
+    await settings.setOverride(AUDIO_EQ_PRESET_ID, { kind: 'album', id: 10 }, 'p1')
+    const globalBefore = settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)
+
+    const h = makeBinding(
       settings,
-      library: libraryOnAlbum(10)
-    })
+      libraryByTrack({
+        1: { albumId: 10, artistId: null },
+        2: { albumId: 20, artistId: null }
+      })
+    )
 
-    nowPlaying.value = { id: 1 } as Track
+    h.nowPlaying.value = { id: 1 } as Track
     await settle()
-    settings.value<EqualizerSpec>(AUDIO_EQ_ACTIVE.key).value = {
-      ...loudSpec,
-      bands: [{ ...loudSpec.bands[0], gainDb: -6 }]
-    }
-    await settle()
-    expect(binding.suspended.value).toBe(true)
+    expect(h.last()).toEqual(loudSpec)
 
-    binding.resume()
+    // Leaving assigned content is not a restore — the override simply goes null.
+    h.nowPlaying.value = { id: 2 } as Track
+    await settle()
+    expect(h.last()).toBeNull()
+
+    // The global curve was never touched at any point in the round trip.
+    expect(settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)).toEqual(globalBefore)
+  })
+
+  it('reports no override when the assigned preset id dangles', async () => {
+    const { settings } = settingsStoreFixture()
+    // An album points at 'p1', but no preset by that id exists — it must play flat
+    // (no override), not carry a stale curve.
+    await settings.setOverride(AUDIO_EQ_PRESET_ID, { kind: 'album', id: 10 }, 'p1')
+
+    const h = makeBinding(settings, libraryByTrack({ 1: { albumId: 10, artistId: null } }))
+    h.nowPlaying.value = { id: 1 } as Track
     await settle()
 
-    expect(binding.suspended.value).toBe(false)
-    expect(settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)).toEqual(loudSpec)
+    expect(h.last()).toBeNull()
   })
 })

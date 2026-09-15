@@ -5,13 +5,18 @@
  * Lives beside the playback controller and is created once at store construction
  * — like the presence emitter — rather than in the equalizer pane, because an
  * assignment has to take effect whether or not the pane is open. It observes the
- * audible track, resolves the album/artist/playlist cascade for it, and drives
- * the pure `createEqAssignmentApplier`, which writes `audio.eq.active` and so
- * reaches the audio through the one watcher the controller already runs.
+ * audible track, resolves the album/artist/playlist cascade for it, and reports
+ * the resolved curve as the current track's **override** through `applyOverride`.
  *
- * The two impure things the pure layers cannot hold live here: the entity ids
- * (a track carries names, not ids — `library.trackFacets` resolves them) and the
- * suspension/assignment state the pane reads reactively.
+ * The override is a derived layer, never a write-back: `bindAudioPreferences`
+ * plays `override ?? global`, so an assignment masks the operator's global curve
+ * (`audio.eq.active`) for the track it applies to and never mutates it. Leaving
+ * assigned content is not a restore — the override simply goes null and the
+ * global plays again. There is no baseline, no suspension, no swap; the global is
+ * only ever what the operator picks in the pane.
+ *
+ * The one impure thing the pure layers cannot hold lives here: the entity ids (a
+ * track carries names, not ids — `library.trackFacets` resolves them).
  *
  * Switching at the boundary rather than mid-track falls out of keying on
  * `nowPlaying`: it is the *audible* track, updated when a track becomes current,
@@ -21,8 +26,6 @@
 
 import { computed, ref, watch, type Ref } from 'vue'
 import {
-  AUDIO_EQ_ACTIVE,
-  AUDIO_EQ_ENABLED,
   AUDIO_EQ_PRESETS,
   AUDIO_EQ_PRESET_ID,
   type CascadeScopeRef,
@@ -35,7 +38,6 @@ import type { EqualizerPreset, EqualizerSpec } from '@shared/audio/equalizer'
 import type { ListAlbumsResult, ListArtistsResult, Track } from '@shared/library'
 import type { Playlist } from '@shared/playlists'
 import { pickAssignedPresetId, resolveEqAssignment, type AssignmentLayer } from './eqAssignment'
-import { createEqAssignmentApplier } from './eqAssignmentApplier'
 
 /** An entity scope a preset can be assigned at — never global. */
 export type AssignmentScope = { kind: 'album' | 'artist' | 'playlist'; id: number }
@@ -84,6 +86,12 @@ export interface EqAssignmentBindingDeps {
   playingPlaylistId: Ref<number | null>
   settings: AssignmentSettings
   library: AssignmentLibrary
+  /**
+   * Push the current track's resolved override curve, or null when it carries no
+   * assignment. The store wires this to the ref `bindAudioPreferences` layers over
+   * the global — the one and only way an assignment reaches the audio.
+   */
+  applyOverride: (spec: EqualizerSpec | null) => void
 }
 
 /** One assignment as the pane lists it: the entity, the preset, and its health. */
@@ -98,10 +106,6 @@ export interface AssignmentRow {
 }
 
 export interface EqAssignmentBinding {
-  /** A manual edit has suspended assignments for the session. */
-  suspended: Ref<boolean>
-  /** Lift a suspension and re-apply the current track's assignment. */
-  resume: () => void
   /** Every entity assigned a preset, for the pane's list. */
   assignments: Ref<AssignmentRow[]>
   /** Reload the list — the pane calls this on mount and after it mutates one. */
@@ -113,7 +117,7 @@ export interface EqAssignmentBinding {
 }
 
 export function createEqAssignmentBinding(deps: EqAssignmentBindingDeps): EqAssignmentBinding {
-  const { nowPlaying, playingPlaylistId, settings, library } = deps
+  const { nowPlaying, playingPlaylistId, settings, library, applyOverride } = deps
 
   // The current track's entity ids. A track carries names, so these come from a
   // facets probe and are held here, reset the instant the track changes so a
@@ -167,55 +171,18 @@ export function createEqAssignmentBinding(deps: EqAssignmentBindingDeps): EqAssi
     return resolveEqAssignment(pickAssignedPresetId(layers), presets)
   })
 
-  const enabled = (): boolean => settings.get<boolean>(AUDIO_EQ_ENABLED.key)
-
-  const applier = createEqAssignmentApplier({
-    getActive: () => settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key),
-    setActive: (spec) => void settings.set(AUDIO_EQ_ACTIVE.key, spec)
-  })
-
-  const suspended = ref(false)
-  const syncFlags = (): void => {
-    suspended.value = applier.suspended
-  }
-
-  // Reconcile when the *target* changes — the resolved preset id, its curve, or
-  // the master switch — and never merely because the live curve moved. Keying on
-  // the target's content rather than the `assignment` computed's identity is
-  // load-bearing: that computed is re-created on any recompute, and a manual edit
-  // to `audio.eq.active` can retrigger it. Reacting to that would let this watch
-  // rewrite the assigned spec back in the same flush — reverting the operator's
-  // edit before `noticeActiveChange` ever sees it, so the edit is silently undone
-  // and the suspension (and its banner) never fires. The target's content is what
-  // reconcile actually depends on, so that is what it watches.
-  const reconcileKey = computed(() => {
+  // Push the resolved curve as the current track's override whenever the target
+  // changes — a new track, a reassignment, a preset edit that moves the assigned
+  // curve, or a delete that dangles it. Keyed on the target's *content*, not the
+  // `assignment` computed's identity, so it fires exactly when the override the
+  // engine should carry actually changes. Null (no assignment, or dangling) means
+  // "no override" — the global plays. The master switch and the global curve are
+  // not this binding's concern; `bindAudioPreferences` layers this over them.
+  const overrideKey = computed(() => {
     const target = assignment.value
-    return JSON.stringify([target.presetId, target.dangling, target.spec, enabled()])
+    return JSON.stringify([target.spec])
   })
-  watch(
-    reconcileKey,
-    () => {
-      applier.reconcile(assignment.value, enabled())
-      syncFlags()
-    },
-    { immediate: true }
-  )
-
-  // A change to the curve the applier did not make is a manual edit; the applier
-  // sorts its own writes from the operator's and suspends on the latter.
-  watch(
-    () => settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key),
-    (active) => {
-      applier.noticeActiveChange(active)
-      syncFlags()
-    }
-  )
-
-  function resume(): void {
-    applier.resume()
-    applier.reconcile(assignment.value, enabled())
-    syncFlags()
-  }
+  watch(overrideKey, () => applyOverride(assignment.value.spec), { immediate: true })
 
   const assignments = ref<AssignmentRow[]>([])
 
@@ -283,5 +250,5 @@ export function createEqAssignmentBinding(deps: EqAssignmentBindingDeps): EqAssi
     return resolved.overridden ? resolved.value : null
   }
 
-  return { suspended, resume, assignments, refreshAssignments, assign, assignedAt }
+  return { assignments, refreshAssignments, assign, assignedAt }
 }

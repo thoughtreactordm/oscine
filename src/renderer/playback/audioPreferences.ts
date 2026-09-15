@@ -71,6 +71,13 @@ export interface AudioPreferenceBinding {
    * disabled EQ is `enabled: false` with its bands intact, not an empty band list
    * — an empty list is a flat EQ still in circuit, which W19-5's clip indicator
    * would read differently.
+   *
+   * When the current track carries a per-entity assignment (W19-6) its curve is
+   * the override, layered here so the engine plays `override ?? global`. The
+   * override is *derived*, never written back: `audio.eq.active` stays the
+   * operator's own global curve, which the assignment can mask for a track but
+   * must never mutate. The master switch still governs — a disabled EQ bypasses
+   * the override too.
    */
   equalizer: ComputedRef<EqualizerSpec>
 }
@@ -83,7 +90,10 @@ export interface AudioPreferenceBinding {
  * rather than a required dependency. The defaults are the descriptors', which is
  * the whole of W8-9's rule — there is no second copy of them in this file.
  */
-export function bindAudioPreferences(settings?: SettingsReader): AudioPreferenceBinding {
+export function bindAudioPreferences(
+  settings?: SettingsReader,
+  eqOverride?: Ref<EqualizerSpec | null>
+): AudioPreferenceBinding {
   if (!settings) {
     const mode = ref<NormalizationMode>(DEFAULT_NORMALIZATION_POLICY.mode)
     return {
@@ -92,7 +102,7 @@ export function bindAudioPreferences(settings?: SettingsReader): AudioPreference
       decodePolicy: computed(() => defaultDecodePolicy()),
       prefetchDepth: computed(() => AUDIO_PREFETCH_DEPTH.default),
       outputDevice: ref(AUDIO_OUTPUT_DEVICE.default),
-      equalizer: computed(() => FLAT_EQUALIZER_SPEC)
+      equalizer: computed(() => eqOverride?.value ?? FLAT_EQUALIZER_SPEC)
     }
   }
 
@@ -111,7 +121,7 @@ export function bindAudioPreferences(settings?: SettingsReader): AudioPreference
     prefetchDepth: computed(() => settings.get<number>(AUDIO_PREFETCH_DEPTH.key)),
     outputDevice: settings.value<string>(AUDIO_OUTPUT_DEVICE.key),
     equalizer: computed(() => ({
-      ...settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key),
+      ...(eqOverride?.value ?? settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)),
       enabled: settings.get<boolean>(AUDIO_EQ_ENABLED.key)
     }))
   }

@@ -1,4 +1,4 @@
-import { computed, ref, type ComputedRef, type WritableComputedRef } from 'vue'
+import { computed, ref, watch, type ComputedRef, type Ref, type WritableComputedRef } from 'vue'
 import {
   AUDIO_EQ_ACTIVE,
   AUDIO_EQ_ENABLED,
@@ -10,6 +10,7 @@ import {
   type EqualizerPreset,
   type EqualizerSpec
 } from '@shared/audio/equalizer'
+import { createSpecHistory } from './equalizerHistory'
 
 /**
  * The equalizer pane's state and the only writer of its three settings keys.
@@ -39,7 +40,14 @@ export interface EqualizerSettings {
 }
 
 export interface EqualizerState {
-  /** The live curve. Writable — assigning it persists and repaints the audio. */
+  /**
+   * The editor's target curve. Writable — assigning it repaints the audio. Its
+   * *source* switches with the in-situ override mode (W19-11): normally it is the
+   * operator's global (`audio.eq.active`), but while `editingOverride` is on and
+   * the audible track carries a per-entity override, it is that override instead —
+   * so the curve, band table, preamp, undo/redo, save and selector all edit the
+   * override live without ever touching the global.
+   */
   active: WritableComputedRef<EqualizerSpec>
   /** The master on/off, separate from the spec's own `enabled` so a disabled EQ keeps its bands. */
   enabled: WritableComputedRef<boolean>
@@ -69,11 +77,47 @@ export interface EqualizerState {
   applyPreset: (id: string) => void
   renamePreset: (id: string, name: string) => void
   deletePreset: (id: string) => void
+  /**
+   * Undo/redo over the live curve (W19-10). Every write to `active` — a node drag,
+   * an added band, a preamp move, a recalled preset — is one step, so `undo`
+   * restores the previous curve and `redo` reinstates it. Reactive so a button can
+   * enable off them.
+   */
+  canUndo: ComputedRef<boolean>
+  canRedo: ComputedRef<boolean>
+  undo: () => void
+  redo: () => void
+  /**
+   * Bracket a continuous gesture so its intermediate writes are not each an undo
+   * step. A drag calls `beginInteractive` on pointer-down and `endInteractive` on
+   * pointer-up; only the pre-gesture curve is recorded, as one step. Discrete
+   * edits need neither — their single write records itself.
+   */
+  beginInteractive: () => void
+  endInteractive: () => void
+  /**
+   * The in-situ override edit mode (W19-11). A hard toggle, off by default and
+   * never persisted. When on and the audible track has an override, `active`
+   * targets that override; otherwise it stays on the global and editing behaves
+   * exactly as with the mode off. Writable — the pane's switch drives it.
+   */
+  editingOverride: Ref<boolean>
+  /** True when the mode is on *and* an override exists, i.e. the editor is on the override. */
+  editingOverrideActive: ComputedRef<boolean>
+  /** Whether the audible track currently carries a per-entity override at all. */
+  hasOverride: ComputedRef<boolean>
 }
 
 export interface EqualizerStateOptions {
   /** Injected so a test can assert against fixed ids; defaults to a real UUID. */
   newId?: () => string
+  /**
+   * The audible track's derived per-entity override, or null when it carries none
+   * (W19-6). The same ref the assignment binding pushes into and the controller
+   * plays `override ?? global` from — injected here so the in-situ mode (W19-11)
+   * can edit it in place. Omitted in a test that does not exercise override editing.
+   */
+  override?: Ref<EqualizerSpec | null>
 }
 
 function defaultNewId(): string {
@@ -86,15 +130,49 @@ export function createEqualizerState(
 ): EqualizerState {
   const newId = options.newId ?? defaultNewId
 
-  const active = settings.value<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)
+  // The operator's global curve. `audio.eq.active` has exactly one writer — this
+  // state's own edits, and only while the override-edit mode is off — so a
+  // per-entity assignment (a derived override, W19-6) can never mutate it.
+  const global = settings.value<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)
   const enabled = settings.value<boolean>(AUDIO_EQ_ENABLED.key)
   const presets = computed(() => settings.get<readonly EqualizerPreset[]>(AUDIO_EQ_PRESETS.key))
 
+  // ── The in-situ override edit toggle (W19-11) ────────────────────────────────
+  // A hard mode, off by default and never persisted. When on *and* the audible
+  // track carries an override, `active` targets that override ref: edits are heard
+  // live and can be saved to the preset, all without touching `audio.eq.active`.
+  // When on with no override, the target falls through to the global — editing then
+  // behaves exactly as it does with the mode off. Toggling the mode, or a track
+  // change that pushes a different override, is a *context switch* that the recorder
+  // watch below re-baselines rather than records.
+  const overrideSpec = options.override ?? null
+  const editingOverride = ref(false)
+  const hasOverride = computed(() => (overrideSpec?.value ?? null) !== null)
+  const editingOverrideActive = computed(() => editingOverride.value && hasOverride.value)
+
+  // Set by `active`'s setter so the recorder watch can tell this state's own edits
+  // from a context switch or an external override push. Consumed on every watch fire.
+  let editorWrote = false
+
+  // The editor's target. Everything downstream — the curve, band table, preamp,
+  // undo/redo, save-to-preset and the preset selector — reads and writes this, so
+  // they all follow the source switch with no change of their own.
+  const active = computed<EqualizerSpec>({
+    get: () =>
+      editingOverrideActive.value ? (overrideSpec as Ref<EqualizerSpec>).value : global.value,
+    set: (next) => {
+      editorWrote = true
+      if (editingOverrideActive.value) (overrideSpec as Ref<EqualizerSpec>).value = next
+      else global.value = next
+    }
+  })
+
   // Which preset the curve was last recalled from or saved as. Not persisted as a
-  // fourth key — instead recovered on load by matching the persisted
-  // `audio.eq.active` curve against the saved presets: a reload that lands on a
-  // preset's exact curve shows that preset, a curve that matches nothing shows the
-  // blank selector. After that the recall/save paths own it.
+  // fourth key — instead recovered on load by matching the current curve against the
+  // saved presets. After that the recall/save paths own it, and the recorder watch
+  // re-derives it on a context switch so the selector names whatever the target now
+  // holds (the override's preset, or the global's) rather than "(modified)" against a
+  // stale one.
   const selectedId = ref<string | null>(
     presets.value.find((preset) => sameSettingValue(preset.spec, active.value))?.id ?? null
   )
@@ -158,6 +236,72 @@ export function createEqualizerState(
     if (selectedId.value === id) selectedId.value = null
   }
 
+  // ── Undo/redo (W19-10) ───────────────────────────────────────────────────────
+  // A stack of prior curves. The watcher below is the single recorder: it fires on
+  // every `active` write — a drag frame, a table edit, a recalled preset — and hands
+  // this state's own edits to `history.record`, which dedupes and folds. A write it
+  // did *not* make (the mode toggled, or a track change pushing a different override,
+  // W19-11) is a context switch, not an edit: the watcher re-baselines rather than
+  // records, so undo never steps across it. During a drag `interactive` suppresses
+  // the per-frame writes, and the single `endInteractive` records the whole gesture
+  // as one step. Runs `sync` so a test asserting undo right after a write does not
+  // have to await a tick.
+  const history = createSpecHistory(active.value)
+  const canUndo = ref(false)
+  const canRedo = ref(false)
+  let interactive = false
+
+  function syncFlags(): void {
+    canUndo.value = history.canUndo
+    canRedo.value = history.canRedo
+  }
+
+  watch(
+    () => active.value,
+    (next) => {
+      const wasEditor = editorWrote
+      editorWrote = false
+      // A drag frame: `endInteractive` records the whole gesture as one step.
+      if (interactive) return
+      if (wasEditor) {
+        if (history.record(next)) syncFlags()
+        return
+      }
+      // Not this state's edit — the target moved out from under the editor: the mode
+      // was toggled, or the assignment binding pushed a different override on a track
+      // change (W19-11). Re-baseline history to the new curve so undo cannot step
+      // across the switch, and re-derive the selection so the selector names the
+      // target's preset instead of reading "(modified)" against a stale one.
+      history.reset(next)
+      syncFlags()
+      selectedId.value = presets.value.find((p) => sameSettingValue(p.spec, next))?.id ?? null
+    },
+    { flush: 'sync' }
+  )
+
+  function beginInteractive(): void {
+    interactive = true
+  }
+
+  function endInteractive(): void {
+    interactive = false
+    if (history.record(active.value)) syncFlags()
+  }
+
+  function undo(): void {
+    const prev = history.undo()
+    // The write is deduped by `record` — baseline already equals `prev` — so it
+    // does not fork the redo stack; it only repaints the curve and the audio.
+    if (prev !== null) active.value = structuredClone(prev)
+    syncFlags()
+  }
+
+  function redo(): void {
+    const next = history.redo()
+    if (next !== null) active.value = structuredClone(next)
+    syncFlags()
+  }
+
   return {
     active,
     enabled,
@@ -170,7 +314,16 @@ export function createEqualizerState(
     updatePreset,
     applyPreset,
     renamePreset,
-    deletePreset
+    deletePreset,
+    canUndo: computed(() => canUndo.value),
+    canRedo: computed(() => canRedo.value),
+    undo,
+    redo,
+    beginInteractive,
+    endInteractive,
+    editingOverride,
+    editingOverrideActive: computed(() => editingOverrideActive.value),
+    hasOverride: computed(() => hasOverride.value)
   }
 }
 

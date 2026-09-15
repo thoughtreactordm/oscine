@@ -26,7 +26,12 @@ export {
  * pane tests cover on its own.
  */
 export const useEqualizerStore = defineStore('equalizer', () => {
-  const state = createEqualizerState(useSettings())
+  // The playback store owns the audible track's derived override ref (W19-6). Inject
+  // it so the in-situ mode (W19-11) can edit the override in place; the ref survives
+  // the store hop inside the `markRaw` holder (see `playback.ts`).
+  const state = createEqualizerState(useSettings(), {
+    override: usePlaybackStore().equalizerOverride.spec
+  })
 
   // The clip indicator (R11). Lit is reactive; the rest is the rAF poll lifecycle
   // the pane starts on mount and stops on unmount, so an analyser is attached only
@@ -70,8 +75,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // W19-6: the per-entity assignment surface, owned by the always-on binding in
   // the playback store so assignments apply with the pane closed. Re-exposed here
-  // so the EQ pane has one store to talk to for its list, its suspend banner and
-  // its resume button.
+  // so the EQ pane has one store to talk to for its list.
   const assignment = usePlaybackStore().equalizerAssignment
 
   return {
@@ -80,10 +84,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     startClipMonitor,
     stopClipMonitor,
     clearClip,
-    assignmentSuspended: assignment.suspended,
     assignments: assignment.assignments,
     refreshAssignments: assignment.refreshAssignments,
-    resumeAssignments: assignment.resume,
     assign: assignment.assign
   }
 })

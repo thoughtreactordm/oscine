@@ -199,6 +199,9 @@ function onHandleDown(event: PointerEvent, band: EqualizerBand): void {
   pointer.x = local.x
   pointer.y = local.y
   ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
+  // Bracket the gesture so its per-frame writes are not each an undo step — the
+  // whole drag is one entry, recorded on pointer-up (W19-10).
+  eq.beginInteractive()
   dragging.value = {
     id: band.id,
     mode: event.shiftKey ? 'q' : 'move',
@@ -222,6 +225,8 @@ function onPointerUp(event: PointerEvent): void {
   pointer.y = local.y
   batch.flush()
   dragging.value = null
+  // Close the gesture: records the landed curve as a single undo step (W19-10).
+  eq.endInteractive()
 }
 
 function onHandleWheel(event: WheelEvent, band: EqualizerBand): void {

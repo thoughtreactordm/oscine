@@ -1,5 +1,6 @@
-import { markRaw, watch } from 'vue'
+import { markRaw, shallowRef, watch } from 'vue'
 import { defineStore } from 'pinia'
+import type { EqualizerSpec } from '@shared/audio/equalizer'
 import {
   DISCORD_ENABLED,
   EMPTY_QUEUE_SESSION,
@@ -67,10 +68,21 @@ export const usePlaybackStore = defineStore('playback', () => {
    */
   const inFlightWrites = new Set<Promise<unknown>>()
 
+  // W19-6: the current track's per-entity EQ override, or null when it carries
+  // none. The engine plays `override ?? global` (`bindAudioPreferences`), so an
+  // assignment masks the operator's global curve for the track it applies to and
+  // never writes `audio.eq.active`. The binding below keeps this in step with the
+  // audible track; the controller reads it. `shallowRef`, not `ref`: the spec is
+  // always replaced wholesale (by the binding on a track change, or by the pane's
+  // in-situ editor, W19-11), never deep-mutated — and a deep reactive proxy here
+  // would make the pane's `structuredClone` of the curve (savePreset/undo) throw.
+  const eqOverride = shallowRef<EqualizerSpec | null>(null)
+
   const controller = createPlaybackController({
     createEngine: audio.createEngine,
     setOutputDevice: audio.setOutputDevice,
     setEqualizer: audio.setEqualizer,
+    eqOverride,
     fetchPage: (query) => library.listTracks(query),
     fetchPlaylistEntries: (query) => playlists.listEntries(query),
     // D18's collection. One verb, because `favorites.list` answers in the
@@ -204,8 +216,8 @@ export const usePlaybackStore = defineStore('playback', () => {
   // W19-6: per-entity EQ preset assignments. Always-on like the presence emitter
   // above — an assignment must apply during playback whether or not the EQ pane
   // is mounted — so it is built here rather than in the equalizer store. It
-  // observes the audible track and writes `audio.eq.active` through the same
-  // watcher every other EQ write goes through.
+  // observes the audible track and reports its resolved curve as the override the
+  // controller layers over the global; it never writes `audio.eq.active`.
   const equalizerAssignment = createEqAssignmentBinding({
     nowPlaying: controller.nowPlaying,
     playingPlaylistId: controller.playingPlaylistId,
@@ -216,6 +228,9 @@ export const usePlaybackStore = defineStore('playback', () => {
       listArtists: (query) => library.listArtists(query),
       listPlaylists: () => playlists.list(),
       listAssignments: (key) => settingsIpc.listAssignments({ key })
+    },
+    applyOverride: (spec) => {
+      eqOverride.value = spec
     }
   })
 
@@ -225,11 +240,16 @@ export const usePlaybackStore = defineStore('playback', () => {
   // factory the same way the output device does.
   return Object.assign(controller, {
     subscribeEqualizerClip: audio.subscribeEqualizerClip,
-    // `markRaw` so Pinia does not deep-reactive this object: its members are refs
-    // (`suspended`, `assignments`), and a reactive proxy would unwrap them the
-    // moment the equalizer store reads `equalizerAssignment.suspended`, capturing
-    // a plain boolean that never updates. Raw, the refs survive the hop and the
-    // pane's banner and list stay reactive.
-    equalizerAssignment: markRaw(equalizerAssignment)
+    // `markRaw` so Pinia does not deep-reactive this object: its `assignments`
+    // member is a ref, and a reactive proxy would unwrap it the moment the
+    // equalizer store reads `equalizerAssignment.assignments`, capturing a plain
+    // array that never updates. Raw, the ref survives the hop and the pane's list
+    // stays reactive.
+    equalizerAssignment: markRaw(equalizerAssignment),
+    // W19-11: the same derived override ref, exposed for the EQ pane's in-situ
+    // override editor. Wrapped in a `markRaw` holder for the same reason the binding
+    // is — a top-level ref would be unwrapped to a plain value on the store hop,
+    // and the pane needs the live ref to edit the override in place.
+    equalizerOverride: markRaw({ spec: eqOverride })
   })
 })

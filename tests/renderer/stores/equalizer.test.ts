@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computed, type WritableComputedRef } from 'vue'
+import { computed, shallowRef, type WritableComputedRef } from 'vue'
 import { AUDIO_EQ_ACTIVE, AUDIO_EQ_ENABLED, AUDIO_EQ_PRESETS } from '@shared/settings'
 import type { EqualizerSpec } from '@shared/audio/equalizer'
 import {
@@ -52,6 +52,18 @@ const bassBoost: EqualizerSpec = {
   enabled: true,
   preampDb: -2,
   bands: [{ id: 'b1', type: 'lowshelf', frequencyHz: 120, gainDb: 6, q: 0.7, enabled: true }]
+}
+
+/** One band at a given frequency — a drag moving a handle along the axis. */
+function bandsAt(frequencyHz: number): EqualizerSpec['bands'] {
+  return [{ id: 'b1', type: 'peaking', frequencyHz, gainDb: 3, q: 1, enabled: true }]
+}
+
+/** A distinct curve, so a test can tell the override apart from the global. */
+const trebleLift: EqualizerSpec = {
+  enabled: true,
+  preampDb: 0,
+  bands: [{ id: 't1', type: 'highshelf', frequencyHz: 8000, gainDb: 4, q: 0.7, enabled: true }]
 }
 
 describe('createEqualizerState', () => {
@@ -271,6 +283,196 @@ describe('createEqualizerState', () => {
     eq.setPreamp(Number.NaN)
     // Unchanged: a NaN mid-keystroke must not reach the settings validator.
     expect(eq.active.value.preampDb).toBe(24)
+  })
+})
+
+describe('createEqualizerState undo/redo', () => {
+  it('undoes and redoes a curve change, restoring the exact spec', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    const initial = eq.active.value
+
+    eq.active.value = bassBoost
+    expect(eq.canUndo.value).toBe(true)
+    expect(eq.canRedo.value).toBe(false)
+
+    eq.undo()
+    expect(eq.active.value).toEqual(initial)
+    expect(eq.canUndo.value).toBe(false)
+    expect(eq.canRedo.value).toBe(true)
+
+    eq.redo()
+    expect(eq.active.value).toEqual(bassBoost)
+    expect(eq.canRedo.value).toBe(false)
+  })
+
+  it('records a bracketed drag as a single undo step, not one per write', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    const initial = eq.active.value
+
+    // A drag: many intermediate writes between begin and end.
+    eq.beginInteractive()
+    eq.active.value = { ...bassBoost, bands: bandsAt(100) }
+    eq.active.value = { ...bassBoost, bands: bandsAt(200) }
+    const landed = { ...bassBoost, bands: bandsAt(300) }
+    eq.active.value = landed
+    eq.endInteractive()
+
+    expect(eq.active.value).toEqual(landed)
+    // One step: a single undo returns to before the drag, and there is no more.
+    eq.undo()
+    expect(eq.active.value).toEqual(initial)
+    expect(eq.canUndo.value).toBe(false)
+  })
+
+  it('drops the redo stack once a new edit forks the timeline', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    const a = { ...bassBoost, preampDb: -3 }
+    const b = { ...bassBoost, preampDb: -6 }
+    const c = { ...bassBoost, preampDb: -9 }
+
+    eq.active.value = a
+    eq.active.value = b
+    eq.undo()
+    expect(eq.active.value).toEqual(a)
+    expect(eq.canRedo.value).toBe(true)
+
+    eq.active.value = c
+    expect(eq.canRedo.value).toBe(false)
+    eq.undo()
+    expect(eq.active.value).toEqual(a)
+  })
+
+  it('does nothing when there is nothing to undo or redo', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    const initial = eq.active.value
+
+    eq.undo()
+    eq.redo()
+    expect(eq.active.value).toEqual(initial)
+    expect(eq.canUndo.value).toBe(false)
+    expect(eq.canRedo.value).toBe(false)
+  })
+
+  it('makes a recalled preset undoable back to the hand-edited curve', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    eq.active.value = bassBoost
+    const id = eq.savePreset('Bass boost')
+    const edited = { ...bassBoost, preampDb: -8 }
+    eq.active.value = edited
+
+    eq.applyPreset(id)
+    expect(eq.active.value).toEqual(bassBoost)
+
+    // The recall is one step: undo lands back on the edit the operator was on.
+    eq.undo()
+    expect(eq.active.value).toEqual(edited)
+  })
+})
+
+describe('createEqualizerState in-situ override editing (W19-11)', () => {
+  it('with the mode off, editing writes the global even when an override is present', () => {
+    const store = settingsStoreFixture()
+    const counting = countingSettings(store.settings)
+    const override = shallowRef<EqualizerSpec | null>(trebleLift)
+    const eq = createEqualizerState(counting.settings, { newId: sequentialIds(), override })
+
+    expect(eq.editingOverrideActive.value).toBe(false)
+    eq.active.value = bassBoost
+
+    // The global was written; the override ref is untouched.
+    expect(counting.writes).toEqual([AUDIO_EQ_ACTIVE.key])
+    expect(override.value).toEqual(trebleLift)
+    expect(store.settings.get<EqualizerSpec>(AUDIO_EQ_ACTIVE.key)).toEqual(bassBoost)
+  })
+
+  it('with the mode on and an override present, editing writes the override and never the global', () => {
+    const store = settingsStoreFixture()
+    const counting = countingSettings(store.settings)
+    const override = shallowRef<EqualizerSpec | null>(trebleLift)
+    const eq = createEqualizerState(counting.settings, { newId: sequentialIds(), override })
+
+    eq.editingOverride.value = true
+    expect(eq.editingOverrideActive.value).toBe(true)
+    // The editor now shows the override, not the global.
+    expect(eq.active.value).toEqual(trebleLift)
+
+    const edited = { ...trebleLift, preampDb: -4 }
+    eq.active.value = edited
+
+    expect(override.value).toEqual(edited)
+    // `audio.eq.active` was never written — the derived-layer invariant holds.
+    expect(counting.writes).not.toContain(AUDIO_EQ_ACTIVE.key)
+  })
+
+  it('with the mode on but no override, editing falls through to the global', () => {
+    const store = settingsStoreFixture()
+    const counting = countingSettings(store.settings)
+    const override = shallowRef<EqualizerSpec | null>(null)
+    const eq = createEqualizerState(counting.settings, { newId: sequentialIds(), override })
+
+    eq.editingOverride.value = true
+    expect(eq.hasOverride.value).toBe(false)
+    expect(eq.editingOverrideActive.value).toBe(false)
+
+    eq.active.value = bassBoost
+
+    expect(counting.writes).toEqual([AUDIO_EQ_ACTIVE.key])
+    expect(override.value).toBeNull()
+  })
+
+  it('toggling into an override re-derives the selector to the override’s preset', () => {
+    const store = settingsStoreFixture()
+    const override = shallowRef<EqualizerSpec | null>(null)
+    const eq = createEqualizerState(store.settings, { newId: sequentialIds(), override })
+
+    // Two presets; the global rests on A while the override carries B's curve.
+    eq.active.value = bassBoost
+    const a = eq.savePreset('A')
+    eq.active.value = trebleLift
+    eq.savePreset('B')
+    eq.applyPreset(a)
+    expect(eq.appliedPresetId.value).toBe(a)
+
+    override.value = { ...trebleLift }
+    eq.editingOverride.value = true
+
+    // The selector names the override's preset (B), not the global's (A).
+    expect(eq.appliedPreset.value?.name).toBe('B')
+    expect(eq.dirty.value).toBe(false)
+  })
+
+  it('a context switch re-baselines undo history so undo does not step across it', () => {
+    const store = settingsStoreFixture()
+    const override = shallowRef<EqualizerSpec | null>(trebleLift)
+    const eq = createEqualizerState(store.settings, { newId: sequentialIds(), override })
+
+    // An edit on the global builds one undo step.
+    eq.active.value = bassBoost
+    expect(eq.canUndo.value).toBe(true)
+
+    // Flipping the mode is a context switch, not an edit: history resets to the
+    // override curve, so there is nothing to undo back into the global.
+    eq.editingOverride.value = true
+    expect(eq.active.value).toEqual(trebleLift)
+    expect(eq.canUndo.value).toBe(false)
+  })
+
+  it('saving while editing an override writes the preset, not the global', () => {
+    const store = settingsStoreFixture()
+    const counting = countingSettings(store.settings)
+    const override = shallowRef<EqualizerSpec | null>(trebleLift)
+    const eq = createEqualizerState(counting.settings, { newId: sequentialIds(), override })
+
+    eq.editingOverride.value = true
+    const id = eq.savePreset('From override')
+
+    expect(eq.presets.value).toEqual([{ id, name: 'From override', spec: trebleLift }])
+    expect(counting.writes).toEqual([AUDIO_EQ_PRESETS.key])
   })
 })
 
