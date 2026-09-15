@@ -90,10 +90,14 @@ export function createEqualizerState(
   const enabled = settings.value<boolean>(AUDIO_EQ_ENABLED.key)
   const presets = computed(() => settings.get<readonly EqualizerPreset[]>(AUDIO_EQ_PRESETS.key))
 
-  // Which preset the curve was last recalled from or saved as. In-memory: after a
-  // reload the operator is editing a curve, not "inside" a preset, until they pick
-  // one — there is no fourth key for this and it does not want persisting.
-  const selectedId = ref<string | null>(null)
+  // Which preset the curve was last recalled from or saved as. Not persisted as a
+  // fourth key — instead recovered on load by matching the persisted
+  // `audio.eq.active` curve against the saved presets: a reload that lands on a
+  // preset's exact curve shows that preset, a curve that matches nothing shows the
+  // blank selector. After that the recall/save paths own it.
+  const selectedId = ref<string | null>(
+    presets.value.find((preset) => sameSettingValue(preset.spec, active.value))?.id ?? null
+  )
 
   const appliedPreset = computed(
     () => presets.value.find((preset) => preset.id === selectedId.value) ?? null

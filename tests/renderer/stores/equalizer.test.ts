@@ -78,6 +78,31 @@ describe('createEqualizerState', () => {
     expect(reloaded.presets.value[0]?.spec).toEqual(bassBoost)
   })
 
+  it('recovers the applied preset on reload when the active curve matches one', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    eq.active.value = bassBoost
+    const id = eq.savePreset('Bass boost')
+
+    // A fresh state over the same stored settings — a window reopen. The persisted
+    // active curve is still `bassBoost`, so the selector should point at its preset
+    // rather than opening blank.
+    const reloaded = state(store.settings)
+    expect(reloaded.appliedPresetId.value).toBe(id)
+    expect(reloaded.dirty.value).toBe(false)
+  })
+
+  it('opens with no applied preset on reload when the active curve matches none', () => {
+    const store = settingsStoreFixture()
+    const eq = state(store.settings)
+    eq.savePreset('Bass boost')
+    // The live curve is hand-edited off the preset before the reload.
+    eq.active.value = { enabled: true, preampDb: 0, bands: [] }
+
+    const reloaded = state(store.settings)
+    expect(reloaded.appliedPresetId.value).toBeNull()
+  })
+
   it('recalls a preset by writing audio.eq.active', () => {
     const store = settingsStoreFixture()
     const eq = state(store.settings)
