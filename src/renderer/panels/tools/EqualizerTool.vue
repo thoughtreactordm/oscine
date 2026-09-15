@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { parseParametricEq } from '@shared/audio/parametricEq'
+import { deviceProfilePresetName, deviceProfileToSpec } from '@shared/audio/deviceEqLibrary'
+import type { DeviceEqProfile } from '@shared/audio/deviceEqLibrary'
 import { FALLBACK_SAMPLE_RATE_HZ, suggestedPreampDb } from '@renderer/audio/eqResponse'
 import { useEqualizerStore } from '@renderer/stores/equalizer'
 import EqualizerCurve from '@renderer/panels/tools/EqualizerCurve.vue'
@@ -224,6 +226,38 @@ function runImport(): void {
   })
 }
 
+// ── Bundled device library (W19-9) ───────────────────────────────────────────
+// The picker and its ~1.3 MB corpus are lazy: the component loads only when the
+// operator first opens it, so the pane's initial chunk never carries the library.
+// `devicesMounted` latches on first open so the modal keeps its close animation and
+// the data stays resident after that.
+const EqualizerDevicePicker = defineAsyncComponent(
+  () => import('@renderer/panels/tools/EqualizerDevicePicker.vue')
+)
+const devicesMounted = ref(false)
+const devicesOpen = ref(false)
+
+function openDevices(): void {
+  devicesMounted.value = true
+  devicesOpen.value = true
+}
+
+/**
+ * Apply a chosen device: its spec becomes the live curve with fresh band ids, then
+ * the Save-as prompt opens pre-named "<Device> (oratory1990)" — the offer to keep it
+ * as a preset, which Cancel declines while leaving the curve loaded to audition.
+ */
+function onDeviceSelect(profile: DeviceEqProfile): void {
+  eq.active = deviceProfileToSpec(profile)
+  devicesOpen.value = false
+  prompt.value = { mode: 'saveAs', name: deviceProfilePresetName(profile) }
+  toast.add({
+    title: `Loaded ${profile.name}.${eq.enabled ? '' : ' Turn on the EQ to hear it.'}`,
+    icon: 'i-tabler-headphones',
+    color: 'primary'
+  })
+}
+
 /**
  * The preset actions, folded into one menu beside the selector so the top bar has
  * room for the spectrum toggle. Save is offered only when a recalled preset has
@@ -253,6 +287,7 @@ const presetMenu = computed<DropdownMenuItem[][]>(() => [
     }
   ],
   [
+    { label: 'Load device…', icon: 'i-tabler-headphones', onSelect: openDevices },
     { label: 'Import text…', icon: 'i-tabler-file-import', onSelect: openImport },
     { label: 'Reset to flat', icon: 'i-tabler-baseline', onSelect: resetFlat }
   ]
@@ -549,5 +584,13 @@ watch(prompt, async (value) => {
         </UButton>
       </template>
     </UModal>
+
+    <!-- Bundled oratory1990 device picker (W19-9), lazy so its corpus loads on open. -->
+    <EqualizerDevicePicker
+      v-if="devicesMounted"
+      :open="devicesOpen"
+      @update:open="devicesOpen = $event"
+      @select="onDeviceSelect"
+    />
   </div>
 </template>
