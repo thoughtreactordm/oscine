@@ -179,10 +179,21 @@ export function createEqAssignmentBinding(deps: EqAssignmentBindingDeps): EqAssi
     suspended.value = applier.suspended
   }
 
-  // Reconcile at every boundary and whenever the assignment or the master switch
-  // moves. Idempotent, so firing on an unchanged assignment costs nothing.
+  // Reconcile when the *target* changes — the resolved preset id, its curve, or
+  // the master switch — and never merely because the live curve moved. Keying on
+  // the target's content rather than the `assignment` computed's identity is
+  // load-bearing: that computed is re-created on any recompute, and a manual edit
+  // to `audio.eq.active` can retrigger it. Reacting to that would let this watch
+  // rewrite the assigned spec back in the same flush — reverting the operator's
+  // edit before `noticeActiveChange` ever sees it, so the edit is silently undone
+  // and the suspension (and its banner) never fires. The target's content is what
+  // reconcile actually depends on, so that is what it watches.
+  const reconcileKey = computed(() => {
+    const target = assignment.value
+    return JSON.stringify([target.presetId, target.dangling, target.spec, enabled()])
+  })
   watch(
-    [assignment, () => enabled()],
+    reconcileKey,
     () => {
       applier.reconcile(assignment.value, enabled())
       syncFlags()
