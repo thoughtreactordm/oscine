@@ -181,6 +181,10 @@ describe('writableTagsFromPending — the diff→engine bridge', () => {
         proposed: { present: false, hash: null, mime: null },
         changed: false
       },
+      fields: {
+        conductor: { current: 'Old', proposed: 'New', changed: true },
+        bpm: { current: 120, proposed: 120, changed: false }
+      },
       hasChanges: true
     }
     expect(writableTagsFromPending(pending)).toEqual({
@@ -191,7 +195,9 @@ describe('writableTagsFromPending — the diff→engine bridge', () => {
       discNo: null,
       year: 2026,
       genres: [AMBIENT, ELECTRONIC],
-      artwork: ARTWORK_UNCHANGED
+      artwork: ARTWORK_UNCHANGED,
+      // Only the changed generic field; an unchanged one is never assigned.
+      fields: { conductor: 'New' }
     })
   })
 })

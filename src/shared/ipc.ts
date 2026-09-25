@@ -166,7 +166,7 @@ import type {
   RipResumeRequest
 } from './cdrip'
 import type { OverrideEditState, OverrideField, OverridePatch } from './overrides'
-import type { TagFieldKey, TagFieldPatch } from './tagFields'
+import type { TagFieldEditState, TagFieldKey, TagFieldPatch } from './tagFields'
 import type { ArtworkRef, CoverArtCandidate } from './artwork'
 import type { InstalledTheme } from './theme'
 
@@ -411,6 +411,18 @@ export interface IpcContract {
   'tagOverrides.revert': {
     request: { trackIds: number[]; fields: TagFieldKey[] }
     response: null
+  }
+  /**
+   * The generic fields' prefill for a batch — **W16-17**. Every admitted field
+   * (ReplayGain included, read-only) read fresh from each file through taglib,
+   * overlaid by the track's corrections and folded to a shared value or
+   * "mixed". Opens every file, so it is bounded by
+   * `MAX_TAG_FIELD_PREFILL_TRACKS` and asked for only when the editor's "All
+   * fields" section opens. A file that cannot be read is left out of the fold.
+   */
+  'tagOverrides.getEditState': {
+    request: { trackIds: number[] }
+    response: TagFieldEditState
   }
   /**
    * The staged tag write-back review's data side — **W16-6**, design authority
@@ -1508,6 +1520,7 @@ export const IPC_CHANNELS = [
   'overrides.discardAll',
   'tagOverrides.set',
   'tagOverrides.revert',
+  'tagOverrides.getEditState',
   'tagWriteback.preview',
   'tagWriteback.pending',
   'tagWriteback.apply',

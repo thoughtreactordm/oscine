@@ -41,8 +41,13 @@ import {
   type OverrideField,
   type OverridePatch
 } from '@shared/overrides'
-import type { TagFieldKey, TagFieldPatch } from '@shared/tagFields'
-import type { WritebackField } from '@shared/tagWriteback'
+import {
+  prefillTagFieldKeys,
+  type TagFieldEditState,
+  type TagFieldKey,
+  type TagFieldPatch
+} from '@shared/tagFields'
+import { isGroupedWritebackField, type WritebackField } from '@shared/tagWriteback'
 import { buildRelated } from './related'
 import { DiscoverEngine, expandShelfTrackIds, snapshotShelf } from './discover'
 import {
@@ -59,6 +64,12 @@ import type { LyricsNetworkService } from './lyrics/network'
 import { reconcilePaths, scanRoot } from './scanner'
 import { LibraryStore, type RootConflict, type RootRow } from './store'
 import { TagOverrideStore } from './overrides/tagOverrides'
+import {
+  buildTagFieldEditState,
+  tagFieldEditRow,
+  type TagFieldEditRow
+} from './overrides/editState'
+import { readTagFields, type TagFieldReader } from './writeback/genericFields'
 import { ArtworkCacheService, isArtworkSidecarPath } from './artwork'
 import { createArtworkOriginalsStore, type ArtworkOriginalsStore } from './artworkOriginals'
 import type { ArtworkImageProcessor } from './artworkProcessor'
@@ -99,6 +110,8 @@ export interface SqliteLibraryDeps {
   readMetadata?: MetadataReader
   /** The same, for the readout pane's on-demand format lookup. */
   readFormatDetail?: FormatDetailReader
+  /** The generic fields' on-demand taglib read (W16-17), for the editor's prefill. */
+  readTagFields?: TagFieldReader
   /**
    * Tier 1 of the lyrics chain: the sidecar `.lrc` reader. Overridable so lyrics
    * tests need no files on disk; production uses the fs-backed reader.
@@ -181,6 +194,7 @@ export class SqliteLibraryService implements LibraryService {
   private readonly tagOverrides: TagOverrideStore
   private readonly readMetadata: MetadataReader
   private readonly readFormatDetail: FormatDetailReader
+  private readonly readTagFields: TagFieldReader
   private readonly readSidecarLyrics: (audioAbsPath: string) => Promise<LyricsDocument | null>
   private readonly readEmbeddedLyrics: (audioAbsPath: string) => Promise<string | null>
   private readonly lyricsNetwork: LyricsNetworkService | null
@@ -213,6 +227,7 @@ export class SqliteLibraryService implements LibraryService {
     this.discover = new DiscoverEngine(deps.db)
     this.readMetadata = deps.readMetadata ?? readTrackTags
     this.readFormatDetail = deps.readFormatDetail ?? readTrackFormatDetail
+    this.readTagFields = deps.readTagFields ?? readTagFields
     this.readSidecarLyrics = deps.readSidecarLyrics ?? ((path) => readSidecarLyrics(path))
     // The embedded tier reuses the metadata reader: `TrackTags.lyrics` is the
     // file's embedded lyrics, so there is one on-demand `parseFile`, not two.
@@ -431,8 +446,31 @@ export class SqliteLibraryService implements LibraryService {
     this.tagOverrides.revert(request.trackIds, request.fields)
   }
 
+  async getTagFieldEditState(trackIds: readonly number[]): Promise<TagFieldEditState> {
+    const keys = prefillTagFieldKeys()
+    const corrections = this.tagOverrides.getMany(trackIds)
+    const rows: TagFieldEditRow[] = []
+    for (const [trackId, overrides] of corrections) {
+      const absPath = this.store.resolveTrackPath(trackId)
+      if (absPath === null) continue
+      try {
+        rows.push(tagFieldEditRow(await this.readTagFields(absPath, keys), overrides))
+      } catch (error) {
+        // Unreadable file: leave it out of the fold rather than prefill a guess.
+        console.warn(`[overrides] generic prefill skipped track ${trackId}:`, error)
+      }
+    }
+    return buildTagFieldEditState(rows, keys)
+  }
+
   async retireWrittenOverrides(trackId: number, fields: readonly WritebackField[]): Promise<void> {
-    this.store.retireWrittenOverrides(trackId, fields, Date.now())
+    // A verified write proves `file == override` for every flushed key, so the
+    // generic rows go too (W16-17) — the rescan never reads these fields, and
+    // this is the only thing that retires them.
+    const grouped = fields.filter(isGroupedWritebackField)
+    const generic = fields.filter((field): field is TagFieldKey => !isGroupedWritebackField(field))
+    this.store.retireWrittenOverrides(trackId, grouped, Date.now())
+    this.tagOverrides.revert([trackId], generic)
     if (fields.includes('artwork')) await this.gcArtworkOriginals()
   }
 

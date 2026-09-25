@@ -1,5 +1,9 @@
 import type { GenreValue, PendingWrite, WritebackSelection } from '@shared/tagWriteback'
-import { WRITEBACK_FIELDS, type WritebackField } from '@shared/tagWriteback'
+import {
+  WRITEBACK_FIELDS,
+  type GroupedWritebackField,
+  type WritebackField
+} from '@shared/tagWriteback'
 import type { ArtworkRef } from '@shared/artwork'
 
 /**
@@ -15,8 +19,12 @@ import type { ArtworkRef } from '@shared/artwork'
 /** Per-track selection: the field keys the operator has left checked. */
 export type SelectionMap = Map<number, Set<WritebackField>>
 
-/** The human name each field wears in the diff table's column and cells. */
-export const FIELD_LABELS: Record<WritebackField, string> = {
+/**
+ * The human name each grouped field wears in the diff table's column and cells.
+ * The table is grouped-only until W16-18 draws the generic fields: until then a
+ * generic diff is neither shown nor selected, so nothing unreviewed is flushed.
+ */
+export const FIELD_LABELS: Record<GroupedWritebackField, string> = {
   title: 'Title',
   artist: 'Artist',
   albumArtist: 'Album artist',
@@ -29,7 +37,7 @@ export const FIELD_LABELS: Record<WritebackField, string> = {
 }
 
 /** Whether one field of a pending write differs from the file — the `changed` flag. */
-export function fieldChanged(pending: PendingWrite, field: WritebackField): boolean {
+export function fieldChanged(pending: PendingWrite, field: GroupedWritebackField): boolean {
   switch (field) {
     case 'title':
       return pending.title.changed
@@ -53,7 +61,7 @@ export function fieldChanged(pending: PendingWrite, field: WritebackField): bool
 }
 
 /** A pending write's changed fields, in the canonical column order. */
-export function changedFields(pending: PendingWrite): WritebackField[] {
+export function changedFields(pending: PendingWrite): GroupedWritebackField[] {
   return WRITEBACK_FIELDS.filter((field) => fieldChanged(pending, field))
 }
 
@@ -189,7 +197,7 @@ export interface FieldText {
   readonly proposed: string
 }
 
-export function fieldText(pending: PendingWrite, field: WritebackField): FieldText {
+export function fieldText(pending: PendingWrite, field: GroupedWritebackField): FieldText {
   switch (field) {
     case 'title':
       return {

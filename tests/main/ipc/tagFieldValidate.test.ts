@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { OscineError } from '@shared/errors'
 import { MAX_OVERRIDE_TRACKS } from '@shared/overrides'
 import {
+  MAX_TAG_FIELD_PREFILL_TRACKS,
   TAG_LIST_MAX_ENTRIES,
   TAG_LONG_TEXT_MAX_LENGTH,
   TAG_TEXT_MAX_LENGTH,
@@ -11,7 +12,9 @@ import {
 import {
   assertRevertTagOverridesRequest,
   assertSetTagOverridesRequest,
-  assertTagFieldValue
+  assertTagFieldEditStateRequest,
+  assertTagFieldValue,
+  assertWritebackApplyRequest
 } from '../../../src/main/ipc/validate'
 
 /**
@@ -178,5 +181,38 @@ describe('assertRevertTagOverridesRequest', () => {
     expect(() => assertRevertTagOverridesRequest({ trackIds: [3], fields: [] })).toThrow(
       OscineError
     )
+  })
+})
+
+describe('assertTagFieldEditStateRequest (W16-17)', () => {
+  it('accepts a track set up to the prefill bound', () => {
+    expect(assertTagFieldEditStateRequest({ trackIds: [1, 2] })).toEqual({ trackIds: [1, 2] })
+  })
+
+  it('refuses a batch past the bound, since every track is a file read', () => {
+    const trackIds = Array.from({ length: MAX_TAG_FIELD_PREFILL_TRACKS + 1 }, (_, i) => i + 1)
+    expect(() => assertTagFieldEditStateRequest({ trackIds })).toThrow(OscineError)
+  })
+})
+
+describe('write-back selections name generic keys (W16-17)', () => {
+  it('accepts grouped and registry keys together', () => {
+    expect(
+      assertWritebackApplyRequest({
+        selections: [{ trackId: 1, fields: ['title', 'conductor', 'composers'] }]
+      })
+    ).toEqual({ selections: [{ trackId: 1, fields: ['title', 'conductor', 'composers'] }] })
+  })
+
+  it('accepts a held key at the boundary — the flush refuses it per file', () => {
+    expect(
+      assertWritebackApplyRequest({ selections: [{ trackId: 1, fields: ['comment'] }] })
+    ).toEqual({ selections: [{ trackId: 1, fields: ['comment'] }] })
+  })
+
+  it('refuses a key that is neither', () => {
+    expect(() =>
+      assertWritebackApplyRequest({ selections: [{ trackId: 1, fields: ['notAField'] }] })
+    ).toThrow(OscineError)
   })
 })

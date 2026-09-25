@@ -4,6 +4,7 @@ import type {
   GenreDiff,
   GenreValue,
   PendingWrite,
+  TagFieldDiffs,
   WritebackProgress
 } from '../../../../src/shared/tagWriteback'
 import { ABSENT_ARTWORK } from '../../../../src/shared/artwork'
@@ -56,6 +57,7 @@ interface PendingParts {
   year: FieldDiff<number>
   genres: GenreDiff
   artwork: PendingWrite['artwork']
+  fields: TagFieldDiffs
 }
 
 function makePending(trackId: number, parts: Partial<PendingParts> = {}): PendingWrite {
@@ -72,7 +74,8 @@ function makePending(trackId: number, parts: Partial<PendingParts> = {}): Pendin
       current: ABSENT_ARTWORK,
       proposed: ABSENT_ARTWORK,
       changed: false
-    }
+    },
+    fields: parts.fields ?? {}
   }
   const hasChanges =
     p.title.changed ||
@@ -83,7 +86,8 @@ function makePending(trackId: number, parts: Partial<PendingParts> = {}): Pendin
     p.discNo.changed ||
     p.year.changed ||
     p.genres.changed ||
-    p.artwork.changed
+    p.artwork.changed ||
+    Object.values(p.fields).some((diff) => diff?.changed === true)
   return { trackId, ...p, hasChanges }
 }
 

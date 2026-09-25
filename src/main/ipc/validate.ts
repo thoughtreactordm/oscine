@@ -45,6 +45,7 @@ import type { PresenceSignal, PresenceTrack } from '@shared/presence'
 import {
   MAX_WRITEBACK_TRACKS,
   WRITEBACK_FIELDS,
+  isWritebackField,
   type WritebackField,
   type WritebackSelection
 } from '@shared/tagWriteback'
@@ -55,6 +56,7 @@ import {
   type OverridePatch
 } from '@shared/overrides'
 import {
+  MAX_TAG_FIELD_PREFILL_TRACKS,
   TAG_FIELDS,
   TAG_LIST_ENTRY_MAX_LENGTH,
   TAG_LIST_MAX_ENTRIES,
@@ -438,8 +440,12 @@ export function assertGetTracksByIdsQuery(value: unknown): GetTracksByIdsQuery {
   return { ids: ids as number[] }
 }
 
-/** The writable field keys, as a set — the allowed contents of a selection. */
-const WRITEBACK_FIELD_SET: ReadonlySet<string> = new Set(WRITEBACK_FIELDS)
+/**
+ * The most keys one selection may name: every grouped field plus every registry
+ * key. A selection may name any registry key — the flush refuses a held or
+ * read-only one per file, so the refusal is the engine's and not only the UI's.
+ */
+const MAX_WRITEBACK_SELECTION_FIELDS = WRITEBACK_FIELDS.length + TAG_FIELDS.length
 
 /** The tracks to compute a review diff for — a non-empty, capped id set (W16-6). */
 export function assertWritebackPreviewRequest(value: unknown): { trackIds: number[] } {
@@ -467,15 +473,15 @@ function assertWritebackSelection(value: unknown): WritebackSelection {
   const fields = raw.fields
   if (!Array.isArray(fields)) invalid('fields must be an array.')
   if (fields.length === 0) invalid('fields must not be empty.')
-  if (fields.length > WRITEBACK_FIELDS.length) {
-    invalid(`fields must not exceed ${WRITEBACK_FIELDS.length} entries.`)
+  if (fields.length > MAX_WRITEBACK_SELECTION_FIELDS) {
+    invalid(`fields must not exceed ${MAX_WRITEBACK_SELECTION_FIELDS} entries.`)
   }
   const seen = new Set<WritebackField>()
   for (const field of fields) {
-    if (typeof field !== 'string' || !WRITEBACK_FIELD_SET.has(field)) {
-      invalid(`fields entry must be one of: ${WRITEBACK_FIELDS.join(', ')}.`)
+    if (typeof field !== 'string' || !isWritebackField(field)) {
+      invalid(`fields entry must be a tag field or one of: ${WRITEBACK_FIELDS.join(', ')}.`)
     }
-    seen.add(field as WritebackField)
+    seen.add(field)
   }
 
   return { trackId, fields: [...seen] }
@@ -651,6 +657,20 @@ export function assertSetTagOverridesRequest(value: unknown): {
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['trackIds', 'patch'])
   return { trackIds: assertOverrideTrackIds(raw.trackIds), patch: assertTagFieldPatch(raw.patch) }
+}
+
+/**
+ * The generic prefill (W16-17): a non-empty track set, capped tighter than an
+ * edit because every track is a file opened through taglib.
+ */
+export function assertTagFieldEditStateRequest(value: unknown): { trackIds: number[] } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds'])
+  const trackIds = assertOverrideTrackIds(raw.trackIds)
+  if (trackIds.length > MAX_TAG_FIELD_PREFILL_TRACKS) {
+    invalid(`trackIds must not exceed ${MAX_TAG_FIELD_PREFILL_TRACKS} entries.`)
+  }
+  return { trackIds }
 }
 
 /**

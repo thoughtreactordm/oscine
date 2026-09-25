@@ -273,6 +273,20 @@ export function tagValuesEqual(a: TagFieldValue | null, b: TagFieldValue | null)
 export type TagFieldPatch = Readonly<Partial<Record<TagFieldKey, TagFieldValue | null>>>
 
 /**
+ * The most tracks one generic prefill may read — **W16-17**. Unlike the grouped
+ * prefill, which folds materialised rows, the generic one opens every file
+ * through taglib (nothing generic is indexed), so the batch is bounded. The
+ * editor asks only when its "All fields" section opens, so a plain title edit
+ * never pays for it.
+ */
+export const MAX_TAG_FIELD_PREFILL_TRACKS = 1000
+
+/** The fields a prefill reads: every admitted one, the read-only ReplayGain included. */
+export function prefillTagFieldKeys(): TagFieldKey[] {
+  return TAG_FIELDS.filter((field) => field.admitted).map((field) => field.key as TagFieldKey)
+}
+
+/**
  * The generic half of the editor's prefill: each requested field folded across
  * the batch to a shared value or `mixed`, exactly as the grouped fields are.
  * A `null` value with `mixed` unset means every track agrees the field is empty.

@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { PendingWrite, WritebackField, WritebackOutcome } from '@shared/tagWriteback'
+import type {
+  GroupedWritebackField,
+  PendingWrite,
+  WritebackField,
+  WritebackOutcome
+} from '@shared/tagWriteback'
 import { WRITEBACK_FIELDS } from '@shared/tagWriteback'
 import type { ArtworkRef } from '@shared/artwork'
 import { artworkUrl } from '@shared/ipc'
@@ -33,7 +38,7 @@ const ROW_PX = 60
 const OVERSCAN = 6
 
 /** Per-field column widths — fixed so the grid has a definite width to scroll. */
-const FIELD_WIDTH: Record<WritebackField, string> = {
+const FIELD_WIDTH: Record<GroupedWritebackField, string> = {
   title: '168px',
   artist: '168px',
   albumArtist: '168px',

@@ -1,14 +1,18 @@
 import { ABSENT_ARTWORK, artworkRef, type ArtworkRef } from '@shared/artwork'
 import { normalizeLabel, splitGenres } from '@shared/genre'
+import { TAG_FIELDS, tagValuesEqual, type TagFieldKey, type TagFieldValue } from '@shared/tagFields'
 import type { TagSource } from '@shared/tags'
 import type {
   ArtworkDiff,
   FieldDiff,
   GenreDiff,
   GenreValue,
-  PendingWrite
+  PendingWrite,
+  TagFieldDiffs
 } from '@shared/tagWriteback'
 import type { TrackTags } from '../metadata'
+import type { TagOverrideMap } from '../overrides/tagOverrides'
+import { canonicalTagValue, refusedTagField, type TagFieldValues } from './genericFields'
 
 /**
  * The pending-write merge — **W16-1**, design authority D28.
@@ -122,6 +126,13 @@ export interface PendingWriteInput {
   } | null
   /** Genre canonicalization (W16-5); defaults to identity. */
   readonly canonicalize?: GenreCanonicalizer
+  /** The track's generic corrections (W16-17). Absent means none. */
+  readonly tagOverrides?: TagOverrideMap
+  /**
+   * A fresh taglib read of the fields {@link flushableOverrideKeys} names — the
+   * generic `current` side (R7). A key missing here reads as absent.
+   */
+  readonly fileFields?: TagFieldValues
 }
 
 /** One scalar field: the override wins when set, otherwise the file's value stands. */
@@ -193,6 +204,38 @@ function artworkDiff(
 }
 
 /**
+ * The generic keys a track's corrections name that the flush may write — the
+ * set the differ reads from the file and {@link computePendingWrite} diffs, in
+ * registry order. A correction under a held or read-only key is left standing
+ * and out of the review: it is not a pending write until its field is admitted.
+ */
+export function flushableOverrideKeys(overrides: TagOverrideMap | undefined): TagFieldKey[] {
+  if (overrides === undefined || overrides.size === 0) return []
+  return TAG_FIELDS.map((field) => field.key as TagFieldKey).filter(
+    (key) => overrides.has(key) && refusedTagField([key]) === null
+  )
+}
+
+/**
+ * The generic fields: a correction replaces the file's value outright, like the
+ * grouped scalars, compared in the canonical per-kind form on both sides.
+ */
+function tagFieldDiffs(input: PendingWriteInput): TagFieldDiffs {
+  const overrides = input.tagOverrides
+  const diffs: Partial<Record<TagFieldKey, FieldDiff<TagFieldValue>>> = {}
+  if (overrides === undefined) return diffs
+  const flushable = new Set(flushableOverrideKeys(overrides))
+  for (const field of TAG_FIELDS) {
+    const key = field.key as TagFieldKey
+    if (!flushable.has(key)) continue
+    const current = canonicalTagValue(field, input.fileFields?.get(key) ?? null)
+    const proposed = canonicalTagValue(field, overrides.get(key) ?? null)
+    diffs[key] = { current, proposed, changed: !tagValuesEqual(current, proposed) }
+  }
+  return diffs
+}
+
+/**
  * Merges one track's correction layers into its pending write.
  *
  * The single entry point: every field's diff, plus the `hasChanges` summary the
@@ -210,6 +253,7 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
   const year = scalarDiff(file.year, override.year)
   const genres = genreDiff(input)
   const artwork = artworkDiff(input.fileArtwork ?? ABSENT_ARTWORK, input.artworkOverride)
+  const fields = tagFieldDiffs(input)
 
   const hasChanges =
     title.changed ||
@@ -220,7 +264,8 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
     discNo.changed ||
     year.changed ||
     genres.changed ||
-    artwork.changed
+    artwork.changed ||
+    Object.values(fields).some((diff) => diff?.changed === true)
 
   return {
     trackId: input.trackId,
@@ -233,6 +278,7 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
     year,
     genres,
     artwork,
+    fields,
     hasChanges
   }
 }

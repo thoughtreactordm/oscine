@@ -1,11 +1,15 @@
 import { artworkRef, type ArtworkRef } from '@shared/artwork'
 import type { OverrideEditState, OverrideFieldState } from '@shared/overrides'
 import {
+  tagField,
   tagValuesEqual,
   type TagFieldEditState,
   type TagFieldKey,
   type TagFieldValue
 } from '@shared/tagFields'
+import { flushableOverrideKeys } from '../writeback/diff'
+import { canonicalTagValue, type TagFieldValues } from '../writeback/genericFields'
+import type { TagOverrideMap } from './tagOverrides'
 
 /**
  * Aggregating an edit's prefill — the pure half of the metadata editor's read.
@@ -114,6 +118,27 @@ function foldArtwork(rows: readonly OverrideEditRow[]): OverrideFieldState<Artwo
 export interface TagFieldEditRow {
   readonly values: ReadonlyMap<TagFieldKey, TagFieldValue | null>
   readonly overridden: ReadonlySet<TagFieldKey>
+}
+
+/**
+ * One track's prefill row from a fresh taglib read and its corrections — the
+ * file's value, overlaid by each flushable correction (a clear as `null`), in
+ * the same canonical form the diff compares. A correction under a held key is
+ * not shown: the editor does not offer that field, so neither does its value.
+ */
+export function tagFieldEditRow(
+  file: TagFieldValues,
+  corrections: TagOverrideMap
+): TagFieldEditRow {
+  const values = new Map(file)
+  const overridden = new Set<TagFieldKey>()
+  for (const key of flushableOverrideKeys(corrections)) {
+    const field = tagField(key)
+    if (field === undefined) continue
+    values.set(key, canonicalTagValue(field, corrections.get(key) ?? null))
+    overridden.add(key)
+  }
+  return { values, overridden }
 }
 
 /**

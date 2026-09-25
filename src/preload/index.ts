@@ -212,7 +212,10 @@ const api = {
       request('tagOverrides.set', { trackIds: [...trackIds], patch }),
     /** Drop the named generic corrections on a batch — back to the files. */
     revert: (trackIds: readonly number[], fields: readonly TagFieldKey[]) =>
-      request('tagOverrides.revert', { trackIds: [...trackIds], fields: [...fields] })
+      request('tagOverrides.revert', { trackIds: [...trackIds], fields: [...fields] }),
+    /** The generic fields' prefill, read fresh from each file — bounded, ask lazily. */
+    getEditState: (trackIds: readonly number[]) =>
+      request('tagOverrides.getEditState', { trackIds: [...trackIds] })
   },
   /**
    * Staged tag write-back review — **W16-6**, and the one place in this bridge

@@ -28,7 +28,8 @@ import type { AlbumCard } from '@shared/albums'
 import { normalizeLabel, splitGenres } from '@shared/genre'
 import { artworkUrl } from '@shared/ipc'
 import type { OverrideEditState, OverrideField, OverridePatch } from '@shared/overrides'
-import type { WritebackField } from '@shared/tagWriteback'
+import { isEditableTagField, TAG_FIELDS } from '@shared/tagFields'
+import type { GroupedWritebackField } from '@shared/tagWriteback'
 import type { FavoriteBias, RelatedAlbum } from '@shared/related'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
 import type { TrackTags } from './metadata'
@@ -54,7 +55,7 @@ function normText(value: string): string | null {
 
 /** Which `track_overrides` column each text write-back field's flush retires. */
 const WRITEBACK_TO_OVERRIDE_COLUMN: {
-  [K in Exclude<WritebackField, 'artwork'>]: OverrideColumn
+  [K in Exclude<GroupedWritebackField, 'artwork'>]: OverrideColumn
 } = {
   title: 'title',
   artist: 'artist_name',
@@ -65,6 +66,16 @@ const WRITEBACK_TO_OVERRIDE_COLUMN: {
   year: 'year',
   genres: 'genre'
 }
+
+/**
+ * The generic keys a flush can write (W16-17), as an SQL `IN` list — the
+ * registry's own identifiers, never input. A `track_tag_overrides` row under
+ * any other key (held, read-only, or unknown to this build) is preserved but is
+ * not a pending write, so it neither lists the track nor marks it modified.
+ */
+const FLUSHABLE_TAG_FIELDS_SQL = TAG_FIELDS.filter(isEditableTagField)
+  .map((field) => `'${field.key}'`)
+  .join(', ')
 
 /** True once no correction column on a `track_overrides` row is set. */
 const OVERRIDE_ROW_EMPTY =
@@ -374,11 +385,14 @@ export const TRACK_PROJECTION = `
   -- D18's heart, resolved with the page rather than fetched after it. SQLite has
   -- no boolean, so this arrives as 0 or 1 and toTrack is where it becomes one.
   fav.track_id IS NOT NULL AS favorite,
-  -- W16: an unwritten correction stands for this track. Text overrides *or*
-  -- an artwork override (W16-12): both are the pending set the review flushes,
-  -- so the mark and the pending list agree. SQLite drops the joins for the
-  -- id-only queries that never read it.
-  (ovr.track_id IS NOT NULL OR awo.track_id IS NOT NULL) AS modified,
+  -- W16: an unwritten correction stands for this track. Text overrides, an
+  -- artwork override (W16-12) *or* a flushable generic one (W16-17): together
+  -- the pending set the review flushes, so the mark and the pending list agree.
+  -- SQLite drops the joins for the id-only queries that never read it.
+  (ovr.track_id IS NOT NULL OR awo.track_id IS NOT NULL OR EXISTS (
+    SELECT 1 FROM track_tag_overrides tto
+    WHERE tto.track_id = t.id AND tto.field IN (${FLUSHABLE_TAG_FIELDS_SQL})
+  )) AS modified,
   -- W16-9: the override-aware cover. A tri-state artwork_overrides row wins over
   -- the album's own art -- set to its image_hash, or blank when the row clears
   -- the cover (NULL hash) -- so a chosen cover resolves through the same oscine
@@ -2208,8 +2222,8 @@ export class LibraryStore {
   /**
    * The tracks carrying an unwritten correction — the write-back's pending set.
    *
-   * Deliberate edits only: every track with a `track_overrides` row *or* an
-   * `artwork_overrides` row. W15's free-form tag layer (including auto
+   * Deliberate edits only: every track with a `track_overrides` row, an
+   * `artwork_overrides` row, or a flushable `track_tag_overrides` row (W16-17). W15's free-form tag layer (including auto
    * *suggestions*) is *not* swept in here — it would flood the review with
    * genres the operator never chose to flush, and it is the same set the
    * "modified" mark counts, so the list and the marks agree. The review still
@@ -2222,6 +2236,9 @@ export class LibraryStore {
         `SELECT track_id AS id FROM track_overrides
          UNION
          SELECT track_id AS id FROM artwork_overrides
+         UNION
+         SELECT track_id AS id FROM track_tag_overrides
+         WHERE field IN (${FLUSHABLE_TAG_FIELDS_SQL})
          ORDER BY id`
       )
       .all() as Array<{ id: number }>
@@ -2235,9 +2252,14 @@ export class LibraryStore {
    * those fields has done its job: it is cleared, and the row dropped once
    * nothing is corrected on it any more. That is what takes the track off the
    * pending list and clears its "modified" mark; fields left unflushed keep
-   * their override and stay pending.
+   * their override and stay pending. Grouped fields only — the generic
+   * corrections are `TagOverrideStore`'s to retire.
    */
-  retireWrittenOverrides(trackId: number, fields: readonly WritebackField[], now: number): void {
+  retireWrittenOverrides(
+    trackId: number,
+    fields: readonly GroupedWritebackField[],
+    now: number
+  ): void {
     if (fields.length === 0) return
     const retire = this.db.transaction(() => {
       for (const field of fields) {

@@ -27,7 +27,7 @@ import type { RelatedQuery, RelatedResult } from '@shared/related'
 import type { AlbumCard } from '@shared/albums'
 import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
 import type { OverrideEditState, OverrideField, OverridePatch } from '@shared/overrides'
-import type { TagFieldKey, TagFieldPatch } from '@shared/tagFields'
+import type { TagFieldEditState, TagFieldKey, TagFieldPatch } from '@shared/tagFields'
 import type { WritebackField } from '@shared/tagWriteback'
 import type { ArtworkRef } from '@shared/artwork'
 
@@ -120,6 +120,12 @@ export interface LibraryService {
     trackIds: readonly number[]
     fields: readonly TagFieldKey[]
   }): Promise<void>
+  /**
+   * The generic fields' prefill for a batch — **W16-17**. Reads every admitted
+   * field from each file through taglib (nothing generic is indexed), overlays
+   * the corrections, and folds the batch. Bounded by the caller.
+   */
+  getTagFieldEditState(trackIds: readonly number[]): Promise<TagFieldEditState>
   /** Retires a track's just-flushed override columns after a write-back (W16-6/7). */
   retireWrittenOverrides(trackId: number, fields: readonly WritebackField[]): Promise<void>
   /**

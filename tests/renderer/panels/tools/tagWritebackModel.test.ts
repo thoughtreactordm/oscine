@@ -55,7 +55,8 @@ function pending(
     discNo: parts.discNo ?? unchanged(1),
     year: parts.year ?? unchanged(2020),
     genres: parts.genres ?? genres([], [], false),
-    artwork: parts.artwork ?? { current: ABSENT_ARTWORK, proposed: ABSENT_ARTWORK, changed: false }
+    artwork: parts.artwork ?? { current: ABSENT_ARTWORK, proposed: ABSENT_ARTWORK, changed: false },
+    fields: parts.fields ?? {}
   }
   const hasChanges =
     p.title.changed ||
