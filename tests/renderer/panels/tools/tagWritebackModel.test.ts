@@ -7,14 +7,17 @@ import type {
   WritebackField
 } from '../../../../src/shared/tagWriteback'
 import { ABSENT_ARTWORK } from '../../../../src/shared/artwork'
+import type { TagFieldDef } from '../../../../src/shared/tagFields'
 import {
   buildSelections,
   changedFields,
+  fieldLabel,
   fieldText,
   formatArtwork,
   initialSelection,
   overallState,
   rowLabel,
+  reviewColumns,
   rowState,
   selectionSummary,
   type SelectionMap
@@ -188,5 +191,77 @@ describe('formatArtwork / fieldText artwork', () => {
       artwork: { current: cover, proposed: ABSENT_ARTWORK, changed: true }
     })
     expect(fieldText(p, 'artwork')).toEqual({ current: 'image/jpeg', proposed: '✕ remove' })
+  })
+})
+
+describe('generic fields (W16-18)', () => {
+  const withComposers = (): PendingWrite =>
+    pending(1, {
+      title: changed('Old', 'New'),
+      fields: {
+        composers: changed<readonly string[] | string | number | boolean>(
+          ['Bach'],
+          ['Bach', 'Handel']
+        ),
+        compilation: changed<readonly string[] | string | number | boolean>(null, true),
+        bpm: unchanged<readonly string[] | string | number | boolean>(120)
+      }
+    })
+
+  it('lists changed generic keys after the grouped ones, in registry order', () => {
+    expect(changedFields(withComposers())).toEqual(['title', 'composers', 'compilation'])
+  })
+
+  it('selects generic fields by default and sends them in canonical order', () => {
+    const p = withComposers()
+    const selection = initialSelection([p])
+    expect(buildSelections([p], selection)).toEqual([
+      { trackId: 1, fields: ['title', 'composers', 'compilation'] }
+    ])
+    selection.get(1)?.delete('composers')
+    expect(buildSelections([p], selection)).toEqual([
+      { trackId: 1, fields: ['title', 'compilation'] }
+    ])
+    expect(rowState(p, selection)).toBe('some')
+  })
+
+  it('adds a column only for generic fields some track changes', () => {
+    const columns = reviewColumns([withComposers(), pending(2)])
+    expect(columns.slice(-2)).toEqual(['composers', 'compilation'])
+    expect(columns).not.toContain('bpm')
+    expect(fieldLabel('composers')).toBe('Composers')
+  })
+
+  it('renders list and flag values readably', () => {
+    const p = withComposers()
+    expect(fieldText(p, 'composers')).toEqual({ current: 'Bach', proposed: 'Bach; Handel' })
+    expect(fieldText(p, 'compilation')).toEqual({ current: '—', proposed: 'Yes' })
+  })
+
+  it('draws a registry entry it has never seen with no component change', () => {
+    // A throwaway entry, not in the shipped registry: the review's columns,
+    // labels, cells and selection all come from the registry argument.
+    const mood: TagFieldDef = {
+      key: 'mood',
+      label: 'Mood',
+      group: 'content',
+      taglib: 'mood',
+      kind: 'list',
+      readOnly: false,
+      admitted: true
+    }
+    const registry = [mood]
+    const p = pending(3, {
+      fields: {
+        mood: changed(['calm'], ['calm', 'bright'])
+      } as unknown as PendingWrite['fields']
+    })
+    const column = 'mood' as WritebackField
+    expect(reviewColumns([p], registry)).toContain(column)
+    expect(fieldLabel(column, registry)).toBe('Mood')
+    expect(fieldText(p, column, registry)).toEqual({ current: 'calm', proposed: 'calm; bright' })
+    expect(buildSelections([p], initialSelection([p], registry), registry)).toEqual([
+      { trackId: 3, fields: [column] }
+    ])
   })
 })

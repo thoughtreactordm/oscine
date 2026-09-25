@@ -4,10 +4,26 @@ import {
   OVERRIDE_FIELDS,
   type OverrideEditState,
   type OverrideField,
+  type OverrideFieldState,
   type OverridePatch
 } from '@shared/overrides'
 import type { ArtworkRef, CoverArtCandidate } from '@shared/artwork'
-import { artwork, overrides } from '@renderer/ipc'
+import {
+  MAX_TAG_FIELD_PREFILL_TRACKS,
+  type TagFieldEditState,
+  type TagFieldKey,
+  type TagFieldPatch,
+  type TagFieldValue
+} from '@shared/tagFields'
+import { artwork, overrides, tagOverrides } from '@renderer/ipc'
+import {
+  buildTagFieldSave,
+  formValues,
+  tagFieldSections,
+  tagFormDirty,
+  type TagFormValue,
+  type TagFormValues
+} from '@renderer/panels/tagFieldForm'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 
 /**
@@ -38,6 +54,17 @@ function emptyFields(): Fields {
     year: '',
     genre: ''
   }
+}
+
+/**
+ * The "All fields" prefill's lifecycle (W16-18). `idle` until the area first
+ * opens, because the prefill opens every file in the batch; `tooMany` is a
+ * batch past {@link MAX_TAG_FIELD_PREFILL_TRACKS}.
+ */
+export type TagFieldsStatus = 'idle' | 'loading' | 'ready' | 'error' | 'tooMany'
+
+function clearKeys(record: Record<string, unknown>): void {
+  for (const key of Object.keys(record)) delete record[key]
 }
 
 function emptyFlags(): Record<OverrideField, boolean> {
@@ -92,9 +119,34 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
   const coverSearched = ref(false)
   const coverSearchError = ref<string | null>(null)
 
+  // The generic fields (W16-18): the registry's sections, loaded lazily when the
+  // "All fields" area first opens. Keyed by registry key; a revert drops the
+  // field's `track_tag_overrides` row rather than writing a value.
+  const tagSections = tagFieldSections()
+  const allFieldsOpen = ref(false)
+  const tagFieldsStatus = ref<TagFieldsStatus>('idle')
+  const tagEditState = ref<TagFieldEditState | null>(null)
+  const tagValues = reactive<TagFormValues>({})
+  const tagInitial = reactive<TagFormValues>({})
+  const tagReverting = reactive<Record<string, boolean>>({})
+  // A prefill still reading files when the editor closes or reopens must not
+  // land on the next session's form.
+  let tagSeq = 0
+
   const libraryRoots = useLibraryRootsStore()
 
+  function resetTagFields(): void {
+    tagSeq += 1
+    allFieldsOpen.value = false
+    tagFieldsStatus.value = 'idle'
+    tagEditState.value = null
+    clearKeys(tagValues)
+    clearKeys(tagInitial)
+    clearKeys(tagReverting)
+  }
+
   function resetForm(): void {
+    resetTagFields()
     Object.assign(values, emptyFields())
     Object.assign(initial, emptyFields())
     Object.assign(reverting, emptyFlags())
@@ -150,6 +202,78 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
     }
   }
 
+  /**
+   * Opens or closes the "All fields" area. The first open reads the batch's
+   * files for the generic prefill; a plain title edit never pays for it.
+   */
+  function toggleAllFields(): void {
+    allFieldsOpen.value = !allFieldsOpen.value
+    if (allFieldsOpen.value && tagFieldsStatus.value === 'idle') void loadTagFields()
+  }
+
+  async function loadTagFields(): Promise<void> {
+    const ids = [...trackIds.value]
+    if (ids.length === 0) return
+    if (ids.length > MAX_TAG_FIELD_PREFILL_TRACKS) {
+      tagFieldsStatus.value = 'tooMany'
+      return
+    }
+    const seq = ++tagSeq
+    tagFieldsStatus.value = 'loading'
+    try {
+      const state = await tagOverrides.getEditState(ids)
+      if (seq !== tagSeq) return
+      tagEditState.value = state
+      const values = formValues(tagSections, state)
+      Object.assign(tagValues, values)
+      // The initial side is a copy, so editing a list in place cannot move it.
+      for (const [key, value] of Object.entries(values)) {
+        tagInitial[key] = Array.isArray(value) ? [...(value as readonly string[])] : value
+      }
+      tagFieldsStatus.value = 'ready'
+    } catch (error) {
+      if (seq !== tagSeq) return
+      tagFieldsStatus.value = 'error'
+      errorMessage.value =
+        error instanceof Error ? error.message : 'Could not read the files’ other tags.'
+    }
+  }
+
+  /** A generic field's folded cell, read by string so the form stays registry-driven. */
+  function tagCell(key: string): OverrideFieldState<TagFieldValue> | undefined {
+    const state = tagEditState.value as Readonly<
+      Record<string, OverrideFieldState<TagFieldValue> | undefined>
+    > | null
+    return state?.[key]
+  }
+  function tagMixed(key: string): boolean {
+    return tagCell(key)?.mixed ?? false
+  }
+  function tagOverridden(key: string): boolean {
+    return tagCell(key)?.overridden ?? false
+  }
+
+  function setTagValue(key: string, value: TagFormValue): void {
+    tagValues[key] = value
+  }
+
+  /** Marks a generic field to revert to the file's value; clears any typed change. */
+  function toggleTagRevert(key: string): void {
+    tagReverting[key] = tagReverting[key] !== true
+    if (tagReverting[key]) {
+      const initialValue = tagInitial[key] ?? null
+      tagValues[key] = Array.isArray(initialValue)
+        ? [...(initialValue as readonly string[])]
+        : initialValue
+    }
+  }
+
+  const tagDirty = computed(
+    () =>
+      tagFieldsStatus.value === 'ready' &&
+      tagFormDirty(tagSections, tagValues, tagInitial, tagReverting)
+  )
+
   /** Marks a field to revert to the file's value; clears any typed change. */
   function toggleRevert(field: OverrideField): void {
     reverting[field] = !reverting[field]
@@ -190,6 +314,7 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
     () =>
       trackIds.value.length > 0 &&
       (artworkDirty.value ||
+        tagDirty.value ||
         OVERRIDE_FIELDS.some((field) => reverting[field]) ||
         OVERRIDE_FIELDS.some((field) => changed(field)))
   )
@@ -330,10 +455,26 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
       // Electron's contextBridge cannot structured-clone ("object could not be
       // cloned"). `buildPatch` already returns a plain object.
       const ids = [...trackIds.value]
+      // The generic half is checked first, so a bad number saves nothing at all.
+      const tagSave =
+        tagFieldsStatus.value === 'ready'
+          ? buildTagFieldSave(tagSections, tagValues, tagInitial, tagReverting)
+          : { patch: {}, revert: [], errors: [] }
+      if (tagSave.errors.length > 0) {
+        errorMessage.value = tagSave.errors[0]
+        return
+      }
       const patch = buildPatch()
       const clearFields = OVERRIDE_FIELDS.filter((field) => reverting[field])
       if (Object.keys(patch).length > 0) await overrides.set(ids, patch)
       if (clearFields.length > 0) await overrides.clear(ids, clearFields)
+      // Registry keys by construction: the sections are the registry's own.
+      if (Object.keys(tagSave.patch).length > 0) {
+        await tagOverrides.set(ids, tagSave.patch as TagFieldPatch)
+      }
+      if (tagSave.revert.length > 0) {
+        await tagOverrides.revert(ids, tagSave.revert as TagFieldKey[])
+      }
       libraryRoots.markChanged()
       close()
     } catch (error) {
@@ -382,6 +523,16 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
     closeNetworkPicker,
     searchCovers,
     applyRemoteCover,
-    close
+    close,
+    tagSections,
+    allFieldsOpen,
+    tagFieldsStatus,
+    tagValues,
+    tagReverting,
+    toggleAllFields,
+    tagMixed,
+    tagOverridden,
+    setTagValue,
+    toggleTagRevert
   }
 })
