@@ -1,5 +1,11 @@
 import { artworkRef, type ArtworkRef } from '@shared/artwork'
 import type { OverrideEditState, OverrideFieldState } from '@shared/overrides'
+import {
+  tagValuesEqual,
+  type TagFieldEditState,
+  type TagFieldKey,
+  type TagFieldValue
+} from '@shared/tagFields'
 
 /**
  * Aggregating an edit's prefill — the pure half of the metadata editor's read.
@@ -97,4 +103,38 @@ function foldArtwork(rows: readonly OverrideEditRow[]): OverrideFieldState<Artwo
     mixed,
     overridden: rows.some((row) => row.ovArtwork === 1)
   }
+}
+
+/**
+ * One track's generic fields for the editor's prefill — **W16-15**. `values`
+ * holds each field's *effective* value: the file's own, overlaid by the track's
+ * correction (a clear overlays as `null`). A field missing from `values` is
+ * empty. `overridden` names the fields carrying a correction.
+ */
+export interface TagFieldEditRow {
+  readonly values: ReadonlyMap<TagFieldKey, TagFieldValue | null>
+  readonly overridden: ReadonlySet<TagFieldKey>
+}
+
+/**
+ * Folds the generic fields across a batch — the same shared-value-or-`mixed`
+ * rule as the grouped fields, except that equality is by value, so two tracks
+ * whose composer lists hold the same names in the same order agree.
+ */
+export function buildTagFieldEditState(
+  rows: readonly TagFieldEditRow[],
+  fields: readonly TagFieldKey[]
+): TagFieldEditState {
+  const state: Partial<Record<TagFieldKey, OverrideFieldState<TagFieldValue>>> = {}
+  for (const field of fields) {
+    const values = rows.map((row) => row.values.get(field) ?? null)
+    const first = values.length > 0 ? values[0] : null
+    const mixed = values.some((value) => !tagValuesEqual(value, first))
+    state[field] = {
+      value: mixed ? null : first,
+      mixed,
+      overridden: rows.some((row) => row.overridden.has(field))
+    }
+  }
+  return state
 }

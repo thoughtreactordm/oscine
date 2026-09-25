@@ -41,6 +41,7 @@ import {
   type OverrideField,
   type OverridePatch
 } from '@shared/overrides'
+import type { TagFieldKey, TagFieldPatch } from '@shared/tagFields'
 import type { WritebackField } from '@shared/tagWriteback'
 import { buildRelated } from './related'
 import { DiscoverEngine, expandShelfTrackIds, snapshotShelf } from './discover'
@@ -57,6 +58,7 @@ import { resolveLyrics } from './lyrics/service'
 import type { LyricsNetworkService } from './lyrics/network'
 import { reconcilePaths, scanRoot } from './scanner'
 import { LibraryStore, type RootConflict, type RootRow } from './store'
+import { TagOverrideStore } from './overrides/tagOverrides'
 import { ArtworkCacheService, isArtworkSidecarPath } from './artwork'
 import { createArtworkOriginalsStore, type ArtworkOriginalsStore } from './artworkOriginals'
 import type { ArtworkImageProcessor } from './artworkProcessor'
@@ -176,6 +178,7 @@ function toLibraryRoot(row: RootRow, watchMode: LibraryWatchMode): LibraryRoot {
 
 export class SqliteLibraryService implements LibraryService {
   private readonly store: LibraryStore
+  private readonly tagOverrides: TagOverrideStore
   private readonly readMetadata: MetadataReader
   private readonly readFormatDetail: FormatDetailReader
   private readonly readSidecarLyrics: (audioAbsPath: string) => Promise<LyricsDocument | null>
@@ -206,6 +209,7 @@ export class SqliteLibraryService implements LibraryService {
 
   constructor(private readonly deps: SqliteLibraryDeps) {
     this.store = new LibraryStore(deps.db)
+    this.tagOverrides = new TagOverrideStore(deps.db)
     this.discover = new DiscoverEngine(deps.db)
     this.readMetadata = deps.readMetadata ?? readTrackTags
     this.readFormatDetail = deps.readFormatDetail ?? readTrackFormatDetail
@@ -402,6 +406,8 @@ export class SqliteLibraryService implements LibraryService {
   }
 
   async discardAllOverrides(): Promise<void> {
+    // Generic corrections are rows and nothing else — no file read to revert them.
+    this.tagOverrides.revertAll()
     const trackIds = this.store.pendingWritebackTrackIds()
     if (trackIds.length === 0) return
     // Reverting every field of every edited track re-reads each file and restores
@@ -409,6 +415,20 @@ export class SqliteLibraryService implements LibraryService {
     await this.clearOverrides({ trackIds, fields: OVERRIDE_FIELDS })
     this.store.removeArtworkOverrides(trackIds)
     await this.gcArtworkOriginals()
+  }
+
+  async setTagOverrides(request: {
+    trackIds: readonly number[]
+    patch: TagFieldPatch
+  }): Promise<void> {
+    this.tagOverrides.set(request.trackIds, request.patch, Date.now())
+  }
+
+  async revertTagOverrides(request: {
+    trackIds: readonly number[]
+    fields: readonly TagFieldKey[]
+  }): Promise<void> {
+    this.tagOverrides.revert(request.trackIds, request.fields)
   }
 
   async retireWrittenOverrides(trackId: number, fields: readonly WritebackField[]): Promise<void> {
