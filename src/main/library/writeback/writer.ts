@@ -33,9 +33,10 @@ import type { FieldDiff, GenreValue, PendingWrite, WritebackField } from '@share
  *      never reach the container.
  *   2. **The field mapping.** {@link applyWritableTags} sets exactly the scalar
  *      fields the diff models, plus the artwork intent when it is not
- *      `unchanged`. Custom frames, album artist, ReplayGain and every other
- *      unmodelled tag survive the write untouched — the corpus's `preserved:*`
- *      checks. Pictures follow Decision B: replace or clear only the front
+ *      `unchanged`. Custom frames, ReplayGain and every other unmodelled tag
+ *      survive the write untouched — the corpus's `preserved:*` checks. Album
+ *      artist is the same for a flush; only a rip, which authors the file,
+ *      supplies it. Pictures follow Decision B: replace or clear only the front
  *      cover, leave the rest.
  *
  * The `tagFamily` each writer declares is documentation of the routing above and
@@ -110,6 +111,12 @@ export interface WritableTags {
   readonly trackNo: number | null
   readonly discNo: number | null
   readonly year: number | null
+  /**
+   * The album-artist frame. Only a rip sets it — the override layer does not
+   * model album artist, so a write-back flush omits it and the file's frame
+   * survives untouched. Omitted means untouched; `null` clears.
+   */
+  readonly albumArtist?: string | null
   /** The proposed genre frame, written as one delimited string. */
   readonly genres: readonly GenreValue[]
   /** Front-cover intent, resolved from the override store at apply time. */
@@ -148,6 +155,9 @@ export function applyWritableTags(file: TagFile, desired: WritableTags): void {
   const tag = file.tag
   tag.title = desired.title ?? ''
   tag.performers = desired.artist === null ? [] : [desired.artist]
+  if (desired.albumArtist !== undefined) {
+    tag.albumArtists = desired.albumArtist === null ? [] : [desired.albumArtist]
+  }
   tag.album = desired.album ?? ''
   tag.genres = writtenGenreValue(desired.genres)
   tag.year = desired.year ?? 0

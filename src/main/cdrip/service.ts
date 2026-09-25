@@ -595,6 +595,9 @@ export class RipService {
       await this.applyTags(partPath, {
         title: selection.title.trim() === '' ? null : selection.title,
         artist: (selection.artist.trim() || request.albumArtist).trim() || null,
+        // Without the frame the scanner keys each track's album on its own
+        // performer, and a compilation splits into one album per artist.
+        albumArtist: request.albumArtist.trim() || null,
         album: request.album.trim() === '' ? null : request.album,
         trackNo: selection.number,
         discNo: 1,

@@ -148,6 +148,14 @@ describe('applyWritableTags — sets only the modelled fields', () => {
     expect(tag).not.toHaveProperty('pictures')
     expect(tag).not.toHaveProperty('albumArtists')
   })
+
+  it('writes album artist only when the caller supplies it, as a rip does', () => {
+    const base = { ...SCALARS, artwork: ARTWORK_UNCHANGED }
+    expect(capture({ ...base, albumArtist: 'Various Artists' }).albumArtists).toEqual([
+      'Various Artists'
+    ])
+    expect(capture({ ...base, albumArtist: null }).albumArtists).toEqual([])
+  })
 })
 
 describe('writableTagsFromPending — the diff→engine bridge', () => {

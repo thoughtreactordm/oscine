@@ -198,6 +198,26 @@ describe('RipService.start', () => {
     }
   })
 
+  it('tags a compilation with the performer as artist and the header as album artist', async () => {
+    const drive = fakeDrive(consecutiveToc(2, 8))
+    const { service, tags } = makeService(drive)
+    await service.start(
+      request({
+        albumArtist: 'Various Artists',
+        tracks: [
+          { number: 1, title: 'One', artist: 'Performer A' },
+          { number: 2, title: 'Two', artist: '' }
+        ]
+      }),
+      noProgress
+    )
+
+    expect(tags.map((tag) => [tag.artist, tag.albumArtist])).toEqual([
+      ['Performer A', 'Various Artists'],
+      ['Various Artists', 'Various Artists']
+    ])
+  })
+
   it('observes cancel within one chunk and reports cancelled', async () => {
     const box: { service: RipService | null } = { service: null }
     const drive = fakeDrive(consecutiveToc(2, 6), {
