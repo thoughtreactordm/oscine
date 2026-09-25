@@ -36,6 +36,7 @@ const OVERSCAN = 6
 const FIELD_WIDTH: Record<WritebackField, string> = {
   title: '168px',
   artist: '168px',
+  albumArtist: '168px',
   album: '168px',
   trackNo: '84px',
   discNo: '84px',

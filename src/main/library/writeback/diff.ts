@@ -55,6 +55,8 @@ import type { TrackTags } from '../metadata'
 export interface TrackOverrideRow {
   readonly title: string | null
   readonly artist_name: string | null
+  /** W16-14. `''` is a deliberate "no album artist" — the flush clears the frame. */
+  readonly album_artist_name: string | null
   readonly album_title: string | null
   readonly track_no: number | null
   readonly disc_no: number | null
@@ -66,6 +68,7 @@ export interface TrackOverrideRow {
 export const NO_OVERRIDE: TrackOverrideRow = {
   title: null,
   artist_name: null,
+  album_artist_name: null,
   album_title: null,
   track_no: null,
   disc_no: null,
@@ -200,6 +203,7 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
 
   const title = scalarDiff(file.title, override.title)
   const artist = scalarDiff(file.artist, override.artist_name)
+  const albumArtist = scalarDiff(file.albumArtist, override.album_artist_name)
   const album = scalarDiff(file.album, override.album_title)
   const trackNo = scalarDiff(file.trackNo, override.track_no)
   const discNo = scalarDiff(file.discNo, override.disc_no)
@@ -210,6 +214,7 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
   const hasChanges =
     title.changed ||
     artist.changed ||
+    albumArtist.changed ||
     album.changed ||
     trackNo.changed ||
     discNo.changed ||
@@ -221,6 +226,7 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
     trackId: input.trackId,
     title,
     artist,
+    albumArtist,
     album,
     trackNo,
     discNo,
@@ -262,6 +268,9 @@ export function redundantOverrideColumns(
   if (override.title !== null && override.title === file.title) redundant.push('title')
   if (override.artist_name !== null && override.artist_name === file.artist) {
     redundant.push('artist_name')
+  }
+  if (override.album_artist_name !== null && override.album_artist_name === file.albumArtist) {
+    redundant.push('album_artist_name')
   }
   if (override.album_title !== null && override.album_title === file.album) {
     redundant.push('album_title')

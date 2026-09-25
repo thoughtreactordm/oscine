@@ -95,7 +95,7 @@ function prepareStatements(db: Database.Database) {
       WHERE t.id = ?
     `),
     override: db.prepare(`
-      SELECT title, artist_name, album_title, track_no, disc_no, genre, year
+      SELECT title, artist_name, album_artist_name, album_title, track_no, disc_no, genre, year
       FROM track_overrides
       WHERE track_id = ?
     `),

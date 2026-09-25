@@ -19,6 +19,7 @@ export type SelectionMap = Map<number, Set<WritebackField>>
 export const FIELD_LABELS: Record<WritebackField, string> = {
   title: 'Title',
   artist: 'Artist',
+  albumArtist: 'Album artist',
   album: 'Album',
   trackNo: 'Track №',
   discNo: 'Disc №',
@@ -34,6 +35,8 @@ export function fieldChanged(pending: PendingWrite, field: WritebackField): bool
       return pending.title.changed
     case 'artist':
       return pending.artist.changed
+    case 'albumArtist':
+      return pending.albumArtist.changed
     case 'album':
       return pending.album.changed
     case 'trackNo':
@@ -197,6 +200,11 @@ export function fieldText(pending: PendingWrite, field: WritebackField): FieldTe
       return {
         current: formatScalar(pending.artist.current),
         proposed: formatScalar(pending.artist.proposed)
+      }
+    case 'albumArtist':
+      return {
+        current: formatScalar(pending.albumArtist.current),
+        proposed: formatScalar(pending.albumArtist.proposed)
       }
     case 'album':
       return {

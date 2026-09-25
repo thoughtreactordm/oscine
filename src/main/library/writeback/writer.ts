@@ -112,9 +112,10 @@ export interface WritableTags {
   readonly discNo: number | null
   readonly year: number | null
   /**
-   * The album-artist frame. Only a rip sets it — the override layer does not
-   * model album artist, so a write-back flush omits it and the file's frame
-   * survives untouched. Omitted means untouched; `null` clears.
+   * The album-artist frame. Omitted means untouched; `null` clears. A rip sets
+   * it; a write-back flush sets it only when an album-artist correction is
+   * selected and actually changes the file (W16-14), so a flush without one
+   * leaves the file's frame exactly as it was.
    */
   readonly albumArtist?: string | null
   /** The proposed genre frame, written as one delimited string. */
@@ -148,15 +149,19 @@ export function writtenGenreValue(genres: readonly GenreValue[]): string[] {
  * modelled field that is *not* rewritten unconditionally: {@link ARTWORK_UNCHANGED}
  * never assigns `tag.pictures`, so back covers, booklet scans and artist images
  * survive a scalar-only flush by construction. `set` / `clear` replace or remove
- * only the front-cover slot (Decision B). Album artist, ReplayGain and any
- * custom frame remain unmodelled and untouched.
+ * only the front-cover slot (Decision B). Album artist is likewise written only
+ * when present on `desired`; ReplayGain and any custom frame remain unmodelled
+ * and untouched.
  */
 export function applyWritableTags(file: TagFile, desired: WritableTags): void {
   const tag = file.tag
   tag.title = desired.title ?? ''
   tag.performers = desired.artist === null ? [] : [desired.artist]
   if (desired.albumArtist !== undefined) {
-    tag.albumArtists = desired.albumArtist === null ? [] : [desired.albumArtist]
+    // A blank correction (`''`, "no album artist") clears the frame rather than
+    // writing an empty value a tagger would still show as present.
+    const name = desired.albumArtist?.trim() ?? ''
+    tag.albumArtists = name === '' ? [] : [name]
   }
   tag.album = desired.album ?? ''
   tag.genres = writtenGenreValue(desired.genres)
@@ -243,6 +248,7 @@ export function writableTagsFromPending(pending: PendingWrite): WritableTags {
   return {
     title: pending.title.proposed,
     artist: pending.artist.proposed,
+    ...(pending.albumArtist.changed ? { albumArtist: pending.albumArtist.proposed } : {}),
     album: pending.album.proposed,
     trackNo: pending.trackNo.proposed,
     discNo: pending.discNo.proposed,
@@ -282,6 +288,10 @@ export function writableTagsFromSelection(
   return {
     title: pick('title', pending.title, selected),
     artist: pick('artist', pending.artist, selected),
+    // Omitted unless it is a selected change, so the frame is otherwise untouched.
+    ...(selected.has('albumArtist') && pending.albumArtist.changed
+      ? { albumArtist: pending.albumArtist.proposed }
+      : {}),
     album: pick('album', pending.album, selected),
     trackNo: pick('trackNo', pending.trackNo, selected),
     discNo: pick('discNo', pending.discNo, selected),
@@ -307,6 +317,7 @@ export function selectionChangesFile(
 ): boolean {
   if (selected.has('title') && pending.title.changed) return true
   if (selected.has('artist') && pending.artist.changed) return true
+  if (selected.has('albumArtist') && pending.albumArtist.changed) return true
   if (selected.has('album') && pending.album.changed) return true
   if (selected.has('trackNo') && pending.trackNo.changed) return true
   if (selected.has('discNo') && pending.discNo.changed) return true

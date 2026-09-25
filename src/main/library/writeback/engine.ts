@@ -210,7 +210,12 @@ function verify(after: TrackTags, desired: WritableTags): string | null {
     ['track', after.trackNo, desired.trackNo],
     ['disc', after.discNo, desired.discNo]
   ]
-  for (const [field, got, want] of scalar) {
+  // Album artist is verified only when the write set it; omitted means untouched.
+  const checks =
+    desired.albumArtist === undefined
+      ? scalar
+      : [...scalar, ['album artist', after.albumArtist, normText(desired.albumArtist)] as const]
+  for (const [field, got, want] of checks) {
     if (got !== want) {
       return `${field}: expected ${JSON.stringify(want)} but file holds ${JSON.stringify(got)}`
     }

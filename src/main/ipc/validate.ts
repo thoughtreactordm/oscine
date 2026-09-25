@@ -506,6 +506,7 @@ function assertOverridePatch(value: unknown): OverridePatch {
   const patch: {
     title?: string
     artist?: string
+    albumArtist?: string
     album?: string
     trackNo?: number
     discNo?: number
@@ -514,6 +515,7 @@ function assertOverridePatch(value: unknown): OverridePatch {
   } = {}
   if ('title' in raw) patch.title = assertTagText(raw.title, 'title')
   if ('artist' in raw) patch.artist = assertTagText(raw.artist, 'artist')
+  if ('albumArtist' in raw) patch.albumArtist = assertTagText(raw.albumArtist, 'albumArtist')
   if ('album' in raw) patch.album = assertTagText(raw.album, 'album')
   if ('trackNo' in raw) patch.trackNo = assertPositiveInt(raw.trackNo, 'trackNo')
   if ('discNo' in raw) patch.discNo = assertPositiveInt(raw.discNo, 'discNo')

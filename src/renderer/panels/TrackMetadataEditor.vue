@@ -8,7 +8,7 @@ import NetworkCoverPicker from '@renderer/panels/NetworkCoverPicker.vue'
 /**
  * The track-metadata editor — **W16 (editor)**, D7's correction layer made
  * editable. An editable sibling to the read-only Track Info dialog: it edits the
- * fields a person reads (title, artist, album, track/disc, year, genre) for one
+ * fields a person reads (title, artist, album artist, album, track/disc, year, genre) for one
  * track or a whole selection, records the change in `track_overrides`, and lets
  * it show at once in the library without ever touching a file. Flushing to disk
  * is the separate write-back review.
@@ -34,6 +34,12 @@ interface FieldSpec {
 const FIELDS: readonly FieldSpec[] = [
   { key: 'title', label: 'Title', numeric: false },
   { key: 'artist', label: 'Artist', numeric: false },
+  {
+    key: 'albumArtist',
+    label: 'Album artist',
+    numeric: false,
+    hint: 'Groups the album — e.g. “Various Artists” for a compilation'
+  },
   { key: 'album', label: 'Album', numeric: false },
   { key: 'trackNo', label: 'Track №', numeric: true },
   { key: 'discNo', label: 'Disc №', numeric: true },

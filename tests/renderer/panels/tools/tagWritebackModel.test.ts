@@ -49,6 +49,7 @@ function pending(
   const p = {
     title: parts.title ?? unchanged('Title'),
     artist: parts.artist ?? unchanged('Artist'),
+    albumArtist: parts.albumArtist ?? unchanged('Album Artist'),
     album: parts.album ?? unchanged('Album'),
     trackNo: parts.trackNo ?? unchanged(1),
     discNo: parts.discNo ?? unchanged(1),
@@ -59,6 +60,7 @@ function pending(
   const hasChanges =
     p.title.changed ||
     p.artist.changed ||
+    p.albumArtist.changed ||
     p.album.changed ||
     p.trackNo.changed ||
     p.discNo.changed ||

@@ -12,6 +12,8 @@ import type { OverrideEditState, OverrideFieldState } from '@shared/overrides'
 export interface OverrideEditRow {
   readonly title: string | null
   readonly artist: string | null
+  /** The album artist the track is keyed under, or its pending correction. */
+  readonly albumArtist: string | null
   readonly album: string | null
   readonly trackNo: number | null
   readonly discNo: number | null
@@ -20,6 +22,7 @@ export interface OverrideEditRow {
   /** SQLite booleans: 1 when the track carries an override for the field. */
   readonly ovTitle: number
   readonly ovArtist: number
+  readonly ovAlbumArtist: number
   readonly ovAlbum: number
   readonly ovTrackNo: number
   readonly ovDiscNo: number
@@ -55,6 +58,10 @@ export function buildOverrideEditState(rows: readonly OverrideEditRow[]): Overri
     artist: fold(
       rows.map((r) => r.artist),
       rows.map((r) => r.ovArtist)
+    ),
+    albumArtist: fold(
+      rows.map((r) => r.albumArtist),
+      rows.map((r) => r.ovAlbumArtist)
     ),
     album: fold(
       rows.map((r) => r.album),

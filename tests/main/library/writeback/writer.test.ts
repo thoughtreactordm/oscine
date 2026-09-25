@@ -155,15 +155,18 @@ describe('applyWritableTags — sets only the modelled fields', () => {
       'Various Artists'
     ])
     expect(capture({ ...base, albumArtist: null }).albumArtists).toEqual([])
+    // W16-14: a deliberately blank correction clears rather than writing ''.
+    expect(capture({ ...base, albumArtist: '  ' }).albumArtists).toEqual([])
   })
 })
 
 describe('writableTagsFromPending — the diff→engine bridge', () => {
-  it('takes the proposed side of every field', () => {
+  it('takes the proposed side of every field, omitting an unchanged album artist', () => {
     const pending: PendingWrite = {
       trackId: 7,
       title: { current: 'old', proposed: 'new', changed: true },
       artist: { current: 'a', proposed: 'a', changed: false },
+      albumArtist: { current: 'Band', proposed: 'Band', changed: false },
       album: { current: null, proposed: 'Album', changed: true },
       trackNo: { current: 2, proposed: 3, changed: true },
       discNo: { current: 1, proposed: null, changed: true },

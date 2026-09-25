@@ -28,13 +28,23 @@ function absentCover(): ArtworkRef {
 type Fields = Record<OverrideField, string>
 
 function emptyFields(): Fields {
-  return { title: '', artist: '', album: '', trackNo: '', discNo: '', year: '', genre: '' }
+  return {
+    title: '',
+    artist: '',
+    albumArtist: '',
+    album: '',
+    trackNo: '',
+    discNo: '',
+    year: '',
+    genre: ''
+  }
 }
 
 function emptyFlags(): Record<OverrideField, boolean> {
   return {
     title: false,
     artist: false,
+    albumArtist: false,
     album: false,
     trackNo: false,
     discNo: false,
@@ -154,6 +164,7 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
     const patch: {
       title?: string
       artist?: string
+      albumArtist?: string
       album?: string
       trackNo?: number
       discNo?: number
@@ -257,7 +268,8 @@ export const useTrackEditStore = defineStore('trackEdit', () => {
     coverCandidates.value = []
     coverSearched.value = false
     coverSearchError.value = null
-    void searchCovers(values.artist, values.album)
+    // A compilation's release is credited to its album artist, not a performer.
+    void searchCovers(values.albumArtist.trim() || values.artist, values.album)
   }
 
   function closeNetworkPicker(): void {

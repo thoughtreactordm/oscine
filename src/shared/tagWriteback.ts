@@ -113,6 +113,7 @@ export interface PendingWrite {
   readonly trackId: number
   readonly title: FieldDiff<string>
   readonly artist: FieldDiff<string>
+  readonly albumArtist: FieldDiff<string>
   readonly album: FieldDiff<string>
   readonly trackNo: FieldDiff<number>
   readonly discNo: FieldDiff<number>
@@ -143,12 +144,21 @@ export interface PendingWrite {
  * value for the rest.
  */
 export type WritebackField =
-  'title' | 'artist' | 'album' | 'trackNo' | 'discNo' | 'year' | 'genres' | 'artwork'
+  | 'title'
+  | 'artist'
+  | 'albumArtist'
+  | 'album'
+  | 'trackNo'
+  | 'discNo'
+  | 'year'
+  | 'genres'
+  | 'artwork'
 
 /** Every writable field, in the order the review surface lays them out. */
 export const WRITEBACK_FIELDS: readonly WritebackField[] = [
   'title',
   'artist',
+  'albumArtist',
   'album',
   'trackNo',
   'discNo',
