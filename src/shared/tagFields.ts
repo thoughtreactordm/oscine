@@ -66,9 +66,9 @@ interface TagFieldBase {
   /** Shown, never edited or written (Decision F — ReplayGain). */
   readonly readOnly: boolean
   /**
-   * Whether the field is offered at all (Decision D). Flipped to `true` only
-   * once the field's W16-16 corpus check round-trips green on all five codecs;
-   * a field that is not admitted is refused by IPC and hidden by the editor.
+   * Whether the field is offered at all (Decision D): `true` only while the
+   * field's W16-16 corpus row round-trips green on all five codecs. A field that
+   * is not admitted is refused by IPC and hidden by the editor.
    */
   readonly admitted: boolean
 }
@@ -117,7 +117,7 @@ function text<K extends string>(
   taglib: string,
   maxLength = TAG_TEXT_MAX_LENGTH
 ): Keyed<TextTagField, K> {
-  return { key, label, group, taglib, kind: 'text', maxLength, readOnly: false, admitted: false }
+  return { key, label, group, taglib, kind: 'text', maxLength, readOnly: false, admitted: true }
 }
 
 function int<K extends string>(
@@ -127,7 +127,7 @@ function int<K extends string>(
   taglib: string,
   max: number
 ): Keyed<IntTagField, K> {
-  return { key, label, group, taglib, kind: 'int', min: 1, max, readOnly: false, admitted: false }
+  return { key, label, group, taglib, kind: 'int', min: 1, max, readOnly: false, admitted: true }
 }
 
 function list<K extends string>(
@@ -136,7 +136,7 @@ function list<K extends string>(
   group: TagFieldGroup,
   taglib: string
 ): Keyed<ListTagField, K> {
-  return { key, label, group, taglib, kind: 'list', readOnly: false, admitted: false }
+  return { key, label, group, taglib, kind: 'list', readOnly: false, admitted: true }
 }
 
 function bool<K extends string>(
@@ -145,7 +145,7 @@ function bool<K extends string>(
   group: TagFieldGroup,
   taglib: string
 ): Keyed<BoolTagField, K> {
-  return { key, label, group, taglib, kind: 'bool', readOnly: false, admitted: false }
+  return { key, label, group, taglib, kind: 'bool', readOnly: false, admitted: true }
 }
 
 function replayGain<K extends string>(
@@ -153,7 +153,16 @@ function replayGain<K extends string>(
   label: string,
   taglib: string
 ): Keyed<RealTagField, K> {
-  return { key, label, group: 'readOnly', taglib, kind: 'real', readOnly: true, admitted: false }
+  return { key, label, group: 'readOnly', taglib, kind: 'real', readOnly: true, admitted: true }
+}
+
+/**
+ * Holds a field out of the editor and IPC because one of its W16-16 corpus cells
+ * is red (Decision D). Each use names the triage card that owns the red cell;
+ * lift the hold only once that card's fix turns the whole row green.
+ */
+function held<F extends TagFieldDef>(field: F): F {
+  return { ...field, admitted: false }
 }
 
 /**
@@ -162,7 +171,8 @@ function replayGain<K extends string>(
  * `performersRole`, the derived `first*` / `joined*` accessors, and `pictures`
  * (the artwork path, Decisions A–C).
  *
- * Nothing is admitted yet: admission is W16-16's corpus gate, per field.
+ * Admission follows W16-16's corpus gate (`npm run probe:writeback-corpus`), per
+ * field: every entry is admitted unless wrapped in {@link held}.
  */
 export const TAG_FIELDS = [
   // Credits
@@ -180,7 +190,8 @@ export const TAG_FIELDS = [
   text('isrc', 'ISRC', 'release', 'isrc'),
   bool('compilation', 'Compilation', 'release', 'isCompilation'),
   // Content
-  text('comment', 'Comment', 'content', 'comment', TAG_LONG_TEXT_MAX_LENGTH),
+  // W16-19: ID3v2's comment accessor overwrites a described COMM frame.
+  held(text('comment', 'Comment', 'content', 'comment', TAG_LONG_TEXT_MAX_LENGTH)),
   text('description', 'Description', 'content', 'description', TAG_LONG_TEXT_MAX_LENGTH),
   text('lyrics', 'Lyrics', 'content', 'lyrics', TAG_LONG_TEXT_MAX_LENGTH),
   int('bpm', 'BPM', 'content', 'beatsPerMinute', 999),
@@ -192,12 +203,15 @@ export const TAG_FIELDS = [
   text('albumSort', 'Album sort', 'sorting', 'albumSort'),
   list('composerSort', 'Composer sort', 'sorting', 'composersSort'),
   // Advanced — editable, not hidden (Decision F): a mismatched release is fixed here.
-  text('musicBrainzArtistId', 'MusicBrainz artist id', 'advanced', 'musicBrainzArtistId'),
-  text(
-    'musicBrainzReleaseArtistId',
-    'MusicBrainz release artist id',
-    'advanced',
-    'musicBrainzReleaseArtistId'
+  // W16-20: the Apple setters for both artist ids throw on clear.
+  held(text('musicBrainzArtistId', 'MusicBrainz artist id', 'advanced', 'musicBrainzArtistId')),
+  held(
+    text(
+      'musicBrainzReleaseArtistId',
+      'MusicBrainz release artist id',
+      'advanced',
+      'musicBrainzReleaseArtistId'
+    )
   ),
   text('musicBrainzReleaseId', 'MusicBrainz release id', 'advanced', 'musicBrainzReleaseId'),
   text(

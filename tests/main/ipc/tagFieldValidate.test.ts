@@ -93,13 +93,27 @@ describe('assertTagFieldValue', () => {
 })
 
 describe('assertSetTagOverridesRequest', () => {
-  // Nothing is admitted until W16-16's corpus gate; admit a few for the duration.
-  const admittedForTest = ['composers', 'bpm', 'compilation', 'conductor']
-  function setAdmitted(value: boolean): void {
-    for (const key of admittedForTest) (field(key) as { admitted: boolean }).admitted = value
+  // Admission follows the W16-16 corpus gate; pin the states these tests rely on
+  // and restore the registry's own afterwards, whatever the gate has admitted.
+  const pinned: Record<string, boolean> = {
+    composers: true,
+    bpm: true,
+    compilation: true,
+    conductor: true,
+    publisher: false
   }
-  beforeEach(() => setAdmitted(true))
-  afterEach(() => setAdmitted(false))
+  const original = new Map<string, boolean>()
+  beforeEach(() => {
+    for (const [key, admitted] of Object.entries(pinned)) {
+      const entry = field(key) as { admitted: boolean }
+      original.set(key, entry.admitted)
+      entry.admitted = admitted
+    }
+  })
+  afterEach(() => {
+    for (const [key, admitted] of original)
+      (field(key) as { admitted: boolean }).admitted = admitted
+  })
 
   it('accepts admitted fields and validates each value by kind', () => {
     expect(
@@ -124,14 +138,9 @@ describe('assertSetTagOverridesRequest', () => {
   })
 
   it('refuses read-only, grouped and unknown keys', () => {
-    const replayGain = field('replayGainTrackGain') as { admitted: boolean }
-    replayGain.admitted = true
-    try {
-      for (const patch of [{ replayGainTrackGain: -6 }, { title: 'x' }, { amazonId: 'B00' }]) {
-        expect(() => assertSetTagOverridesRequest({ trackIds: [1], patch })).toThrow(OscineError)
-      }
-    } finally {
-      replayGain.admitted = false
+    expect(field('replayGainTrackGain').admitted).toBe(true)
+    for (const patch of [{ replayGainTrackGain: -6 }, { title: 'x' }, { amazonId: 'B00' }]) {
+      expect(() => assertSetTagOverridesRequest({ trackIds: [1], patch })).toThrow(OscineError)
     }
   })
 

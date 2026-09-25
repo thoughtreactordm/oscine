@@ -12,6 +12,7 @@ import {
   CORPUS_VERSION,
   verifyRoundTrip
 } from './lib/writeback-corpus.mjs'
+import { FIELD_CASES } from './lib/writeback-field-cases.mjs'
 
 /**
  * The tag write-back round-trip gate — W16-2, design authority D28.
@@ -21,7 +22,9 @@ import {
  * every v1 codec, and writes a markdown report. It exits non-zero on any failed
  * check, in the M1/M2 gate spirit — a red run is a triage card, never a quiet fix
  * folded into the flush path. Needs ffmpeg on PATH. W16-13 extends the same gate
- * with multi-picture and custom-frame write-path checks.
+ * with multi-picture and custom-frame write-path checks; W16-16 adds a
+ * `written:<field>` round-trip per registry field and reports it as a field ×
+ * codec matrix — the evidence Decision D admits a field on.
  *
  * The fixture is built in a fresh temp directory and removed on exit (unless
  * `--keep`), so the gate never touches the operator's library and leaves nothing
@@ -58,10 +61,46 @@ function ffmpegVersion() {
   })
 }
 
+/** The matrix's rows: every registry field, then the grouped album artist (W16-14). */
+const MATRIX_FIELDS = [...FIELD_CASES.map((fieldCase) => fieldCase.key), 'album-artist']
+
+/** `written:<field>:<case>`, `read:<field>`, and their `reader:` twins → the field. */
+const FIELD_CHECK = /^(?:reader:)?(?:written|read):([^:]+)(?::(.+))?$/
+
+/**
+ * One cell per field × codec. A cell is green only when every check for that
+ * field on that codec passed; a missing cell (the field pass threw) is red.
+ */
+function fieldMatrix(report) {
+  const cells = new Map()
+  for (const item of report.checks) {
+    const match = FIELD_CHECK.exec(item.name)
+    if (match === null || !MATRIX_FIELDS.includes(match[1])) continue
+    const key = `${match[1]}|${item.codec}`
+    const cell = cells.get(key) ?? { failed: [] }
+    if (!item.passed) {
+      const label = item.name.startsWith('reader:') ? `reader ${match[2] ?? ''}` : match[2]
+      cell.failed.push((label ?? 'read').trim())
+    }
+    cells.set(key, cell)
+  }
+  return MATRIX_FIELDS.map((field) => {
+    const row = CODECS.map((codec) => {
+      const cell = cells.get(`${field}|${codec.id}`)
+      if (cell === undefined) return { green: false, text: '— (no result)' }
+      return cell.failed.length === 0
+        ? { green: true, text: '✅' }
+        : { green: false, text: `❌ ${cell.failed.join(', ')}` }
+    })
+    return { field, row, green: row.every((cell) => cell.green) }
+  })
+}
+
 function markdownReport(report, env) {
   const failed = report.checks.filter((item) => !item.passed)
+  const matrix = fieldMatrix(report)
   const lines = []
-  lines.push('# Tag write-back corpus — round-trip gate (W16-3 / W16-13)')
+  lines.push('# Tag write-back corpus — round-trip gate (W16-3 / W16-13 / W16-16)')
   lines.push('')
   lines.push(`- Result: **${failed.length === 0 ? 'PASS' : 'FAIL'}**`)
   lines.push(`- Checks: ${report.checks.length - failed.length}/${report.checks.length} passed`)
@@ -70,6 +109,25 @@ function markdownReport(report, env) {
   lines.push(`- ffmpeg: ${env.ffmpeg}`)
   lines.push(`- node-taglib-sharp: ${env.taglib}`)
   lines.push(`- Corpus version: ${report.version}`)
+  lines.push('')
+
+  const red = matrix.filter((row) => !row.green).map((row) => row.field)
+  lines.push('## Field matrix (W16-16, Decision D)')
+  lines.push('')
+  lines.push(
+    'A field is admitted to the registry only when its row is green on every codec. ' +
+      'A red cell is a triage card and the field stays non-admitted — never a fix ' +
+      'folded into this run.'
+  )
+  lines.push('')
+  lines.push(`- Green on all five: ${matrix.length - red.length}/${matrix.length}`)
+  lines.push(`- Red: ${red.length === 0 ? 'none' : red.map((field) => `\`${field}\``).join(', ')}`)
+  lines.push('')
+  lines.push(`| Field | ${CODECS.map((codec) => codec.id).join(' | ')} |`)
+  lines.push(`| --- | ${CODECS.map(() => '---').join(' | ')} |`)
+  for (const { field, row } of matrix) {
+    lines.push(`| \`${field}\` | ${row.map((cell) => cell.text).join(' | ')} |`)
+  }
   lines.push('')
 
   for (const codec of CODECS) {
@@ -106,6 +164,13 @@ function markdownReport(report, env) {
       'leave custom frames untouched. Decoded PCM is hashed before and after to ' +
       'prove the audio stream was never rewritten. Apple `covr` has no picture-type ' +
       'field, so back-cover checks skip AAC.'
+  )
+  lines.push(
+    '- Field cells cover set, clear and (for lists) an ordered two-entry write, ' +
+      'type-exact for ints and bools. A clear is green only if no other field — ' +
+      'generic or grouped — moved with it. Read-only ReplayGain rows are seeded and ' +
+      'read back, never cleared. Album artist is also read through music-metadata, ' +
+      'which is what the scanner groups albums on.'
   )
   lines.push('')
   return lines.join('\n')
