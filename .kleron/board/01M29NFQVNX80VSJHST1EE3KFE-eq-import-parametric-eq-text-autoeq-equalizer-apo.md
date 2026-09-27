@@ -1,7 +1,7 @@
 ---
 taskId: 01M29NFQVNX80VSJHST1EE3KFE
 title: 'EQ: import parametric EQ text (AutoEq / Equalizer APO)'
-status: in-review
+status: done
 priority: medium
 labels:
   - eq
@@ -13,9 +13,9 @@ workstreamId: W19-8
 dependsOn:
   - 01M1FJWETAJMAMQ5VE07A2J9QP
   - 01M1FJXM0N7Q7RQV88PQ3CHV03
-order: 4
+order: 12
 created: '2026-09-12T02:00:04.724Z'
-updated: '2026-09-12T02:00:48.238Z'
+updated: '2026-09-27T00:20:50.453Z'
 ---
 ## Intent
 

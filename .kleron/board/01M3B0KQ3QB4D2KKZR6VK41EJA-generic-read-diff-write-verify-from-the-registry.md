@@ -1,7 +1,7 @@
 ---
 taskId: 01M3B0KQ3QB4D2KKZR6VK41EJA
 title: Generic read + diff/write/verify from the registry
-status: in-review
+status: done
 priority: medium
 labels:
   - '1.1'
@@ -11,9 +11,9 @@ workstreamId: W16-17
 dependsOn:
   - 01M3B0K85G0NMJA750XPCCCD4T
   - 01M3B0KDSAV680QFJSH85BC1Y3
-order: 1
+order: 6
 created: '2026-09-25T00:49:25.621Z'
-updated: '2026-09-27T00:19:07.395Z'
+updated: '2026-09-27T00:20:50.338Z'
 ---
 Design: `oscine-tag-writeback` → "The full tag surface", **Decision E** (generic tier) and R6/R7.
 

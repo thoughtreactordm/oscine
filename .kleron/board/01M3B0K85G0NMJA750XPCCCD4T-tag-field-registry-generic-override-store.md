@@ -1,16 +1,16 @@
 ---
 taskId: 01M3B0K85G0NMJA750XPCCCD4T
 title: Tag field registry + generic override store
-status: in-review
+status: done
 priority: medium
 labels:
   - '1.1'
   - tag-writeback
 workstream: W16
 workstreamId: W16-15
-order: 6
+order: 14
 created: '2026-09-25T00:49:10.319Z'
-updated: '2026-09-25T21:26:07.061Z'
+updated: '2026-09-27T00:20:50.496Z'
 ---
 Design: `oscine-tag-writeback` → "The full tag surface", **Decisions D, E, F, G** and the registry table.
 

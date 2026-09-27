@@ -1,16 +1,16 @@
 ---
 taskId: 01M3B0JWCH534TAE9H70BBP0E8
 title: Album artist as a grouped override field
-status: in-review
+status: done
 priority: high
 labels:
   - '1.1'
   - tag-writeback
 workstream: W16
 workstreamId: W16-14
-order: 2
+order: 10
 created: '2026-09-25T00:48:58.256Z'
-updated: '2026-09-25T21:17:49.419Z'
+updated: '2026-09-27T00:20:50.413Z'
 ---
 Design: `oscine-tag-writeback` → "The full tag surface", **Decision E** (grouped tier).
 

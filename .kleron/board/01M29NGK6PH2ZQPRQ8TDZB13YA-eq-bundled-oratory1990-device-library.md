@@ -1,7 +1,7 @@
 ---
 taskId: 01M29NGK6PH2ZQPRQ8TDZB13YA
 title: 'EQ: bundled oratory1990 device library'
-status: in-review
+status: done
 priority: medium
 labels:
   - eq
@@ -14,9 +14,9 @@ workstreamId: W19-9
 dependsOn:
   - 01M29NFQVNX80VSJHST1EE3KFE
   - 01M1FJYKECE08QTX8M1E7PSDA3
-order: 1
+order: 4
 created: '2026-09-12T02:00:32.725Z'
-updated: '2026-09-15T22:02:37.921Z'
+updated: '2026-09-27T00:20:50.300Z'
 ---
 ## Intent
 

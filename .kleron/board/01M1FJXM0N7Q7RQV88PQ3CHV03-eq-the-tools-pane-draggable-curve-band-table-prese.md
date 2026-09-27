@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJXM0N7Q7RQV88PQ3CHV03
 title: 'EQ: the Tools pane — draggable curve, band table, preset bar'
-status: in-review
+status: done
 priority: medium
 labels:
   - eq
@@ -14,9 +14,9 @@ workstreamId: W19-4
 dependsOn:
   - 01M1FJVCQN5B4BZKETP8H0DDQC
   - 01M1FJWETAJMAMQ5VE07A2J9QP
-order: 3
+order: 11
 created: '2026-09-01T22:54:58.581Z'
-updated: '2026-09-12T01:43:27.573Z'
+updated: '2026-09-27T00:20:50.431Z'
 ---
 ## Intent
 

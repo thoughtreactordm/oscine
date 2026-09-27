@@ -1,7 +1,7 @@
 ---
 taskId: 01M2KB7XJ25SJ3CW87EJDGV7G5
 title: 'EQ: in-situ override editing toggle'
-status: in-review
+status: done
 priority: low
 labels:
   - eq
@@ -13,9 +13,9 @@ workstreamId: W19-11
 dependsOn:
   - 01M1FJZGK6EKG2HRQN94MPQK0M
   - 01M2JVW46WSPGJ8Y04VQZSZJMW
-order: 0
+order: 2
 created: '2026-09-15T20:13:26.977Z'
-updated: '2026-09-15T21:22:27.587Z'
+updated: '2026-09-27T00:20:50.259Z'
 ---
 ## Intent
 

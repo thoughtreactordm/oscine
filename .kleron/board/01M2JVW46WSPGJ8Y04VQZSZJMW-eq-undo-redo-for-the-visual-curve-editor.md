@@ -1,7 +1,7 @@
 ---
 taskId: 01M2JVW46WSPGJ8Y04VQZSZJMW
 title: 'EQ: undo/redo for the visual curve editor'
-status: in-review
+status: done
 priority: low
 labels:
   - eq
@@ -13,9 +13,9 @@ workstreamId: W19-10
 dependsOn:
   - 01M1FJXM0N7Q7RQV88PQ3CHV03
   - 01M1FJWETAJMAMQ5VE07A2J9QP
-order: 5
+order: 13
 created: '2026-09-15T15:44:51.931Z'
-updated: '2026-09-15T15:44:51.931Z'
+updated: '2026-09-27T00:20:50.475Z'
 ---
 ## Intent
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01M3B0KDSAV680QFJSH85BC1Y3
 title: Corpus extension — per-field round-trip gate
-status: in-review
+status: done
 priority: medium
 labels:
   - '1.1'
@@ -9,9 +9,9 @@ labels:
   - gate
 workstream: W16
 workstreamId: W16-16
-order: 1
+order: 5
 created: '2026-09-25T00:49:16.073Z'
-updated: '2026-09-25T21:39:59.932Z'
+updated: '2026-09-27T00:20:50.319Z'
 ---
 Design: `oscine-tag-writeback` → "Test corpus (W16-3)" and **Decision D** (a field enters the registry only when its check is green on all five codecs).
 

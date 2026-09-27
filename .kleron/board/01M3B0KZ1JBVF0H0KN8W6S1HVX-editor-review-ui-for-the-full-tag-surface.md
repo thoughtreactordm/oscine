@@ -1,7 +1,7 @@
 ---
 taskId: 01M3B0KZ1JBVF0H0KN8W6S1HVX
 title: Editor + review UI for the full tag surface
-status: in-review
+status: done
 priority: medium
 labels:
   - '1.1'
@@ -11,9 +11,9 @@ workstream: W16
 workstreamId: W16-18
 dependsOn:
   - 01M3B0KQ3QB4D2KKZR6VK41EJA
-order: 1
+order: 7
 created: '2026-09-25T00:49:33.745Z'
-updated: '2026-09-27T00:19:08.298Z'
+updated: '2026-09-27T00:20:50.356Z'
 ---
 Design: `oscine-tag-writeback` → "The full tag surface" (registry table, Decisions F–H).
 
