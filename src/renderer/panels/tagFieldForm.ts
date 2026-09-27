@@ -222,3 +222,58 @@ export function formatTagValue(field: TagFieldDef, value: TagFieldValue | null):
   if (typeof value === 'number' && field.kind === 'real') return formatReal(value)
   return String(value)
 }
+
+/** One read-only row of the Track Info dialog's generic sections. */
+export interface TagInfoRow {
+  readonly key: string
+  readonly label: string
+  readonly value: string
+  /** A free-text frame (lyrics, description) that wants its own block, not a cell. */
+  readonly multiline: boolean
+}
+
+/** One Track Info section: a registry group and the rows that carry something. */
+export interface TagInfoSection {
+  readonly group: TagFieldGroup
+  readonly label: string
+  readonly rows: readonly TagInfoRow[]
+}
+
+/** Whether a folded cell has anything to show: not mixed, not empty, not a lowered flag. */
+function hasInfoValue(value: TagFieldValue | null | undefined): value is TagFieldValue {
+  if (value === null || value === undefined) return false
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'string') return value.trim() !== ''
+  // An absent flag and a lowered one read the same off the file, so only a raised one is a fact.
+  if (typeof value === 'boolean') return value
+  return true
+}
+
+/**
+ * The Track Info dialog's view of the generic surface: the editor's sections,
+ * in the editor's order, keeping only the fields that hold a value — a fact we
+ * do not have is not a row. The read-only group is left out because the
+ * dialog's own ReplayGain section already reads those values from the index.
+ */
+export function buildTagInfoSections(
+  state: Readonly<Record<string, OverrideFieldState<TagFieldValue> | undefined>>,
+  registry: readonly TagFieldDef[] = TAG_FIELDS
+): TagInfoSection[] {
+  const sections: TagInfoSection[] = []
+  for (const section of tagFieldSections(registry)) {
+    if (section.group === 'readOnly') continue
+    const rows: TagInfoRow[] = []
+    for (const field of section.fields) {
+      const cell = state[field.key]
+      if (cell === undefined || cell.mixed || !hasInfoValue(cell.value)) continue
+      rows.push({
+        key: field.key,
+        label: field.label,
+        value: formatTagValue(field, cell.value),
+        multiline: isMultiline(field)
+      })
+    }
+    if (rows.length > 0) sections.push({ group: section.group, label: section.label, rows })
+  }
+  return sections
+}

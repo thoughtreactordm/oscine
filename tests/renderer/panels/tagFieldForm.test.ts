@@ -8,6 +8,7 @@ import {
 } from '../../../src/shared/tagFields'
 import {
   buildTagFieldSave,
+  buildTagInfoSections,
   formValue,
   formValues,
   formatTagValue,
@@ -188,5 +189,64 @@ describe('isMultiline / formatTagValue', () => {
     expect(formatTagValue(def('bpm'), 120)).toBe('120')
     expect(formatTagValue(def('replayGainAlbumPeak'), 0.98828125)).toBe('0.9883')
     expect(formatTagValue(def('conductor'), null)).toBe('—')
+  })
+})
+
+describe('buildTagInfoSections', () => {
+  it('keeps only fields with a value, in editor group order', () => {
+    const sections = buildTagInfoSections({
+      conductor: cell('Karajan'),
+      composers: cell(['Bach', 'Handel']),
+      bpm: cell(120),
+      publisher: cell(''),
+      artistSort: cell([]),
+      isrc: cell(null)
+    })
+    expect(sections.map((section) => section.group)).toEqual(['credits', 'content'])
+    expect(sections[0]?.rows.map((row) => [row.key, row.value])).toEqual([
+      ['composers', 'Bach; Handel'],
+      ['conductor', 'Karajan']
+    ])
+    expect(sections[1]?.rows.map((row) => [row.key, row.value])).toEqual([['bpm', '120']])
+  })
+
+  it('shows a raised flag and drops a lowered one', () => {
+    expect(buildTagInfoSections({ compilation: cell(false) })).toEqual([])
+    expect(buildTagInfoSections({ compilation: cell(true) })[0]?.rows[0]?.value).toBe('Yes')
+  })
+
+  it('leaves out the read-only group, mixed cells and held fields', () => {
+    expect(
+      buildTagInfoSections({
+        replayGainTrackGain: cell(-6.5),
+        subtitle: cell('Live', { mixed: true }),
+        comment: cell('held')
+      })
+    ).toEqual([])
+  })
+
+  it('marks free-text frames as multiline', () => {
+    const [section] = buildTagInfoSections({ lyrics: cell('la la'), initialKey: cell('Am') })
+    expect(section?.rows.map((row) => [row.key, row.multiline])).toEqual([
+      ['lyrics', true],
+      ['initialKey', false]
+    ])
+  })
+
+  it('draws a throwaway registry entry with no component change', () => {
+    const extra: TagFieldDef = {
+      key: 'mood',
+      label: 'Mood',
+      group: 'content',
+      taglib: 'mood',
+      kind: 'text',
+      maxLength: 100,
+      readOnly: false,
+      admitted: true
+    }
+    const sections = buildTagInfoSections({ mood: cell('Wistful') }, [...TAG_FIELDS, extra])
+    expect(sections[0]?.rows).toEqual([
+      { key: 'mood', label: 'Mood', value: 'Wistful', multiline: false }
+    ])
   })
 })
