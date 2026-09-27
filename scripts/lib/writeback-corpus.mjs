@@ -7,6 +7,7 @@ import { parseFile } from 'music-metadata'
 import taglib from 'node-taglib-sharp'
 
 import { CLEAR_VALUE, FIELD_CASES, REAL_TOLERANCE } from './writeback-field-cases.mjs'
+import { readTagProperty, writeTagProperty } from './writeback-tag-access.mjs'
 
 const {
   ByteVector,
@@ -669,7 +670,10 @@ function groupedDrift(before, after) {
  */
 function fieldSnapshot(tag) {
   return Object.fromEntries(
-    FIELD_CASES.map((fieldCase) => [fieldCase.key, JSON.stringify(tag[fieldCase.taglib])])
+    FIELD_CASES.map((fieldCase) => [
+      fieldCase.key,
+      JSON.stringify(readTagProperty(tag, fieldCase.taglib))
+    ])
   )
 }
 
@@ -710,7 +714,7 @@ async function verifyFieldWrites(checks, codec, path, tagType) {
     let assignError = null
     withFile(scratch, (file) => {
       try {
-        file.tag[fieldCase.taglib] = Array.isArray(value) ? [...value] : value
+        writeTagProperty(file.tag, fieldCase.taglib, Array.isArray(value) ? [...value] : value)
       } catch (error) {
         assignError = errorMessage(error)
         return
@@ -723,7 +727,7 @@ async function verifyFieldWrites(checks, codec, path, tagType) {
     }
 
     return withFile(scratch, (file) => {
-      const actual = file.tag[fieldCase.taglib]
+      const actual = readTagProperty(file.tag, fieldCase.taglib)
       const after = fieldSnapshot(file.tag)
       const collateral = FIELD_CASES.filter(
         (other) => other.key !== fieldCase.key && after[other.key] !== before.fields[other.key]
@@ -760,15 +764,23 @@ async function verifyFieldWrites(checks, codec, path, tagType) {
     await copyFile(path, populated)
     withFile(populated, (file) => {
       for (const fieldCase of green) {
-        file.tag[fieldCase.taglib] =
+        writeTagProperty(
+          file.tag,
+          fieldCase.taglib,
           fieldCase.kind === 'list' ? [...fieldCase.value] : fieldCase.value
+        )
       }
       file.save()
     })
     withFile(populated, (file) => {
       const wrong = green
         .filter(
-          (fieldCase) => !fieldValueMatches(fieldCase, file.tag[fieldCase.taglib], fieldCase.value)
+          (fieldCase) =>
+            !fieldValueMatches(
+              fieldCase,
+              readTagProperty(file.tag, fieldCase.taglib),
+              fieldCase.value
+            )
         )
         .map((fieldCase) => fieldCase.key)
       check(

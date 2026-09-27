@@ -147,7 +147,7 @@ describe('applyTagFields — exactly the keys present', () => {
   })
 
   it('refuses a held, read-only or unknown key before assigning anything', () => {
-    for (const key of ['comment', 'replayGainTrackGain', 'notAField']) {
+    for (const key of ['musicBrainzArtistId', 'replayGainTrackGain', 'notAField']) {
       const { tag, assigned } = recordingTag()
       expect(() => applyTagFields(tag, { conductor: 'x', [key]: 'y' })).toThrow(/refusing/)
       expect(assigned.size).toBe(0)
@@ -293,7 +293,7 @@ describe('writeTags — generic fields (injected seams)', () => {
     let applied = false
     const outcome = await writeTags(
       path,
-      { ...BASE, fields: { conductor: 'x', comment: 'held' } },
+      { ...BASE, fields: { conductor: 'x', musicBrainzArtistId: 'held' } },
       {
         applyTags: () => {
           applied = true
@@ -302,7 +302,7 @@ describe('writeTags — generic fields (injected seams)', () => {
       }
     )
     expect(outcome).toMatchObject({ ok: false, code: 'write-failed' })
-    if (!outcome.ok) expect(outcome.reason).toMatch(/comment/)
+    if (!outcome.ok) expect(outcome.reason).toMatch(/musicBrainzArtistId/)
     expect(applied).toBe(false)
     expect(readFileSync(path, 'utf8')).toBe(ORIGINAL)
     expect(readdirSync(dir)).toEqual(['track.flac'])
@@ -364,13 +364,13 @@ describe('computePendingWrite — generic diffs', () => {
   it('leaves a held or read-only correction out of the diff', () => {
     const pending = pendingFor(
       [
-        ['comment', 'held'],
+        ['musicBrainzArtistId', 'held'],
         ['replayGainTrackGain', -3]
       ],
       []
     )
     expect(pending.fields).toEqual({})
-    expect(flushableOverrideKeys(new Map([['comment', 'x']]))).toEqual([])
+    expect(flushableOverrideKeys(new Map([['musicBrainzArtistId', 'x']]))).toEqual([])
   })
 })
 
@@ -454,7 +454,7 @@ describe('TagWritebackService — generic flush', () => {
     const writes: WritableTags[] = []
     const retired: Array<readonly string[]> = []
     const report = await service(writes, retired).apply(
-      [{ trackId: 1, fields: ['conductor', 'comment'] }],
+      [{ trackId: 1, fields: ['conductor', 'musicBrainzArtistId'] }],
       () => {}
     )
     expect(report.outcomes).toEqual([{ trackId: 1, status: 'failed', code: 'write-failed' }])

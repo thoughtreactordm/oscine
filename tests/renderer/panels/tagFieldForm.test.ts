@@ -220,7 +220,7 @@ describe('buildTagInfoSections', () => {
       buildTagInfoSections({
         replayGainTrackGain: cell(-6.5),
         subtitle: cell('Live', { mixed: true }),
-        comment: cell('held')
+        musicBrainzArtistId: cell('held')
       })
     ).toEqual([])
   })

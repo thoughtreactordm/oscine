@@ -190,8 +190,7 @@ export const TAG_FIELDS = [
   text('isrc', 'ISRC', 'release', 'isrc'),
   bool('compilation', 'Compilation', 'release', 'isCompilation'),
   // Content
-  // W16-19: ID3v2's comment accessor overwrites a described COMM frame.
-  held(text('comment', 'Comment', 'content', 'comment', TAG_LONG_TEXT_MAX_LENGTH)),
+  text('comment', 'Comment', 'content', 'comment', TAG_LONG_TEXT_MAX_LENGTH),
   text('description', 'Description', 'content', 'description', TAG_LONG_TEXT_MAX_LENGTH),
   text('lyrics', 'Lyrics', 'content', 'lyrics', TAG_LONG_TEXT_MAX_LENGTH),
   int('bpm', 'BPM', 'content', 'beatsPerMinute', 999),

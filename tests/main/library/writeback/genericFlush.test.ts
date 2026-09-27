@@ -104,7 +104,7 @@ describe('generic corrections through the library service (synthesised files)', 
 
   it('does not list or mark a track whose only correction is under a held key', async () => {
     db.prepare(
-      "INSERT INTO track_tag_overrides (track_id, field, value, updated_at) VALUES (?, 'comment', '\"x\"', 1)"
+      "INSERT INTO track_tag_overrides (track_id, field, value, updated_at) VALUES (?, 'musicBrainzArtistId', '\"x\"', 1)"
     ).run(trackId)
     expect(await service.pendingWritebackTrackIds()).toEqual([])
     expect(await modified()).toBe(false)
@@ -145,7 +145,7 @@ describe('generic corrections through the library service (synthesised files)', 
     expect(state.composers).toEqual({ value: ['A', 'B'], mixed: false, overridden: false })
     // Read-only ReplayGain is prefilled; a held field is not.
     expect(state).toHaveProperty('replayGainTrackGain')
-    expect(state).not.toHaveProperty('comment')
+    expect(state).not.toHaveProperty('musicBrainzArtistId')
   })
 })
 

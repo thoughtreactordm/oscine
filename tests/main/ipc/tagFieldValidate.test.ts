@@ -206,8 +206,8 @@ describe('write-back selections name generic keys (W16-17)', () => {
 
   it('accepts a held key at the boundary — the flush refuses it per file', () => {
     expect(
-      assertWritebackApplyRequest({ selections: [{ trackId: 1, fields: ['comment'] }] })
-    ).toEqual({ selections: [{ trackId: 1, fields: ['comment'] }] })
+      assertWritebackApplyRequest({ selections: [{ trackId: 1, fields: ['musicBrainzArtistId'] }] })
+    ).toEqual({ selections: [{ trackId: 1, fields: ['musicBrainzArtistId'] }] })
   })
 
   it('refuses a key that is neither', () => {
