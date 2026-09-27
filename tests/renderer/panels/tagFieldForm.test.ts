@@ -17,6 +17,7 @@ import {
   tagFieldSections,
   tagFormDirty
 } from '../../../src/renderer/panels/tagFieldForm'
+import { pinAdmission } from '../../support/pinAdmission'
 
 /**
  * The metadata editor's "All fields" model — W16-18, the pure half. Sections
@@ -193,6 +194,8 @@ describe('isMultiline / formatTagValue', () => {
 })
 
 describe('buildTagInfoSections', () => {
+  pinAdmission({ musicBrainzArtistId: false })
+
   it('keeps only fields with a value, in editor group order', () => {
     const sections = buildTagInfoSections({
       conductor: cell('Karajan'),

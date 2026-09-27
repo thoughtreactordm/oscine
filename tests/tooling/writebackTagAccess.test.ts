@@ -5,6 +5,8 @@ import {
   Id3v2CommentsFrame,
   Id3v2FrameClassType,
   Id3v2Tag,
+  Mpeg4AppleTag,
+  Mpeg4IsoUserDataBox,
   TagTypes,
   type Tag
 } from 'node-taglib-sharp'
@@ -139,10 +141,58 @@ describe.each(IMPLEMENTATIONS)('ID3v2 comment through the %s', (_, access) => {
     expect(access.readTagProperty(v1, 'comment')).toBe('plain')
   })
 
-  it('reads and assigns any other property as the plain Tag property', () => {
+  it('reads and assigns any unlisted property as the plain Tag property', () => {
     const tag = id3v2([])
     access.writeTagProperty(tag, 'conductor', 'Nadia Boulanger')
     expect(tag.conductor).toBe('Nadia Boulanger')
     expect(access.readTagProperty(tag, 'conductor')).toBe('Nadia Boulanger')
+  })
+})
+
+/**
+ * W16-20. node-taglib-sharp's `AppleTag` splits a MusicBrainz artist id on `/`
+ * before storing it, so the text clear (`undefined`) throws on MP4. The writer
+ * clears there with `''`, which the setter stores as no box; every other tag
+ * family takes the clear as it is.
+ */
+const SPLIT_IDS = ['musicBrainzArtistId', 'musicBrainzReleaseArtistId'] as const
+const JOINED = '0383dadf-2a4e-4d10-a46a-e9e041da8eb3/b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d'
+
+function appleTag(): Mpeg4AppleTag {
+  return new Mpeg4AppleTag(Mpeg4IsoUserDataBox.fromEmpty())
+}
+
+describe.each(IMPLEMENTATIONS)('MusicBrainz artist ids through the %s', (_, access) => {
+  it.each(SPLIT_IDS)('clears %s on MP4 without throwing', (property) => {
+    const tag = appleTag()
+    access.writeTagProperty(tag, property, JOINED)
+    for (const clear of [undefined, null, '']) {
+      expect(() => access.writeTagProperty(tag, property, clear)).not.toThrow()
+      expect(access.readTagProperty(tag, property)).toBeUndefined()
+      access.writeTagProperty(tag, property, JOINED)
+    }
+    // The portable setter is the bug.
+    expect(() => {
+      ;(tag as unknown as Record<string, unknown>)[property] = undefined
+    }).toThrow()
+  })
+
+  it.each(SPLIT_IDS)(
+    'stores a joined %s as one MP4 string per id and reads it back joined',
+    (property) => {
+      const tag = appleTag()
+      access.writeTagProperty(tag, property, JOINED)
+      expect(access.readTagProperty(tag, property)).toBe(JOINED)
+      const name =
+        property === 'musicBrainzArtistId' ? 'MusicBrainz Artist Id' : 'MusicBrainz Album Artist Id'
+      expect(tag.getItunesStrings('com.apple.iTunes', name)).toEqual(JOINED.split('/'))
+    }
+  )
+
+  it.each(SPLIT_IDS)('leaves %s on other tag families to the plain clear', (property) => {
+    const tag = Id3v2Tag.fromEmpty()
+    access.writeTagProperty(tag, property, JOINED)
+    access.writeTagProperty(tag, property, undefined)
+    expect(access.readTagProperty(reopened(tag), property)).toBeUndefined()
   })
 })

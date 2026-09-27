@@ -161,6 +161,7 @@ function replayGain<K extends string>(
  * is red (Decision D). Each use names the triage card that owns the red cell;
  * lift the hold only once that card's fix turns the whole row green.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- no field is held today; the next red cell uses it
 function held<F extends TagFieldDef>(field: F): F {
   return { ...field, admitted: false }
 }
@@ -202,15 +203,12 @@ export const TAG_FIELDS = [
   text('albumSort', 'Album sort', 'sorting', 'albumSort'),
   list('composerSort', 'Composer sort', 'sorting', 'composersSort'),
   // Advanced — editable, not hidden (Decision F): a mismatched release is fixed here.
-  // W16-20: the Apple setters for both artist ids throw on clear.
-  held(text('musicBrainzArtistId', 'MusicBrainz artist id', 'advanced', 'musicBrainzArtistId')),
-  held(
-    text(
-      'musicBrainzReleaseArtistId',
-      'MusicBrainz release artist id',
-      'advanced',
-      'musicBrainzReleaseArtistId'
-    )
+  text('musicBrainzArtistId', 'MusicBrainz artist id', 'advanced', 'musicBrainzArtistId'),
+  text(
+    'musicBrainzReleaseArtistId',
+    'MusicBrainz release artist id',
+    'advanced',
+    'musicBrainzReleaseArtistId'
   ),
   text('musicBrainzReleaseId', 'MusicBrainz release id', 'advanced', 'musicBrainzReleaseId'),
   text(

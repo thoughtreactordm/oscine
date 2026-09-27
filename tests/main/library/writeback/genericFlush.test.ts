@@ -17,6 +17,7 @@ import {
   trackPathResolver
 } from '../../../../src/main/library/writeback/service'
 import { buildWritebackCorpus } from '../../../../scripts/lib/writeback-corpus.mjs'
+import { pinAdmission } from '../../../support/pinAdmission'
 
 /**
  * The generic tier through the database — **W16-17**.
@@ -50,6 +51,8 @@ function tags(over: Partial<TrackTags> = {}): TrackTags {
 }
 
 describe('generic corrections through the library service (synthesised files)', () => {
+  pinAdmission({ musicBrainzArtistId: false })
+
   let workDir: string
   let db: ReturnType<typeof openDatabase>['db']
   let service: SqliteLibraryService
@@ -102,9 +105,11 @@ describe('generic corrections through the library service (synthesised files)', 
     expect(await modified()).toBe(true)
   })
 
-  it('does not list or mark a track whose only correction is under a held key', async () => {
+  it('does not list or mark a track whose only correction is not flushable', async () => {
+    // The store builds its flushable-key SQL once, at load, so a pinned hold never
+    // reaches it; a read-only key goes through the same `isEditableTagField` filter.
     db.prepare(
-      "INSERT INTO track_tag_overrides (track_id, field, value, updated_at) VALUES (?, 'musicBrainzArtistId', '\"x\"', 1)"
+      "INSERT INTO track_tag_overrides (track_id, field, value, updated_at) VALUES (?, 'replayGainTrackGain', '-3', 1)"
     ).run(trackId)
     expect(await service.pendingWritebackTrackIds()).toEqual([])
     expect(await modified()).toBe(false)

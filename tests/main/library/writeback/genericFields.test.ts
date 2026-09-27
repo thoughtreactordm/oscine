@@ -29,6 +29,7 @@ import {
   writableTagsFromSelection,
   type WritableTags
 } from '../../../../src/main/library/writeback/writer'
+import { pinAdmission } from '../../../support/pinAdmission'
 
 /**
  * The generic tier's read → diff → write → verify — **W16-17**, Decision E.
@@ -37,6 +38,9 @@ import {
  * `Tag`, a synthesised file read, and the engine's `applyTags`/`read`/
  * `readFields`. The real-codec round-trip is `genericFlush.test.ts`.
  */
+
+// The held key the refusal tests name, whatever the corpus gate has admitted.
+pinAdmission({ musicBrainzArtistId: false })
 
 function fileTags(over: Partial<TrackTags> = {}): TrackTags {
   return {

@@ -3,6 +3,7 @@ import {
   Id3v2CommentsFrame,
   Id3v2FrameClassType,
   Id3v2Tag,
+  Mpeg4AppleTag,
   File as TagFile,
   type Tag
 } from 'node-taglib-sharp'
@@ -129,6 +130,28 @@ function writeComment(tag: Tag, value: unknown): void {
   }
 }
 
+/** The plain `Tag` property, read as-is. */
+function plainRead(property: string): (tag: Tag) => unknown {
+  return (tag) => (tag as unknown as TagProperties)[property]
+}
+
+/**
+ * A multi-valued MusicBrainz id, cleared on MP4 with `''` — **W16-20**.
+ *
+ * node-taglib-sharp's `AppleTag` stores these ids as one iTunes string per
+ * `/`-separated id, and its setter splits the value before storing it, so the
+ * text clear value (`undefined`) throws there. `''` splits to one empty id, which
+ * the setter skips, leaving no box. Every other tag family takes the text clear as
+ * it is. An MP4's tag is the Apple tag itself, never a combined one.
+ */
+function writeSplitId(property: string): (tag: Tag, value: unknown) => void {
+  return (tag, value) => {
+    const cleared = value === undefined || value === null || value === ''
+    ;(tag as unknown as TagProperties)[property] =
+      cleared && tag instanceof Mpeg4AppleTag ? '' : value
+  }
+}
+
 /**
  * The registry properties whose portable accessor is not safe to go through, and
  * what to use instead. Everything else is read and assigned as the plain `Tag`
@@ -138,7 +161,15 @@ function writeComment(tag: Tag, value: unknown): void {
 const PROPERTY_ACCESS: Readonly<
   Record<string, { read(tag: Tag): unknown; write(tag: Tag, value: unknown): void }>
 > = {
-  comment: { read: readComment, write: writeComment }
+  comment: { read: readComment, write: writeComment },
+  musicBrainzArtistId: {
+    read: plainRead('musicBrainzArtistId'),
+    write: writeSplitId('musicBrainzArtistId')
+  },
+  musicBrainzReleaseArtistId: {
+    read: plainRead('musicBrainzReleaseArtistId'),
+    write: writeSplitId('musicBrainzReleaseArtistId')
+  }
 }
 
 /** A registry property's raw value, through its safe accessor. */

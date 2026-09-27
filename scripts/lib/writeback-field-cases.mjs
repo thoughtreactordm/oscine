@@ -88,11 +88,17 @@ export const FIELD_CASES = Object.freeze([
     ['Bingen, Hildegard von'],
     ['Bingen, Hildegard von', 'Pärt, Arvo']
   ),
-  text('musicBrainzArtistId', 'musicBrainzArtistId', '0383dadf-2a4e-4d10-a46a-e9e041da8eb3'),
+  // Two ids joined with `/`, the multi-artist form: MP4 stores one iTunes string
+  // per id and must read them back joined (W16-20).
+  text(
+    'musicBrainzArtistId',
+    'musicBrainzArtistId',
+    '0383dadf-2a4e-4d10-a46a-e9e041da8eb3/b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d'
+  ),
   text(
     'musicBrainzReleaseArtistId',
     'musicBrainzReleaseArtistId',
-    '89ad4ac3-39f7-470e-963a-56509c546377'
+    '89ad4ac3-39f7-470e-963a-56509c546377/f27ec8db-af05-4f36-916e-3d57f91ecf5e'
   ),
   text('musicBrainzReleaseId', 'musicBrainzReleaseId', '5b11f4ce-a62d-471e-81fc-a69a8278c7da'),
   text(

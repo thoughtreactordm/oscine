@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { OscineError } from '@shared/errors'
 import { MAX_OVERRIDE_TRACKS } from '@shared/overrides'
 import {
@@ -16,6 +16,7 @@ import {
   assertTagFieldValue,
   assertWritebackApplyRequest
 } from '../../../src/main/ipc/validate'
+import { pinAdmission } from '../../support/pinAdmission'
 
 /**
  * Generic tag-field validation — **W16-15**. Every rule is driven by the
@@ -96,26 +97,12 @@ describe('assertTagFieldValue', () => {
 })
 
 describe('assertSetTagOverridesRequest', () => {
-  // Admission follows the W16-16 corpus gate; pin the states these tests rely on
-  // and restore the registry's own afterwards, whatever the gate has admitted.
-  const pinned: Record<string, boolean> = {
+  pinAdmission({
     composers: true,
     bpm: true,
     compilation: true,
     conductor: true,
     publisher: false
-  }
-  const original = new Map<string, boolean>()
-  beforeEach(() => {
-    for (const [key, admitted] of Object.entries(pinned)) {
-      const entry = field(key) as { admitted: boolean }
-      original.set(key, entry.admitted)
-      entry.admitted = admitted
-    }
-  })
-  afterEach(() => {
-    for (const [key, admitted] of original)
-      (field(key) as { admitted: boolean }).admitted = admitted
   })
 
   it('accepts admitted fields and validates each value by kind', () => {
@@ -196,6 +183,8 @@ describe('assertTagFieldEditStateRequest (W16-17)', () => {
 })
 
 describe('write-back selections name generic keys (W16-17)', () => {
+  pinAdmission({ musicBrainzArtistId: false })
+
   it('accepts grouped and registry keys together', () => {
     expect(
       assertWritebackApplyRequest({

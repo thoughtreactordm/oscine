@@ -8,11 +8,12 @@
  *
  * A gate that assigned `tag[property]` directly would be testing node-taglib-sharp
  * rather than the writer: W16-19's ID3v2 `comment` would stay red after the
- * writer stopped clobbering described COMM frames, or go green without it.
+ * writer stopped clobbering described COMM frames, or go green without it; W16-20's
+ * MP4 artist-id clears would throw where the writer does not.
  */
 import taglib from 'node-taglib-sharp'
 
-const { CombinedTag, Id3v2CommentsFrame, Id3v2FrameClassType, Id3v2Tag } = taglib
+const { CombinedTag, Id3v2CommentsFrame, Id3v2FrameClassType, Id3v2Tag, Mpeg4AppleTag } = taglib
 
 function leafTags(tag) {
   return tag instanceof CombinedTag ? tag.tags : [tag]
@@ -63,8 +64,28 @@ function writeComment(tag, value) {
   }
 }
 
+function plainRead(property) {
+  return (tag) => tag[property]
+}
+
+/** W16-20: MP4's MB artist-id setters split on `/`, so a clear goes as `''`. */
+function writeSplitId(property) {
+  return (tag, value) => {
+    const cleared = value === undefined || value === null || value === ''
+    tag[property] = cleared && tag instanceof Mpeg4AppleTag ? '' : value
+  }
+}
+
 const PROPERTY_ACCESS = Object.freeze({
-  comment: Object.freeze({ read: readComment, write: writeComment })
+  comment: Object.freeze({ read: readComment, write: writeComment }),
+  musicBrainzArtistId: Object.freeze({
+    read: plainRead('musicBrainzArtistId'),
+    write: writeSplitId('musicBrainzArtistId')
+  }),
+  musicBrainzReleaseArtistId: Object.freeze({
+    read: plainRead('musicBrainzReleaseArtistId'),
+    write: writeSplitId('musicBrainzReleaseArtistId')
+  })
 })
 
 /** A registry property's raw value, through its safe accessor. */
