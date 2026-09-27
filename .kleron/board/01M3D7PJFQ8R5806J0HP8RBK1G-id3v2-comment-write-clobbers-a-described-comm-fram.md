@@ -1,7 +1,7 @@
 ---
 taskId: 01M3D7PJFQ8R5806J0HP8RBK1G
 title: ID3v2 `comment` write clobbers a described COMM frame
-status: triage
+status: done
 priority: medium
 labels:
   - '1.1'
@@ -12,7 +12,7 @@ workstream: W16
 workstreamId: W16-19
 order: 1
 created: '2026-09-25T21:31:48.085Z'
-updated: '2026-09-25T21:31:48.085Z'
+updated: '2026-09-27T00:39:10.108Z'
 ---
 Found by the W16-16 per-field corpus gate (`npm run probe:writeback-corpus`), linux/x64, node-taglib-sharp as pinned.
 
