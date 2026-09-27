@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { Track, TrackFormatDetail } from '@shared/library'
+import type { TagFieldEditState } from '@shared/tagFields'
 import { hasArtwork } from '@shared/ipc'
-import { library } from '@renderer/ipc'
+import { library, overrides, tagOverrides } from '@renderer/ipc'
+import { buildTagInfoSections, type TagInfoRow } from '@renderer/panels/tagFieldForm'
 import {
   buildFormatRows,
   buildReplayGainRows,
@@ -14,8 +16,11 @@ import { useTrackInfoStore } from '@renderer/stores/trackInfo'
 /**
  * What a track *is*, read-only (**G8**).
  *
- * D7 says v1 never writes tags, so this shows and does not edit: a correction
- * would live in `track_overrides`, which is a different card. It reuses the
+ * It shows and does not edit — the metadata editor is its editable sibling, and
+ * this dialog mirrors that editor's fields, keeping only the ones that hold a
+ * value: the grouped identity block (genre included), then every admitted
+ * registry group from `buildTagInfoSections`, read fresh from the file the same
+ * way the editor's "All fields" prefill is. It reuses the
  * Tunedeck signal readout wholesale — `buildFormatRows` and `buildReplayGainRows`
  * are already the tested answer to "what does this file say", and the deck pane
  * and this dialog agreeing about a bitrate is worth more than a second phrasing
@@ -46,22 +51,46 @@ const open = computed(() => store.track !== null)
 const detail = ref<TrackFormatDetail | null>(null)
 const detailTrackId = ref<number | null>(null)
 
+/**
+ * The editor's prefills for this one track: the grouped state (only genre is
+ * not already on the `Track` snapshot) and the generic fields, read from the
+ * file. Same late-reply guard as the format parse.
+ */
+const genre = ref<string | null>(null)
+const tagState = ref<TagFieldEditState | null>(null)
+
 watch(
   () => store.track?.id ?? null,
-  async (trackId) => {
+  (trackId) => {
     detail.value = null
+    genre.value = null
+    tagState.value = null
     detailTrackId.value = trackId
-    // Negative ids are downloaded podcast episodes, not library rows — the parse
-    // is a library lookup, so it is simply not asked for. Podcasts are out of
-    // G8's pass anyway; this only guards the shared modal against one.
+    // Negative ids are downloaded podcast episodes, not library rows — every read
+    // here is a library lookup, so none is asked for. Podcasts are out of G8's
+    // pass anyway; this only guards the shared modal against one.
     if (trackId === null || trackId < 0) return
-    try {
-      const result = await library.getTrackFormatDetail(trackId)
-      if (detailTrackId.value === trackId) detail.value = result
-    } catch {
-      // The file moved or is unreadable. The index still holds codec, rate, depth
-      // and channels, so the format block degrades rather than emptying.
-    }
+    const current = (): boolean => detailTrackId.value === trackId
+    // Each read degrades on its own: a file that moved or is unreadable still
+    // leaves the index's codec, rate, depth, channels and identity to show.
+    library
+      .getTrackFormatDetail(trackId)
+      .then((result) => {
+        if (current()) detail.value = result
+      })
+      .catch(() => {})
+    overrides
+      .getEditState([trackId])
+      .then((state) => {
+        if (current()) genre.value = state.genre.value
+      })
+      .catch(() => {})
+    tagOverrides
+      .getEditState([trackId])
+      .then((state) => {
+        if (current()) tagState.value = state
+      })
+      .catch(() => {})
   }
 )
 
@@ -94,6 +123,9 @@ function identityRows(track: Track): SignalRow[] {
     rows.push({ key: 'discNo', label: 'Disc', value: String(track.discNo) })
   }
   if (track.year !== null) rows.push({ key: 'year', label: 'Year', value: String(track.year) })
+  if (genre.value !== null && genre.value.trim() !== '') {
+    rows.push({ key: 'genre', label: 'Genre', value: genre.value })
+  }
   rows.push({
     key: 'playCount',
     label: 'Plays',
@@ -108,15 +140,25 @@ function identityRows(track: Track): SignalRow[] {
 interface InfoSection {
   key: string
   title: string
-  rows: readonly SignalRow[]
+  rows: readonly (SignalRow | TagInfoRow)[]
+}
+
+function isMultilineRow(row: SignalRow | TagInfoRow): boolean {
+  return 'multiline' in row && row.multiline
 }
 
 /** The sections, in order, omitting any that has nothing to say. */
 const sections = computed<InfoSection[]>(() => {
   const track = store.track
   if (track === null) return []
+  const tagSections = tagState.value === null ? [] : buildTagInfoSections(tagState.value)
   const groups: InfoSection[] = [
     { key: 'details', title: 'Details', rows: identityRows(track) },
+    ...tagSections.map((section) => ({
+      key: `tag-${section.group}`,
+      title: section.label,
+      rows: section.rows
+    })),
     { key: 'format', title: 'Format', rows: buildFormatRows(track, detail.value, formats) },
     // No applied field: a track looked at in a dialog is not necessarily the one
     // playing, so no gain is "in force" and no row is marked applied.
@@ -182,7 +224,9 @@ const subtitle = computed(() => {
             </div>
           </aside>
 
-          <div class="flex min-w-0 flex-1 flex-col gap-4 p-4 pl-2 pr-12">
+          <div
+            class="flex max-h-[75vh] min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pl-2 pr-12"
+          >
             <header class="min-w-0">
               <h2 class="truncate text-base font-semibold text-highlighted">
                 {{ store.track.title }}
@@ -195,15 +239,26 @@ const subtitle = computed(() => {
                 {{ group.title }}
               </h3>
               <dl class="m-0 flex flex-col gap-1">
-                <div v-for="row in group.rows" :key="row.key" class="flex items-baseline gap-2">
-                  <dt class="shrink-0 text-xs text-dimmed">{{ row.label }}</dt>
-                  <dd
-                    class="m-0 ml-auto flex min-w-0 items-baseline gap-1.5 text-right text-xs tabular-nums text-default"
-                  >
-                    <span class="truncate">{{ row.value }}</span>
-                    <span v-if="row.note" class="shrink-0 text-dimmed">{{ row.note }}</span>
-                  </dd>
-                </div>
+                <template v-for="row in group.rows" :key="row.key">
+                  <!-- Lyrics and the like: their own scrolling block, not a truncated cell. -->
+                  <div v-if="isMultilineRow(row)" class="flex flex-col gap-1">
+                    <dt class="text-xs text-dimmed">{{ row.label }}</dt>
+                    <!-- prettier-ignore -->
+                    <dd class="m-0 max-h-40 overflow-y-auto whitespace-pre-line rounded border border-default bg-elevated/40 p-2 text-xs text-default">{{ row.value }}</dd>
+                  </div>
+                  <div v-else class="flex items-baseline gap-2">
+                    <dt class="shrink-0 text-xs text-dimmed">{{ row.label }}</dt>
+                    <dd
+                      class="m-0 ml-auto flex min-w-0 items-baseline gap-1.5 text-right text-xs tabular-nums text-default"
+                      :title="row.value"
+                    >
+                      <span class="truncate">{{ row.value }}</span>
+                      <span v-if="'note' in row && row.note" class="shrink-0 text-dimmed">
+                        {{ row.note }}
+                      </span>
+                    </dd>
+                  </div>
+                </template>
               </dl>
             </section>
           </div>

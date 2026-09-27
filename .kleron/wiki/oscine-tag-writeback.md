@@ -1,7 +1,7 @@
 ---
 title: Oscine — Tag Write-Back
 created: '2026-08-28T00:13:28.408Z'
-updated: '2026-08-28T13:59:23.120Z'
+updated: '2026-09-24T00:00:00.000Z'
 ---
 # Oscine — Tag Write-Back
 
@@ -55,6 +55,10 @@ The full tag surface is in scope, phased so the operator's genre pain is solved 
 largest edge-case surface ships last:
 
 - **Core text tags** — title, artist, album, track no, disc no, **genre**, year.
+- **The full portable tag surface** (1.1, W16-14 – W16-18) — album artist plus every field
+  node-taglib-sharp's portable `Tag` models: credits, totals, sort fields, comment, lyrics,
+  compilation flag, the MusicBrainz ids and the rest. See "The full tag surface" below
+  (Decisions D–H).
 - **Genre normalization** — a library-wide canonicalization/alias engine (D28 sub-surface),
   because the pain is *bulk* junk, not one-off typos.
 - **Embedded artwork** — APIC (ID3) / METADATA_BLOCK_PICTURE (Vorbis/FLAC). Written through a
@@ -76,7 +80,8 @@ delta between what the file currently holds and what the merged app-side layers 
 hold. The merge, in precedence order:
 
 1. `track_overrides` (D7) — title/artist/album/track/disc, **extended here with `genre` and
-   `year`**.
+   `year`**, and in 1.1 with `album_artist_name` (Decision E). The generic fields sit beside it
+   in `track_tag_overrides`.
 2. W15 `track_tags` where `source IN ('user','suggested')` — the free-form user layer, already
    named by W15 as "precisely the diff to flush".
 3. Canonicalization output (W16-5) — normalized genre values derived from the alias/rules table.
@@ -202,6 +207,84 @@ normalizing and flushing are one operator action — clean it, then commit it to
 canonicalized value is an input to the diff. W15 owns the free-form user vocabulary; W16 owns the
 rules that collapse the vocabulary and the flush that persists the result.
 
+### The full tag surface (W16-14 – W16-18)
+
+The 1.0 field set was never a considered limit. It is D7's schema-v1 `track_overrides` —
+title/artist/album/track/disc, the columns the library materialises, because the layer's first
+job was correcting what the operator *sees* — plus W16-1's genre and year. Once corrections reach
+the file, "what the library displays" stops being the boundary, and its gaps show: a ripped
+compilation needs an album-artist frame the operator cannot author, so it shatters into one album
+per performer. The settled position (2026-09-24):
+
+**Decision D — the editable surface is node-taglib-sharp's portable `Tag`.** Every field the
+library's own writer models identically across the three tag families (ID3v2, Vorbis comments,
+MP4) is editable — roughly forty, listed below. That boundary is chosen because it is the one the
+flush can *verify*: a portable property reads back through the same accessor it was written
+through, so verify-after-write stays a per-field equality on all five codecs. **A field enters the
+registry only when the W16-3 corpus round-trips it green on all five codecs**; one that fails a
+codec is a triage card and is offered nowhere until fixed, so the editor never grows per-codec
+holes. Rejected: raw format-native frames (arbitrary Vorbis keys, ID3 `TXXX`, MP4 freeform atoms).
+They have no cross-codec identity, so one "field" becomes three different writes with three
+different verifications, and the corpus guarantee stops meaning anything. Custom frames stay what
+they are today — round-tripped untouched, never edited.
+
+**Decision E — two tiers: grouped fields are bespoke, everything else is generic.**
+
+- *Grouped* — title, artist, **album artist**, album, track, disc, year, genre. These are the
+  fields the library keys browse on, so an edit re-keys rows (`albums` is `UNIQUE(title,
+  album_artist_id)`; the Artist facet is `COALESCE(album_artist_id, artist_id)`) and each needs
+  hand-written apply/revert in the store. Album artist is the only new member: `track_overrides`
+  gains `album_artist_name`, and setting it moves the track to the `(album, album artist)` album
+  row — which is what folds a compilation back into one album.
+- *Generic* — everything else. None of it affects browse, so it rides one path: a typed
+  **field registry** in `src/shared` (key, label, group, kind — `text | int | bool | list` — the
+  taglib property, read-only flag) drives the editor, IPC validation, the diff, the writer and
+  verify, the way W8's settings registry drives the settings surface. Adding a field is one entry
+  plus its corpus check. Overrides live in one key/value table, not a column per field.
+- Generic fields are **read from the file on demand, through taglib**, never indexed at scan.
+  The scan path and `tracks` stay untouched, the value the editor shows is in the same
+  representation the writer writes and verify compares, and it is already how the diff works —
+  against a fresh read, never a cached row (R7). Retirement reuses the post-flush
+  `retireWrittenOverrides`: a verified write proves `file == override`, so the rescan pass never
+  needs to read these fields.
+
+**Decision F — read-only fields.** ReplayGain (track/album gain and peak) is shown, not edited:
+the app computes and writes it through its own path, and a hand-typed gain is a loudness bug.
+The **MusicBrainz ids are editable**, in an "Advanced" group rather than hidden — the disc lookup
+and a tagger fill them, and an operator correcting a mismatched release must be able to fix
+them. Excluded outright: `amazonId` and `musicIpId` (dead services), `dateTagged` (writer
+bookkeeping), `performersRole` (a per-performer structure, not a field), and the derived
+`first*`/`joined*` accessors. Pictures stay on the artwork path (Decisions A–C).
+
+**Decision G — multi-value.** Fields the library does not group on (composers, the sort lists)
+are written as native multi-value frames and edited as lists. **Artist and album artist stay
+single-value**: the library holds one `artist_id` per track and one `album_artist_id` per album,
+and multi-artist identity is a schema redesign, not a field. Genre keeps W16-3's single
+`'; '`-joined convention, because that is the form the scanner reads back to the same set.
+
+**Decision H — the compilation flag is just a tag.** `isCompilation` is editable and flushed,
+and changes nothing about grouping. The album-artist fallback in the scanner is untouched; a
+compilation groups correctly because it carries an album artist, not because it carries a flag.
+
+**Revisit when.** An operator needs a format-native frame no portable property covers (that is
+a per-codec editor and its own decision), or multi-artist identity is scheduled (Decision G
+falls with it).
+
+The generic registry, grouped by the editor's sections:
+
+| Group | Fields |
+|---|---|
+| Credits | composers (list), conductor, remixed by |
+| Numbering | track total, disc total |
+| Release | subtitle, grouping, publisher, copyright, ISRC, compilation (bool) |
+| Content | comment, description, lyrics, BPM (int), initial key |
+| Sorting | title sort, artist sort (list), album-artist sort (list), album sort, composer sort (list) |
+| Advanced | MusicBrainz artist / release-artist / release / release-group / track / disc id, release status, type, country |
+| Read-only | ReplayGain track gain, track peak, album gain, album peak |
+
+Lyrics is the raw embedded frame W17 reads as its tier-2 source. Editing it here is editing the
+file's own tag; it does not put W17's fetched lyrics into files, which stays out of scope.
+
 ## Schema
 
 Migration 017 (next free; W13 reached 016):
@@ -222,6 +305,15 @@ Migration 021 (artwork, W16-9 — the artwork migration landed as 021, after 020
 - **Override-originals store** — a new content-addressed user-data artifact holding
   full-resolution cover bytes keyed by hash (the flush writes these into the file; thumbnails
   will not do). Refcounted over `image_hash`; GC on override retire/discard.
+
+The full tag surface (1.1) — numbered at landing; W17's pending lyrics migration must be
+sequenced against it:
+
+- **`track_overrides`** gains `album_artist_name TEXT` (W16-14). Existing columns unchanged.
+- **`track_tag_overrides`** (W16-15) — `(track_id, field, value)`, primary key `(track_id,
+  field)`, `ON DELETE CASCADE` from `tracks`. `value` is JSON: no row → the file's own value;
+  a JSON value → set; JSON `null` → clear the frame on flush. `field` is a registry key; an
+  unknown key is preserved, not dropped, so a branch switch does not destroy corrections.
 
 ## Risks
 
@@ -252,7 +344,11 @@ philosophy applies — this is a gate, and anything it flags becomes a triage ca
 quiet fix folded into the flush path. **W16-13 extends it** with multiple pictures (front + back),
 a binary custom frame and a multi-instance custom frame, and the matching `written:artwork` /
 `preserved:back-cover` / `removed:artwork` / `preserved:custom-frame` checks — round-tripped
-through both taglib and the app's `music-metadata` reader.
+through both taglib and the app's `music-metadata` reader. **W16-16 extends it** with one
+`written:<field>` check per registry field on all five codecs (set, clear, and a multi-value
+case for list fields), and `written:album-artist` read back through `music-metadata` too, since
+the scanner groups on it. A field's check going green is what admits it to the registry
+(Decision D).
 
 ## Card map
 
@@ -274,12 +370,24 @@ through both taglib and the app's `music-metadata` reader.
   panel; review artwork row)
 - **W16-13** Corpus hardening + custom-frame round-trip (multi-picture + binary/multi-instance
   frames; new gate checks)
+- **W16-14** Album artist as a grouped field (`track_overrides.album_artist_name`; album re-key
+  on apply/revert; diff, write, verify; editor field)
+- **W16-15** Tag field registry + generic override store (`src/shared` registry;
+  `track_tag_overrides`; IPC set/revert + validation; edit-state folding)
+- **W16-16** Corpus extension — per-field round-trip on all five codecs; the registry admission
+  gate
+- **W16-17** Generic read + diff/write/verify from the registry (on-demand taglib read; flush and
+  retirement)
+- **W16-18** Editor + review UI for the full surface ("All fields" sections, list and bool
+  inputs, read-only ReplayGain, review rows)
 
 ## Non-goals
 
 - Automatic or continuous sync (D28 revisit trigger).
 - Writing formats outside the v1 codec set.
 - A second tag taxonomy divorced from genre (W15 already unified them).
+- Editing format-native frames no portable `Tag` property covers (Decision D), or
+  multi-value artist identity (Decision G).
 - Rewriting audio stream bytes for any reason (transcode, re-gain-in-file, etc.).
 - Re-encoding or downscaling the operator's chosen cover on write — the original bytes are
   preserved; ingest validates and caps, it does not transcode.

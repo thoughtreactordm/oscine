@@ -3,6 +3,7 @@ import { copyFile, open, rename, unlink } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 import { File as TagFile } from 'node-taglib-sharp'
 import { splitGenres } from '@shared/genre'
+import type { TagFieldKey } from '@shared/tagFields'
 import type { WritebackFailureCode } from '@shared/tagWriteback'
 import { artworkHash } from '../derivedArtwork'
 import {
@@ -14,6 +15,12 @@ import {
   type MetadataReader,
   type TrackTags
 } from '../metadata'
+import {
+  readTagFields,
+  refusedTagField,
+  verifyTagFields,
+  type TagFieldReader
+} from './genericFields'
 import {
   applyWritableTags,
   resolveCodecWriter,
@@ -43,9 +50,11 @@ import {
  *      survives there byte-identical until the verify clears or restores it.
  *   5. Re-read the file and verify the tags read back as intended. A `set` or
  *      `clear` artwork intent extends that check to the front-cover bytes,
- *      compared by hash (R6's binary payload). On any mismatch or read failure,
- *      rename the backup back over the write so the file is left byte-identical,
- *      and report the file failed; on success, drop the backup.
+ *      compared by hash (R6's binary payload), and every written generic field
+ *      is re-read through the taglib accessor it was written with (W16-17). On
+ *      any mismatch or read failure, rename the backup back over the write so
+ *      the file is left byte-identical, and report the file failed; on success,
+ *      drop the backup.
  *
  * The backup-and-rollback in steps 4–5 is the recoverability half of R6's
  * mitigation (**W16-4**). Any failure *before* the original is moved aside removes
@@ -87,13 +96,16 @@ export type WriteOutcome =
  * the app will re-scan it with). `readArtwork` is the binary half of that verify
  * (default: `readEmbeddedArtwork`) and is only consulted when the intent is
  * `set` or `clear` — an `unchanged` flush must not pay to decode covers.
- * All three are injected so the atomic mechanics can run without a real audio
- * file or a native tag library.
+ * `readFields` is the generic half (W16-17, default: the taglib {@link readTagFields}
+ * — the same accessor the write went through) and is only consulted when the
+ * write carries generic fields. All four are injected so the atomic mechanics
+ * can run without a real audio file or a native tag library.
  */
 export interface WriteEngineDeps {
   readonly applyTags?: (tempPath: string, desired: WritableTags) => void
   readonly read?: MetadataReader
   readonly readArtwork?: EmbeddedArtworkReader
+  readonly readFields?: TagFieldReader
 }
 
 /** The default container write: open the temp copy, set the fields, save, close. */
@@ -210,7 +222,12 @@ function verify(after: TrackTags, desired: WritableTags): string | null {
     ['track', after.trackNo, desired.trackNo],
     ['disc', after.discNo, desired.discNo]
   ]
-  for (const [field, got, want] of scalar) {
+  // Album artist is verified only when the write set it; omitted means untouched.
+  const checks =
+    desired.albumArtist === undefined
+      ? scalar
+      : [...scalar, ['album artist', after.albumArtist, normText(desired.albumArtist)] as const]
+  for (const [field, got, want] of checks) {
     if (got !== want) {
       return `${field}: expected ${JSON.stringify(want)} but file holds ${JSON.stringify(got)}`
     }
@@ -288,9 +305,23 @@ export async function writeTags(
     }
   }
 
+  // A generic field that is held or read-only never reaches a file, whatever the
+  // caller asked for (Decision D): refused here, before a byte is at risk.
+  const genericKeys = Object.keys(desired.fields ?? {}) as TagFieldKey[]
+  const refused = refusedTagField(genericKeys)
+  if (refused !== null) {
+    return {
+      ok: false,
+      code: 'write-failed',
+      reason: `refusing tag field ${refused}: not admitted to write-back`,
+      path: absPath
+    }
+  }
+
   const apply = deps.applyTags ?? applyViaTaglib
   const read = deps.read ?? readTrackTags
   const readArtwork = deps.readArtwork ?? readEmbeddedArtwork
+  const readFields = deps.readFields ?? readTagFields
   const temp = hiddenSibling(absPath, 'tmp')
   const backup = hiddenSibling(absPath, 'bak')
 
@@ -332,6 +363,9 @@ export async function writeTags(
     mismatch = verify(await read(absPath), desired)
     if (mismatch === null && desired.artwork.kind !== 'unchanged') {
       mismatch = verifyArtwork(await readArtwork(absPath), desired.artwork)
+    }
+    if (mismatch === null && desired.fields !== undefined && genericKeys.length > 0) {
+      mismatch = verifyTagFields(await readFields(absPath, genericKeys), desired.fields)
     }
   } catch (error) {
     await rollback(backup, absPath)

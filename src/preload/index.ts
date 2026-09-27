@@ -60,6 +60,7 @@ import type { SearchQuery } from '@shared/search'
 import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
 import type { RipProgress, RipRequest, RipResumeRequest } from '@shared/cdrip'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
+import type { TagFieldKey, TagFieldPatch } from '@shared/tagFields'
 import type { UpdateStatus } from '@shared/update'
 
 /**
@@ -200,6 +201,21 @@ const api = {
       request('overrides.clear', { trackIds: [...trackIds], fields: [...fields] }),
     /** Discard every pending edit — revert the whole correction layer to the files. */
     discardAll: () => request('overrides.discardAll', null)
+  },
+  /**
+   * Generic tag editing — **W16-15**. Records corrections in
+   * `track_tag_overrides` only; nothing in the browse moves and no file is touched.
+   */
+  tagOverrides: {
+    /** Apply a generic edit to a batch: a value sets a field, `null` clears it. */
+    set: (trackIds: readonly number[], patch: TagFieldPatch) =>
+      request('tagOverrides.set', { trackIds: [...trackIds], patch }),
+    /** Drop the named generic corrections on a batch — back to the files. */
+    revert: (trackIds: readonly number[], fields: readonly TagFieldKey[]) =>
+      request('tagOverrides.revert', { trackIds: [...trackIds], fields: [...fields] }),
+    /** The generic fields' prefill, read fresh from each file — bounded, ask lazily. */
+    getEditState: (trackIds: readonly number[]) =>
+      request('tagOverrides.getEditState', { trackIds: [...trackIds] })
   },
   /**
    * Staged tag write-back review — **W16-6**, and the one place in this bridge

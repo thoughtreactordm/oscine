@@ -398,6 +398,35 @@ roundTrip('writeTags — five-codec round-trip on the corpus (needs ffmpeg)', ()
     )
   }, 120_000)
 
+  // W16-14: the compilation fix has to land on every codec, and a flush that
+  // does not carry it must leave the frame exactly as it was.
+  it('sets, preserves and clears ALBUMARTIST on every codec', async () => {
+    const scalars: Omit<WritableTags, 'albumArtist'> = {
+      title: CORRECTED.title,
+      artist: CORRECTED.artists[0],
+      album: CORRECTED.album,
+      trackNo: CORRECTED.track,
+      discNo: CORRECTED.disc,
+      year: CORRECTED.year,
+      genres: [{ key: 'ambient', label: 'Ambient' }],
+      artwork: ARTWORK_UNCHANGED
+    }
+
+    for (const track of manifest.tracks) {
+      const set = await writeTags(track.path, { ...scalars, albumArtist: 'Various Artists' })
+      expect(set, track.id).toMatchObject({ ok: true, codec: track.id })
+      expect((await readTrackTags(track.path)).albumArtist, track.id).toBe('Various Artists')
+
+      const untouched = await writeTags(track.path, { ...scalars, title: 'Retitled' })
+      expect(untouched, track.id).toMatchObject({ ok: true })
+      expect((await readTrackTags(track.path)).albumArtist, track.id).toBe('Various Artists')
+
+      const cleared = await writeTags(track.path, { ...scalars, albumArtist: '' })
+      expect(cleared, track.id).toMatchObject({ ok: true })
+      expect((await readTrackTags(track.path)).albumArtist, track.id).toBeNull()
+    }
+  }, 120_000)
+
   it('replaces the front cover by hash on every codec and leaves a back cover byte-identical', async () => {
     // Apple `covr` has no picture-type field, so AAC cannot preserve a typed
     // back cover across a write — Decision B applies to the four codecs whose

@@ -34,6 +34,9 @@ import {
   assertWritebackPreviewRequest,
   assertOverrideEditStateRequest,
   assertSetOverridesRequest,
+  assertSetTagOverridesRequest,
+  assertTagFieldEditStateRequest,
+  assertRevertTagOverridesRequest,
   assertClearOverridesRequest,
   assertArtworkTargetRequest,
   assertArtworkFromBytesRequest,
@@ -332,6 +335,23 @@ export function registerIpcHandlers(
   handle('overrides.discardAll', async () => {
     await library.discardAllOverrides()
     return null
+  })
+
+  handle('tagOverrides.set', async (request) => {
+    const { trackIds, patch } = assertSetTagOverridesRequest(request)
+    await library.setTagOverrides({ trackIds, patch })
+    return null
+  })
+
+  handle('tagOverrides.revert', async (request) => {
+    const { trackIds, fields } = assertRevertTagOverridesRequest(request)
+    await library.revertTagOverrides({ trackIds, fields })
+    return null
+  })
+
+  handle('tagOverrides.getEditState', (request) => {
+    const { trackIds } = assertTagFieldEditStateRequest(request)
+    return library.getTagFieldEditState(trackIds)
   })
 
   handle('tagWriteback.preview', (request) => {

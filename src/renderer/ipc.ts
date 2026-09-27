@@ -28,6 +28,7 @@ import type { SearchQuery } from '@shared/search'
 import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
 import type { RipProgress, RipRequest, RipResumeRequest } from '@shared/cdrip'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
+import type { TagFieldKey, TagFieldPatch } from '@shared/tagFields'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -135,6 +136,22 @@ export const overrides = {
     unwrap(window.oscine.overrides.clear(trackIds, fields)),
   /** Discard every pending edit — revert the whole correction layer to the files. */
   discardAll: () => unwrap(window.oscine.overrides.discardAll())
+}
+
+/**
+ * Generic tag editing — **W16-15/17**. Corrections land in `track_tag_overrides`
+ * only; nothing in the browse moves and no file is touched.
+ */
+export const tagOverrides = {
+  /** The generic fields' prefill, read fresh from each file — bounded, ask lazily. */
+  getEditState: (trackIds: readonly number[]) =>
+    unwrap(window.oscine.tagOverrides.getEditState(trackIds)),
+  /** Apply a generic edit to a batch: a value sets a field, `null` clears it. */
+  set: (trackIds: readonly number[], patch: TagFieldPatch) =>
+    unwrap(window.oscine.tagOverrides.set(trackIds, patch)),
+  /** Drop the named generic corrections on a batch — back to the files. */
+  revert: (trackIds: readonly number[], fields: readonly TagFieldKey[]) =>
+    unwrap(window.oscine.tagOverrides.revert(trackIds, fields))
 }
 
 /**

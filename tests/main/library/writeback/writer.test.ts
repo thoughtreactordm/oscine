@@ -155,15 +155,18 @@ describe('applyWritableTags — sets only the modelled fields', () => {
       'Various Artists'
     ])
     expect(capture({ ...base, albumArtist: null }).albumArtists).toEqual([])
+    // W16-14: a deliberately blank correction clears rather than writing ''.
+    expect(capture({ ...base, albumArtist: '  ' }).albumArtists).toEqual([])
   })
 })
 
 describe('writableTagsFromPending — the diff→engine bridge', () => {
-  it('takes the proposed side of every field', () => {
+  it('takes the proposed side of every field, omitting an unchanged album artist', () => {
     const pending: PendingWrite = {
       trackId: 7,
       title: { current: 'old', proposed: 'new', changed: true },
       artist: { current: 'a', proposed: 'a', changed: false },
+      albumArtist: { current: 'Band', proposed: 'Band', changed: false },
       album: { current: null, proposed: 'Album', changed: true },
       trackNo: { current: 2, proposed: 3, changed: true },
       discNo: { current: 1, proposed: null, changed: true },
@@ -178,6 +181,10 @@ describe('writableTagsFromPending — the diff→engine bridge', () => {
         proposed: { present: false, hash: null, mime: null },
         changed: false
       },
+      fields: {
+        conductor: { current: 'Old', proposed: 'New', changed: true },
+        bpm: { current: 120, proposed: 120, changed: false }
+      },
       hasChanges: true
     }
     expect(writableTagsFromPending(pending)).toEqual({
@@ -188,7 +195,9 @@ describe('writableTagsFromPending — the diff→engine bridge', () => {
       discNo: null,
       year: 2026,
       genres: [AMBIENT, ELECTRONIC],
-      artwork: ARTWORK_UNCHANGED
+      artwork: ARTWORK_UNCHANGED,
+      // Only the changed generic field; an unchanged one is never assigned.
+      fields: { conductor: 'New' }
     })
   })
 })

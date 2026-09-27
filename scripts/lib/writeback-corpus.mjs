@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { copyFile, mkdir, rm } from 'node:fs/promises'
+import { dirname, extname, join } from 'node:path'
 
 import { parseFile } from 'music-metadata'
 import taglib from 'node-taglib-sharp'
+
+import { CLEAR_VALUE, FIELD_CASES, REAL_TOLERANCE } from './writeback-field-cases.mjs'
 
 const {
   ByteVector,
@@ -57,6 +59,11 @@ const {
  *     the four codecs whose containers actually distinguish front from the rest.
  *   - **Audio is untouched.** The decoded PCM is hashed before and after the
  *     write; a tag edit that rewrote a single audio byte changes the hash.
+ *   - **Every registry field round-trips** (W16-16, Decision D). Each generic
+ *     field is set, cleared, and — for lists — written multi-valued, type-exact,
+ *     without disturbing any other field; album artist is also read back through
+ *     music-metadata. A field is admitted only when its row is green on all five
+ *     codecs.
  *
  * node-taglib-sharp is the write engine's library (W16-3); this corpus is where
  * it is confirmed to round-trip all five codecs. A codec it cannot round-trip is
@@ -98,7 +105,7 @@ export const CODECS = Object.freeze([
 ])
 
 /** Bumped whenever the synthesised content changes, so a stale report is obvious. */
-export const CORPUS_VERSION = 2
+export const CORPUS_VERSION = 3
 
 const SAMPLE_RATE = 44_100
 const CLIP_SECONDS = 2
@@ -145,6 +152,14 @@ export const CORRECTED = Object.freeze({
  * check; testing multiple frames would assert a shape the app cannot read back.
  */
 export const GENRE_WRITTEN = CORRECTED.genres.join('; ')
+
+/**
+ * Every file is born with an album artist, so the scalar write — which never
+ * names it — can be caught dropping it (`preserved:album-artist`).
+ */
+const SEEDED_ALBUM_ARTIST = 'Seeded Album Artist'
+/** What `written:album-artist` sets: the compilation case W16-14 exists for. */
+const WRITTEN_ALBUM_ARTIST = 'Various Artists'
 
 /** The arbitrary text frame that must survive a write. Keyed per tag format. */
 const CUSTOM = Object.freeze({
@@ -567,6 +582,266 @@ function readerPictureBytes(picture) {
   return picture ? Buffer.from(picture.data) : null
 }
 
+/** Opens a file through taglib, runs `fn`, and always disposes the handle. */
+function withFile(path, fn) {
+  const file = File.createFromPath(path)
+  try {
+    return fn(file)
+  } finally {
+    file.dispose()
+  }
+}
+
+function describeValue(value) {
+  return value === undefined ? 'undefined' : JSON.stringify(value)
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Whether a taglib read-back is exactly `expected`, **type included** — an int
+ * that comes back as `"128"` or a bool as `1` is red, not string-equal-green.
+ */
+function fieldValueMatches(fieldCase, actual, expected) {
+  switch (fieldCase.kind) {
+    case 'text':
+      return typeof actual === 'string' && actual === expected
+    case 'int':
+      return Number.isInteger(actual) && actual === expected
+    case 'bool':
+      return typeof actual === 'boolean' && actual === expected
+    case 'list':
+      return Array.isArray(actual) && arraysEqual(actual, expected)
+    case 'real':
+      return typeof actual === 'number' && Math.abs(actual - expected) <= REAL_TOLERANCE
+    default:
+      return false
+  }
+}
+
+/** Whether a read-back is the kind's empty value, i.e. the frame is gone. */
+function fieldIsCleared(fieldCase, actual) {
+  switch (fieldCase.kind) {
+    case 'text':
+      return actual === undefined || actual === null || actual === ''
+    case 'int':
+      return actual === 0
+    case 'bool':
+      return actual === false
+    case 'list':
+      return Array.isArray(actual) && actual.length === 0
+    default:
+      return false
+  }
+}
+
+/**
+ * The grouped fields (Decision E) as taglib reads them. The generic pass never
+ * names one, so any difference across it is collateral damage — the totals share
+ * TRCK/TPOS and `trkn`/`disk` with track and disc, which is exactly where it
+ * would show.
+ */
+function groupedState(tag) {
+  return {
+    title: tag.title,
+    artist: [...(tag.performers ?? [])],
+    albumArtist: [...(tag.albumArtists ?? [])],
+    album: tag.album,
+    genres: [...(tag.genres ?? [])],
+    year: tag.year,
+    track: tag.track,
+    disc: tag.disc
+  }
+}
+
+function groupedDrift(before, after) {
+  return Object.keys(before).filter(
+    (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key])
+  )
+}
+
+/**
+ * Every field's current taglib read-back, keyed by registry key — the "nothing
+ * else moved" reference. JSON-serialised so lists compare by value and an absent
+ * ReplayGain (`NaN`) compares equal to itself.
+ */
+function fieldSnapshot(tag) {
+  return Object.fromEntries(
+    FIELD_CASES.map((fieldCase) => [fieldCase.key, JSON.stringify(tag[fieldCase.taglib])])
+  )
+}
+
+/**
+ * The per-field round-trip — **W16-16**, Decision D.
+ *
+ * Every write happens **alone, on a fresh copy**, and each copy is saved and
+ * reopened, so a value only counts once it has survived serialisation and a red
+ * cell names the field that did the damage rather than whichever came last:
+ *   - **set** — a copy of the corpus file gets one field, read back type-exact.
+ *     Read-only ReplayGain fields are seeded the same way as `read:<field>`; an
+ *     edit never sets or clears them.
+ *   - **multi** (lists) and **clear** — a copy of the *populated* file (every
+ *     field whose set was green, written together) gets one field rewritten with
+ *     two ordered entries, or emptied.
+ *
+ * Each of those is green only if the target landed *and* nothing else moved:
+ * every other registry field, every grouped field, and the seeded custom frames
+ * must read exactly as before the write. A field that takes a neighbour with it
+ * is the R6 failure this corpus exists for — ID3v2's `comment` setter reusing a
+ * *described* COMM frame is the first one it caught.
+ *
+ * Returns the populated file's path, so the caller can prove its audio intact.
+ */
+async function verifyFieldWrites(checks, codec, path, tagType) {
+  const ext = extname(path)
+  const scratch = join(dirname(path), `w16-16-scratch-${codec}${ext}`)
+  const populated = join(dirname(path), `w16-16-populated-${codec}${ext}`)
+
+  /** Writes one value to a copy of `source` and checks it landed alone. */
+  async function writeAlone(source, fieldCase, name, value, landed) {
+    const before = withFile(source, (file) => ({
+      fields: fieldSnapshot(file.tag),
+      grouped: groupedState(file.tag)
+    }))
+    await copyFile(source, scratch)
+
+    let assignError = null
+    withFile(scratch, (file) => {
+      try {
+        file.tag[fieldCase.taglib] = Array.isArray(value) ? [...value] : value
+      } catch (error) {
+        assignError = errorMessage(error)
+        return
+      }
+      file.save()
+    })
+    if (assignError !== null) {
+      check(checks, codec, name, false, `assignment threw: ${assignError}`)
+      return false
+    }
+
+    return withFile(scratch, (file) => {
+      const actual = file.tag[fieldCase.taglib]
+      const after = fieldSnapshot(file.tag)
+      const collateral = FIELD_CASES.filter(
+        (other) => other.key !== fieldCase.key && after[other.key] !== before.fields[other.key]
+      ).map((other) => other.key)
+      collateral.push(
+        ...groupedDrift(before.grouped, groupedState(file.tag)).map((key) => `grouped ${key}`)
+      )
+      const custom = customFramesIntact(file, tagType)
+      if (!custom.ok) collateral.push(`custom frames (${custom.detail})`)
+
+      const ok = landed(actual)
+      check(
+        checks,
+        codec,
+        name,
+        ok && collateral.length === 0,
+        !ok ? `got ${describeValue(actual)}` : `also changed ${collateral.join('; ')}`
+      )
+      return ok && collateral.length === 0
+    })
+  }
+
+  try {
+    const green = []
+    for (const fieldCase of FIELD_CASES) {
+      const name = fieldCase.readOnly ? `read:${fieldCase.key}` : `written:${fieldCase.key}:set`
+      const ok = await writeAlone(path, fieldCase, name, fieldCase.value, (actual) =>
+        fieldValueMatches(fieldCase, actual, fieldCase.value)
+      )
+      if (ok) green.push(fieldCase)
+    }
+
+    // The populated file: every green field at once, as a real multi-field flush.
+    await copyFile(path, populated)
+    withFile(populated, (file) => {
+      for (const fieldCase of green) {
+        file.tag[fieldCase.taglib] =
+          fieldCase.kind === 'list' ? [...fieldCase.value] : fieldCase.value
+      }
+      file.save()
+    })
+    withFile(populated, (file) => {
+      const wrong = green
+        .filter(
+          (fieldCase) => !fieldValueMatches(fieldCase, file.tag[fieldCase.taglib], fieldCase.value)
+        )
+        .map((fieldCase) => fieldCase.key)
+      check(
+        checks,
+        codec,
+        'written:fields:together',
+        wrong.length === 0,
+        `read back wrong: ${wrong.join(', ')}`
+      )
+      const custom = customFramesIntact(file, tagType)
+      check(checks, codec, 'preserved:custom-frame:after-field-writes', custom.ok, custom.detail)
+    })
+
+    for (const fieldCase of green) {
+      if (fieldCase.readOnly) continue
+      if (fieldCase.kind === 'list') {
+        await writeAlone(
+          populated,
+          fieldCase,
+          `written:${fieldCase.key}:multi`,
+          fieldCase.multi,
+          (actual) => fieldValueMatches(fieldCase, actual, fieldCase.multi)
+        )
+      }
+      await writeAlone(
+        populated,
+        fieldCase,
+        `written:${fieldCase.key}:clear`,
+        CLEAR_VALUE[fieldCase.kind],
+        (actual) => fieldIsCleared(fieldCase, actual)
+      )
+    }
+    return populated
+  } finally {
+    await rm(scratch, { force: true })
+  }
+}
+
+/**
+ * Album artist (W16-14) set and cleared exactly as `writer.ts` writes it — one
+ * entry, or `[]` for blank — and read back through music-metadata as well as
+ * taglib. The scanner groups albums on `common.albumartist`, so a frame taglib
+ * reads but music-metadata misses would re-shatter the compilation on rescan.
+ */
+async function verifyAlbumArtistWrites(checks, codec, path) {
+  const cases = [
+    { name: 'set', written: [WRITTEN_ALBUM_ARTIST], reader: WRITTEN_ALBUM_ARTIST },
+    { name: 'clear', written: [], reader: undefined }
+  ]
+  for (const item of cases) {
+    withFile(path, (file) => {
+      file.tag.albumArtists = [...item.written]
+      file.save()
+    })
+    const actual = withFile(path, (file) => [...(file.tag.albumArtists ?? [])])
+    check(
+      checks,
+      codec,
+      `written:album-artist:${item.name}`,
+      arraysEqual(actual, item.written),
+      `got ${describeValue(actual)}`
+    )
+    const { common } = await parseFile(path)
+    check(
+      checks,
+      codec,
+      `reader:written:album-artist:${item.name}`,
+      common.albumartist === item.reader,
+      `music-metadata got ${describeValue(common.albumartist)}`
+    )
+  }
+}
+
 /**
  * Builds the corpus under `rootDir/library`, returning a manifest.
  *
@@ -591,6 +866,7 @@ export async function buildWritebackCorpus(rootDir, log = () => {}) {
     const file = File.createFromPath(path)
     try {
       file.tag.pictures = [makeFrontCover(), makeBackCover()]
+      file.tag.albumArtists = [SEEDED_ALBUM_ARTIST]
       writeCustomFrame(file, codec.tagType)
       writeBinaryFrame(file, codec.tagType)
       writeMultiFrame(file, codec.tagType)
@@ -662,7 +938,8 @@ function recoverGenres(values, { firstOnly }) {
  * nothing else), hashes again, then re-reads through both node-taglib-sharp and
  * music-metadata. After the scalar pass it sets a new front cover and then
  * clears it, asserting Decision B: the back cover and custom frames survive
- * both picture writes. Returns a flat check list the probe turns into a report
+ * both picture writes. Last comes the per-field pass over the full tag surface
+ * ({@link verifyFieldWrites}, then album artist). Returns a flat check list the probe turns into a report
  * and an exit code.
  */
 export async function verifyRoundTrip(manifest, log = () => {}) {
@@ -680,9 +957,11 @@ export async function verifyRoundTrip(manifest, log = () => {}) {
     let seededBack
     let seededHasBackBytes
     let seededCustom
+    let seededAlbumArtist
     {
       const file = File.createFromPath(path)
       try {
+        seededAlbumArtist = [...(file.tag.albumArtists ?? [])]
         const pictures = file.tag.pictures ?? []
         seededFront = pictureBytes(frontCoverPicture(pictures))
         seededBack = pictureBytes(findPicture(pictures, PictureType.BackCover))
@@ -716,6 +995,13 @@ export async function verifyRoundTrip(manifest, log = () => {}) {
       'seed:custom-frame',
       seededCustom.ok,
       seededCustom.detail || 'custom frames missing at synthesis'
+    )
+    check(
+      checks,
+      codec,
+      'seed:album-artist',
+      arraysEqual(seededAlbumArtist, [SEEDED_ALBUM_ARTIST]),
+      `got ${describeValue(seededAlbumArtist)}`
     )
 
     // The write: correct the scalar fields only. Pictures and the custom frames
@@ -796,6 +1082,13 @@ export async function verifyRoundTrip(manifest, log = () => {}) {
           tag.disc === CORRECTED.disc && tag.discCount === CORRECTED.discCount,
           `got ${tag.disc}/${tag.discCount}`
         )
+        check(
+          checks,
+          codec,
+          'preserved:album-artist',
+          arraysEqual(tag.albumArtists ?? [], [SEEDED_ALBUM_ARTIST]),
+          `got ${describeValue(tag.albumArtists)}`
+        )
 
         const front = pictureBytes(frontCoverPicture(tag.pictures))
         check(
@@ -863,6 +1156,13 @@ export async function verifyRoundTrip(manifest, log = () => {}) {
         'reader:year',
         common.year === CORRECTED.year,
         `music-metadata got ${common.year}`
+      )
+      check(
+        checks,
+        codec,
+        'reader:preserved:album-artist',
+        common.albumartist === SEEDED_ALBUM_ARTIST,
+        `music-metadata got ${describeValue(common.albumartist)}`
       )
       const pictures = common.picture ?? []
       check(
@@ -1035,6 +1335,28 @@ export async function verifyRoundTrip(manifest, log = () => {}) {
       pcmBefore === pcmAfterPictures,
       'decoded PCM changed across the picture writes'
     )
+
+    // The full tag surface (W16-16): every registry field, then album artist.
+    // A throw here is a red run, not a crashed probe — the report must still land.
+    let populated = null
+    try {
+      populated = await verifyFieldWrites(checks, codec, path, tagType)
+      await verifyAlbumArtistWrites(checks, codec, path)
+    } catch (error) {
+      check(checks, codec, 'written:fields', false, `field pass threw: ${errorMessage(error)}`)
+    }
+
+    if (populated !== null) {
+      const pcmAfterFields = await pcmHash(populated)
+      check(
+        checks,
+        codec,
+        'audio:untouched:after-field-writes',
+        pcmBefore === pcmAfterFields,
+        'decoded PCM changed across the field writes'
+      )
+      await rm(populated, { force: true })
+    }
   }
 
   return { version: manifest.version, checks }

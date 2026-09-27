@@ -7,7 +7,15 @@ import {
   type IPicture
 } from 'node-taglib-sharp'
 import { sniffImageMime } from '@shared/artwork'
-import type { FieldDiff, GenreValue, PendingWrite, WritebackField } from '@shared/tagWriteback'
+import type { TagFieldKey, TagFieldPatch, TagFieldValue } from '@shared/tagFields'
+import type {
+  FieldDiff,
+  GenreValue,
+  GroupedWritebackField,
+  PendingWrite,
+  WritebackField
+} from '@shared/tagWriteback'
+import { applyTagFields } from './genericFields'
 
 /**
  * The per-codec tag writer — **W16-3**, design authority `oscine-tag-writeback`
@@ -112,15 +120,22 @@ export interface WritableTags {
   readonly discNo: number | null
   readonly year: number | null
   /**
-   * The album-artist frame. Only a rip sets it — the override layer does not
-   * model album artist, so a write-back flush omits it and the file's frame
-   * survives untouched. Omitted means untouched; `null` clears.
+   * The album-artist frame. Omitted means untouched; `null` clears. A rip sets
+   * it; a write-back flush sets it only when an album-artist correction is
+   * selected and actually changes the file (W16-14), so a flush without one
+   * leaves the file's frame exactly as it was.
    */
   readonly albumArtist?: string | null
   /** The proposed genre frame, written as one delimited string. */
   readonly genres: readonly GenreValue[]
   /** Front-cover intent, resolved from the override store at apply time. */
   readonly artwork: ArtworkWriteIntent
+  /**
+   * The generic fields to write, by registry key (W16-17). Exactly the keys
+   * present are assigned — a value sets, `null` clears — and every other generic
+   * frame is left as the file holds it. Omitted or empty writes none.
+   */
+  readonly fields?: TagFieldPatch
 }
 
 /**
@@ -148,15 +163,20 @@ export function writtenGenreValue(genres: readonly GenreValue[]): string[] {
  * modelled field that is *not* rewritten unconditionally: {@link ARTWORK_UNCHANGED}
  * never assigns `tag.pictures`, so back covers, booklet scans and artist images
  * survive a scalar-only flush by construction. `set` / `clear` replace or remove
- * only the front-cover slot (Decision B). Album artist, ReplayGain and any
- * custom frame remain unmodelled and untouched.
+ * only the front-cover slot (Decision B). Album artist is likewise written only
+ * when present on `desired`, and so is each generic field (W16-17) — only the
+ * keys in `desired.fields`, through the registry's taglib property. ReplayGain
+ * and any custom frame remain untouched.
  */
 export function applyWritableTags(file: TagFile, desired: WritableTags): void {
   const tag = file.tag
   tag.title = desired.title ?? ''
   tag.performers = desired.artist === null ? [] : [desired.artist]
   if (desired.albumArtist !== undefined) {
-    tag.albumArtists = desired.albumArtist === null ? [] : [desired.albumArtist]
+    // A blank correction (`''`, "no album artist") clears the frame rather than
+    // writing an empty value a tagger would still show as present.
+    const name = desired.albumArtist?.trim() ?? ''
+    tag.albumArtists = name === '' ? [] : [name]
   }
   tag.album = desired.album ?? ''
   tag.genres = writtenGenreValue(desired.genres)
@@ -164,6 +184,7 @@ export function applyWritableTags(file: TagFile, desired: WritableTags): void {
   tag.track = desired.trackNo ?? 0
   tag.disc = desired.discNo ?? 0
   applyArtwork(tag, desired.artwork)
+  if (desired.fields !== undefined) applyTagFields(tag, desired.fields)
 }
 
 /**
@@ -243,6 +264,7 @@ export function writableTagsFromPending(pending: PendingWrite): WritableTags {
   return {
     title: pending.title.proposed,
     artist: pending.artist.proposed,
+    ...(pending.albumArtist.changed ? { albumArtist: pending.albumArtist.proposed } : {}),
     album: pending.album.proposed,
     trackNo: pending.trackNo.proposed,
     discNo: pending.discNo.proposed,
@@ -250,13 +272,32 @@ export function writableTagsFromPending(pending: PendingWrite): WritableTags {
     genres: pending.genres.proposed,
     // Artwork bytes never live on the pending write; the apply path overlays
     // a freshly resolved intent when the `artwork` field is selected (W16-12).
-    artwork: ARTWORK_UNCHANGED
+    artwork: ARTWORK_UNCHANGED,
+    fields: changedTagFields(pending, () => true)
   }
+}
+
+/**
+ * The generic fields to write: every diffed key that `include` admits and whose
+ * value actually changes the file, at its `proposed` value. An unchanged or
+ * excluded key is omitted, so the writer never assigns it.
+ */
+function changedTagFields(
+  pending: PendingWrite,
+  include: (key: TagFieldKey) => boolean
+): TagFieldPatch {
+  const fields: Partial<Record<TagFieldKey, TagFieldValue | null>> = {}
+  for (const [key, diff] of Object.entries(pending.fields) as Array<
+    [TagFieldKey, FieldDiff<TagFieldValue> | undefined]
+  >) {
+    if (diff !== undefined && diff.changed && include(key)) fields[key] = diff.proposed
+  }
+  return fields
 }
 
 /** Whether one scalar field's key is selected: `proposed` if so, else `current`. */
 function pick<T extends string | number>(
-  field: WritebackField,
+  field: GroupedWritebackField,
   diff: FieldDiff<T>,
   selected: ReadonlySet<WritebackField>
 ): T | null {
@@ -273,7 +314,8 @@ function pick<T extends string | number>(
  * value. `current` here is the field's fresh read from the pending write the
  * flush re-derived at apply time (R7), never a value the renderer supplied — so
  * a field the operator left unchecked keeps whatever the file holds now, even if
- * another tool changed it since the diff was reviewed.
+ * another tool changed it since the diff was reviewed. Generic fields are never
+ * rewritten at all unless selected and changed — they are simply omitted.
  */
 export function writableTagsFromSelection(
   pending: PendingWrite,
@@ -282,6 +324,10 @@ export function writableTagsFromSelection(
   return {
     title: pick('title', pending.title, selected),
     artist: pick('artist', pending.artist, selected),
+    // Omitted unless it is a selected change, so the frame is otherwise untouched.
+    ...(selected.has('albumArtist') && pending.albumArtist.changed
+      ? { albumArtist: pending.albumArtist.proposed }
+      : {}),
     album: pick('album', pending.album, selected),
     trackNo: pick('trackNo', pending.trackNo, selected),
     discNo: pick('discNo', pending.discNo, selected),
@@ -289,7 +335,8 @@ export function writableTagsFromSelection(
     genres: selected.has('genres') ? pending.genres.proposed : pending.genres.current,
     // Artwork bytes are resolved at apply time from the override store (R7),
     // and only when the review selected the field — see {@link TagWritebackService}.
-    artwork: ARTWORK_UNCHANGED
+    artwork: ARTWORK_UNCHANGED,
+    fields: changedTagFields(pending, (key) => selected.has(key))
   }
 }
 
@@ -307,11 +354,12 @@ export function selectionChangesFile(
 ): boolean {
   if (selected.has('title') && pending.title.changed) return true
   if (selected.has('artist') && pending.artist.changed) return true
+  if (selected.has('albumArtist') && pending.albumArtist.changed) return true
   if (selected.has('album') && pending.album.changed) return true
   if (selected.has('trackNo') && pending.trackNo.changed) return true
   if (selected.has('discNo') && pending.discNo.changed) return true
   if (selected.has('year') && pending.year.changed) return true
   if (selected.has('genres') && pending.genres.changed) return true
   if (selected.has('artwork') && pending.artwork.changed) return true
-  return false
+  return Object.keys(changedTagFields(pending, (key) => selected.has(key))).length > 0
 }

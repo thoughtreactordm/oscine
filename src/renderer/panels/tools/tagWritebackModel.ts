@@ -1,6 +1,13 @@
-import type { GenreValue, PendingWrite, WritebackSelection } from '@shared/tagWriteback'
-import { WRITEBACK_FIELDS, type WritebackField } from '@shared/tagWriteback'
+import type { FieldDiff, GenreValue, PendingWrite, WritebackSelection } from '@shared/tagWriteback'
+import {
+  WRITEBACK_FIELDS,
+  isGroupedWritebackField,
+  type GroupedWritebackField,
+  type WritebackField
+} from '@shared/tagWriteback'
+import { TAG_FIELDS, type TagFieldDef, type TagFieldValue } from '@shared/tagFields'
 import type { ArtworkRef } from '@shared/artwork'
+import { formatTagValue } from '../tagFieldForm'
 
 /**
  * The staged review's selection model — **W16-6**, the pure half.
@@ -15,10 +22,14 @@ import type { ArtworkRef } from '@shared/artwork'
 /** Per-track selection: the field keys the operator has left checked. */
 export type SelectionMap = Map<number, Set<WritebackField>>
 
-/** The human name each field wears in the diff table's column and cells. */
-export const FIELD_LABELS: Record<WritebackField, string> = {
+/**
+ * The human name each grouped field wears in the diff table's column and cells.
+ * A generic field wears its registry label instead — see {@link fieldLabel}.
+ */
+export const FIELD_LABELS: Record<GroupedWritebackField, string> = {
   title: 'Title',
   artist: 'Artist',
+  albumArtist: 'Album artist',
   album: 'Album',
   trackNo: 'Track №',
   discNo: 'Disc №',
@@ -27,13 +38,25 @@ export const FIELD_LABELS: Record<WritebackField, string> = {
   artwork: 'Cover'
 }
 
+/**
+ * A pending write's generic diff for one registry key. Read through a string
+ * index so a registry entry a test adds (not in {@link TagFieldKey}) resolves
+ * the same way a shipped one does.
+ */
+function genericDiff(pending: PendingWrite, key: string): FieldDiff<TagFieldValue> | undefined {
+  return (pending.fields as Readonly<Record<string, FieldDiff<TagFieldValue> | undefined>>)[key]
+}
+
 /** Whether one field of a pending write differs from the file — the `changed` flag. */
 export function fieldChanged(pending: PendingWrite, field: WritebackField): boolean {
+  if (!isGroupedWritebackField(field)) return genericDiff(pending, field)?.changed ?? false
   switch (field) {
     case 'title':
       return pending.title.changed
     case 'artist':
       return pending.artist.changed
+    case 'albumArtist':
+      return pending.albumArtist.changed
     case 'album':
       return pending.album.changed
     case 'trackNo':
@@ -49,9 +72,46 @@ export function fieldChanged(pending: PendingWrite, field: WritebackField): bool
   }
 }
 
-/** A pending write's changed fields, in the canonical column order. */
-export function changedFields(pending: PendingWrite): WritebackField[] {
-  return WRITEBACK_FIELDS.filter((field) => fieldChanged(pending, field))
+/** Every writable key in canonical order: the grouped columns, then the registry's. */
+function orderedFields(registry: readonly TagFieldDef[]): WritebackField[] {
+  return [...WRITEBACK_FIELDS, ...registry.map((field) => field.key as WritebackField)]
+}
+
+/**
+ * A pending write's changed fields, in canonical order — grouped first, then
+ * generic in registry order (**W16-18**: the review selects both tiers).
+ */
+export function changedFields(
+  pending: PendingWrite,
+  registry: readonly TagFieldDef[] = TAG_FIELDS
+): WritebackField[] {
+  return orderedFields(registry).filter((field) => fieldChanged(pending, field))
+}
+
+/**
+ * The diff grid's columns: every grouped field, as before, then only the
+ * generic fields some track in the batch actually changes. The registry has
+ * some thirty keys, and a column per key would bury the handful in play.
+ */
+export function reviewColumns(
+  pendings: readonly PendingWrite[],
+  registry: readonly TagFieldDef[] = TAG_FIELDS
+): WritebackField[] {
+  const generic = registry
+    .filter((field) =>
+      pendings.some((pending) => fieldChanged(pending, field.key as WritebackField))
+    )
+    .map((field) => field.key as WritebackField)
+  return [...WRITEBACK_FIELDS, ...generic]
+}
+
+/** A column's heading: the grouped label, or the registry's for a generic key. */
+export function fieldLabel(
+  field: WritebackField,
+  registry: readonly TagFieldDef[] = TAG_FIELDS
+): string {
+  if (isGroupedWritebackField(field)) return FIELD_LABELS[field]
+  return registry.find((entry) => entry.key === field)?.label ?? field
 }
 
 /**
@@ -61,9 +121,14 @@ export function changedFields(pending: PendingWrite): WritebackField[] {
  * operator's first act is to *deselect*, not to hunt for what to turn on — the
  * batch they reviewed is the batch they meant, minus anything they vetoed.
  */
-export function initialSelection(pendings: readonly PendingWrite[]): SelectionMap {
+export function initialSelection(
+  pendings: readonly PendingWrite[],
+  registry: readonly TagFieldDef[] = TAG_FIELDS
+): SelectionMap {
   const map: SelectionMap = new Map()
-  for (const pending of pendings) map.set(pending.trackId, new Set(changedFields(pending)))
+  for (const pending of pendings) {
+    map.set(pending.trackId, new Set(changedFields(pending, registry)))
+  }
   return map
 }
 
@@ -77,13 +142,15 @@ export function initialSelection(pendings: readonly PendingWrite[]): SelectionMa
  */
 export function buildSelections(
   pendings: readonly PendingWrite[],
-  selection: SelectionMap
+  selection: SelectionMap,
+  registry: readonly TagFieldDef[] = TAG_FIELDS
 ): WritebackSelection[] {
+  const order = orderedFields(registry)
   const out: WritebackSelection[] = []
   for (const pending of pendings) {
     const selected = selection.get(pending.trackId)
     if (selected === undefined || selected.size === 0) continue
-    const fields = WRITEBACK_FIELDS.filter((field) => selected.has(field))
+    const fields = order.filter((field) => selected.has(field))
     if (fields.length > 0) out.push({ trackId: pending.trackId, fields })
   }
   return out
@@ -186,7 +253,20 @@ export interface FieldText {
   readonly proposed: string
 }
 
-export function fieldText(pending: PendingWrite, field: WritebackField): FieldText {
+export function fieldText(
+  pending: PendingWrite,
+  field: WritebackField,
+  registry: readonly TagFieldDef[] = TAG_FIELDS
+): FieldText {
+  if (!isGroupedWritebackField(field)) {
+    const def = registry.find((entry) => entry.key === field)
+    const diff = genericDiff(pending, field)
+    if (def === undefined || diff === undefined) return { current: '—', proposed: '—' }
+    return {
+      current: formatTagValue(def, diff.current),
+      proposed: formatTagValue(def, diff.proposed)
+    }
+  }
   switch (field) {
     case 'title':
       return {
@@ -197,6 +277,11 @@ export function fieldText(pending: PendingWrite, field: WritebackField): FieldTe
       return {
         current: formatScalar(pending.artist.current),
         proposed: formatScalar(pending.artist.proposed)
+      }
+    case 'albumArtist':
+      return {
+        current: formatScalar(pending.albumArtist.current),
+        proposed: formatScalar(pending.albumArtist.proposed)
       }
     case 'album':
       return {

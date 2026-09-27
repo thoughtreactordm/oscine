@@ -45,6 +45,7 @@ import type { PresenceSignal, PresenceTrack } from '@shared/presence'
 import {
   MAX_WRITEBACK_TRACKS,
   WRITEBACK_FIELDS,
+  isWritebackField,
   type WritebackField,
   type WritebackSelection
 } from '@shared/tagWriteback'
@@ -54,6 +55,18 @@ import {
   type OverrideField,
   type OverridePatch
 } from '@shared/overrides'
+import {
+  MAX_TAG_FIELD_PREFILL_TRACKS,
+  TAG_FIELDS,
+  TAG_LIST_ENTRY_MAX_LENGTH,
+  TAG_LIST_MAX_ENTRIES,
+  isEditableTagField,
+  tagField,
+  type TagFieldDef,
+  type TagFieldKey,
+  type TagFieldPatch,
+  type TagFieldValue
+} from '@shared/tagFields'
 import { MAX_ARTWORK_INGEST_BYTES } from '@shared/artwork'
 import {
   MAX_RIP_TRACKS,
@@ -427,8 +440,12 @@ export function assertGetTracksByIdsQuery(value: unknown): GetTracksByIdsQuery {
   return { ids: ids as number[] }
 }
 
-/** The writable field keys, as a set — the allowed contents of a selection. */
-const WRITEBACK_FIELD_SET: ReadonlySet<string> = new Set(WRITEBACK_FIELDS)
+/**
+ * The most keys one selection may name: every grouped field plus every registry
+ * key. A selection may name any registry key — the flush refuses a held or
+ * read-only one per file, so the refusal is the engine's and not only the UI's.
+ */
+const MAX_WRITEBACK_SELECTION_FIELDS = WRITEBACK_FIELDS.length + TAG_FIELDS.length
 
 /** The tracks to compute a review diff for — a non-empty, capped id set (W16-6). */
 export function assertWritebackPreviewRequest(value: unknown): { trackIds: number[] } {
@@ -456,15 +473,15 @@ function assertWritebackSelection(value: unknown): WritebackSelection {
   const fields = raw.fields
   if (!Array.isArray(fields)) invalid('fields must be an array.')
   if (fields.length === 0) invalid('fields must not be empty.')
-  if (fields.length > WRITEBACK_FIELDS.length) {
-    invalid(`fields must not exceed ${WRITEBACK_FIELDS.length} entries.`)
+  if (fields.length > MAX_WRITEBACK_SELECTION_FIELDS) {
+    invalid(`fields must not exceed ${MAX_WRITEBACK_SELECTION_FIELDS} entries.`)
   }
   const seen = new Set<WritebackField>()
   for (const field of fields) {
-    if (typeof field !== 'string' || !WRITEBACK_FIELD_SET.has(field)) {
-      invalid(`fields entry must be one of: ${WRITEBACK_FIELDS.join(', ')}.`)
+    if (typeof field !== 'string' || !isWritebackField(field)) {
+      invalid(`fields entry must be a tag field or one of: ${WRITEBACK_FIELDS.join(', ')}.`)
     }
-    seen.add(field as WritebackField)
+    seen.add(field)
   }
 
   return { trackId, fields: [...seen] }
@@ -506,6 +523,7 @@ function assertOverridePatch(value: unknown): OverridePatch {
   const patch: {
     title?: string
     artist?: string
+    albumArtist?: string
     album?: string
     trackNo?: number
     discNo?: number
@@ -514,6 +532,7 @@ function assertOverridePatch(value: unknown): OverridePatch {
   } = {}
   if ('title' in raw) patch.title = assertTagText(raw.title, 'title')
   if ('artist' in raw) patch.artist = assertTagText(raw.artist, 'artist')
+  if ('albumArtist' in raw) patch.albumArtist = assertTagText(raw.albumArtist, 'albumArtist')
   if ('album' in raw) patch.album = assertTagText(raw.album, 'album')
   if ('trackNo' in raw) patch.trackNo = assertPositiveInt(raw.trackNo, 'trackNo')
   if ('discNo' in raw) patch.discNo = assertPositiveInt(raw.discNo, 'discNo')
@@ -556,6 +575,126 @@ export function assertClearOverridesRequest(value: unknown): {
       invalid(`fields entry must be one of: ${OVERRIDE_FIELDS.join(', ')}.`)
     }
     seen.add(field as OverrideField)
+  }
+  return { trackIds: assertOverrideTrackIds(raw.trackIds), fields: [...seen] }
+}
+
+/**
+ * One generic field's value, checked against its registry kind — **W16-15**.
+ *
+ * `null` is the *clear* intent and passes for every kind. An empty text or an
+ * empty list means the same thing, so both normalise to `null` rather than
+ * becoming a second spelling of "clear" in the store. List entries must be
+ * non-empty; they are kept as typed, since a tag value's whitespace is its own.
+ */
+export function assertTagFieldValue(field: TagFieldDef, value: unknown): TagFieldValue | null {
+  const name = field.key
+  if (value === null) return null
+  switch (field.kind) {
+    case 'text': {
+      if (typeof value !== 'string') invalid(`${name} must be a string or null.`)
+      if (value.length > field.maxLength) {
+        invalid(`${name} must not exceed ${field.maxLength} characters.`)
+      }
+      return value === '' ? null : value
+    }
+    case 'int': {
+      if (
+        typeof value !== 'number' ||
+        !Number.isInteger(value) ||
+        value < field.min ||
+        value > field.max
+      ) {
+        invalid(`${name} must be an integer between ${field.min} and ${field.max}, or null.`)
+      }
+      return value
+    }
+    case 'bool': {
+      if (typeof value !== 'boolean') invalid(`${name} must be a boolean or null.`)
+      return value
+    }
+    case 'list': {
+      if (!Array.isArray(value)) invalid(`${name} must be an array of strings or null.`)
+      if (value.length > TAG_LIST_MAX_ENTRIES) {
+        invalid(`${name} must not exceed ${TAG_LIST_MAX_ENTRIES} entries.`)
+      }
+      for (const entry of value) {
+        if (typeof entry !== 'string' || entry.trim() === '') {
+          invalid(`${name} entries must be non-empty strings.`)
+        }
+        if (entry.length > TAG_LIST_ENTRY_MAX_LENGTH) {
+          invalid(`${name} entries must not exceed ${TAG_LIST_ENTRY_MAX_LENGTH} characters.`)
+        }
+      }
+      return value.length === 0 ? null : [...(value as string[])]
+    }
+    case 'real':
+      // Only read-only fields are `real`, and those are refused before a value is read.
+      invalid(`${name} is read-only.`)
+  }
+}
+
+/** A generic edit's patch: editable registry keys only, each value checked by kind. */
+function assertTagFieldPatch(value: unknown): TagFieldPatch {
+  const raw = assertRecord(value, 'patch')
+  const patch: Partial<Record<TagFieldKey, TagFieldValue | null>> = {}
+  for (const [key, entry] of Object.entries(raw)) {
+    const field = tagField(key)
+    if (field === undefined || !isEditableTagField(field)) {
+      invalid(`patch key ${JSON.stringify(key)} is not an editable tag field.`)
+    }
+    patch[field.key as TagFieldKey] = assertTagFieldValue(field, entry)
+  }
+  if (Object.keys(patch).length === 0) invalid('patch must set at least one field.')
+  return patch
+}
+
+/** A generic metadata edit (W16-15): the tracks to touch and the field changes. */
+export function assertSetTagOverridesRequest(value: unknown): {
+  trackIds: number[]
+  patch: TagFieldPatch
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds', 'patch'])
+  return { trackIds: assertOverrideTrackIds(raw.trackIds), patch: assertTagFieldPatch(raw.patch) }
+}
+
+/**
+ * The generic prefill (W16-17): a non-empty track set, capped tighter than an
+ * edit because every track is a file opened through taglib.
+ */
+export function assertTagFieldEditStateRequest(value: unknown): { trackIds: number[] } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds'])
+  const trackIds = assertOverrideTrackIds(raw.trackIds)
+  if (trackIds.length > MAX_TAG_FIELD_PREFILL_TRACKS) {
+    invalid(`trackIds must not exceed ${MAX_TAG_FIELD_PREFILL_TRACKS} entries.`)
+  }
+  return { trackIds }
+}
+
+/**
+ * A generic revert (W16-15): drop the named fields' corrections on a batch.
+ * Any registry key is accepted, admitted or not — reverting only removes a
+ * correction, so a field withdrawn from admission can still be cleaned up.
+ */
+export function assertRevertTagOverridesRequest(value: unknown): {
+  trackIds: number[]
+  fields: TagFieldKey[]
+} {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds', 'fields'])
+  const fields = raw.fields
+  if (!Array.isArray(fields)) invalid('fields must be an array.')
+  if (fields.length === 0) invalid('fields must not be empty.')
+  if (fields.length > TAG_FIELDS.length) {
+    invalid(`fields must not exceed ${TAG_FIELDS.length} entries.`)
+  }
+  const seen = new Set<TagFieldKey>()
+  for (const key of fields) {
+    const field = typeof key === 'string' ? tagField(key) : undefined
+    if (field === undefined) invalid(`fields entry ${JSON.stringify(key)} is not a tag field.`)
+    seen.add(field.key as TagFieldKey)
   }
   return { trackIds: assertOverrideTrackIds(raw.trackIds), fields: [...seen] }
 }

@@ -4,13 +4,16 @@ import type { PendingWrite } from '@shared/tagWriteback'
 import { toAbsPath } from '../../db/paths'
 import type { MetadataReader } from '../metadata'
 import { readTrackTags } from '../metadata'
+import { TagOverrideStore } from '../overrides/tagOverrides'
 import {
   computePendingWrite,
+  flushableOverrideKeys,
   NO_OVERRIDE,
   type GenreCanonicalizer,
   type TrackOverrideRow,
   type WritebackUserTag
 } from './diff'
+import { readTagFields, type TagFieldReader } from './genericFields'
 
 /**
  * The pending-write orchestrator — **W16-1**, design authority D28.
@@ -27,15 +30,23 @@ import {
  * reconciles the out-of-band edit instead of overwriting it with a stale value.
  * The reader is injected (defaulting to the real one) so the merge-plus-IO path
  * can be exercised in tests with a synthesised file.
+ *
+ * The generic fields (W16-17) take a second, taglib read — the representation
+ * the writer writes and verify compares — and only when the track carries a
+ * flushable `track_tag_overrides` correction, and only for those keys. A track
+ * with grouped corrections alone never opens the file twice.
  */
 export class TagWritebackDiffer {
   private readonly statements: ReturnType<typeof prepareStatements>
+  private readonly tagOverrides: TagOverrideStore
 
   constructor(
     db: Database.Database,
-    private readonly readTags: MetadataReader = readTrackTags
+    private readonly readTags: MetadataReader = readTrackTags,
+    private readonly readFields: TagFieldReader = readTagFields
   ) {
     this.statements = prepareStatements(db)
+    this.tagOverrides = new TagOverrideStore(db)
   }
 
   /**
@@ -70,6 +81,10 @@ export class TagWritebackDiffer {
           hasOverride: number
         }
       | undefined
+    const tagOverrides = this.tagOverrides.get(trackId)
+    const genericKeys = flushableOverrideKeys(tagOverrides)
+    const fileFields =
+      genericKeys.length === 0 ? undefined : await this.readFields(absPath, genericKeys)
 
     return computePendingWrite({
       trackId,
@@ -81,7 +96,9 @@ export class TagWritebackDiffer {
       artworkOverride:
         artworkRow !== undefined && artworkRow.hasOverride === 1
           ? { imageHash: artworkRow.overrideHash, mime: artworkRow.overrideMime }
-          : null
+          : null,
+      tagOverrides,
+      fileFields
     })
   }
 }
@@ -95,7 +112,7 @@ function prepareStatements(db: Database.Database) {
       WHERE t.id = ?
     `),
     override: db.prepare(`
-      SELECT title, artist_name, album_title, track_no, disc_no, genre, year
+      SELECT title, artist_name, album_artist_name, album_title, track_no, disc_no, genre, year
       FROM track_overrides
       WHERE track_id = ?
     `),

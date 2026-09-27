@@ -166,6 +166,7 @@ import type {
   RipResumeRequest
 } from './cdrip'
 import type { OverrideEditState, OverrideField, OverridePatch } from './overrides'
+import type { TagFieldEditState, TagFieldKey, TagFieldPatch } from './tagFields'
 import type { ArtworkRef, CoverArtCandidate } from './artwork'
 import type { InstalledTheme } from './theme'
 
@@ -391,6 +392,38 @@ export interface IpcContract {
    * Destructive, and gated behind a confirmation in the renderer.
    */
   'overrides.discardAll': { request: null; response: null }
+  /**
+   * Applies a generic tag edit — **W16-15**, the registry tier of Decision E.
+   *
+   * A sibling of `overrides.set` rather than a `fields` bag on
+   * {@link OverridePatch}, because the two share nothing past the track ids: a
+   * grouped edit re-keys the browse and materialises into display rows, a
+   * generic one is a `track_tag_overrides` row and nothing else, so the renderer
+   * need not reload the browse. The value rules differ too — `null` clears here,
+   * where a grouped string clears with `''` — and a generic key is validated by
+   * the registry, admitted fields only. Never writes a file.
+   */
+  'tagOverrides.set': {
+    request: { trackIds: number[]; patch: TagFieldPatch }
+    response: null
+  }
+  /** Drops the named generic corrections on a batch — back to each file's own value. */
+  'tagOverrides.revert': {
+    request: { trackIds: number[]; fields: TagFieldKey[] }
+    response: null
+  }
+  /**
+   * The generic fields' prefill for a batch — **W16-17**. Every admitted field
+   * (ReplayGain included, read-only) read fresh from each file through taglib,
+   * overlaid by the track's corrections and folded to a shared value or
+   * "mixed". Opens every file, so it is bounded by
+   * `MAX_TAG_FIELD_PREFILL_TRACKS` and asked for only when the editor's "All
+   * fields" section opens. A file that cannot be read is left out of the fold.
+   */
+  'tagOverrides.getEditState': {
+    request: { trackIds: number[] }
+    response: TagFieldEditState
+  }
   /**
    * The staged tag write-back review's data side — **W16-6**, design authority
    * D28. The renderer scopes a review to a set of tracks (a song, or the tracks
@@ -1485,6 +1518,9 @@ export const IPC_CHANNELS = [
   'overrides.set',
   'overrides.clear',
   'overrides.discardAll',
+  'tagOverrides.set',
+  'tagOverrides.revert',
+  'tagOverrides.getEditState',
   'tagWriteback.preview',
   'tagWriteback.pending',
   'tagWriteback.apply',
