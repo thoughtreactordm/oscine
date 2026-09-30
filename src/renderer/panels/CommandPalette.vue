@@ -4,7 +4,11 @@ import { useRouter } from 'vue-router'
 import type { CommandPaletteGroup, CommandPaletteItem } from '@nuxt/ui'
 import type { SearchEntityKind, SearchHit } from '@shared/search'
 import { library, search as searchIpc } from '@renderer/ipc'
-import { albumPlayParams, artistPlayParams } from '@renderer/panels/discoverShelves'
+import {
+  albumPlayParams,
+  allSongsPlayParams,
+  artistPlayParams
+} from '@renderer/panels/discoverShelves'
 import { useSettings } from '@renderer/settings'
 import { buildActionCommands } from '@renderer/shell/actionCommands'
 import { matchCommands, type Command } from '@renderer/shell/commandRegistry'
@@ -123,6 +127,7 @@ const actionCommands = buildActionCommands({
   next: () => playback.next(),
   previous: () => playback.previous(),
   toggleShuffle: () => playback.toggleShuffle(),
+  shuffleAll: () => playback.shuffleFromList(allSongsPlayParams()),
   cycleRepeat: () => playback.cycleRepeat(),
   clearQueue: () => playback.clearQueue(),
   toggleZen: () => zen.toggle(),

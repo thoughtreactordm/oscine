@@ -988,6 +988,18 @@ describe('createPlaybackController', () => {
       expect(new Set(seen).size).toBe(40)
     })
 
+    it('shuffling a set turns shuffle on and lets the permutation pick the opener', async () => {
+      const h = harness({ total: 40 })
+      expect(h.controller.shuffleEnabled.value).toBe(false)
+
+      await h.controller.shuffleFromList({ sort: 'artist', direction: 'asc', filters: {} })
+      await settle()
+
+      expect(h.controller.shuffleEnabled.value).toBe(true)
+      expect(h.controller.orderId()).toBe('shuffle:1234:-:list:artist:asc')
+      expect(h.controller.nowPlaying.value?.id).not.toBe(0)
+    })
+
     it('starts at the top when no row was named and shuffle is off', async () => {
       const h = harness({ total: 40 })
 

@@ -933,6 +933,27 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
   }
 
   /**
+   * Shuffles a whole set: shuffle on, then the set started with no row named.
+   *
+   * The row-less start is the point — it is what lets the permutation choose
+   * the opener (see `startOrder`), where double-clicking a row with shuffle on
+   * pins that row and so always opens on whoever sorts first. Shuffle is
+   * switched on rather than borrowed for one order because it is a setting the
+   * transport shows: an order that shuffles under an "off" button would lie.
+   *
+   * The flag is written directly, not through `setShuffle`, which would
+   * re-permute the order that is about to be replaced. Bumping the token is
+   * what stops a `setShuffle(false)` still in flight from retargeting onto it.
+   */
+  async function shuffleFromList(
+    params: Omit<PlayFromListParams, 'index' | 'track'>
+  ): Promise<void> {
+    shuffleToken++
+    shuffleEnabled.value = true
+    await playFromList({ sort: params.sort, direction: params.direction, filters: params.filters })
+  }
+
+  /**
    * Starts a track from My Favorites, traversing `track_favorites` — **D18**.
    *
    * `playingPlaylistId` clears, exactly as it does for the library order and for
@@ -1716,6 +1737,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     hasTrack,
     canSeek,
     playFromList,
+    shuffleFromList,
     playFromPlaylist,
     playFromFavorites,
     playTracks,

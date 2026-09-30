@@ -18,6 +18,7 @@ function deps(overrides: Partial<ActionCommandDeps> = {}): ActionCommandDeps {
     next: vi.fn(),
     previous: vi.fn(),
     toggleShuffle: vi.fn(),
+    shuffleAll: vi.fn(),
     cycleRepeat: vi.fn(),
     clearQueue: vi.fn(),
     toggleZen: vi.fn(),
@@ -41,6 +42,7 @@ describe('buildActionCommands', () => {
       'action:next',
       'action:previous',
       'action:shuffle',
+      'action:shuffleAll',
       'action:repeat',
       'action:clearQueue',
       'action:zenMode'
@@ -76,6 +78,15 @@ describe('buildActionCommands', () => {
     expect(d.close).toHaveBeenCalledOnce()
   })
 
+  it('shuffles all songs through the shuffle-all verb, not the toggle', async () => {
+    const d = deps()
+    await command(buildActionCommands(d), 'action:shuffleAll').run()
+    expect(d.shuffleAll).toHaveBeenCalledOnce()
+    expect(d.toggleShuffle).not.toHaveBeenCalled()
+    expect(d.notify).toHaveBeenCalledOnce()
+    expect(d.close).toHaveBeenCalledOnce()
+  })
+
   it('awaits the async transport verbs before confirming', async () => {
     const order: string[] = []
     const d = deps({
@@ -97,8 +108,11 @@ describe('matchCommands over the Actions group', () => {
   })
 
   it('matches a keyword the label does not contain', () => {
-    // "random" is a keyword of Toggle shuffle; the label says neither.
-    expect(matchCommands(commands, 'random').map((c) => c.id)).toEqual(['action:shuffle'])
+    // "random" is a keyword of both shuffle verbs; neither label says it.
+    expect(matchCommands(commands, 'random').map((c) => c.id)).toEqual([
+      'action:shuffle',
+      'action:shuffleAll'
+    ])
   })
 
   it('matches on the label too', () => {

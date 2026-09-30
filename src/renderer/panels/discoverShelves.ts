@@ -101,3 +101,19 @@ export function artistPlayParams(artistId: number): {
   const filters = { artistIds: [artistId] }
   return { sort: defaultSortFor(filters), direction: 'asc', filters }
 }
+
+/**
+ * How "shuffle all songs" plays: the whole library, no root or search.
+ *
+ * Unfiltered on purpose — the gesture names the library, not the Library tab's
+ * current view of it. The sort is `defaultSortFor`'s unscoped `artist`, which
+ * only matters as the order shuffle returns to when it is switched off.
+ */
+export function allSongsPlayParams(): {
+  sort: TrackSortColumn
+  direction: SortDirection
+  filters: LibraryBrowseFilters
+} {
+  const filters = {}
+  return { sort: defaultSortFor(filters), direction: 'asc', filters }
+}
