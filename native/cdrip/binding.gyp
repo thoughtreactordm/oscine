@@ -10,6 +10,7 @@
       ['OS=="linux"', {'sources': ['backend_linux.cc']}],
       ['OS=="win"', {
         'sources': ['backend_win.cc'],
+        'defines': ['_HAS_EXCEPTIONS=1'],
         'msvs_settings': {'VCCLCompilerTool': {'ExceptionHandling': 1, 'AdditionalOptions': ['/std:c++17']}}
       }]
     ]
