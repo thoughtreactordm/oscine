@@ -5,28 +5,30 @@ import { readSidecarLyrics, type SidecarFs } from '../../../../src/main/library/
  * A fake filesystem over a flat map of absolute path → bytes. `readdir` lists a
  * directory's immediate children; `stat`/`readFile` reject for absent paths, the
  * way `node:fs` does, so the reader's degrade-to-null behaviour is exercised for
- * real rather than mocked away.
+ * real rather than mocked away. Incoming paths are POSIX-normalised because the
+ * reader joins with the platform separator, which is `\` on Windows.
  */
 function fakeFs(files: Record<string, Buffer | string>): SidecarFs {
   const bytes = new Map<string, Buffer>()
   for (const [path, value] of Object.entries(files)) {
     bytes.set(path, typeof value === 'string' ? Buffer.from(value, 'utf-8') : value)
   }
+  const posix = (path: string): string => path.replaceAll('\\', '/')
   const dirOf = (path: string): string => path.slice(0, path.lastIndexOf('/'))
   const nameOf = (path: string): string => path.slice(path.lastIndexOf('/') + 1)
   return {
     readdir: async (dir) => {
-      const names = [...bytes.keys()].filter((p) => dirOf(p) === dir).map(nameOf)
+      const names = [...bytes.keys()].filter((p) => dirOf(p) === posix(dir)).map(nameOf)
       if (names.length === 0) throw new Error('ENOENT')
       return names
     },
     stat: async (path) => {
-      const buf = bytes.get(path)
+      const buf = bytes.get(posix(path))
       if (!buf) throw new Error('ENOENT')
       return { size: buf.length }
     },
     readFile: async (path) => {
-      const buf = bytes.get(path)
+      const buf = bytes.get(posix(path))
       if (!buf) throw new Error('ENOENT')
       return buf
     }
