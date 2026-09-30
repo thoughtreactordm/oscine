@@ -13,6 +13,7 @@
  */
 
 import { AUDIO_SETTINGS } from './settings/audio'
+import { DISCORD_SETTINGS } from './settings/discord'
 import { INTERFACE_SETTINGS } from './settings/interface'
 import { LIBRARY_SETTINGS } from './settings/library'
 import { NETWORK_SETTINGS } from './settings/network'
@@ -44,6 +45,7 @@ export {
   FACET_ACTIVATION_KEY,
   FILE_SIZE_FORMAT_KEY,
   NOW_PLAYING_IDLE_AUTOSHOW_KEY,
+  NOW_PLAYING_LYRICS_KEY,
   NOW_PLAYING_STAGE_TRANSPORT_KEY,
   NOW_PLAYING_WAVEFORM_KEY,
   ONBOARDING_COMPLETED_KEY,
@@ -70,6 +72,10 @@ export {
   AUDIO_CROSSFADE_MS_KEY,
   AUDIO_DECODE_RESIDENCY_BUDGET_MB,
   AUDIO_DECODE_TRACK_CAP_MB,
+  AUDIO_EQ_ACTIVE,
+  AUDIO_EQ_ENABLED,
+  AUDIO_EQ_PRESETS,
+  AUDIO_EQ_PRESET_ID,
   AUDIO_NUMERIC_BOUNDS,
   AUDIO_OUTPUT_DEVICE,
   AUDIO_PREFETCH_DEPTH,
@@ -100,6 +106,20 @@ export {
 } from './settings/theme'
 export type { ThemeModePreference } from './settings/theme'
 export { NETWORK_EXTERNAL_LOOKUPS_KEY, NETWORK_SETTINGS } from './settings/network'
+// W20-4 exposes the Discord settings *type* and defaults the presence mapping
+// reads; W20-3 adds the descriptors (`DISCORD_SETTINGS`) and folds them into
+// SETTINGS_REGISTRY below.
+export {
+  DISCORD_DISPLAY,
+  DISCORD_ENABLED,
+  DISCORD_SETTINGS,
+  DISCORD_SETTINGS_DEFAULTS,
+  DISCORD_SHOW_ALBUM_ART,
+  DISCORD_SHOW_TIMESTAMP,
+  DISCORD_STATUS_TEMPLATE,
+  DISCORD_WHEN_PAUSED
+} from './settings/discord'
+export type { DiscordDisplay, DiscordSettings, DiscordWhenPaused } from './settings/discord'
 export {
   LASTFM_API_KEY,
   LASTFM_API_SECRET,
@@ -135,6 +155,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = Object.freeze([
   ...THEME_SETTINGS,
   ...NETWORK_SETTINGS,
   ...SCROBBLING_SETTINGS,
+  ...DISCORD_SETTINGS,
   ...VIEW_SETTINGS
 ])
 
@@ -268,10 +289,19 @@ export function auditRegistry(
   const problems: string[] = []
   const seen = new Set<string>()
   const slots = new Map<string, string>()
+  const keys = new Set(descriptors.map((descriptor) => descriptor.key))
 
   for (const descriptor of descriptors) {
     if (seen.has(descriptor.key)) problems.push(`duplicate key: ${descriptor.key}`)
     seen.add(descriptor.key)
+
+    // A gate that named a key no descriptor holds would disable a control
+    // against a value that is never read — a row dark for a reason nothing can
+    // turn on. Caught here rather than in `defineSetting`, which sees one key at
+    // a time and cannot know what else the registry holds.
+    if (descriptor.gatedBy && !keys.has(descriptor.gatedBy.key)) {
+      problems.push(`${descriptor.key}: gated by unknown key ${descriptor.gatedBy.key}`)
+    }
 
     // Internal keys have no row, so two of them sharing an order is not a
     // collision — there is nothing to collide.

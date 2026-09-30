@@ -50,6 +50,8 @@ export function performSelection(selection: PaletteSelection, deps: SelectionDep
 export interface HitActivationDeps {
   /** Play an album, through the same list order Library and Discover use. */
   playAlbum: (albumId: number) => void
+  /** Play an artist, through the same list order the Library facets use. */
+  playArtist: (artistId: number) => void
   /** Play one track now, its own list of one. */
   playTrack: (trackId: number) => void
   /** Land Curate on a playlist. The `navigate` below takes the view there. */
@@ -66,11 +68,10 @@ export interface HitActivationDeps {
  * What selecting an *entity* hit does — the deep half W13-7 layers onto W13-5's
  * tab navigation.
  *
- * Album and track are activated where they sit, through the store gestures
- * Library and Discover already use (product rule 5 — no second play-order
- * builder); the playback surface is the confirmation, so there is no toast.
- * Playlist opens its Curate tab and the navigation lands on it. Artist
- * navigates to where it lives. A show downloads its latest episode (D22 — the
+ * Album, artist and track are activated where they sit, through the store
+ * gestures Library and Discover already use (product rule 5 — no second
+ * play-order builder); the playback surface is the confirmation, so there is no
+ * toast. Playlist opens its Curate tab and the navigation lands on it. A show downloads its latest episode (D22 — the
  * palette dispatches, the Podcasts view owns the progress), opening its tab and
  * landing there so the download is visible. Always closes, per D22.
  *
@@ -90,7 +91,7 @@ export function activateHit(hit: SearchHit, deps: HitActivationDeps): void {
       deps.navigate(homeTabForKind('playlist'))
       break
     case 'artist':
-      deps.navigate(homeTabForKind('artist'))
+      deps.playArtist(hit.id)
       break
     case 'show':
       deps.openShow(hit.id)

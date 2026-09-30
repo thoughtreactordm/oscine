@@ -53,7 +53,8 @@ function tags(genre: string | null): TrackTags {
     channels: 2,
     bitDepth: 16,
     genre,
-    replayGain: null
+    replayGain: null,
+    lyrics: null
   }
 }
 

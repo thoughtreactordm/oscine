@@ -12,13 +12,19 @@ import type { ArtworkRef } from './artwork'
  * review all speak the same field vocabulary.
  */
 
-/** The fields a metadata edit can set. Genre is a single delimited string here. */
-export type OverrideField = 'title' | 'artist' | 'album' | 'trackNo' | 'discNo' | 'year' | 'genre'
+/**
+ * The fields a metadata edit can set. Genre is a single delimited string here.
+ * Album artist (W16-14) re-keys the track's album the way the scanner keys it:
+ * `(album title, album artist)`, falling back to the performer when empty.
+ */
+export type OverrideField =
+  'title' | 'artist' | 'albumArtist' | 'album' | 'trackNo' | 'discNo' | 'year' | 'genre'
 
 /** Every editable field, in the order the editor lays them out. */
 export const OVERRIDE_FIELDS: readonly OverrideField[] = [
   'title',
   'artist',
+  'albumArtist',
   'album',
   'trackNo',
   'discNo',
@@ -42,6 +48,7 @@ export const MAX_OVERRIDE_TRACKS = 50_000
 export interface OverridePatch {
   readonly title?: string
   readonly artist?: string
+  readonly albumArtist?: string
   readonly album?: string
   readonly trackNo?: number
   readonly discNo?: number
@@ -69,6 +76,7 @@ export interface OverrideEditState {
   readonly trackCount: number
   readonly title: OverrideFieldState<string>
   readonly artist: OverrideFieldState<string>
+  readonly albumArtist: OverrideFieldState<string>
   readonly album: OverrideFieldState<string>
   readonly trackNo: OverrideFieldState<number>
   readonly discNo: OverrideFieldState<number>

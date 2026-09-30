@@ -1,0 +1,153 @@
+/**
+ * Build the bundled oratory1990 device EQ library (W19-9).
+ *
+ * Pulls oratory1990's `ParametricEQ.txt` profiles from a *pinned* AutoEq commit,
+ * parses each with W19-8's real parser, and writes one committed asset —
+ * `src/shared/audio/deviceEqLibrary.generated.ts` — like a `build/` resource:
+ * reproducible, and refreshed by re-running this script and bumping the pin. Nothing
+ * fetches at runtime.
+ *
+ * Network shape: four GitHub API calls (one to list the three form-factor dirs, one
+ * recursive tree per dir) then one raw fetch per device from the CDN, which is not
+ * API-rate-limited. Run it with `npm run eq:devices`, which bundles this TypeScript
+ * with esbuild (so it can import the parser) and formats the output with Prettier.
+ *
+ * Measurements by oratory1990, via AutoEq (github.com/jaakkopasanen/AutoEq), MIT.
+ */
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { buildDeviceEqProfile } from './lib/deviceEqProfile.ts'
+import type { DeviceEqProfile, DeviceType } from '../src/shared/audio/deviceEqLibrary.ts'
+
+const REPO = 'jaakkopasanen/AutoEq'
+/** Pinned AutoEq commit. Bump this to refresh the corpus, then re-run `npm run eq:devices`. */
+const COMMIT = '7ae0f56d53074872b028649617a22bbb4232feb7'
+const SOURCE_ROOT = 'results/oratory1990'
+const TYPE_DIRS: readonly DeviceType[] = ['earbud', 'in-ear', 'over-ear']
+const RAW_CONCURRENCY = 24
+// Anchored to the repo root: `npm run eq:devices` runs esbuild's bundle from there,
+// so `import.meta.url` would point into node_modules/.cache instead.
+const OUT_PATH = join(process.cwd(), 'src/shared/audio/deviceEqLibrary.generated.ts')
+
+interface GitTreeEntry {
+  path: string
+  type: string
+}
+
+async function githubJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'oscine-build-device-eq-library',
+      Accept: 'application/vnd.github+json',
+      ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {})
+    }
+  })
+  if (!res.ok) throw new Error(`GitHub API ${res.status} for ${url}`)
+  return (await res.json()) as T
+}
+
+async function fetchRaw(path: string): Promise<string> {
+  const url = `https://raw.githubusercontent.com/${REPO}/${COMMIT}/${encodeURI(path)}`
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(url, { headers: { 'User-Agent': 'oscine-build-device-eq-library' } })
+    if (res.ok) return res.text()
+    if (res.status < 500 && res.status !== 429) throw new Error(`raw ${res.status} for ${url}`)
+    await new Promise((r) => setTimeout(r, 300 * (attempt + 1)))
+  }
+  throw new Error(`raw fetch failed after retries: ${url}`)
+}
+
+/** { deviceName, type, path } for every ParametricEQ.txt under the pinned oratory1990 tree. */
+async function listProfiles(): Promise<{ name: string; type: DeviceType; path: string }[]> {
+  const dirs = await githubJson<{ name: string; type: string; sha: string }[]>(
+    `https://api.github.com/repos/${REPO}/contents/${SOURCE_ROOT}?ref=${COMMIT}`
+  )
+  const shaByType = new Map(dirs.filter((d) => d.type === 'dir').map((d) => [d.name, d.sha]))
+
+  const out: { name: string; type: DeviceType; path: string }[] = []
+  for (const type of TYPE_DIRS) {
+    const sha = shaByType.get(type)
+    if (!sha) throw new Error(`missing form-factor dir "${type}" under ${SOURCE_ROOT}`)
+    const tree = await githubJson<{ tree: GitTreeEntry[]; truncated: boolean }>(
+      `https://api.github.com/repos/${REPO}/git/trees/${sha}?recursive=1`
+    )
+    if (tree.truncated) throw new Error(`tree for "${type}" was truncated — walk it in pages`)
+    for (const entry of tree.tree) {
+      if (entry.type !== 'blob' || !entry.path.endsWith('ParametricEQ.txt')) continue
+      const name = entry.path.split('/')[0]
+      out.push({ name, type, path: `${SOURCE_ROOT}/${type}/${entry.path}` })
+    }
+  }
+  return out
+}
+
+/** Map an async worker over items with a fixed concurrency ceiling, preserving order. */
+async function mapPool<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  async function run(): Promise<void> {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await worker(items[i], i)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run))
+  return results
+}
+
+/** Give every profile a globally unique id (the slug can collide across form factors). */
+function dedupeIds(profiles: DeviceEqProfile[]): DeviceEqProfile[] {
+  const seen = new Map<string, number>()
+  return profiles.map((profile) => {
+    const count = seen.get(profile.id) ?? 0
+    seen.set(profile.id, count + 1)
+    return count === 0 ? profile : { ...profile, id: `${profile.id}-${count + 1}` }
+  })
+}
+
+function render(profiles: DeviceEqProfile[]): string {
+  const body = JSON.stringify(profiles, null, 2)
+  return `// GENERATED by scripts/build-device-eq-library.ts — do not edit by hand.
+// Regenerate with \`npm run eq:devices\`. Pinned to AutoEq commit ${COMMIT}.
+// ${profiles.length} oratory1990 device profiles. Measurements by oratory1990, via
+// AutoEq (https://github.com/${REPO}), MIT — Copyright (c) 2018-2022 Jaakko Pasanen.
+import type { DeviceEqProfile } from './deviceEqLibrary'
+
+export const DEVICE_EQ_AUTOEQ_COMMIT = '${COMMIT}'
+
+export const DEVICE_EQ_LIBRARY: readonly DeviceEqProfile[] = ${body}
+`
+}
+
+async function main(): Promise<void> {
+  console.info(`Listing oratory1990 profiles at AutoEq@${COMMIT.slice(0, 10)}…`)
+  const entries = await listProfiles()
+  console.info(`Found ${entries.length} profiles. Fetching…`)
+
+  let skipped = 0
+  const built = await mapPool(entries, RAW_CONCURRENCY, async (entry) => {
+    const text = await fetchRaw(entry.path)
+    const profile = buildDeviceEqProfile(entry.name, entry.type, text)
+    if (!profile) {
+      skipped++
+      console.warn(`  skipped (unparseable): ${entry.name}`)
+    }
+    return profile
+  })
+
+  const profiles = dedupeIds(built.filter((p): p is DeviceEqProfile => p !== null)).sort((a, b) =>
+    a.name.localeCompare(b.name)
+  )
+
+  await writeFile(OUT_PATH, render(profiles), 'utf8')
+  console.info(`Wrote ${profiles.length} profiles (${skipped} skipped) → ${OUT_PATH}`)
+}
+
+main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})

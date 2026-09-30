@@ -63,6 +63,7 @@ export default tseslint.config(
       'release/',
       'coverage/',
       'node_modules/',
+      'native/cdrip/build/',
       // Agent scratch space, including git worktrees. Each worktree is a full
       // checkout with its own `tsconfig.json`, and typescript-eslint refuses to
       // guess a project root when it can see several — so one abandoned worktree
@@ -199,7 +200,7 @@ export default tseslint.config(
 
   {
     name: 'oscine/tests',
-    files: ['tests/**/*.ts'],
+    files: ['tests/**/*.ts', 'tests/**/*.mjs'],
     languageOptions: {
       globals: globals.node
     },
@@ -220,6 +221,13 @@ export default tseslint.config(
       // These are the scripts whose whole purpose is talking to the terminal.
       'no-console': 'off'
     }
+  },
+
+  {
+    name: 'oscine/native-loader',
+    files: ['native/**/*.cjs'],
+    languageOptions: { globals: globals.node },
+    rules: { '@typescript-eslint/no-require-imports': 'off' }
   },
 
   // Last: turns off every stylistic rule Prettier already decides.

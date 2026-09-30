@@ -36,12 +36,26 @@ jobs:
           node-version: 24
           cache: npm
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
       # `npm ci` over `npm install` so the lockfile is what is tested. Native
       # deps resolve to prebuilds on both runners; if that ever stops being true
       # this is the step that will say so, loudly, instead of a later one
-      # failing in a way that looks unrelated.
+      # failing in a way that looks unrelated. The in-tree cdrip postinstall
+      # builds a Node-API 8 prebuild with the runner's C++ toolchain.
       - name: Install
         run: npm ci
+
+      # The encode harness tests the vendored `flac` binary. Linux copies the
+      # distro package; Windows fetch:flac downloads the official Xiph zip.
+      - name: Install reference FLAC encoder
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y flac
+
+      - name: Vendor FLAC encoder
+        run: npm run fetch:flac
 
       - name: Lint
         run: npm run lint
@@ -98,8 +112,18 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
       - name: Install
         run: npm ci
+      # Same as release-build: the packaged app bundles a vendored `flac`, and
+      # the afterPack chmod fails outright when it is absent.
+      - name: Install reference FLAC encoder
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y flac
+      - name: Vendor FLAC encoder
+        run: npm run fetch:flac
       - name: Package
         run: npm run build && npx electron-builder --publish never
       - name: Check release artifacts
@@ -181,8 +205,18 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
       - name: Install
         run: npm ci
+
+      - name: Install reference FLAC encoder
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y flac
+
+      - name: Vendor FLAC encoder
+        run: npm run fetch:flac
 
       # `--publish never`: build the artifacts into release/ but do not upload
       # them loose. The step below is the only thing that attaches to the

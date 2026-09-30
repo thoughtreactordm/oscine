@@ -1,16 +1,18 @@
 import type Database from 'better-sqlite3'
 import { OscineError } from '@shared/errors'
-import type {
-  PendingWrite,
-  WritebackField,
-  WritebackOutcome,
-  WritebackProgress,
-  WritebackReport,
-  WritebackSelection
+import {
+  isGroupedWritebackField,
+  type PendingWrite,
+  type WritebackField,
+  type WritebackOutcome,
+  type WritebackProgress,
+  type WritebackReport,
+  type WritebackSelection
 } from '@shared/tagWriteback'
 import { toAbsPath } from '../../db/paths'
 import type { GenreCanonicalizer } from './diff'
 import { writeTags, type WriteOutcome } from './engine'
+import { refusedTagField } from './genericFields'
 import {
   selectionChangesFile,
   writableTagsFromSelection,
@@ -239,6 +241,17 @@ export class TagWritebackService {
    */
   private async flushOne(selection: WritebackSelection): Promise<WritebackOutcome> {
     const { trackId } = selection
+
+    // A held or read-only generic key is refused for the whole file, not dropped:
+    // dropping it could leave the rest a no-op, and a skipped file retires its
+    // selected fields — which would delete a correction that was never written.
+    const refused = refusedTagField(
+      selection.fields.filter((field) => !isGroupedWritebackField(field))
+    )
+    if (refused !== null) {
+      console.warn(`[writeback] track ${trackId} selection names unflushable field ${refused}`)
+      return { trackId, status: 'failed', code: 'write-failed' }
+    }
 
     const absPath = this.resolvePath(trackId)
     if (absPath === null) {

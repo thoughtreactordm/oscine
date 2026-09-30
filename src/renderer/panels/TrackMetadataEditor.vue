@@ -1,13 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import type { OverrideField } from '@shared/overrides'
+import {
+  MAX_TAG_FIELD_PREFILL_TRACKS,
+  isEditableTagField,
+  type TagFieldDef
+} from '@shared/tagFields'
 import { artworkUrl, hasArtwork } from '@shared/ipc'
 import { useTrackEditStore } from '@renderer/stores/trackEdit'
+import { isMultiline, type TagFieldSection } from '@renderer/panels/tagFieldForm'
+import NetworkCoverPicker from '@renderer/panels/NetworkCoverPicker.vue'
+import TagListInput from '@renderer/panels/TagListInput.vue'
 
 /**
  * The track-metadata editor — **W16 (editor)**, D7's correction layer made
  * editable. An editable sibling to the read-only Track Info dialog: it edits the
- * fields a person reads (title, artist, album, track/disc, year, genre) for one
+ * fields a person reads (title, artist, album artist, album, track/disc, year, genre) for one
  * track or a whole selection, records the change in `track_overrides`, and lets
  * it show at once in the library without ever touching a file. Flushing to disk
  * is the separate write-back review.
@@ -21,6 +29,11 @@ import { useTrackEditStore } from '@renderer/stores/trackEdit'
  * that wash can sit behind the close control rather than stopping at a solid
  * band.
  *
+ * Below the grouped fields, **W16-18**'s "All fields" area: every admitted
+ * registry field, one collapsible section per group, drawn from
+ * `tagFieldSections` so a new registry entry needs no edit here. Collapsed by
+ * default; opening it is what reads the batch's files for the prefill.
+ *
  * Mounted once by the frame; opened by the shared context menus on any surface.
  */
 interface FieldSpec {
@@ -33,6 +46,12 @@ interface FieldSpec {
 const FIELDS: readonly FieldSpec[] = [
   { key: 'title', label: 'Title', numeric: false },
   { key: 'artist', label: 'Artist', numeric: false },
+  {
+    key: 'albumArtist',
+    label: 'Album artist',
+    numeric: false,
+    hint: 'Groups the album — e.g. “Various Artists” for a compilation'
+  },
   { key: 'album', label: 'Album', numeric: false },
   { key: 'trackNo', label: 'Track №', numeric: true },
   { key: 'discNo', label: 'Disc №', numeric: true },
@@ -58,6 +77,37 @@ function placeholder(field: FieldSpec): string {
   if (mixed(field.key)) return 'Multiple values'
   return field.numeric ? '—' : ''
 }
+
+// --- All fields (W16-18) ---------------------------------------------------------
+/** Which group sections are expanded; every one starts closed. */
+const sectionOpen = reactive<Record<string, boolean>>({})
+
+function sectionOverrides(section: TagFieldSection): number {
+  return section.fields.filter((field) => store.tagOverridden(field.key)).length
+}
+
+function tagPlaceholder(field: TagFieldDef): string {
+  if (store.tagMixed(field.key)) return 'Multiple values'
+  return field.kind === 'int' ? '—' : ''
+}
+
+function stringValue(key: string): string {
+  const value = store.tagValues[key]
+  return typeof value === 'string' ? value : ''
+}
+function listValue(key: string): readonly string[] {
+  const value = store.tagValues[key]
+  return Array.isArray(value) ? (value as readonly string[]) : []
+}
+function boolValue(key: string): boolean | 'indeterminate' {
+  const value = store.tagValues[key]
+  return typeof value === 'boolean' ? value : 'indeterminate'
+}
+function onBool(key: string, value: boolean | 'indeterminate'): void {
+  if (typeof value === 'boolean') store.setTagValue(key, value)
+}
+
+const tooManyText = `Too many tracks to read at once — select at most ${MAX_TAG_FIELD_PREFILL_TRACKS.toLocaleString()} to edit these fields.`
 </script>
 
 <template>
@@ -144,6 +194,17 @@ function placeholder(field: FieldSpec): string {
                 type="button"
                 size="xs"
                 color="neutral"
+                variant="soft"
+                block
+                icon="i-tabler-world-search"
+                label="Get artwork from the internet…"
+                :disabled="store.artworkBusy"
+                @click="store.openNetworkPicker()"
+              />
+              <UButton
+                type="button"
+                size="xs"
+                color="neutral"
                 variant="ghost"
                 block
                 icon="i-tabler-photo-off"
@@ -164,7 +225,9 @@ function placeholder(field: FieldSpec): string {
             </div>
           </aside>
 
-          <div class="flex min-w-0 flex-1 flex-col gap-3 p-4 pl-2 pr-12">
+          <div
+            class="flex max-h-[75vh] min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-4 pl-2 pr-12"
+          >
             <header class="min-w-0">
               <h2 class="truncate text-base font-semibold text-highlighted">{{ heading }}</h2>
               <p class="truncate text-xs text-muted">
@@ -207,6 +270,155 @@ function placeholder(field: FieldSpec): string {
               <p v-if="field.hint" class="text-[11px] text-dimmed">{{ field.hint }}</p>
             </div>
 
+            <div class="flex flex-col gap-2 border-t border-default pt-3">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 self-start text-xs font-medium text-dimmed transition-colors hover:text-default"
+                :aria-expanded="store.allFieldsOpen"
+                @click="store.toggleAllFields()"
+              >
+                <UIcon
+                  name="i-tabler-chevron-right"
+                  class="size-3.5 transition-transform"
+                  :class="store.allFieldsOpen ? 'rotate-90' : ''"
+                />
+                All fields
+              </button>
+
+              <template v-if="store.allFieldsOpen">
+                <div
+                  v-if="store.tagFieldsStatus === 'loading'"
+                  class="flex items-center gap-2 py-2 text-xs text-muted"
+                >
+                  <UIcon name="i-tabler-loader-2" class="size-4 animate-spin text-dimmed" />
+                  Reading tags from {{ store.trackIds.length === 1 ? 'the file' : 'the files' }}…
+                </div>
+                <p v-else-if="store.tagFieldsStatus === 'tooMany'" class="text-xs text-muted">
+                  {{ tooManyText }}
+                </p>
+                <div v-else-if="store.tagFieldsStatus === 'ready'" class="flex flex-col gap-1">
+                  <section v-for="section in store.tagSections" :key="section.group">
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-1.5 rounded py-1 text-xs font-medium text-muted transition-colors hover:text-default"
+                      :aria-expanded="sectionOpen[section.group] === true"
+                      @click="sectionOpen[section.group] = !sectionOpen[section.group]"
+                    >
+                      <UIcon
+                        name="i-tabler-chevron-right"
+                        class="size-3.5 transition-transform"
+                        :class="sectionOpen[section.group] ? 'rotate-90' : ''"
+                      />
+                      {{ section.label }}
+                      <span
+                        v-if="sectionOverrides(section) > 0"
+                        class="inline-flex items-center gap-1 text-[11px] font-normal text-dimmed"
+                        :title="`${sectionOverrides(section)} corrected`"
+                      >
+                        <span class="size-1.5 rounded-full bg-primary" />
+                        {{ sectionOverrides(section) }}
+                      </span>
+                    </button>
+
+                    <div
+                      v-if="sectionOpen[section.group]"
+                      class="flex flex-col gap-3 pb-3 pl-5 pt-1"
+                    >
+                      <div
+                        v-for="field in section.fields"
+                        :key="field.key"
+                        class="flex flex-col gap-1"
+                      >
+                        <div class="flex items-center gap-2">
+                          <label :for="`tag-${field.key}`" class="text-xs font-medium text-dimmed">
+                            {{ field.label }}
+                          </label>
+                          <span
+                            v-if="store.tagOverridden(field.key)"
+                            class="size-1.5 rounded-full bg-primary"
+                            title="This field is a correction"
+                          />
+                          <button
+                            v-if="store.tagOverridden(field.key) && isEditableTagField(field)"
+                            type="button"
+                            class="ml-auto inline-flex items-center gap-1 text-[11px] transition-colors"
+                            :class="
+                              store.tagReverting[field.key]
+                                ? 'text-primary'
+                                : 'text-dimmed hover:text-default'
+                            "
+                            @click="store.toggleTagRevert(field.key)"
+                          >
+                            <UIcon name="i-tabler-arrow-back-up" class="size-3.5" />
+                            {{
+                              store.tagReverting[field.key] ? 'Reverting to file' : 'Revert to file'
+                            }}
+                          </button>
+                        </div>
+
+                        <!-- Read-only (Decision F): shown, never edited. -->
+                        <p
+                          v-if="!isEditableTagField(field)"
+                          :id="`tag-${field.key}`"
+                          class="text-sm tabular-nums text-muted"
+                        >
+                          {{
+                            store.tagMixed(field.key)
+                              ? 'Multiple values'
+                              : stringValue(field.key) || '—'
+                          }}
+                        </p>
+                        <TagListInput
+                          v-else-if="field.kind === 'list'"
+                          :id="`tag-${field.key}`"
+                          :model-value="listValue(field.key)"
+                          :placeholder="
+                            store.tagMixed(field.key) ? 'Multiple values' : 'Add, then Enter'
+                          "
+                          :disabled="store.tagReverting[field.key]"
+                          @update:model-value="(value) => store.setTagValue(field.key, value)"
+                        />
+                        <UCheckbox
+                          v-else-if="field.kind === 'bool'"
+                          :id="`tag-${field.key}`"
+                          :model-value="boolValue(field.key)"
+                          :label="store.tagMixed(field.key) ? 'Multiple values' : undefined"
+                          :disabled="store.tagReverting[field.key]"
+                          @update:model-value="(value) => onBool(field.key, value)"
+                        />
+                        <UTextarea
+                          v-else-if="isMultiline(field)"
+                          :id="`tag-${field.key}`"
+                          :model-value="stringValue(field.key)"
+                          :placeholder="tagPlaceholder(field)"
+                          :disabled="store.tagReverting[field.key]"
+                          :rows="3"
+                          :maxrows="12"
+                          autoresize
+                          size="sm"
+                          @update:model-value="
+                            (value: unknown) => store.setTagValue(field.key, String(value ?? ''))
+                          "
+                        />
+                        <UInput
+                          v-else
+                          :id="`tag-${field.key}`"
+                          :model-value="stringValue(field.key)"
+                          :placeholder="tagPlaceholder(field)"
+                          :disabled="store.tagReverting[field.key]"
+                          :inputmode="field.kind === 'int' ? 'numeric' : undefined"
+                          size="sm"
+                          @update:model-value="
+                            (value) => store.setTagValue(field.key, String(value))
+                          "
+                        />
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </template>
+            </div>
+
             <p v-if="store.errorMessage" class="text-xs text-error">{{ store.errorMessage }}</p>
           </div>
         </form>
@@ -226,6 +438,7 @@ function placeholder(field: FieldSpec): string {
       </div>
     </template>
   </UModal>
+  <NetworkCoverPicker />
 </template>
 
 <style scoped>

@@ -1,16 +1,27 @@
-import { watch } from 'vue'
+import { markRaw, shallowRef, watch } from 'vue'
 import { defineStore } from 'pinia'
+import type { EqualizerSpec } from '@shared/audio/equalizer'
 import {
+  DISCORD_ENABLED,
   EMPTY_QUEUE_SESSION,
   QUEUE_SESSION_KEY,
   RESTORE_QUEUE_KEY,
   type QueueSession
 } from '@shared/settings'
 import { createAudioEngineFactory } from '@renderer/audio'
-import { favorites, library, listens, playlists } from '@renderer/ipc'
+import {
+  favorites,
+  library,
+  listens,
+  playlists,
+  presence,
+  settings as settingsIpc
+} from '@renderer/ipc'
 import { createBrowserMediaSessionPlatform } from '@renderer/playback/browserMediaSession'
 import { createPlaybackController } from '@renderer/playback/controller'
+import { createEqAssignmentBinding } from '@renderer/playback/eqAssignmentBinding'
 import { createMediaSessionBinding } from '@renderer/playback/mediaSession'
+import { createPresenceEmitter } from '@renderer/playback/presenceEmitter'
 import { restoredQueueSession, useSettings } from '@renderer/settings'
 import { usePlayHistoryStore } from '@renderer/stores/playHistory'
 
@@ -57,9 +68,21 @@ export const usePlaybackStore = defineStore('playback', () => {
    */
   const inFlightWrites = new Set<Promise<unknown>>()
 
+  // W19-6: the current track's per-entity EQ override, or null when it carries
+  // none. The engine plays `override ?? global` (`bindAudioPreferences`), so an
+  // assignment masks the operator's global curve for the track it applies to and
+  // never writes `audio.eq.active`. The binding below keeps this in step with the
+  // audible track; the controller reads it. `shallowRef`, not `ref`: the spec is
+  // always replaced wholesale (by the binding on a track change, or by the pane's
+  // in-situ editor, W19-11), never deep-mutated — and a deep reactive proxy here
+  // would make the pane's `structuredClone` of the curve (savePreset/undo) throw.
+  const eqOverride = shallowRef<EqualizerSpec | null>(null)
+
   const controller = createPlaybackController({
     createEngine: audio.createEngine,
     setOutputDevice: audio.setOutputDevice,
+    setEqualizer: audio.setEqualizer,
+    eqOverride,
     fetchPage: (query) => library.listTracks(query),
     fetchPlaylistEntries: (query) => playlists.listEntries(query),
     // D18's collection. One verb, because `favorites.list` answers in the
@@ -173,5 +196,60 @@ export const usePlaybackStore = defineStore('playback', () => {
     }
   )
 
-  return controller
+  // W20-1: Discord presence's now-playing emitter. It reads the same reactive
+  // fields the transport binds and pushes them renderer→main over
+  // `presence.update`, debounced to transitions plus a heartbeat. Never
+  // unsubscribed — like the media session, it is live for exactly as long as the
+  // renderer is. Gated off until W20-4 wires `discord.enabled`; the seam is the
+  // `enabled` is read live before every emit, so flipping `discord.enabled` in
+  // Settings turns presence on or off end to end without a re-wire — a disabled
+  // feature emits nothing at all (W20-3 registered the descriptor this reads).
+  createPresenceEmitter({
+    status: controller.status,
+    nowPlaying: controller.nowPlaying,
+    currentTime: controller.currentTime,
+    duration: controller.duration,
+    enabled: () => settings.get<boolean>(DISCORD_ENABLED) === true,
+    emit: (signal) => presence.update(signal)
+  })
+
+  // W19-6: per-entity EQ preset assignments. Always-on like the presence emitter
+  // above — an assignment must apply during playback whether or not the EQ pane
+  // is mounted — so it is built here rather than in the equalizer store. It
+  // observes the audible track and reports its resolved curve as the override the
+  // controller layers over the global; it never writes `audio.eq.active`.
+  const equalizerAssignment = createEqAssignmentBinding({
+    nowPlaying: controller.nowPlaying,
+    playingPlaylistId: controller.playingPlaylistId,
+    settings,
+    library: {
+      trackFacets: (trackId) => library.trackFacets(trackId),
+      listAlbums: (query) => library.listAlbums(query),
+      listArtists: (query) => library.listArtists(query),
+      listPlaylists: () => playlists.list(),
+      listAssignments: (key) => settingsIpc.listAssignments({ key })
+    },
+    applyOverride: (spec) => {
+      eqOverride.value = spec
+    }
+  })
+
+  // The equalizer pane's clip tap. Exposed alongside the controller's surface
+  // rather than threaded through it: the tap belongs to the EQ chain on every
+  // context (see `audio/equalizer.ts`), not to a scheduler slot, so it rides the
+  // factory the same way the output device does.
+  return Object.assign(controller, {
+    subscribeEqualizerClip: audio.subscribeEqualizerClip,
+    // `markRaw` so Pinia does not deep-reactive this object: its `assignments`
+    // member is a ref, and a reactive proxy would unwrap it the moment the
+    // equalizer store reads `equalizerAssignment.assignments`, capturing a plain
+    // array that never updates. Raw, the ref survives the hop and the pane's list
+    // stays reactive.
+    equalizerAssignment: markRaw(equalizerAssignment),
+    // W19-11: the same derived override ref, exposed for the EQ pane's in-situ
+    // override editor. Wrapped in a `markRaw` holder for the same reason the binding
+    // is — a top-level ref would be unwrapped to a plain value on the store hop,
+    // and the pane needs the live ref to edit the override in place.
+    equalizerOverride: markRaw({ spec: eqOverride })
+  })
 })

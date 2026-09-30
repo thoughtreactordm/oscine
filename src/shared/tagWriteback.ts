@@ -1,4 +1,5 @@
 import type { ArtworkRef } from './artwork'
+import { isTagFieldKey, type TagFieldKey, type TagFieldValue } from './tagFields'
 
 export type { ArtworkRef } from './artwork'
 
@@ -99,11 +100,26 @@ export interface ArtworkDiff {
 }
 
 /**
+ * The generic fields' before/after — **W16-17**, Decision E's registry tier.
+ *
+ * Keyed by registry key, and carrying only the fields the track has a
+ * correction for: a generic field with no `track_tag_overrides` row is not a
+ * pending change, and reading all ~30 of them for every track in a batch would
+ * be the cost the on-demand read exists to avoid. `current` is a fresh taglib
+ * read (R7), both sides in the canonical per-kind form — `null` is the kind's
+ * empty value (an unset flag reads as `null`, not `false`), a list compares by
+ * ordered value. Only flushable fields appear: a held or read-only key is never
+ * offered to the review.
+ */
+export type TagFieldDiffs = Readonly<Partial<Record<TagFieldKey, FieldDiff<TagFieldValue>>>>
+
+/**
  * A track's complete pending write — every writable field's diff, plus the one
  * summary flag the review and flush both branch on.
  *
- * The fields are named rather than a list so each keeps its own value type and no
- * consumer has to narrow a union to read a track number. Artwork is a
+ * The grouped fields are named rather than a list so each keeps its own value
+ * type and no consumer has to narrow a union to read a track number; the generic
+ * fields sit in {@link TagFieldDiffs} by registry key. Artwork is a
  * {@link ArtworkDiff} of references, never bytes. `hasChanges` is true when any
  * field changed: a pending write with `hasChanges: false` is a track whose file
  * already matches its corrections, kept in the batch so the report can say
@@ -113,12 +129,15 @@ export interface PendingWrite {
   readonly trackId: number
   readonly title: FieldDiff<string>
   readonly artist: FieldDiff<string>
+  readonly albumArtist: FieldDiff<string>
   readonly album: FieldDiff<string>
   readonly trackNo: FieldDiff<number>
   readonly discNo: FieldDiff<number>
   readonly year: FieldDiff<number>
   readonly genres: GenreDiff
   readonly artwork: ArtworkDiff
+  /** The generic fields with a correction standing (W16-17). */
+  readonly fields: TagFieldDiffs
   /** True when at least one field's `changed` is set. */
   readonly hasChanges: boolean
 }
@@ -134,21 +153,40 @@ export interface PendingWrite {
  */
 
 /**
+ * The grouped writable fields of a pending write, as keys — the named members
+ * of {@link PendingWrite}, minus its identity, generic and summary fields.
+ */
+export type GroupedWritebackField =
+  | 'title'
+  | 'artist'
+  | 'albumArtist'
+  | 'album'
+  | 'trackNo'
+  | 'discNo'
+  | 'year'
+  | 'genres'
+  | 'artwork'
+
+/**
  * The writable fields of a pending write, as keys — the unit the review selects
  * and deselects and the flush applies one at a time.
  *
- * The same names {@link PendingWrite} carries, minus its identity and summary
- * fields. A selection is a subset of these per track; the flush writes a field's
- * `proposed` value only when its key is selected, and keeps the file's current
- * value for the rest.
+ * The grouped names, plus every generic field by its registry key (W16-17) —
+ * joined from the registry rather than listed here, so a field added there is a
+ * selectable key without an edit to this file. A selection is a subset of these
+ * per track; the flush writes a field's `proposed` value only when its key is
+ * selected, and keeps the file's current value for the rest.
  */
-export type WritebackField =
-  'title' | 'artist' | 'album' | 'trackNo' | 'discNo' | 'year' | 'genres' | 'artwork'
+export type WritebackField = GroupedWritebackField | TagFieldKey
 
-/** Every writable field, in the order the review surface lays them out. */
-export const WRITEBACK_FIELDS: readonly WritebackField[] = [
+/**
+ * Every grouped writable field, in the order the review surface lays out its
+ * columns. The generic keys are the registry's (`TAG_FIELDS`), not repeated here.
+ */
+export const WRITEBACK_FIELDS: readonly GroupedWritebackField[] = [
   'title',
   'artist',
+  'albumArtist',
   'album',
   'trackNo',
   'discNo',
@@ -156,6 +194,18 @@ export const WRITEBACK_FIELDS: readonly WritebackField[] = [
   'genres',
   'artwork'
 ]
+
+const GROUPED_WRITEBACK_FIELD_SET: ReadonlySet<string> = new Set(WRITEBACK_FIELDS)
+
+/** Whether a key is one of the grouped fields rather than a registry key. */
+export function isGroupedWritebackField(key: string): key is GroupedWritebackField {
+  return GROUPED_WRITEBACK_FIELD_SET.has(key)
+}
+
+/** Whether a key names any writable field — grouped, or a registry key. */
+export function isWritebackField(key: string): key is WritebackField {
+  return isGroupedWritebackField(key) || isTagFieldKey(key)
+}
 
 /**
  * The most tracks one preview or flush request may carry.

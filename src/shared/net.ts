@@ -101,7 +101,36 @@ export const NET_SCOPES = [
    * disconnected. The rows survive — persist first, submit second — so an
    * abandoned drain costs a retry, never a scrobble.
    */
-  'scrobble'
+  'scrobble',
+  /** A rip's metadata lookup. Closing its pane or cancelling abandons queued and in-flight work. */
+  'cdrip',
+  /**
+   * A cover-art lookup, owned by whatever surface the operator opened it from —
+   * the rip pane priming a release's front, or the cover-edit panel searching for
+   * one. Closing that surface abandons the manifest and image fetches in flight.
+   *
+   * Its own scope rather than `'cdrip'`: the edit-time picker is a distinct
+   * surface with no disc in the drive, and a rip finishing must not cancel a cover
+   * search the operator started elsewhere, nor the reverse.
+   */
+  'cover-art',
+  /**
+   * The playing track's lyrics lookup (W17-4). The unit of interest is the track
+   * on the stage: skipping to the next one abandons the previous track's LRCLIB
+   * request rather than letting it land into a pane that has already moved on,
+   * which also frees the rate-limit slot the new track's lookup would queue
+   * behind. Cancelled by the lyrics store on every track change.
+   */
+  'lyrics',
+  /**
+   * The playing track's Discord presence cover-art lookup (W20-5). The unit of
+   * interest is again the track on the stage: skipping abandons the previous
+   * track's MusicBrainz + Cover Art Archive resolution rather than letting a
+   * stale cover land on a card that has already moved on. Cancelled by the
+   * presence service (`discord/service.ts`) on every new moment and on teardown —
+   * the cancel host this closed union requires.
+   */
+  'discord'
 ] as const
 
 export type NetScope = (typeof NET_SCOPES)[number]

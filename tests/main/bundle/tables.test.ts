@@ -93,7 +93,13 @@ describe('the D11 table contract', () => {
    */
   it('still excludes the play-history trail, the outbox and the derived genres', () => {
     expect(EXCLUDED_TABLES).toEqual(
-      expect.arrayContaining(['play_history', 'scrobble_queue', 'track_genres'])
+      expect.arrayContaining([
+        'play_history',
+        'scrobble_queue',
+        'track_genres',
+        'rip_sessions',
+        'rip_session_tracks'
+      ])
     )
   })
 

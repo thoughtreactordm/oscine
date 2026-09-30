@@ -35,6 +35,7 @@ function fileTags(over: Partial<TrackTags>): TrackTags {
     bitDepth: null,
     genre: null,
     replayGain: null,
+    lyrics: null,
     ...over
   }
 }
@@ -461,6 +462,216 @@ describe('track overrides', () => {
       expect(mixed.artwork.mixed).toBe(true)
       expect(mixed.artwork.overridden).toBe(true)
       expect(mixed.artwork.value).toBeNull()
+    })
+  })
+
+  /**
+   * Album artist — **W16-14**, Decision E (grouped tier).
+   *
+   * A compilation ripped without an album-artist frame shatters into one album
+   * per performer, because the scanner keys the album on the performer when the
+   * frame is absent. Driven through the real scan upsert so the shattered state
+   * is the one a live library actually has.
+   */
+  describe('album artist', () => {
+    const PERFORMERS = ['Ann', 'Bob', 'Cat'] as const
+
+    function scan(rel: string, over: Partial<TrackTags>): number {
+      store.writeTracks(
+        rootId,
+        [
+          {
+            file: { absPath: `/synthetic/${rel}`, relPath: rel, mtime: 1, size: 1 },
+            tags: fileTags(over)
+          }
+        ],
+        NOW
+      )
+      return (
+        opened.db.prepare('SELECT id FROM tracks WHERE rel_path = ?').get(rel) as { id: number }
+      ).id
+    }
+
+    /** The shattered compilation: three tracks, three performers, no ALBUMARTIST. */
+    function scanCompilation(extra: Partial<TrackTags> = {}): number[] {
+      return PERFORMERS.map((artist, i) =>
+        scan(`${i + 1}.flac`, {
+          title: `Song ${i + 1}`,
+          artist,
+          album: 'Hits',
+          year: 1999,
+          trackNo: i + 1,
+          ...extra
+        })
+      )
+    }
+
+    function albums() {
+      return store.listAlbums({ offset: 0, limit: 100 }).albums
+    }
+    function artistNames(): string[] {
+      return store.listArtists({ offset: 0, limit: 100 }).artists.map((a) => a.name)
+    }
+    function overrideCount(): number {
+      return (opened.db.prepare('SELECT COUNT(*) AS n FROM track_overrides').get() as { n: number })
+        .n
+    }
+
+    it('folds a shattered compilation into one album under the set album artist', () => {
+      const tracks = scanCompilation()
+      expect(albums()).toHaveLength(3)
+
+      store.setOverrides(tracks, { albumArtist: 'Various Artists' }, NOW)
+
+      expect(albums()).toEqual([
+        expect.objectContaining({ title: 'Hits', albumArtist: 'Various Artists', trackCount: 3 })
+      ])
+      expect(artistNames()).toEqual(['Various Artists'])
+      for (const track of tracks) {
+        expect(trackById(track)).toMatchObject({ album: 'Hits', year: 1999, modified: true })
+      }
+      // The performers are still the tracks' artists — only the grouping moved.
+      expect(tracks.map((t) => trackById(t).artist)).toEqual([...PERFORMERS])
+      expect(store.overrideEditState(tracks).albumArtist).toMatchObject({
+        value: 'Various Artists',
+        mixed: false,
+        overridden: true
+      })
+    })
+
+    it('shows the shattered batch as mixed in the editor prefill', () => {
+      const tracks = scanCompilation()
+      expect(store.overrideEditState(tracks).albumArtist).toMatchObject({
+        value: null,
+        mixed: true,
+        overridden: false
+      })
+    })
+
+    it('carries the cover onto the album row the compilation folds into', () => {
+      const tracks = scanCompilation()
+      const firstAlbum = (
+        opened.db.prepare('SELECT album_id AS id FROM tracks WHERE id = ?').get(tracks[0]) as {
+          id: number
+        }
+      ).id
+      store.setAlbumArtwork(firstAlbum, 'a'.repeat(64))
+
+      store.setOverrides(tracks, { albumArtist: 'Various Artists' }, NOW)
+
+      expect(store.overrideEditState(tracks).artwork.value).toMatchObject({
+        present: true,
+        hash: 'a'.repeat(64)
+      })
+    })
+
+    it('reverts to the shattered state, reusing the original album rows', () => {
+      const tracks = scanCompilation()
+      const before = albums()
+
+      store.setOverrides(tracks, { albumArtist: 'Various Artists' }, NOW)
+      store.revertOverrides(
+        tracks.map((trackId, i) => ({
+          trackId,
+          file: fileTags({
+            title: `Song ${i + 1}`,
+            artist: PERFORMERS[i],
+            album: 'Hits',
+            year: 1999
+          })
+        })),
+        ['albumArtist'],
+        NOW
+      )
+
+      expect(albums()).toEqual(before)
+      expect(artistNames()).toEqual([...PERFORMERS])
+      expect(overrideCount()).toBe(0)
+    })
+
+    it('an empty album artist falls back to the performer, as the scanner does', () => {
+      const [track] = [scan('a.flac', { artist: 'Ann', album: 'Solo', albumArtist: 'Label' })]
+      expect(albums()[0].albumArtist).toBe('Label')
+
+      store.setOverrides([track], { albumArtist: '' }, NOW)
+
+      expect(albums()).toEqual([expect.objectContaining({ title: 'Solo', albumArtist: 'Ann' })])
+      expect(artistNames()).toEqual(['Ann'])
+    })
+
+    it('an album edit honours a pending album-artist correction', () => {
+      const tracks = scanCompilation()
+      store.setOverrides(tracks, { albumArtist: 'Various Artists' }, NOW)
+      store.setOverrides(tracks, { album: 'Greatest Hits' }, NOW)
+
+      expect(albums()).toEqual([
+        expect.objectContaining({ title: 'Greatest Hits', albumArtist: 'Various Artists' })
+      ])
+    })
+
+    it('an album-artist edit honours a pending album correction', () => {
+      const tracks = scanCompilation()
+      store.setOverrides(tracks, { album: 'Greatest Hits' }, NOW)
+      store.setOverrides(tracks, { albumArtist: 'Various Artists' }, NOW)
+
+      expect(albums()).toEqual([
+        expect.objectContaining({ title: 'Greatest Hits', albumArtist: 'Various Artists' })
+      ])
+    })
+
+    it('reverting the album keeps a standing album-artist correction', () => {
+      const tracks = scanCompilation()
+      store.setOverrides(tracks, { album: 'Greatest Hits', albumArtist: 'Various Artists' }, NOW)
+      store.revertOverrides(
+        tracks.map((trackId, i) => ({
+          trackId,
+          file: fileTags({ artist: PERFORMERS[i], album: 'Hits', year: 1999 })
+        })),
+        ['album'],
+        NOW
+      )
+
+      expect(albums()).toEqual([
+        expect.objectContaining({ title: 'Hits', albumArtist: 'Various Artists', trackCount: 3 })
+      ])
+    })
+
+    it('records an album artist on a track with no album, applying it once one is set', () => {
+      const track = scan('a.flac', { artist: 'Ann' })
+      store.setOverrides([track], { albumArtist: 'Various Artists' }, NOW)
+      expect(albums()).toHaveLength(0)
+
+      store.setOverrides([track], { album: 'Hits' }, NOW)
+      expect(albums()).toEqual([
+        expect.objectContaining({ title: 'Hits', albumArtist: 'Various Artists' })
+      ])
+    })
+
+    it('keeps a pending album artist across a re-scan, and retires it once the file holds it', () => {
+      const tracks = scanCompilation()
+      store.setOverrides(tracks, { albumArtist: 'Various Artists' }, NOW)
+
+      // A re-scan of the still-unflushed files re-materialises the correction.
+      scanCompilation()
+      expect(albums()).toEqual([expect.objectContaining({ albumArtist: 'Various Artists' })])
+      expect(overrideCount()).toBe(3)
+
+      // The flush wrote ALBUMARTIST; the next re-scan retires every override.
+      scanCompilation({ albumArtist: 'Various Artists' })
+      expect(overrideCount()).toBe(0)
+      expect(albums()).toEqual([
+        expect.objectContaining({ title: 'Hits', albumArtist: 'Various Artists', trackCount: 3 })
+      ])
+    })
+
+    it('retires the column after a flush wrote it', () => {
+      const tracks = scanCompilation()
+      store.setOverrides(tracks, { albumArtist: 'Various Artists' }, NOW)
+      for (const track of tracks) store.retireWrittenOverrides(track, ['albumArtist'], NOW)
+
+      expect(overrideCount()).toBe(0)
+      expect(store.pendingWritebackTrackIds()).toEqual([])
+      expect(albums()).toHaveLength(1)
     })
   })
 })

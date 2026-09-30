@@ -19,13 +19,16 @@ import type {
   ListFavoritesQuery
 } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
+import type { PresenceSignal } from '@shared/presence'
 import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
 import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
 import type { DiscoverRecipeId } from '@shared/discover'
 import type { SearchQuery } from '@shared/search'
 import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
+import type { RipProgress, RipRequest, RipResumeRequest } from '@shared/cdrip'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
+import type { TagFieldKey, TagFieldPatch } from '@shared/tagFields'
 import type {
   AddTracksToPlaylistRequest,
   ExportPlaylistRequest,
@@ -38,6 +41,7 @@ import type {
 import type {
   GetSettingOverridesRequest,
   ImportSettingsProfileRequest,
+  ListSettingAssignmentsRequest,
   ResetSettingsRequest,
   SetSettingRequest,
   SettingsChange
@@ -95,6 +99,8 @@ export const library = {
     unwrap(window.oscine.library.getTracksByIds(query)),
   /** Catalog and neighbourhood relations for one track. Local index only. */
   getRelated: (trackId: number) => unwrap(window.oscine.library.getRelated(trackId)),
+  /** Resolved lyrics for one track — sidecar `.lrc`, then embedded tags. `null` when none. */
+  getLyrics: (trackId: number) => unwrap(window.oscine.library.getLyrics(trackId)),
   /** The album and album-artist a track sits in — the Tags pane's batch scope. */
   trackFacets: (trackId: number) => unwrap(window.oscine.library.trackFacets(trackId)),
   getTrackAudioMetadata: (trackId: number) =>
@@ -133,6 +139,22 @@ export const overrides = {
 }
 
 /**
+ * Generic tag editing — **W16-15/17**. Corrections land in `track_tag_overrides`
+ * only; nothing in the browse moves and no file is touched.
+ */
+export const tagOverrides = {
+  /** The generic fields' prefill, read fresh from each file — bounded, ask lazily. */
+  getEditState: (trackIds: readonly number[]) =>
+    unwrap(window.oscine.tagOverrides.getEditState(trackIds)),
+  /** Apply a generic edit to a batch: a value sets a field, `null` clears it. */
+  set: (trackIds: readonly number[], patch: TagFieldPatch) =>
+    unwrap(window.oscine.tagOverrides.set(trackIds, patch)),
+  /** Drop the named generic corrections on a batch — back to the files. */
+  revert: (trackIds: readonly number[], fields: readonly TagFieldKey[]) =>
+    unwrap(window.oscine.tagOverrides.revert(trackIds, fields))
+}
+
+/**
  * Staged tag write-back review — **W16-6**. Scope in and report out are track
  * ids and typed codes; this half of the boundary never sees a path.
  */
@@ -151,6 +173,24 @@ export const tagWriteback = {
     window.oscine.tagWriteback.onApplyProgress(listener)
 }
 
+export const cdrip = {
+  listDrives: () => unwrap(window.oscine.cdrip.listDrives()),
+  readToc: (driveId: string) => unwrap(window.oscine.cdrip.readToc(driveId)),
+  lookup: (driveId: string) => unwrap(window.oscine.cdrip.lookup(driveId)),
+  validateDestination: (absDir: string) => unwrap(window.oscine.cdrip.validateDestination(absDir)),
+  pickDestination: () => unwrap(window.oscine.cdrip.pickDestination()),
+  pickArtwork: () => unwrap(window.oscine.cdrip.pickArtwork()),
+  proposeArtwork: (releaseMbid: string | null) =>
+    unwrap(window.oscine.cdrip.proposeArtwork(releaseMbid)),
+  start: (request: RipRequest) => unwrap(window.oscine.cdrip.start(request)),
+  cancel: () => unwrap(window.oscine.cdrip.cancel()),
+  unfinishedSession: () => unwrap(window.oscine.cdrip.unfinishedSession()),
+  resume: (request: RipResumeRequest) => unwrap(window.oscine.cdrip.resume(request)),
+  dismissSession: (sessionId: number) => unwrap(window.oscine.cdrip.dismissSession(sessionId)),
+  onProgress: (listener: (progress: RipProgress) => void) =>
+    window.oscine.cdrip.onProgress(listener)
+}
+
 /**
  * Cover ingest — **W16-10**. Image bytes only ever travel renderer→main; every
  * result is an {@link ArtworkRef} the renderer re-addresses through `oscine://`,
@@ -166,7 +206,13 @@ export const artwork = {
   /** Set the tri-state clear (cover removed on flush) on a batch. */
   clear: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.clear(trackIds)),
   /** Drop the override on a batch — back to the file's own cover. */
-  revert: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.revert(trackIds))
+  revert: (trackIds: readonly number[]) => unwrap(window.oscine.artwork.revert(trackIds)),
+  /** Search the network for album covers — **W7-17**. Candidates are references, not bytes. */
+  searchCovers: (artist: string, album: string) =>
+    unwrap(window.oscine.artwork.searchCovers(artist, album)),
+  /** Apply a picked network cover to a batch; main fetches the bytes and writes the override. */
+  applyRemoteCover: (trackIds: readonly number[], url: string) =>
+    unwrap(window.oscine.artwork.applyRemoteCover(trackIds, url))
 }
 
 export const history = {
@@ -180,6 +226,21 @@ export const listens = {
   flushed: () => unwrap(window.oscine.listens.flushed()),
   /** Returns an unsubscribe function. Call it on unmount. */
   onFlushRequested: (listener: () => void) => window.oscine.listens.onFlushRequested(listener)
+}
+
+export const presence = {
+  /**
+   * Push one now-playing signal to main for Discord presence — **W20-1**.
+   *
+   * Fire-and-forget by contract: not `unwrap`ped and not awaited. The failure of
+   * a presence update is about a moment already passing, so it is swallowed here
+   * rather than surfaced — the same discipline `ScrobbleTarget.nowPlaying` keeps.
+   */
+  update: (signal: PresenceSignal): void => {
+    void window.oscine.presence.update(signal).catch(() => {
+      // Nothing to retry and nowhere to show it: presence is best-effort.
+    })
+  }
 }
 
 export const stats = {
@@ -337,6 +398,8 @@ export const settings = {
   getAll: () => unwrap(window.oscine.settings.getAll()),
   getOverrides: (payload: GetSettingOverridesRequest) =>
     unwrap(window.oscine.settings.getOverrides(payload)),
+  listAssignments: (payload: ListSettingAssignmentsRequest) =>
+    unwrap(window.oscine.settings.listAssignments(payload)),
   set: (payload: SetSettingRequest) => unwrap(window.oscine.settings.set(payload)),
   reset: (payload: ResetSettingsRequest) => unwrap(window.oscine.settings.reset(payload)),
   exportProfile: () => unwrap(window.oscine.settings.exportProfile()),

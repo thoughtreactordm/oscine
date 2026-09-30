@@ -20,6 +20,8 @@ export interface ActionCommandDeps {
   next: () => void | Promise<void>
   previous: () => void | Promise<void>
   toggleShuffle: () => void | Promise<void>
+  /** Turns shuffle on and plays the whole library from a random first track. */
+  shuffleAll: () => void | Promise<void>
   cycleRepeat: () => void
   /** Clears both tiers of the up-next queue. */
   clearQueue: () => void
@@ -77,6 +79,16 @@ export function buildActionCommands(deps: ActionCommandDeps): Command[] {
       run: async () => {
         await deps.toggleShuffle()
         finish('Toggled shuffle')
+      }
+    },
+    {
+      id: 'action:shuffleAll',
+      label: 'Shuffle all songs',
+      icon: 'i-tabler-dice-5',
+      keywords: ['shuffle', 'random', 'all', 'songs', 'library', 'everything', 'dice'],
+      run: async () => {
+        await deps.shuffleAll()
+        finish('Shuffling all songs')
       }
     },
     {

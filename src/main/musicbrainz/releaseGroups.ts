@@ -180,3 +180,110 @@ export async function searchReleaseGroups(
   }
   return netOk(groups)
 }
+
+/**
+ * One release group as the edit-time cover picker needs it — **W7-17**.
+ *
+ * Corroboration ({@link CreditedReleaseGroup}) throws the release-group MBID
+ * away because it only counts artist credits. The picker needs the opposite: the
+ * MBID, to hand to the Cover Art Archive, and enough of a caption for the
+ * operator to tell two editions of the same album apart. Same search endpoint,
+ * a different projection of the reply.
+ */
+export interface ReleaseGroupCandidate {
+  /** The release-group MBID — the key the Cover Art Archive front lookup takes. */
+  mbid: string
+  title: string
+  /** The credited artist, joined across a collaboration; null when unstated. */
+  artist: string | null
+  /** A disambiguation or first-release year, for the picker's second caption line. */
+  detail: string | null
+  /** MusicBrainz's relevance score, 0–100. Candidates are returned best-first. */
+  score: number
+}
+
+function asNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+/** Joins an `artist-credit` array into a single credit line, honouring join phrases. */
+function joinArtistCredit(credits: unknown): string | null {
+  if (!Array.isArray(credits)) return null
+  let out = ''
+  for (const credit of credits) {
+    const record = asRecord(credit)
+    if (!record) continue
+    const name = asString(record.name) ?? asString(asRecord(record.artist)?.name)
+    if (name) out += name
+    const join = typeof record.joinphrase === 'string' ? record.joinphrase : ''
+    out += join
+  }
+  const trimmed = out.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+/** The year from a `first-release-date`, which MusicBrainz gives as `YYYY`, `YYYY-MM` or full. */
+function firstReleaseYear(value: unknown): string | null {
+  const date = asString(value)
+  const match = date?.match(/^(\d{4})/u)
+  return match ? match[1] : null
+}
+
+/**
+ * Reads the `release-groups` array into ranked picker candidates.
+ *
+ * Unlike {@link parseReleaseGroupSearch}, an entry with no artist credit is kept
+ * (the picker shows the title alone) — the only requirement is a real MBID, the
+ * one field the cover lookup cannot do without.
+ */
+export function parseReleaseGroupCandidates(body: unknown): ReleaseGroupCandidate[] {
+  const raw = asRecord(body)?.['release-groups']
+  if (!Array.isArray(raw)) return []
+
+  const candidates: ReleaseGroupCandidate[] = []
+  for (const entry of raw) {
+    const record = asRecord(entry)
+    if (!record) continue
+    const mbid = asString(record.id)
+    const title = asString(record.title)
+    if (!mbid || !title) continue
+    candidates.push({
+      mbid,
+      title,
+      artist: joinArtistCredit(record['artist-credit']),
+      detail: asString(record.disambiguation) ?? firstReleaseYear(record['first-release-date']),
+      score: asNumber(record.score)
+    })
+  }
+  candidates.sort((a, b) => b.score - a.score)
+  return candidates
+}
+
+/**
+ * Finds release groups matching an artist and one album title — **W7-17**.
+ *
+ * The edit-time picker's first hop: an indexed track carries no release MBID, so
+ * the release group is found by name here and its front cover resolved from the
+ * Cover Art Archive after. Runs on the `cover-art` scope so closing the picker
+ * abandons it, and returns an empty list rather than a failure when there is
+ * simply no match — a missing album is a normal answer for a picker, the same
+ * stance the Cover Art Archive takes for a release with no cover.
+ */
+export async function searchReleaseGroupCandidates(
+  client: NetClient,
+  artist: string,
+  album: string
+): Promise<NetResult<ReleaseGroupCandidate[]>> {
+  const query = releaseGroupQuery(artist, [album])
+  if (query === null) return netOk([])
+
+  const result = await client.getJson<unknown>({
+    url: releaseGroupSearchUrl(query),
+    scope: 'cover-art',
+    accept: 'application/json'
+  })
+  if (!result.ok) {
+    return result.failure.kind === 'not-found' ? netOk([]) : result
+  }
+  return netOk(parseReleaseGroupCandidates(result.value))
+}

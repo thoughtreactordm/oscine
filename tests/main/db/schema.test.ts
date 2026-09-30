@@ -74,7 +74,11 @@ describe('openDatabase', () => {
         'track-overrides-genre-year',
         'genre-aliases',
         'artwork-overrides',
-        'track-genres-album'
+        'track-genres-album',
+        'rip-sessions',
+        'rip-artwork',
+        'track-overrides-album-artist',
+        'track-tag-overrides'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -127,7 +131,11 @@ describe('openDatabase', () => {
         'track-overrides-genre-year',
         'genre-aliases',
         'artwork-overrides',
-        'track-genres-album'
+        'track-genres-album',
+        'rip-sessions',
+        'rip-artwork',
+        'track-overrides-album-artist',
+        'track-tag-overrides'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -169,7 +177,11 @@ describe('openDatabase', () => {
         'track-overrides-genre-year',
         'genre-aliases',
         'artwork-overrides',
-        'track-genres-album'
+        'track-genres-album',
+        'rip-sessions',
+        'rip-artwork',
+        'track-overrides-album-artist',
+        'track-tag-overrides'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
@@ -743,6 +755,113 @@ describe('referential integrity', () => {
           .prepare('INSERT INTO roots (label, path, added_at) VALUES (?, ?, ?)')
           .run('Dup', '/srv/music', 1)
       ).toThrow(/UNIQUE/i)
+    } finally {
+      db.close()
+    }
+  })
+})
+
+describe('migration 023 rip sessions', () => {
+  const BEFORE_023 = MIGRATIONS.findIndex((step) => step.name === 'rip-sessions')
+
+  it('applies on a fresh database', () => {
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.to).toBe(HEAD)
+      const names = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all()
+        .map((row) => (row as { name: string }).name)
+      expect(names).toEqual(expect.arrayContaining(['rip_sessions', 'rip_session_tracks']))
+    } finally {
+      db.close()
+    }
+  })
+
+  it('applies cleanly on a database stopped at 022 without losing rows', () => {
+    const old = new Database(file)
+    migrate(old, MIGRATIONS.slice(0, BEFORE_023))
+    expect(old.pragma('user_version', { simple: true })).toBe(BEFORE_023)
+    const seeded = seedRootAndTrack(old)
+    old.close()
+
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.from).toBe(BEFORE_023)
+      expect(migration.applied.map((step) => step.name)).toEqual([
+        'rip-sessions',
+        'rip-artwork',
+        'track-overrides-album-artist',
+        'track-tag-overrides'
+      ])
+      expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
+    } finally {
+      db.close()
+    }
+  })
+})
+
+describe('migration 025 track_overrides.album_artist_name (W16-14)', () => {
+  const BEFORE_025 = MIGRATIONS.findIndex((step) => step.name === 'track-overrides-album-artist')
+
+  it('adds an empty column and keeps every existing correction', () => {
+    const old = new Database(file)
+    migrate(old, MIGRATIONS.slice(0, BEFORE_025))
+    const { trackId } = seedRootAndTrack(old)
+    old
+      .prepare('INSERT INTO track_overrides (track_id, title, updated_at) VALUES (?, ?, ?)')
+      .run(trackId, 'Corrected', 1)
+    old.close()
+
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.applied.map((step) => step.name)).toEqual([
+        'track-overrides-album-artist',
+        'track-tag-overrides'
+      ])
+      expect(
+        db
+          .prepare('SELECT title, album_artist_name FROM track_overrides WHERE track_id = ?')
+          .get(trackId)
+      ).toEqual({ title: 'Corrected', album_artist_name: null })
+    } finally {
+      db.close()
+    }
+  })
+})
+
+describe('migration 026 track_tag_overrides (W16-15)', () => {
+  const BEFORE_026 = MIGRATIONS.findIndex((step) => step.name === 'track-tag-overrides')
+
+  it('creates an empty table beside the existing corrections, cascading from tracks', () => {
+    const old = new Database(file)
+    migrate(old, MIGRATIONS.slice(0, BEFORE_026))
+    const { trackId } = seedRootAndTrack(old)
+    old
+      .prepare('INSERT INTO track_overrides (track_id, title, updated_at) VALUES (?, ?, ?)')
+      .run(trackId, 'Corrected', 1)
+    old.close()
+
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.applied.map((step) => step.name)).toEqual(['track-tag-overrides'])
+      expect(db.prepare('SELECT count(*) AS n FROM track_tag_overrides').get()).toEqual({ n: 0 })
+      expect(
+        db.prepare('SELECT title FROM track_overrides WHERE track_id = ?').get(trackId)
+      ).toEqual({ title: 'Corrected' })
+
+      db.prepare(
+        'INSERT INTO track_tag_overrides (track_id, field, value, updated_at) VALUES (?, ?, ?, ?)'
+      ).run(trackId, 'conductor', '"Karajan"', 1)
+      expect(() =>
+        db
+          .prepare(
+            'INSERT INTO track_tag_overrides (track_id, field, value, updated_at) VALUES (?, ?, ?, ?)'
+          )
+          .run(trackId, 'conductor', '"Abbado"', 2)
+      ).toThrow()
+      db.prepare('DELETE FROM tracks WHERE id = ?').run(trackId)
+      expect(db.prepare('SELECT count(*) AS n FROM track_tag_overrides').get()).toEqual({ n: 0 })
     } finally {
       db.close()
     }

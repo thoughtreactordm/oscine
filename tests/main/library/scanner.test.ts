@@ -62,6 +62,7 @@ function tags(overrides: Partial<TrackTags> = {}): TrackTags {
     bitDepth: 16,
     genre: null,
     replayGain: null,
+    lyrics: null,
     ...overrides
   }
 }

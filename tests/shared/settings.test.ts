@@ -186,6 +186,44 @@ describe('defineSetting', () => {
     ).toThrow(/not one of the select options/)
   })
 
+  it('refuses a gate on the key itself, and a gate with no note', () => {
+    const base = {
+      key: 'test.gated',
+      scope: 'durable' as const,
+      default: false,
+      validate: booleanValue(),
+      control: { kind: 'toggle' as const },
+      category: 'audio' as const,
+      label: 'Gated',
+      help: '',
+      order: 12
+    }
+    expect(() => defineSetting({ ...base, gatedBy: { key: 'test.gated', note: 'nope' } })).toThrow(
+      /cannot gate on itself/
+    )
+    expect(() => defineSetting({ ...base, gatedBy: { key: 'test.other', note: '  ' } })).toThrow(
+      /gate needs a note/
+    )
+  })
+
+  it('carries a valid gate onto the descriptor, frozen', () => {
+    const gated = defineSetting<boolean>({
+      key: 'test.gatedOk',
+      scope: 'durable',
+      default: false,
+      validate: booleanValue(),
+      control: { kind: 'toggle' },
+      category: 'audio',
+      label: 'Gated ok',
+      help: '',
+      gatedBy: { key: 'test.toggle', note: 'Turn on the toggle first.' },
+      order: 13
+    })
+    expect(gated.gatedBy).toEqual({ key: 'test.toggle', note: 'Turn on the toggle first.' })
+    expect(Object.isFrozen(gated.gatedBy)).toBe(true)
+    expect(toggle.gatedBy).toBeNull()
+  })
+
   it('refuses a version bump with no way to reach it', () => {
     const base = {
       key: 'test.versioned',
@@ -425,6 +463,42 @@ describe('the assembled registry', () => {
     expect(auditRegistry([toggle, other])).toEqual([
       'test.otherToggle and test.toggle both sit at audio#1'
     ])
+  })
+
+  it('reports a gate that points at a key no descriptor holds', () => {
+    const gated = defineSetting<boolean>({
+      key: 'test.gatedOrphan',
+      scope: 'durable',
+      default: false,
+      validate: booleanValue(),
+      control: { kind: 'toggle' },
+      category: 'audio',
+      label: 'Gated orphan',
+      help: '',
+      gatedBy: { key: 'test.doesNotExist', note: 'Turn on the missing key first.' },
+      order: 2
+    })
+    expect(auditRegistry([toggle, gated])).toContain(
+      'test.gatedOrphan: gated by unknown key test.doesNotExist'
+    )
+    // The same gate is clean once its key is in the registry beside it.
+    expect(
+      auditRegistry([
+        toggle,
+        gated,
+        defineSetting<boolean>({
+          key: 'test.doesNotExist',
+          scope: 'durable',
+          default: false,
+          validate: booleanValue(),
+          control: { kind: 'toggle' },
+          category: 'audio',
+          label: 'Now it exists',
+          help: '',
+          order: 3
+        })
+      ])
+    ).toEqual([])
   })
 
   it('resolves every key by name and splits cleanly by scope', () => {

@@ -1,16 +1,23 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { PendingWrite, WritebackField, WritebackOutcome } from '@shared/tagWriteback'
-import { WRITEBACK_FIELDS } from '@shared/tagWriteback'
+import type {
+  GroupedWritebackField,
+  PendingWrite,
+  WritebackField,
+  WritebackOutcome
+} from '@shared/tagWriteback'
+import { isGroupedWritebackField } from '@shared/tagWriteback'
+import { tagField, type TagFieldKind } from '@shared/tagFields'
 import type { ArtworkRef } from '@shared/artwork'
 import { artworkUrl } from '@shared/ipc'
 import { visibleRange } from '@renderer/panels/listViewport'
 import TriCheck from '@renderer/panels/tools/TriCheck.vue'
 import {
-  FIELD_LABELS,
   fieldChanged,
+  fieldLabel,
   fieldText,
   formatArtwork,
+  reviewColumns,
   rowLabel,
   rowState,
   type CheckState
@@ -23,6 +30,10 @@ import { useTagWritebackStore } from '@renderer/stores/tagWriteback'
  * with per-row and per-field select/deselect, an Apply that flushes through the
  * W16-2/W16-4 engine over IPC with live progress, and a per-file result column.
  * Virtualized from the first commit because a batch can be thousands of tracks.
+ *
+ * The generic fields (W16-18) join as columns after the grouped ones, one per
+ * registry field some track in the batch changes — the columns come from the
+ * model, so a new registry entry needs no edit here.
  */
 const store = useTagWritebackStore()
 
@@ -33,9 +44,10 @@ const ROW_PX = 60
 const OVERSCAN = 6
 
 /** Per-field column widths — fixed so the grid has a definite width to scroll. */
-const FIELD_WIDTH: Record<WritebackField, string> = {
+const FIELD_WIDTH: Record<GroupedWritebackField, string> = {
   title: '168px',
   artist: '168px',
+  albumArtist: '168px',
   album: '168px',
   trackNo: '84px',
   discNo: '84px',
@@ -43,7 +55,21 @@ const FIELD_WIDTH: Record<WritebackField, string> = {
   genres: '208px',
   artwork: '148px'
 }
-const gridColumns = `44px 240px ${WRITEBACK_FIELDS.map((f) => FIELD_WIDTH[f]).join(' ')} 116px`
+/** A generic column's width, by the shape of what it holds. */
+const KIND_WIDTH: Record<TagFieldKind, string> = {
+  text: '168px',
+  int: '92px',
+  bool: '92px',
+  list: '208px',
+  real: '92px'
+}
+function columnWidth(field: WritebackField): string {
+  if (isGroupedWritebackField(field)) return FIELD_WIDTH[field]
+  return KIND_WIDTH[tagField(field)?.kind ?? 'text']
+}
+
+const columns = computed(() => reviewColumns(store.pendingWrites))
+const gridColumns = computed(() => `44px 240px ${columns.value.map(columnWidth).join(' ')} 116px`)
 
 const showTable = computed(
   () =>
@@ -307,8 +333,13 @@ function discard(): void {
             />
           </div>
           <div class="truncate px-2 py-2">Track</div>
-          <div v-for="field in WRITEBACK_FIELDS" :key="field" class="truncate px-2 py-2">
-            {{ FIELD_LABELS[field] }}
+          <div
+            v-for="field in columns"
+            :key="field"
+            class="truncate px-2 py-2"
+            :title="fieldLabel(field)"
+          >
+            {{ fieldLabel(field) }}
           </div>
           <div class="truncate px-2 py-2">{{ store.report ? 'Result' : '' }}</div>
         </div>
@@ -334,11 +365,11 @@ function discard(): void {
             <p class="truncate text-[11px] text-muted">{{ rowLabel(pending).secondary }}</p>
           </div>
 
-          <div v-for="field in WRITEBACK_FIELDS" :key="field" class="min-w-0 px-2">
+          <div v-for="field in columns" :key="field" class="min-w-0 px-2">
             <div v-if="fieldChanged(pending, field)" class="flex items-center gap-1.5">
               <TriCheck
                 :state="cellState(pending.trackId, field)"
-                :aria-label="`${FIELD_LABELS[field]} for ${rowLabel(pending).primary}`"
+                :aria-label="`${fieldLabel(field)} for ${rowLabel(pending).primary}`"
                 @toggle="store.toggleField(pending.trackId, field)"
               />
               <div

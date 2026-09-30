@@ -1,6 +1,6 @@
 {
   "name": "oscine",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "A format-first local music player for large libraries",
   "author": {
     "name": "Michael DeLally",
@@ -14,10 +14,10 @@
     "dev:raw": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder --publish never",
-    "dist:win": "npm run build && electron-builder --win --publish never",
-    "dist:linux": "npm run build && electron-builder --linux --publish never",
+    "pack": "npm run fetch:flac && npm run build && electron-builder --dir",
+    "dist": "npm run fetch:flac && npm run build && electron-builder --publish never",
+    "dist:win": "npm run fetch:flac && npm run build && electron-builder --win --publish never",
+    "dist:linux": "npm run fetch:flac && npm run build && electron-builder --linux --publish never",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -26,6 +26,7 @@
     "test:watch": "vitest",
     "icons": "node scripts/make-icons.mjs",
     "palettes": "node scripts/make-palettes.mjs",
+    "eq:devices": "esbuild scripts/build-device-eq-library.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/build-device-eq-library.mjs && node node_modules/.cache/build-device-eq-library.mjs && prettier --write src/shared/audio/deviceEqLibrary.generated.ts",
     "verify:native": "node scripts/check-native-abi.mjs",
     "seed:synthetic": "node scripts/seed-synthetic-library.mjs",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
@@ -39,7 +40,11 @@
     "probe:fixture": "node scripts/make-probe-fixture.mjs",
     "probe:m2-fixture": "node scripts/make-m2-probe-fixture.mjs",
     "probe:writeback-corpus": "node scripts/writeback-corpus-probe.mjs",
-    "probe:writeback-fixture": "node scripts/make-writeback-corpus.mjs"
+    "probe:writeback-fixture": "node scripts/make-writeback-corpus.mjs",
+    "build:cdrip": "node scripts/build-cdrip.mjs",
+    "fetch:flac": "node scripts/fetch-flac.mjs",
+    "postinstall": "npm run build:cdrip",
+    "probe:cdrip": "node scripts/cdrip-probe.mjs"
   },
   "dependencies": {
     "@fontsource-variable/roboto": "^5.3.0",
@@ -48,7 +53,8 @@
     "electron-updater": "^6.8.9",
     "music-metadata": "^11.14.0",
     "node-web-audio-api": "^2.1.0",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.4",
+    "@oscine/cdrip": "file:native/cdrip"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -77,6 +83,8 @@
     "vue": "^3.5.40",
     "vue-eslint-parser": "^10.4.1",
     "vue-router": "^5.2.0",
-    "vue-tsc": "^3.3.5"
+    "vue-tsc": "^3.3.5",
+    "node-addon-api": "^8.9.0",
+    "node-gyp": "^12.4.0"
   }
 }

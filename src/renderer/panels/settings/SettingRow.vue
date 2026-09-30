@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { SettingsRow } from '@renderer/panels/settings/catalog'
+import { settingGateState, type SettingsRow } from '@renderer/panels/settings/catalog'
 import { surfacesForKey } from '@renderer/panels/settings/panelSettings'
 import SettingField from '@renderer/panels/settings/SettingField.vue'
 import { useSettings } from '@renderer/settings'
@@ -89,6 +89,23 @@ const alsoOn = computed(() => {
   return `Also on ${surfaces.map((surface) => surface.where).join(', and on ')}.`
 })
 
+/**
+ * The descriptor's D14-style gate against another key's live value, if it has
+ * one. Reactive because it reads the gate key through the store: flipping the
+ * consent toggle re-enables this row without a reload.
+ */
+const gate = computed(() => settingGateState(props.row.descriptor, (key) => settings.get(key)))
+
+/** Locked out while the gate is shut — the control would only no-op otherwise. */
+const disabled = computed(() => gate.value?.closed === true)
+
+/**
+ * The caption under the help. The shut gate's note takes the slot when it is
+ * shut — "turn this on, here" is the more useful thing to say than where else
+ * the setting lives — and otherwise the "also on" pointer keeps it.
+ */
+const note = computed(() => (gate.value?.closed ? gate.value.note : alsoOn.value))
+
 function revert(): void {
   void settings.reset(props.row.key)
 }
@@ -102,7 +119,8 @@ function revert(): void {
     :highlighted="highlighted"
     :revert-to="revertTo"
     :restart="restart"
-    :note="alsoOn"
+    :note="note"
+    :disabled="disabled"
     :compact="compact"
     :linkable="linkable"
     @revert="revert"

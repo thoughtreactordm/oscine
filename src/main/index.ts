@@ -23,13 +23,28 @@ import { SqliteFavoriteService } from './favorites/service'
 import { TagStore } from './tags/store'
 import { SqliteSearchService } from './search/service'
 import { emit, registerIpcHandlers, setTrustedRendererUrl } from './ipc'
+import { DISCORD_APPLICATION_ID } from './discord/appId'
+import { createDiscordClient } from './discord/client'
+import { createPresenceArtworkResolver } from './discord/artwork'
+import { createPresenceService, type PresenceService } from './discord/service'
+import { discordSocketCandidates } from './discord/socketPaths'
+import { connectFirstSocket } from './discord/transport'
 import { WorkerArtworkImageProcessor } from './library/artworkProcessor'
 import { createDerivedArtworkStore } from './library/derivedArtwork'
 import { SqliteLibraryService } from './library/sqliteService'
+import { createLyricsNetworkService } from './library/lyrics/network'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { TagWritebackDiffer } from './library/writeback/differ'
 import { TagWritebackService, trackPathResolver } from './library/writeback/service'
+import { createCdDrive } from './cdrip/drive'
+import { createCoverArtArchiveClient } from './artwork/coverArtArchive'
+import { createCoverSearchService } from './artwork/coverSearch'
+import { createDiscLookup } from './cdrip/discLookup'
+import { createFlacEncoder, resolveFlacBinaryPath } from './cdrip/encoder'
+import { RipService, ripDestResolver } from './cdrip/service'
+import { RipArtworkPicker } from './cdrip/artwork'
+import { RipSessionStore } from './cdrip/sessionStore'
 import { SqlitePodcastService } from './podcasts/service'
 import {
   createArtistIdentityService,
@@ -68,7 +83,15 @@ import type { ScrobbleTarget } from '@shared/scrobble'
 import { detectUpdateChannel, updateChannelCanSelfUpdate, type UpdateStatus } from '@shared/update'
 import {
   AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
+  DISCORD_DISPLAY,
+  DISCORD_ENABLED,
+  DISCORD_SHOW_ALBUM_ART,
+  DISCORD_SHOW_TIMESTAMP,
+  DISCORD_STATUS_TEMPLATE,
+  DISCORD_WHEN_PAUSED,
   LASTFM_LOVE_ON_FAVORITE,
+  type DiscordDisplay,
+  type DiscordWhenPaused,
   type SettingsChange
 } from '@shared/settings'
 
@@ -92,6 +115,23 @@ async function pickMusicFolder(): Promise<string | null> {
   const options: Electron.OpenDialogOptions = {
     title: 'Add music folder',
     buttonLabel: 'Add folder',
+    properties: ['openDirectory', 'createDirectory', 'dontAddToRecent']
+  }
+
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options)
+
+  // Cancelling is an ordinary outcome, not an error — the contract says so.
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+}
+
+/** W18-7's rip destination. Same dialog shape as add-root; a different title. */
+async function pickRipDestination(): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    title: 'Choose rip destination',
+    buttonLabel: 'Choose folder',
     properties: ['openDirectory', 'createDirectory', 'dontAddToRecent']
   }
 
@@ -266,6 +306,13 @@ function requestListenFlush(): void {
  * before the service that composes the status, and both need to reach it.
  */
 let scrobbleStatus: ScrobbleStatusService | null = null
+
+/**
+ * Held at module scope for the same reason: the settings service is constructed
+ * before the presence service, but its `onChanged` callback must reach presence
+ * so a live `discord.*` change re-derives at once (W20-4).
+ */
+let presenceService: PresenceService | null = null
 
 function broadcastScrobbleStatus(): void {
   if (!mainWindow || !scrobbleStatus) return
@@ -471,6 +518,10 @@ if (!app.requestSingleInstanceLock()) {
         if (changes.some((change) => WINDOW_BACKGROUND_KEYS.includes(change.key))) {
           applyWindowBackground()
         }
+        // A live `discord.*` change re-derives presence now, rather than
+        // waiting for the next track (W20-4). Harmless until W20-3 registers the
+        // descriptors — no `discord.*` change can fire before then.
+        presenceService?.onSettingsChanged(changes)
       }
     })
 
@@ -612,6 +663,39 @@ if (!app.requestSingleInstanceLock()) {
     // its callers, never inside it. W7-9 takes both.
     const cache = openCacheService(cacheDatabasePath())
 
+    // W20-4/W20-5: presence, the Rich Presence sibling of the now-playing
+    // announcer, hanging off the same moment. The socket lives here in main (the
+    // renderer opens none — the invariant), behind the W20-2 client so a missing
+    // Discord is a quiet retry, never a throw (R12). The five `discord.*`
+    // descriptors (W20-3) are resolved fresh on every derivation, so a toggle
+    // takes effect live — and `onChanged` above re-derives the moment one flips,
+    // without waiting for the next track. Created here, after `cache`, so the
+    // album-art resolver (W20-5) can share the cache and net layers the cover-art
+    // surfaces use; the cover lookup rides the `discord` net scope, and a skip's
+    // `cancelScope('discord')` abandons whatever hop is in flight.
+    const discordClient = createDiscordClient({
+      clientId: DISCORD_APPLICATION_ID,
+      connect: connectFirstSocket,
+      candidates: () => discordSocketCandidates({ platform: process.platform, env: process.env })
+    })
+    const presenceArtwork = createPresenceArtworkResolver({ client: net.client, cache })
+    const presence = createPresenceService({
+      client: discordClient,
+      settings: () => ({
+        enabled: settings.get<boolean>(DISCORD_ENABLED),
+        display: settings.get<DiscordDisplay>(DISCORD_DISPLAY),
+        statusTemplate: settings.get<string>(DISCORD_STATUS_TEMPLATE),
+        showAlbumArt: settings.get<boolean>(DISCORD_SHOW_ALBUM_ART),
+        showTimestamp: settings.get<boolean>(DISCORD_SHOW_TIMESTAMP),
+        whenPaused: settings.get<DiscordWhenPaused>(DISCORD_WHEN_PAUSED)
+      }),
+      resolveCoverArt: (track) => presenceArtwork.resolve(track),
+      cancelCoverArt: () => {
+        net.cancelScope('discord')
+      }
+    })
+    presenceService = presence
+
     // R5's resolver, on the library connection and between the two above it. It
     // owns two columns of `artists` and reads nothing else, so it is its own
     // service rather than a method on the library — the same arrangement the
@@ -666,8 +750,21 @@ if (!app.requestSingleInstanceLock()) {
       locale: () => app.getLocale()
     })
 
+    const ripArtwork = new RipArtworkPicker(
+      pickCoverImage,
+      createDerivedArtworkStore({
+        cacheDir: artworkCachePath(),
+        processor: artworkProcessor
+      })
+    )
+
+    // Tier 3 of the lyrics chain (W17-4): LRCLIB behind the shared client and
+    // cache, on its own 'lyrics' scope. One more D14 source, no new HTTP stack.
+    const lyricsNetwork = createLyricsNetworkService({ client: net.client, cache })
+
     const library = new SqliteLibraryService({
       db,
+      lyricsNetwork,
       artworkCacheDir: artworkCachePath(),
       artworkOriginalsDir: artworkOriginalsPath(),
       artworkProcessor,
@@ -676,7 +773,10 @@ if (!app.requestSingleInstanceLock()) {
       // an artist photograph is referenced from a database it cannot see. Built
       // before the library so this is a plain function reference rather than a
       // late-bound hole.
-      externalArtworkReferences: () => images.referencedHashes(),
+      externalArtworkReferences: () => [
+        ...images.referencedHashes(),
+        ...ripArtwork.referencedHashes()
+      ],
       pickFolder: pickMusicFolder,
       pickImageFile: pickCoverImage,
       onProgress: broadcastScanProgress,
@@ -803,6 +903,45 @@ if (!app.requestSingleInstanceLock()) {
       broadcastUpdateStatus
     )
 
+    // W18-5 — the CD-rip session. Lazy native load, fake-drive tests, and the
+    // encoder binary resolved from the packaged extraResources layout or the
+    // repo-relative vendor copy. Lookup is on the same service so the Tools
+    // pane's metadata match (W18-6) does not grow a second orchestrator.
+    // W7-15's Cover Art Archive client, shared by both cover-art surfaces: the
+    // rip prep (W7-16) that primes a matched release's front, and the edit-time
+    // picker (W7-17) below. One client on the 'cover-art' scope, kept apart from
+    // the rip's own 'cdrip' scope.
+    const coverArt = createCoverArtArchiveClient({ client: net.client, cache })
+
+    const rip = new RipService({
+      drive: createCdDrive(),
+      lookup: createDiscLookup({ client: net.client, cache }),
+      encoder: createFlacEncoder({
+        binaryPath: resolveFlacBinaryPath({
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          appRoot: app.getAppPath()
+        })
+      }),
+      resolvePath: ripDestResolver(db),
+      ingest: (rootId, absPaths) => library.ingestRippedFiles(rootId, absPaths),
+      artwork: ripArtwork,
+      // W7-16: the matched release's front cover, primed into the draft slot.
+      coverArt,
+      sessions: new RipSessionStore(db)
+    })
+
+    // W7-17: the edit-time network cover picker for tracks already in the
+    // library. Finds a release group for an indexed track (which carries no
+    // release MBID), resolves its front through the shared client, adds iTunes
+    // as the fallback, and stages a pick through the ordinary `setCover` ingest —
+    // so a network cover is an override indistinguishable from a file pick.
+    const coverSearch = createCoverSearchService({
+      client: net.client,
+      coverArt,
+      setCover: (trackIds, bytes, mime) => library.setArtworkFromBytes(trackIds, bytes, mime)
+    })
+
     // The command palette's finder (D23). Same connection, no tables of its own
     // and no network: it reuses `tracks_fts` for tracks and a light LIKE over
     // the small entity sets, and reaches nothing but this database.
@@ -846,6 +985,12 @@ if (!app.requestSingleInstanceLock()) {
       // drain costs a retry, never a scrobble.
       scrobbleDrain.stop()
       net.cancelScope('scrobble')
+      rip.cancel()
+      net.cancelScope('cdrip')
+
+      // Take presence down and disconnect the Discord socket before the window
+      // and database go, so a closed Oscine leaves no stale "Playing" card (W20-4).
+      presence.stop()
 
       // First of the awaited steps, because it is the only one that needs the
       // renderer alive and
@@ -906,7 +1051,13 @@ if (!app.requestSingleInstanceLock()) {
       tags,
       tagSuggestions,
       tagWriteback,
-      updates
+      updates,
+      rip,
+      pickRipDestination,
+      coverSearch,
+      // W20-4: presence's main-side sink — the service that maps the signal to a
+      // Discord activity and drives the client, in place of W20-1's no-op stub.
+      presence
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

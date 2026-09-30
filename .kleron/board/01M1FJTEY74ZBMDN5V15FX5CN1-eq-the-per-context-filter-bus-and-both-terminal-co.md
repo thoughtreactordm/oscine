@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJTEY74ZBMDN5V15FX5CN1
 title: 'EQ: the per-context filter bus and both terminal connections'
-status: backlog
+status: done
 priority: high
 labels:
   - eq
@@ -10,9 +10,9 @@ labels:
   - D30
 workstream: W19
 workstreamId: W19-1
-order: 23
+order: 0
 created: '2026-09-01T22:53:15.078Z'
-updated: '2026-09-01T22:53:15.078Z'
+updated: '2026-09-27T00:20:50.215Z'
 ---
 ## Intent
 

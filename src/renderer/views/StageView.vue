@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useLyricsStore } from '@renderer/stores/lyrics'
 import { useZenStore } from '@renderer/stores/zen'
 import { useElementSize } from '@renderer/shell/useElementSize'
 import { useStageTransport } from '@renderer/shell/useStageTransport'
+import { useSettings } from '@renderer/settings'
+import { NOW_PLAYING_LYRICS_KEY } from '@shared/settings'
+import LyricsPane from '@renderer/panels/LyricsPane.vue'
 import QuickMenu from '@renderer/panels/QuickMenu.vue'
 import NowPlayingActions from '@renderer/panels/transport/NowPlayingActions.vue'
 import PlaybackModeButtons from '@renderer/panels/transport/PlaybackModeButtons.vue'
@@ -33,7 +37,52 @@ import WaveformRibbon from '@renderer/panels/WaveformRibbon.vue'
  * used to record no longer applies once the controls are shared.
  */
 const playback = usePlaybackStore()
+const lyrics = useLyricsStore()
 const zen = useZenStore()
+const settings = useSettings()
+
+/**
+ * The lyrics pane, W17-3. It is a panel island; this stage is only its first
+ * host. It rides beside the record when the operator has it on, there is a track
+ * to caption, and the stage is wide enough to give the record and a column of
+ * text room without cramping either — below that the stage stays just the
+ * record. Visibility is a durable Interface setting the stage also toggles.
+ */
+const sectionRef = ref<HTMLElement | null>(null)
+const { width: stageWidth } = useElementSize(sectionRef)
+const LYRICS_MIN_STAGE_WIDTH = 720
+const lyricsEnabled = computed(() => settings.get<boolean>(NOW_PLAYING_LYRICS_KEY))
+const showLyrics = computed(
+  () => lyricsEnabled.value && playback.hasTrack && stageWidth.value >= LYRICS_MIN_STAGE_WIDTH
+)
+/** The stage affordance: the one place to bring lyrics back once they are off. */
+const showLyricsToggle = computed(
+  () => playback.hasTrack && stageWidth.value >= LYRICS_MIN_STAGE_WIDTH
+)
+function toggleLyrics(): void {
+  void settings.set<boolean>(NOW_PLAYING_LYRICS_KEY, !lyricsEnabled.value)
+}
+
+/**
+ * How the shown document was resolved, said quietly and inline with the toggle
+ * rather than floating at the foot of the pane. The pane is an island; the stage
+ * owns the show/hide control, so the provenance that reads as a caption on it
+ * belongs here beside it. Null unless lyrics are actually on screen with a known
+ * source, so the toggle stands alone when there is nothing to attribute.
+ */
+const lyricsSource = computed(() => {
+  if (!showLyrics.value) return null
+  switch (lyrics.document?.source) {
+    case 'sidecar':
+      return 'from .lrc sidecar'
+    case 'embedded':
+      return 'from file tags'
+    case 'lrclib':
+      return 'from LRCLIB'
+    default:
+      return null
+  }
+})
 
 /**
  * Whether this view is carrying the transport itself — in Zen, or when the
@@ -96,6 +145,7 @@ const byline = computed(() => {
 
 <template>
   <section
+    ref="sectionRef"
     class="relative flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden bg-default"
     :class="{ 'stage-immersive': stageOwnsTransport }"
     aria-label="Now playing"
@@ -139,8 +189,33 @@ const byline = computed(() => {
       </UTooltip>
     </div>
 
+    <!--
+      Lyrics toggle — the stage affordance the card asks for, and the only way
+      back once lyrics are off (the pane cannot toggle itself when it is not
+      shown). Reveals on approach like the Zen exit rather than burning a control
+      into the corner; shifts left of the exit when Zen is also offering one.
+    -->
     <div
-      class="relative flex h-full min-h-0 w-full flex-col p-4 sm:p-8"
+      v-if="showLyricsToggle"
+      class="stage-lyrics-toggle"
+      :class="{ 'stage-lyrics-toggle-shifted': zen.active }"
+    >
+      <span v-if="lyricsSource" class="text-xs text-dimmed">{{ lyricsSource }}</span>
+      <UTooltip :text="lyricsEnabled ? 'Hide lyrics' : 'Show lyrics'">
+        <UButton
+          :icon="lyricsEnabled ? 'i-tabler-microphone-2' : 'i-tabler-microphone-2-off'"
+          color="neutral"
+          variant="ghost"
+          :aria-label="lyricsEnabled ? 'Hide lyrics' : 'Show lyrics'"
+          :aria-pressed="lyricsEnabled"
+          @click="toggleLyrics"
+        />
+      </UTooltip>
+    </div>
+
+    <div
+      class="stage-body relative flex h-full min-h-0 w-full flex-col p-4 sm:p-8"
+      :class="{ 'stage-has-lyrics': showLyrics }"
       :style="{ paddingBottom: contentBottomReserve }"
     >
       <!--
@@ -204,6 +279,8 @@ const byline = computed(() => {
         </div>
         <p v-else class="shrink-0 text-sm text-dimmed">Nothing playing</p>
       </div>
+
+      <LyricsPane v-if="showLyrics" class="stage-lyrics" />
     </div>
 
     <!--
@@ -309,6 +386,55 @@ section {
 }
 
 /*
+ * With lyrics on, the stage turns on its side: the record and its caption on the
+ * left at the size the art cap allows, a column of lyrics taking the width that
+ * remains on the right. This is the row the view was already halfway to — the
+ * short-and-wide media query above puts the caption beside the art the same way
+ * — extended to the whole body rather than a second responsive scheme. The
+ * render gate (`showLyrics`, min stage width) means this only ever applies with
+ * the room for it, so it needs no width query of its own.
+ *
+ * `justify-content: center` is what keeps the pair honest on a wide window: once
+ * the lyrics column hits its `max-width` cap the leftover width would otherwise
+ * pool on the right and leave the record shoved against the left edge — the pair
+ * instead sits centred as a unit, with even gutters. The gap tightens on a narrow
+ * stage so the two never trade a readable column for whitespace.
+ */
+.stage-has-lyrics {
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  gap: clamp(1.5rem, 3vw, 2.5rem);
+}
+
+/*
+ * The record cluster gives up both its `flex-1` claim and its `w-full` on the
+ * whole body so it sizes to the art cap and leaves the rest to the lyrics.
+ * `width: auto` is load-bearing: `w-full` (width: 100%) otherwise becomes the
+ * flex basis under `flex-basis: auto`, so the cluster claims the full row and the
+ * lyrics column shrinks to zero width — a pane that renders but cannot be seen.
+ *
+ * The `max-width` is the fix for a narrow stage — the half-width window with
+ * Tunedeck open. `--stage-art-max` is sized off the viewport (`58vmin`), so
+ * without a cap the record refuses to give way and crushes the lyrics into a
+ * wrapping mess. Capping the cluster at a share of the row lets the art's
+ * `max-w-full` shrink it in step, so the two always split the width rather than
+ * the lyrics taking whatever the record leaves.
+ */
+.stage-has-lyrics .stage-content {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 45%;
+}
+
+.stage-lyrics {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  max-width: 44rem;
+}
+
+/*
  * When the stage carries the transport — Zen, or the merged Now Playing view —
  * the waveform ribbon is dialled up. In its normal home the ribbon is faint
  * atmosphere rising from behind a footer in a row of its own; here the footer is
@@ -362,8 +488,35 @@ section:hover .stage-exit,
   opacity: 1;
 }
 
+/*
+ * The lyrics toggle sits in the same top-right approach zone as the Zen exit and
+ * reveals the same way. When Zen is also drawing its exit there, this shifts a
+ * button-width left so the two do not stack.
+ */
+.stage-lyrics-toggle {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.stage-lyrics-toggle-shifted {
+  right: 3.25rem;
+}
+
+section:hover .stage-lyrics-toggle,
+.stage-lyrics-toggle:focus-within {
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .stage-exit {
+  .stage-exit,
+  .stage-lyrics-toggle {
     transition-duration: 0ms;
   }
 }

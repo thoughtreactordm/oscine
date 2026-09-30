@@ -37,6 +37,7 @@ import type {
   ListFavoritesQuery
 } from '@shared/favorites'
 import type { RecordListenRequest } from '@shared/listens'
+import type { PresenceSignal } from '@shared/presence'
 import type { StatsOverTimeQuery, StatsQuery, StatsSummaryQuery } from '@shared/stats'
 import type { NetScope } from '@shared/net'
 import type { ScrobbleTargetId, ScrobbleTargetStatus } from '@shared/scrobble'
@@ -50,13 +51,16 @@ import type {
 import type {
   GetSettingOverridesRequest,
   ImportSettingsProfileRequest,
+  ListSettingAssignmentsRequest,
   ResetSettingsRequest,
   SetSettingRequest,
   SettingsChange
 } from '@shared/settings'
 import type { SearchQuery } from '@shared/search'
 import type { WritebackProgress, WritebackSelection } from '@shared/tagWriteback'
+import type { RipProgress, RipRequest, RipResumeRequest } from '@shared/cdrip'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
+import type { TagFieldKey, TagFieldPatch } from '@shared/tagFields'
 import type { UpdateStatus } from '@shared/update'
 
 /**
@@ -167,6 +171,8 @@ const api = {
       request('library.getTrackAudioMetadata', { trackId }),
     /** On-demand format block for the signal readout. Re-parsed, not indexed. */
     getTrackFormatDetail: (trackId: number) => request('library.getTrackFormatDetail', { trackId }),
+    /** Resolved lyrics for one track — sidecar, then embedded tags. Resolution stays in main. */
+    getLyrics: (trackId: number) => request('lyrics.get', { trackId }),
     /** Opaque `oscine://` URL for the track's bytes. Never a filesystem path. */
     getTrackFileUrl: (trackId: number) => request('library.getTrackFileUrl', { trackId }),
     startReplayGain: () => request('library.startReplayGain', null),
@@ -197,6 +203,21 @@ const api = {
     discardAll: () => request('overrides.discardAll', null)
   },
   /**
+   * Generic tag editing — **W16-15**. Records corrections in
+   * `track_tag_overrides` only; nothing in the browse moves and no file is touched.
+   */
+  tagOverrides: {
+    /** Apply a generic edit to a batch: a value sets a field, `null` clears it. */
+    set: (trackIds: readonly number[], patch: TagFieldPatch) =>
+      request('tagOverrides.set', { trackIds: [...trackIds], patch }),
+    /** Drop the named generic corrections on a batch — back to the files. */
+    revert: (trackIds: readonly number[], fields: readonly TagFieldKey[]) =>
+      request('tagOverrides.revert', { trackIds: [...trackIds], fields: [...fields] }),
+    /** The generic fields' prefill, read fresh from each file — bounded, ask lazily. */
+    getEditState: (trackIds: readonly number[]) =>
+      request('tagOverrides.getEditState', { trackIds: [...trackIds] })
+  },
+  /**
    * Staged tag write-back review — **W16-6**, and the one place in this bridge
    * that flushes corrections to disk. It cannot name a file: the scope in and the
    * report out are track ids and typed codes, never a path, so there is no
@@ -218,6 +239,27 @@ const api = {
       subscribe('tagWriteback.applyProgress', listener)
   },
   /**
+   * CD rip — **W18-5**. Drive list and TOC for the Tools pane, plus the session
+   * that turns a confirmed selection into files. Progress is coalesced in main;
+   * cancel is observed between sector chunks.
+   */
+  cdrip: {
+    listDrives: () => request('cdrip.listDrives', null),
+    readToc: (driveId: string) => request('cdrip.readToc', { driveId }),
+    lookup: (driveId: string) => request('cdrip.lookup', { driveId }),
+    validateDestination: (absDir: string) => request('cdrip.validateDestination', { absDir }),
+    pickArtwork: () => request('cdrip.pickArtwork', null),
+    proposeArtwork: (releaseMbid: string | null) =>
+      request('cdrip.proposeArtwork', { releaseMbid }),
+    pickDestination: () => request('cdrip.pickDestination', null),
+    start: (ripRequest: RipRequest) => request('cdrip.start', ripRequest),
+    cancel: () => request('cdrip.cancel', null),
+    unfinishedSession: () => request('cdrip.unfinished', null),
+    resume: (resumeRequest: RipResumeRequest) => request('cdrip.resume', resumeRequest),
+    dismissSession: (sessionId: number) => request('cdrip.dismiss', { sessionId }),
+    onProgress: (listener: (progress: RipProgress) => void) => subscribe('cdrip.progress', listener)
+  },
+  /**
    * Cover ingest — **W16-10**. Bytes travel renderer→main only: `setFromBytes`
    * ships a dropped/pasted image one way, and nothing here ever returns bytes —
    * the answer is a reference the renderer re-addresses through `oscine://`.
@@ -232,7 +274,13 @@ const api = {
     /** Set the tri-state clear (cover removed on flush) on a batch. */
     clear: (trackIds: readonly number[]) => request('artwork.clear', { trackIds: [...trackIds] }),
     /** Drop the override on a batch — back to the file's own cover. */
-    revert: (trackIds: readonly number[]) => request('artwork.revert', { trackIds: [...trackIds] })
+    revert: (trackIds: readonly number[]) => request('artwork.revert', { trackIds: [...trackIds] }),
+    /** Search the network for album covers — **W7-17**. Returns references, never bytes. */
+    searchCovers: (artist: string, album: string) =>
+      request('artwork.searchCovers', { artist, album }),
+    /** Apply a picked network cover to a batch — main fetches the bytes and stores the override. */
+    applyRemoteCover: (trackIds: readonly number[], url: string) =>
+      request('artwork.applyRemoteCover', { trackIds: [...trackIds], url })
   },
   history: {
     /** One play, at the moment the transport committed to it. Main stamps the time. */
@@ -251,6 +299,15 @@ const api = {
       subscribe('listens.flushRequested', () => {
         listener()
       })
+  },
+  presence: {
+    /**
+     * Push one now-playing signal to main for Discord presence — **W20-1**.
+     *
+     * Fire-and-forget: the renderer emitter debounces to transitions plus a
+     * heartbeat and never awaits the result. `track: null` clears presence.
+     */
+    update: (signal: PresenceSignal) => request('presence.update', signal)
   },
   stats: {
     /**
@@ -401,6 +458,9 @@ const api = {
     /** One entity's override rows, for a renderer resolving its own cascade. */
     getOverrides: (payload: GetSettingOverridesRequest) =>
       request('settings.getOverrides', payload),
+    /** Every entity that overrides one key, across all scopes — the inverse read. */
+    listAssignments: (payload: ListSettingAssignmentsRequest) =>
+      request('settings.listAssignments', payload),
     set: (payload: SetSettingRequest) => request('settings.set', payload),
     /** One key, one category, or every durable key. */
     reset: (payload: ResetSettingsRequest) => request('settings.reset', payload),

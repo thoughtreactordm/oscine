@@ -13,7 +13,8 @@ import {
 import {
   buildSettingsCatalog,
   matchesSettingQuery,
-  settingAnchorId
+  settingAnchorId,
+  settingGateState
 } from '../../../src/renderer/panels/settings/catalog'
 
 /**
@@ -183,6 +184,45 @@ describe('generated from descriptors', () => {
 
     expect(ids.size).toBe(catalog.sections.reduce((sum, section) => sum + section.total, 0))
     expect(settingAnchorId('audio.crossfadeMs')).toBe('setting-audio-crossfadeMs')
+  })
+})
+
+describe('a gated setting', () => {
+  const GATED = defineSetting<boolean>({
+    key: 'network.testOnlyGated',
+    scope: 'durable',
+    default: false,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'network',
+    label: 'Test only gated',
+    help: 'Does nothing unless another key is on.',
+    gatedBy: { key: 'network.testOnlyToggle', note: 'Turn on the other toggle first.' },
+    order: 40
+  })
+
+  it('is shut while the gate key is anything but true, and open when it is', () => {
+    expect(settingGateState(GATED, () => true)).toEqual({
+      closed: false,
+      note: 'Turn on the other toggle first.'
+    })
+    expect(settingGateState(GATED, () => false)?.closed).toBe(true)
+    // A missing or non-boolean gate value reads as shut rather than open: an
+    // unresolved consent key must not accidentally unlock the control.
+    expect(settingGateState(GATED, () => undefined)?.closed).toBe(true)
+  })
+
+  it('reads its own gate key, not the gated one', () => {
+    const seen: string[] = []
+    settingGateState(GATED, (key) => {
+      seen.push(key)
+      return true
+    })
+    expect(seen).toEqual(['network.testOnlyToggle'])
+  })
+
+  it('is null for a descriptor that names no gate', () => {
+    expect(settingGateState(FAKE_TOGGLE, () => false)).toBeNull()
   })
 })
 

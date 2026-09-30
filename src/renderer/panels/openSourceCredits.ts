@@ -75,6 +75,12 @@ export const OPEN_SOURCE_CREDITS: readonly OpenSourceCredit[] = [
     url: 'https://github.com/borewit/music-metadata'
   },
   {
+    name: 'FLAC',
+    purpose: 'The bundled encoder for CD rips',
+    license: 'GPL-2.0-or-later',
+    url: 'https://xiph.org/flac/'
+  },
+  {
     name: 'node-web-audio-api',
     purpose: 'ReplayGain analysis off the main thread',
     license: 'MIT',
@@ -91,6 +97,12 @@ export const OPEN_SOURCE_CREDITS: readonly OpenSourceCredit[] = [
     purpose: 'The icon set',
     license: 'MIT',
     url: 'https://tabler.io/icons'
+  },
+  {
+    name: 'AutoEq (oratory1990 measurements)',
+    purpose: 'The bundled headphone & IEM EQ device library',
+    license: 'MIT',
+    url: 'https://github.com/jaakkopasanen/AutoEq'
   },
   {
     name: 'Vite',

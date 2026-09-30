@@ -31,6 +31,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * answer means two different things does not.
  */
 export const CACHE_ENTITIES = [
+  /** Disc ID → release candidates. The operator's choice lives in the rip session. */
+  'musicbrainz.disc',
   /** Artist name → MusicBrainz search candidates. R5's once-per-artist lookup. */
   'musicbrainz.artist-search',
   /** MBID → the artist document, with its relations and outbound links. */
@@ -47,6 +49,14 @@ export const CACHE_ENTITIES = [
   'musicbrainz.artist-tags',
   /** Artist name + our album titles → who MusicBrainz credits those albums to. */
   'musicbrainz.release-group',
+  /**
+   * Release or release-group MBID → the Cover Art Archive's cover candidates
+   * (W7-15). One shape from two endpoints — `/release` gives every image and
+   * `/release-group` gives the representative front — so they share an entity and
+   * the key carries which endpoint answered. The bytes an operator picks become a
+   * durable override elsewhere; only the manifest of addresses is cached here.
+   */
+  'coverartarchive.cover',
   /** MBID or wiki title → the Wikidata entity that links the two worlds. */
   'wikidata.entity',
   /** Wikidata sitelink → the Wikipedia lead extract shown in the deck. */
@@ -63,7 +73,27 @@ export const CACHE_ENTITIES = [
    * able to take it away, and `ArtworkCacheService.prune` reads these rows for
    * exactly that reason.
    */
-  'commons.image'
+  'commons.image',
+  /**
+   * Artist + title + album + duration → LRCLIB's lyrics for one track (W17-4).
+   * The key carries duration so a re-tagged cut cannot reuse another version's
+   * timings; the row holds the parsed document, or a negative for a track LRCLIB
+   * has nothing for.
+   */
+  'lyrics.lrclib',
+  /**
+   * Album-artist + album (a track's free-text tags) → the release-group MBID
+   * MusicBrainz best-matches them to, for Discord presence's cover art (W20-5).
+   *
+   * The one hop that *must* be keyed on the free-text tag, because that is all
+   * the presence signal carries — an indexed track brings no MBID. Its value is
+   * an *identity*, though, and the cover manifest it feeds is keyed on that MBID
+   * (`coverartarchive.cover`), so a mistagged track can only ever mis-resolve its
+   * own cover and never poison a neighbour's entry. Negative-cached hard: an
+   * album MusicBrainz has never heard of — a bootleg, a local recording — must
+   * cost one search a week rather than one on every play of it (R5, R12).
+   */
+  'discord.release-match'
 ] as const
 
 export type CacheEntity = (typeof CACHE_ENTITIES)[number]
@@ -92,6 +122,8 @@ export interface EntityTtl {
  * unmatchable artist, which is precisely the failure R5 names.
  */
 export const DEFAULT_CACHE_TTLS: Readonly<Record<CacheEntity, EntityTtl>> = {
+  /** Disc associations change slowly; retry unmatched discs weekly. */
+  'musicbrainz.disc': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
   /**
    * Thirty days positive. The mapping from a tag string to a candidate set only
    * moves when MusicBrainz gains, merges or renames an artist, and a successful
@@ -147,6 +179,19 @@ export const DEFAULT_CACHE_TTLS: Readonly<Record<CacheEntity, EntityTtl>> = {
   'musicbrainz.release-group': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
 
   /**
+   * Thirty days positive, the identity cadence. A release's set of cover images
+   * moves when someone uploads or replaces one, which is on the scale of the
+   * artwork itself — years for a settled release — and the manifest is a few
+   * hundred bytes of URLs either way.
+   *
+   * Seven days negative, and load-bearing for the rip path: a release with no
+   * front cover is the ordinary case for a bootleg or a fresh MusicBrainz entry,
+   * and without the negative entry every rip of the same disc would re-ask CAA
+   * for a cover it has already said it does not have.
+   */
+  'coverartarchive.cover': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
+
+  /**
    * Fourteen days. Wikidata is the join between MusicBrainz and Wikipedia and
    * changes about as often as the sitelink it carries — rarely, but a broken
    * join blanks the biography pane entirely, so it refreshes on the same cadence
@@ -182,7 +227,35 @@ export const DEFAULT_CACHE_TTLS: Readonly<Record<CacheEntity, EntityTtl>> = {
    * ordinary case for most of a library, and it must cost one request a week
    * rather than one per play.
    */
-  'commons.image': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS }
+  'commons.image': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
+
+  /**
+   * Thirty days positive. A track's lyrics on LRCLIB are as settled as the
+   * release itself — a synced transcription is authored once and rarely revised —
+   * and the document is a few kilobytes either way, shown only for the one track
+   * on the stage.
+   *
+   * Seven days negative, the shared cadence and load-bearing here for the same
+   * reason as the artist searches: a track LRCLIB has nothing for — a bootleg, a
+   * local recording, a brand-new release — would otherwise re-ask on every play,
+   * which over a shuffle session is exactly the sustained traffic a free
+   * community service should not have to absorb. Seven days is short enough that
+   * a track that gains lyrics upstream is picked up within the week.
+   */
+  'lyrics.lrclib': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS },
+
+  /**
+   * Thirty days positive, the identity cadence. The mapping from an album's tags
+   * to its release group only moves when MusicBrainz gains, merges or renames the
+   * release — a curated edit on the scale of months — and the row is a single
+   * MBID string.
+   *
+   * Seven days negative, and load-bearing exactly as `musicbrainz.artist-search`
+   * is: an album MusicBrainz cannot match is the ordinary case for a bootleg or a
+   * local recording, and presence resolves the playing track on every change, so
+   * without the negative entry a shuffle session would re-search it once a play.
+   */
+  'discord.release-match': { freshMs: 30 * DAY_MS, negativeMs: 7 * DAY_MS }
 }
 
 /**

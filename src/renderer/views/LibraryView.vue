@@ -8,6 +8,7 @@ import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
 import { trackMenuItems } from '@renderer/panels/trackMenu'
+import { allSongsPlayParams } from '@renderer/panels/discoverShelves'
 import { editMetadataMenuItem } from '@renderer/panels/metadataMenu'
 import { useTrackActions } from '@renderer/panels/useTrackActions'
 import { useTrackActivation } from '@renderer/panels/useTrackActivation'
@@ -246,6 +247,16 @@ async function targetFor(index: number): Promise<QueueTarget> {
       <template v-else>
         <UIcon name="i-tabler-playlist" class="size-4 text-primary" />
         <h2 class="font-semibold text-highlighted">Songs</h2>
+        <UTooltip text="Shuffle all songs">
+          <UButton
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            icon="i-tabler-dice-5"
+            aria-label="Shuffle all songs"
+            @click="playback.shuffleFromList(allSongsPlayParams())"
+          />
+        </UTooltip>
       </template>
 
       <!--

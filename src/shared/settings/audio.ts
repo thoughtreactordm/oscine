@@ -16,11 +16,20 @@
  */
 
 import {
+  FLAT_EQUALIZER_SPEC,
+  parseEqualizerPresets,
+  parseEqualizerSpec,
+  type EqualizerPreset,
+  type EqualizerSpec
+} from '../audio/equalizer'
+import {
+  acceptValue,
   booleanValue,
   defineSetting,
   enumValue,
   integerValue,
   numberValue,
+  rejectValue,
   stringValue,
   type SettingDescriptor,
   type SettingValidator
@@ -210,6 +219,137 @@ export const AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING = defineSetting<boolean>({
   help: 'Allow the background job to measure ReplayGain for tracks that have no tag. Turning this off refuses the job; it never discards a measurement already taken.',
   keywords: ['replaygain', 'analyse', 'analyze', 'scan', 'job', 'background'],
   order: 50
+})
+
+/**
+ * The equalizer's three durable keys.
+ *
+ * A validated JSON blob apiece, not a table — `theme.overrides` (W8-12) is the
+ * precedent. A preset is at most twelve bands of four numbers and there are a
+ * handful of them; never queried, never joined. A migration would be schema for
+ * the sake of it.
+ *
+ * The validators are the load-bearing part, because a hand-edited or
+ * version-skewed blob reaches an audio graph. They reject on structure (falling
+ * back to the descriptor default) and clamp on range — `parseEqualizerSpec` and
+ * `parseEqualizerPresets` in `@shared/audio/equalizer` own that logic so main
+ * and renderer validate identically. W19-1's router clamps again at the device;
+ * both are correct and neither is redundant.
+ *
+ * All three are `internal`: the equalizer is a pane (W19-4), not a settings-rail
+ * row, so like column widths and the queue snapshot they carry a default, a
+ * shape and a validator but render no control. They stay portable, so the curves
+ * and presets an operator built ride the cascade into D11's export bundle.
+ *
+ * `version: 1`, written expecting an `upgrade`: the band model is the thing most
+ * likely to grow a field, and when it does the bump adds one migration step here
+ * rather than a hand-rolled reshape at every read.
+ */
+export const AUDIO_EQ_ENABLED = defineSetting<boolean>({
+  key: 'audio.eq.enabled',
+  scope: 'durable',
+  version: 1,
+  default: false,
+  validate: booleanValue(),
+  category: 'audio',
+  internal: true,
+  label: 'Equalizer',
+  help: 'Whether the equalizer is in circuit.',
+  keywords: ['eq', 'equalizer', 'equaliser', 'tone', 'bands']
+})
+
+function equalizerSpecValue(): SettingValidator<EqualizerSpec> {
+  return (raw) => {
+    const spec = parseEqualizerSpec(raw)
+    return spec ? acceptValue(spec) : rejectValue('not a valid equalizer spec')
+  }
+}
+
+export const AUDIO_EQ_ACTIVE = defineSetting<EqualizerSpec>({
+  key: 'audio.eq.active',
+  scope: 'durable',
+  version: 1,
+  default: FLAT_EQUALIZER_SPEC,
+  validate: equalizerSpecValue(),
+  category: 'audio',
+  internal: true,
+  label: 'Equalizer curve',
+  help: 'The live equalizer curve — its bands, their gains, and the pre-amp.',
+  keywords: ['eq', 'equalizer', 'equaliser', 'curve', 'bands', 'preamp']
+})
+
+function equalizerPresetsValue(): SettingValidator<readonly EqualizerPreset[]> {
+  return (raw) => {
+    const presets = parseEqualizerPresets(raw)
+    return presets ? acceptValue(presets) : rejectValue('expected an array of equalizer presets')
+  }
+}
+
+export const AUDIO_EQ_PRESETS = defineSetting<readonly EqualizerPreset[]>({
+  key: 'audio.eq.presets',
+  scope: 'durable',
+  version: 1,
+  default: [],
+  validate: equalizerPresetsValue(),
+  category: 'audio',
+  internal: true,
+  label: 'Equalizer presets',
+  help: 'Saved equalizer curves the operator can recall by name.',
+  keywords: ['eq', 'equalizer', 'equaliser', 'preset', 'presets']
+})
+
+/**
+ * A preset reference — a stable `EqualizerPreset.id`, or null for "no assignment".
+ *
+ * The value is the id and never the name: an operator renaming a preset must not
+ * silently reassign every album that pointed at it, and an id that has been
+ * deleted must *dangle* — resolve to no preset, visibly — rather than resolve to
+ * an error or to the wrong curve. So the validator accepts any non-empty string:
+ * whether the id still names a live preset is a question for the resolver, which
+ * has the preset list, not for the descriptor, which does not.
+ */
+function presetIdValue(): SettingValidator<string | null> {
+  return (raw) => {
+    if (raw === null) return acceptValue(null)
+    if (typeof raw === 'string' && raw.length > 0 && raw.length <= 256) return acceptValue(raw)
+    return rejectValue('expected an equalizer preset id or null')
+  }
+}
+
+/**
+ * Cascades an EQ preset onto an album, artist or playlist (W19-6).
+ *
+ * The second half of the stream's promise: a preset bound to an album applies
+ * itself when a track from that album plays. It rides the W8 cascade like
+ * `AUDIO_CROSSFADE_MS` does, so most-specific-first resolution and the
+ * inherited/overridden affordance come for free — the entity kinds survive in
+ * the descriptor's type, and the resolver at play time probes them in order.
+ *
+ * No `track` scope: a per-track EQ preset is niche, and dropping it keeps the
+ * assignments list — every entity that points here — short enough to read whole.
+ * No `genre` scope either: `track_genres` is a many-to-many with no principled
+ * tiebreak, and smuggling an ambiguous resolution into the one mechanism that is
+ * currently unambiguous would be the wrong trade (its own card, if ever).
+ *
+ * `internal`, and so carries no control and no global settings row: the global
+ * level exists only as the cascade's floor (null — no assignment), and the
+ * operator assigns through the entity context menu and the equalizer pane, both
+ * of which write this key per entity through `setOverride`. A visible global
+ * "default preset" would instead push a curve onto *all* playback and fight the
+ * live `audio.eq.active` — exactly the failure this feature must avoid.
+ */
+export const AUDIO_EQ_PRESET_ID = defineSetting<string | null>({
+  key: 'audio.eq.presetId',
+  scope: 'durable',
+  version: 1,
+  default: null,
+  validate: presetIdValue(),
+  cascade: ['album', 'artist', 'playlist'],
+  category: 'audio',
+  internal: true,
+  label: 'Equalizer preset',
+  help: 'The equalizer preset assigned to this album, artist or playlist.',
+  keywords: ['eq', 'equalizer', 'equaliser', 'preset', 'assign', 'album', 'artist', 'playlist']
 })
 
 /**
@@ -404,6 +544,10 @@ export const AUDIO_SETTINGS: readonly SettingDescriptor[] = [
   AUDIO_REPLAY_GAIN_PREAMP_DB,
   AUDIO_REPLAY_GAIN_FALLBACK_DB,
   AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
+  AUDIO_EQ_ENABLED,
+  AUDIO_EQ_ACTIVE,
+  AUDIO_EQ_PRESETS,
+  AUDIO_EQ_PRESET_ID,
   AUDIO_OUTPUT_DEVICE,
   AUDIO_DECODE_TRACK_CAP_MB,
   AUDIO_DECODE_RESIDENCY_BUDGET_MB,

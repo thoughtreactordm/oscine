@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FHX2E9B7GSQRZHJ4MPFHX1
 title: 'Rip: the optical drive addon — TOC and audio sector reads'
-status: backlog
+status: done
 priority: high
 labels:
   - cdrip
@@ -11,9 +11,9 @@ labels:
   - R9
 workstream: W18
 workstreamId: W18-1
-order: 15
+order: 0
 created: '2026-09-01T22:37:12.009Z'
-updated: '2026-09-01T22:37:12.009Z'
+updated: '2026-09-11T22:38:18.639Z'
 ---
 ## Intent
 
@@ -123,3 +123,16 @@ The addon itself cannot be unit-tested in CI — there is no disc in a GitHub ru
 
 No encoding, no metadata lookup, no file writing, no IPC surface, no UI. Data tracks are reported
 in the TOC but never read.
+
+## Spike evidence — 2026-09-08
+
+Implementation and report are in the working tree on `w18/cd-ripping`; see `docs/CDRIP-SPIKE.md`.
+Linux USB HL-DT-ST BD-RE BP50NB40 firmware 1.03: empty-drive `no-disc`, captured seven-track
+LBA/MSF TOC, and 32-sector audio read with 75,264 PCM + 9,408 C2 bytes (no pointers set).
+The packaged addon also read the disc under Electron 43.2.0. Native ABI verification and Linux
+packaging passed. The full repository test suite passed on rerun without concurrent packaging;
+27 focused tests now cover the compiled MMC core and injectable TypeScript wrapper.
+
+Windows compilation/hardware and W18-9's multi-drive/disc matrix remain unverified. The
+mixed-mode fixture is explicitly synthetic. This is a successful single-drive Linux spike,
+not clearance to begin the downstream stream or close the R9 hardware gate.

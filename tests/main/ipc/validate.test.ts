@@ -38,7 +38,11 @@ import {
   assertStatsOverTimeQuery,
   assertStatsQuery,
   assertStatsSummaryQuery,
-  assertToggleFavoriteRequest
+  assertToggleFavoriteRequest,
+  assertRipRequest,
+  assertRipResumeRequest,
+  assertCdripAbsDirRequest,
+  assertPresenceSignal
 } from '../../../src/main/ipc/validate'
 
 describe('library browse IPC validation', () => {
@@ -581,5 +585,176 @@ describe('stats IPC validation', () => {
     ]) {
       expect(() => assertStatsOverTimeQuery(bad)).toThrow(OscineError)
     }
+  })
+})
+
+describe('cdrip IPC validation', () => {
+  const valid = {
+    driveId: 'sr0',
+    rootId: 1,
+    relDir: '',
+    template: '{track:02} {title}',
+    tracks: [{ number: 1, title: 'One', artist: 'A' }],
+    album: 'Album',
+    albumArtist: 'Artist',
+    year: 2000,
+    verify: false,
+    onCollision: 'skip' as const
+  }
+
+  it('accepts a well-formed rip request and normalises an empty relDir', () => {
+    expect(assertRipRequest(valid)).toMatchObject({ relDir: '', year: 2000, verify: false })
+    expect(assertRipRequest({ ...valid, year: null, relDir: 'Incoming/' }).relDir).toBe('Incoming')
+  })
+
+  it('rejects a path that escapes the destination and an empty track list', () => {
+    expect(() => assertRipRequest({ ...valid, relDir: '../out' })).toThrow(OscineError)
+    expect(() => assertRipRequest({ ...valid, tracks: [] })).toThrow(OscineError)
+    expect(() => assertRipRequest({ ...valid, onCollision: 'rename' })).toThrow(OscineError)
+    expect(() => assertRipRequest({ ...valid, releaseMbid: 'not-a-mbid' })).toThrow(OscineError)
+  })
+
+  it('accepts only content hashes for selected artwork', () => {
+    expect(assertRipRequest({ ...valid, artworkHash: 'a'.repeat(64) }).artworkHash).toBe(
+      'a'.repeat(64)
+    )
+    for (const artworkHash of ['../image.png', '', 'A'.repeat(64), 123, {}]) {
+      expect(() => assertRipRequest({ ...valid, artworkHash })).toThrow(OscineError)
+    }
+  })
+
+  it('accepts a resume request and refuses a missing session id', () => {
+    expect(assertRipResumeRequest({ sessionId: 3, driveId: 'sr0', onCollision: 'suffix' })).toEqual(
+      { sessionId: 3, driveId: 'sr0', onCollision: 'suffix' }
+    )
+    expect(() =>
+      assertRipResumeRequest({ sessionId: 0, driveId: 'sr0', onCollision: 'suffix' })
+    ).toThrow(OscineError)
+  })
+
+  it('accepts a destination folder path and refuses an empty one', () => {
+    expect(assertCdripAbsDirRequest({ absDir: '/home/music' })).toEqual({ absDir: '/home/music' })
+    expect(() => assertCdripAbsDirRequest({ absDir: '' })).toThrow(OscineError)
+    expect(() => assertCdripAbsDirRequest({ absDir: 1 })).toThrow(OscineError)
+  })
+})
+
+describe('presence signal IPC validation (W20-1)', () => {
+  it('accepts a full playing signal', () => {
+    expect(
+      assertPresenceSignal({
+        track: {
+          title: 'So What',
+          artist: 'Miles Davis',
+          album: 'Kind of Blue',
+          albumArtist: 'Miles Davis',
+          durationMs: 545_000
+        },
+        positionMs: 12_000,
+        paused: false,
+        playing: true
+      })
+    ).toEqual({
+      track: {
+        title: 'So What',
+        artist: 'Miles Davis',
+        album: 'Kind of Blue',
+        albumArtist: 'Miles Davis',
+        durationMs: 545_000
+      },
+      positionMs: 12_000,
+      paused: false,
+      playing: true
+    })
+  })
+
+  it('tolerates the clear signal — track null, playing false', () => {
+    expect(
+      assertPresenceSignal({ track: null, positionMs: 0, paused: false, playing: false })
+    ).toEqual({ track: null, positionMs: 0, paused: false, playing: false })
+  })
+
+  it('keeps a paused signal, and preserves a null artist and an omitted album', () => {
+    expect(
+      assertPresenceSignal({
+        track: { title: 'Untitled', artist: null, durationMs: 0 },
+        positionMs: 3_000,
+        paused: true,
+        playing: true
+      })
+    ).toEqual({
+      track: { title: 'Untitled', artist: null, durationMs: 0 },
+      positionMs: 3_000,
+      paused: true,
+      playing: true
+    })
+  })
+
+  it('preserves an explicit null album distinct from an omitted one', () => {
+    const signal = assertPresenceSignal({
+      track: { title: 'Single', artist: 'A', album: null, durationMs: 1000 },
+      positionMs: 0,
+      paused: false,
+      playing: true
+    })
+    expect(signal.track).toEqual({ title: 'Single', artist: 'A', album: null, durationMs: 1000 })
+  })
+
+  it('rejects negative or fractional millisecond fields', () => {
+    const base = { title: 'T', artist: 'A', durationMs: 1000 }
+    expect(() =>
+      assertPresenceSignal({ track: base, positionMs: -1, paused: false, playing: true })
+    ).toThrow(OscineError)
+    expect(() =>
+      assertPresenceSignal({ track: base, positionMs: 1.5, paused: false, playing: true })
+    ).toThrow(OscineError)
+    expect(() =>
+      assertPresenceSignal({
+        track: { ...base, durationMs: -1 },
+        positionMs: 0,
+        paused: false,
+        playing: true
+      })
+    ).toThrow(OscineError)
+  })
+
+  it('rejects non-boolean paused/playing and unexpected keys', () => {
+    const track = { title: 'T', artist: 'A', durationMs: 1000 }
+    expect(() =>
+      assertPresenceSignal({ track, positionMs: 0, paused: 'no', playing: true })
+    ).toThrow(OscineError)
+    expect(() => assertPresenceSignal({ track, positionMs: 0, paused: false, playing: 1 })).toThrow(
+      OscineError
+    )
+    expect(() =>
+      assertPresenceSignal({ track, positionMs: 0, paused: false, playing: true, extra: 1 })
+    ).toThrow(OscineError)
+    expect(() =>
+      assertPresenceSignal({
+        track: { ...track, extra: 1 },
+        positionMs: 0,
+        paused: false,
+        playing: true
+      })
+    ).toThrow(OscineError)
+  })
+
+  it('rejects a missing title and an over-long string', () => {
+    expect(() =>
+      assertPresenceSignal({
+        track: { artist: 'A', durationMs: 1000 },
+        positionMs: 0,
+        paused: false,
+        playing: true
+      })
+    ).toThrow(OscineError)
+    expect(() =>
+      assertPresenceSignal({
+        track: { title: 'x'.repeat(1001), artist: 'A', durationMs: 1000 },
+        positionMs: 0,
+        paused: false,
+        playing: true
+      })
+    ).toThrow(OscineError)
   })
 })

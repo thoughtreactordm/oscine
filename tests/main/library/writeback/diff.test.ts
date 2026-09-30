@@ -11,6 +11,7 @@ import { TagStore } from '../../../../src/main/tags/store'
 import {
   computePendingWrite,
   NO_OVERRIDE,
+  redundantOverrideColumns,
   type GenreCanonicalizer,
   type TrackOverrideRow,
   type WritebackUserTag
@@ -45,6 +46,7 @@ function fileTags(over: Partial<TrackTags> = {}): TrackTags {
     bitDepth: 16,
     genre: 'Rock',
     replayGain: null,
+    lyrics: null,
     ...over
   }
 }
@@ -129,6 +131,33 @@ describe('computePendingWrite — scalar fields', () => {
     })
 
     expect(pw.discNo).toEqual({ current: null, proposed: 1, changed: true })
+  })
+
+  // W16-14: the compilation fix — the file has no frame, the override adds one.
+  it('diffs album artist against the file frame, not the performer fallback', () => {
+    const pw = computePendingWrite({
+      trackId: 1,
+      file: fileTags({ albumArtist: null }),
+      override: override({ album_artist_name: 'Various Artists' }),
+      userTags: []
+    })
+
+    expect(pw.albumArtist).toEqual({ current: null, proposed: 'Various Artists', changed: true })
+    expect(pw.hasChanges).toBe(true)
+    expect(
+      computePendingWrite({ trackId: 1, file: fileTags(), override: override(), userTags: [] })
+        .albumArtist.changed
+    ).toBe(false)
+  })
+})
+
+describe('redundantOverrideColumns — album artist (W16-14)', () => {
+  it('retires an album-artist correction the file now holds, and only then', () => {
+    const correction = override({ album_artist_name: 'Various Artists' })
+    expect(
+      redundantOverrideColumns(fileTags({ albumArtist: 'Various Artists' }), correction)
+    ).toEqual(['album_artist_name'])
+    expect(redundantOverrideColumns(fileTags({ albumArtist: null }), correction)).toEqual([])
   })
 })
 

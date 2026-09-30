@@ -4,6 +4,7 @@ import type { ContextMenuItem, DropdownMenuItem } from '@nuxt/ui'
 import type { AddTarget } from '@renderer/panels/addToPlaylist'
 import { createFacetActivation } from '@renderer/panels/facetActivation'
 import type { FacetDimension, FacetWindow } from '@renderer/panels/facetWindow'
+import { eqPresetMenuItem } from '@renderer/panels/eqAssignMenu'
 import FacetList from '@renderer/panels/FacetList.vue'
 import GenreFacetList from '@renderer/panels/GenreFacetList.vue'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
@@ -285,6 +286,15 @@ function facetPane<T extends { id: number }>(spec: FacetPaneSpec<T>) {
           )
       )
     ]
+
+    // W19-6: assign an EQ preset to this album or artist. On the one row under
+    // the pointer, not the selection — like the star, an assignment is a fact
+    // about one entity, and its cascade id is the facet row's id.
+    const eqScopeKind =
+      spec.dimension === 'albumIds' ? 'album' : spec.dimension === 'artistIds' ? 'artist' : null
+    if (eqScopeKind) {
+      items.push({ type: 'separator' }, eqPresetMenuItem({ kind: eqScopeKind, id: item.id }))
+    }
 
     // The star acts on the one row under the pointer, not the selection: a
     // favorite is a boolean about an entity, and its state-aware label would be

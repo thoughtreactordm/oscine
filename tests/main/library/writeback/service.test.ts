@@ -4,6 +4,7 @@ import type {
   GenreDiff,
   GenreValue,
   PendingWrite,
+  TagFieldDiffs,
   WritebackProgress
 } from '../../../../src/shared/tagWriteback'
 import { ABSENT_ARTWORK } from '../../../../src/shared/artwork'
@@ -49,18 +50,21 @@ function genreDiff(
 interface PendingParts {
   title: FieldDiff<string>
   artist: FieldDiff<string>
+  albumArtist: FieldDiff<string>
   album: FieldDiff<string>
   trackNo: FieldDiff<number>
   discNo: FieldDiff<number>
   year: FieldDiff<number>
   genres: GenreDiff
   artwork: PendingWrite['artwork']
+  fields: TagFieldDiffs
 }
 
 function makePending(trackId: number, parts: Partial<PendingParts> = {}): PendingWrite {
   const p: PendingParts = {
     title: parts.title ?? unchanged('Title'),
     artist: parts.artist ?? unchanged('Artist'),
+    albumArtist: parts.albumArtist ?? unchanged('Album Artist'),
     album: parts.album ?? unchanged('Album'),
     trackNo: parts.trackNo ?? unchanged(1),
     discNo: parts.discNo ?? unchanged(1),
@@ -70,17 +74,20 @@ function makePending(trackId: number, parts: Partial<PendingParts> = {}): Pendin
       current: ABSENT_ARTWORK,
       proposed: ABSENT_ARTWORK,
       changed: false
-    }
+    },
+    fields: parts.fields ?? {}
   }
   const hasChanges =
     p.title.changed ||
     p.artist.changed ||
+    p.albumArtist.changed ||
     p.album.changed ||
     p.trackNo.changed ||
     p.discNo.changed ||
     p.year.changed ||
     p.genres.changed ||
-    p.artwork.changed
+    p.artwork.changed ||
+    Object.values(p.fields).some((diff) => diff?.changed === true)
   return { trackId, ...p, hasChanges }
 }
 
@@ -440,6 +447,30 @@ describe('writableTagsFromSelection / selectionChangesFile', () => {
     })
     expect(selectionChangesFile(withArt, new Set<WritebackField>(['artwork']))).toBe(true)
     expect(selectionChangesFile(withArt, new Set<WritebackField>(['title']))).toBe(false)
+  })
+
+  // W16-14: the frame is written only as a selected change, else left untouched.
+  it('sets album artist only when it is a selected change', () => {
+    const compilation = makePending(1, {
+      title: changed('Old', 'New'),
+      albumArtist: changed('Performer', 'Various Artists')
+    })
+    const all = new Set<WritebackField>(['title', 'albumArtist'])
+    expect(writableTagsFromSelection(compilation, all).albumArtist).toBe('Various Artists')
+    expect(selectionChangesFile(compilation, new Set<WritebackField>(['albumArtist']))).toBe(true)
+
+    const titleOnly = writableTagsFromSelection(compilation, new Set<WritebackField>(['title']))
+    expect('albumArtist' in titleOnly).toBe(false)
+
+    const noOverride = writableTagsFromSelection(pending, new Set<WritebackField>(['albumArtist']))
+    expect('albumArtist' in noOverride).toBe(false)
+    expect(selectionChangesFile(pending, new Set<WritebackField>(['albumArtist']))).toBe(false)
+  })
+
+  it('clears the album-artist frame for a deliberately empty correction', () => {
+    const cleared = makePending(1, { albumArtist: changed('Performer', '') })
+    const desired = writableTagsFromSelection(cleared, new Set<WritebackField>(['albumArtist']))
+    expect(desired.albumArtist).toBe('')
   })
 })
 

@@ -31,6 +31,7 @@ import {
   type TrackFacets,
   type TrackFormatDetail
 } from '@shared/library'
+import type { LyricsDocument } from '@shared/lyrics'
 import type { RelatedQuery, RelatedResult } from '@shared/related'
 import type { AlbumCard } from '@shared/albums'
 import type { DiscoverRecipeId, DiscoverShelvesResult } from '@shared/discover'
@@ -40,7 +41,13 @@ import {
   type OverrideField,
   type OverridePatch
 } from '@shared/overrides'
-import type { WritebackField } from '@shared/tagWriteback'
+import {
+  prefillTagFieldKeys,
+  type TagFieldEditState,
+  type TagFieldKey,
+  type TagFieldPatch
+} from '@shared/tagFields'
+import { isGroupedWritebackField, type WritebackField } from '@shared/tagWriteback'
 import { buildRelated } from './related'
 import { DiscoverEngine, expandShelfTrackIds, snapshotShelf } from './discover'
 import {
@@ -51,8 +58,18 @@ import {
   type TrackTags
 } from './metadata'
 import type { EmbeddedArtworkReader } from './metadata'
+import { readSidecarLyrics } from './lyrics/sidecar'
+import { resolveLyrics } from './lyrics/service'
+import type { LyricsNetworkService } from './lyrics/network'
 import { reconcilePaths, scanRoot } from './scanner'
 import { LibraryStore, type RootConflict, type RootRow } from './store'
+import { TagOverrideStore } from './overrides/tagOverrides'
+import {
+  buildTagFieldEditState,
+  tagFieldEditRow,
+  type TagFieldEditRow
+} from './overrides/editState'
+import { readTagFields, type TagFieldReader } from './writeback/genericFields'
 import { ArtworkCacheService, isArtworkSidecarPath } from './artwork'
 import { createArtworkOriginalsStore, type ArtworkOriginalsStore } from './artworkOriginals'
 import type { ArtworkImageProcessor } from './artworkProcessor'
@@ -61,6 +78,7 @@ import { RootDirectoryWatcher, type DirectoryWatchAdapter, type WatchMode } from
 import type { LibraryService } from './service'
 import type { ReplayGainAnalyzer } from '../replaygain/analyzer'
 import { ReplayGainJobService } from '../replaygain/jobService'
+import { ingestRippedTracks } from '../cdrip/ingest'
 import { toRelPath } from '../db/paths'
 
 /**
@@ -92,6 +110,27 @@ export interface SqliteLibraryDeps {
   readMetadata?: MetadataReader
   /** The same, for the readout pane's on-demand format lookup. */
   readFormatDetail?: FormatDetailReader
+  /** The generic fields' on-demand taglib read (W16-17), for the editor's prefill. */
+  readTagFields?: TagFieldReader
+  /**
+   * Tier 1 of the lyrics chain: the sidecar `.lrc` reader. Overridable so lyrics
+   * tests need no files on disk; production uses the fs-backed reader.
+   */
+  readSidecarLyrics?: (audioAbsPath: string) => Promise<LyricsDocument | null>
+  /**
+   * Tier 2 of the lyrics chain: the file's embedded lyrics as raw text.
+   * Defaults to reusing {@link readMetadata} — the same on-demand `parseFile`,
+   * whose `TrackTags.lyrics` is exactly this field — so no second reader or scan
+   * column is introduced. Overridable for tests.
+   */
+  readEmbeddedLyrics?: (audioAbsPath: string) => Promise<string | null>
+  /**
+   * Tier 3 of the lyrics chain: the cache-wrapped LRCLIB lookup (W17-4).
+   * Assembled once in `index.ts` with the shared net client and cache, and
+   * injected so the local tiers stay testable without a socket. Omitted and the
+   * chain ends after the two local tiers, exactly as it did before W17-4.
+   */
+  lyricsNetwork?: LyricsNetworkService
   /** Enables the derived artwork service. Omitted by tests that do not exercise it. */
   artworkCacheDir?: string
   /**
@@ -152,8 +191,13 @@ function toLibraryRoot(row: RootRow, watchMode: LibraryWatchMode): LibraryRoot {
 
 export class SqliteLibraryService implements LibraryService {
   private readonly store: LibraryStore
+  private readonly tagOverrides: TagOverrideStore
   private readonly readMetadata: MetadataReader
   private readonly readFormatDetail: FormatDetailReader
+  private readonly readTagFields: TagFieldReader
+  private readonly readSidecarLyrics: (audioAbsPath: string) => Promise<LyricsDocument | null>
+  private readonly readEmbeddedLyrics: (audioAbsPath: string) => Promise<string | null>
+  private readonly lyricsNetwork: LyricsNetworkService | null
   private readonly replayGain: ReplayGainJobService
   private readonly watcher: RootDirectoryWatcher
   private readonly artwork: ArtworkCacheService | null
@@ -179,9 +223,17 @@ export class SqliteLibraryService implements LibraryService {
 
   constructor(private readonly deps: SqliteLibraryDeps) {
     this.store = new LibraryStore(deps.db)
+    this.tagOverrides = new TagOverrideStore(deps.db)
     this.discover = new DiscoverEngine(deps.db)
     this.readMetadata = deps.readMetadata ?? readTrackTags
     this.readFormatDetail = deps.readFormatDetail ?? readTrackFormatDetail
+    this.readTagFields = deps.readTagFields ?? readTagFields
+    this.readSidecarLyrics = deps.readSidecarLyrics ?? ((path) => readSidecarLyrics(path))
+    // The embedded tier reuses the metadata reader: `TrackTags.lyrics` is the
+    // file's embedded lyrics, so there is one on-demand `parseFile`, not two.
+    this.readEmbeddedLyrics =
+      deps.readEmbeddedLyrics ?? (async (path) => (await this.readMetadata(path)).lyrics)
+    this.lyricsNetwork = deps.lyricsNetwork ?? null
     this.originals = deps.artworkOriginalsDir
       ? createArtworkOriginalsStore({ dir: deps.artworkOriginalsDir })
       : null
@@ -275,6 +327,41 @@ export class SqliteLibraryService implements LibraryService {
     return this.startScan(rootId)
   }
 
+  /**
+   * Index files a rip just renamed into this root — **W18-6**.
+   *
+   * Serialized on the same per-root queue as the watcher, so a burst for the
+   * same paths waits and then no-ops. Artwork follows the rows, same as a
+   * watch reconcile. Returns track ids in `absPaths` order.
+   */
+  async ingestRippedFiles(rootId: number, absPaths: readonly string[]): Promise<number[]> {
+    if (absPaths.length === 0) return []
+    const previous = this.watchQueues.get(rootId) ?? Promise.resolve()
+    let result: number[] = []
+    const next = previous
+      .catch(() => {})
+      .then(async () => {
+        const running = this.inFlight.get(rootId)
+        if (running) await running
+        const root = this.store.getRoot(rootId)
+        if (!root || this.closing) return
+        const changedAlbums = new Set<number>()
+        result = await ingestRippedTracks(this.store, root, absPaths, {
+          readMetadata: this.readMetadata,
+          onAlbumsChanged: (albumIds) => {
+            for (const albumId of albumIds) changedAlbums.add(albumId)
+          }
+        })
+        await this.queueArtwork([...changedAlbums], true)
+      })
+      .finally(() => {
+        if (this.watchQueues.get(rootId) === next) this.watchQueues.delete(rootId)
+      })
+    this.watchQueues.set(rootId, next)
+    await next
+    return result
+  }
+
   async listTracks(query: ListTracksQuery): Promise<ListTracksResult> {
     return this.store.listTracks(query)
   }
@@ -334,6 +421,8 @@ export class SqliteLibraryService implements LibraryService {
   }
 
   async discardAllOverrides(): Promise<void> {
+    // Generic corrections are rows and nothing else — no file read to revert them.
+    this.tagOverrides.revertAll()
     const trackIds = this.store.pendingWritebackTrackIds()
     if (trackIds.length === 0) return
     // Reverting every field of every edited track re-reads each file and restores
@@ -343,8 +432,45 @@ export class SqliteLibraryService implements LibraryService {
     await this.gcArtworkOriginals()
   }
 
+  async setTagOverrides(request: {
+    trackIds: readonly number[]
+    patch: TagFieldPatch
+  }): Promise<void> {
+    this.tagOverrides.set(request.trackIds, request.patch, Date.now())
+  }
+
+  async revertTagOverrides(request: {
+    trackIds: readonly number[]
+    fields: readonly TagFieldKey[]
+  }): Promise<void> {
+    this.tagOverrides.revert(request.trackIds, request.fields)
+  }
+
+  async getTagFieldEditState(trackIds: readonly number[]): Promise<TagFieldEditState> {
+    const keys = prefillTagFieldKeys()
+    const corrections = this.tagOverrides.getMany(trackIds)
+    const rows: TagFieldEditRow[] = []
+    for (const [trackId, overrides] of corrections) {
+      const absPath = this.store.resolveTrackPath(trackId)
+      if (absPath === null) continue
+      try {
+        rows.push(tagFieldEditRow(await this.readTagFields(absPath, keys), overrides))
+      } catch (error) {
+        // Unreadable file: leave it out of the fold rather than prefill a guess.
+        console.warn(`[overrides] generic prefill skipped track ${trackId}:`, error)
+      }
+    }
+    return buildTagFieldEditState(rows, keys)
+  }
+
   async retireWrittenOverrides(trackId: number, fields: readonly WritebackField[]): Promise<void> {
-    this.store.retireWrittenOverrides(trackId, fields, Date.now())
+    // A verified write proves `file == override` for every flushed key, so the
+    // generic rows go too (W16-17) — the rescan never reads these fields, and
+    // this is the only thing that retires them.
+    const grouped = fields.filter(isGroupedWritebackField)
+    const generic = fields.filter((field): field is TagFieldKey => !isGroupedWritebackField(field))
+    this.store.retireWrittenOverrides(trackId, grouped, Date.now())
+    this.tagOverrides.revert([trackId], generic)
     if (fields.includes('artwork')) await this.gcArtworkOriginals()
   }
 
@@ -508,6 +634,41 @@ export class SqliteLibraryService implements LibraryService {
     const absPath = this.store.resolveTrackPath(trackId)
     if (absPath === null) return null
     return this.readFormatDetail(absPath)
+  }
+
+  async getLyrics(trackId: number): Promise<LyricsDocument | null> {
+    // The path is resolved here and reaches the tier readers and nothing else —
+    // the same arrangement as `getTrackFormatDetail`. A track that is no longer
+    // indexed is `null`; a file that moved after indexing is handled inside the
+    // resolver, which treats an unreadable tier as "no lyrics" rather than an
+    // error, so this returns `null` there too instead of rejecting.
+    const absPath = this.store.resolveTrackPath(trackId)
+    if (absPath === null) return null
+
+    // Tier 3 matches on the track's corrected tags and duration, not the path, so
+    // it is wired from the live projection rather than the file — and only when a
+    // network service was injected (the local-only tests leave it null). Built
+    // per call so it reads the current override state, and the query is resolved
+    // lazily inside the closure so the two local tiers cost no track lookup.
+    const network = this.lyricsNetwork
+    const fetchNetworkLyrics = network
+      ? async (): Promise<LyricsDocument | null> => {
+          const track = this.store.getTracksByIds({ ids: [trackId] })[0]
+          if (track === undefined) return null
+          return network.fetch({
+            artist: track.artist ?? track.albumArtist ?? '',
+            title: track.title,
+            album: track.album,
+            durationSec: track.durationSec
+          })
+        }
+      : undefined
+
+    return resolveLyrics(absPath, {
+      readSidecar: this.readSidecarLyrics,
+      readEmbeddedLyrics: this.readEmbeddedLyrics,
+      fetchNetworkLyrics
+    })
   }
 
   async resolveTrackPath(trackId: number): Promise<string | null> {

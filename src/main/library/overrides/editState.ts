@@ -1,5 +1,15 @@
 import { artworkRef, type ArtworkRef } from '@shared/artwork'
 import type { OverrideEditState, OverrideFieldState } from '@shared/overrides'
+import {
+  tagField,
+  tagValuesEqual,
+  type TagFieldEditState,
+  type TagFieldKey,
+  type TagFieldValue
+} from '@shared/tagFields'
+import { flushableOverrideKeys } from '../writeback/diff'
+import { canonicalTagValue, type TagFieldValues } from '../writeback/genericFields'
+import type { TagOverrideMap } from './tagOverrides'
 
 /**
  * Aggregating an edit's prefill — the pure half of the metadata editor's read.
@@ -12,6 +22,8 @@ import type { OverrideEditState, OverrideFieldState } from '@shared/overrides'
 export interface OverrideEditRow {
   readonly title: string | null
   readonly artist: string | null
+  /** The album artist the track is keyed under, or its pending correction. */
+  readonly albumArtist: string | null
   readonly album: string | null
   readonly trackNo: number | null
   readonly discNo: number | null
@@ -20,6 +32,7 @@ export interface OverrideEditRow {
   /** SQLite booleans: 1 when the track carries an override for the field. */
   readonly ovTitle: number
   readonly ovArtist: number
+  readonly ovAlbumArtist: number
   readonly ovAlbum: number
   readonly ovTrackNo: number
   readonly ovDiscNo: number
@@ -56,6 +69,10 @@ export function buildOverrideEditState(rows: readonly OverrideEditRow[]): Overri
       rows.map((r) => r.artist),
       rows.map((r) => r.ovArtist)
     ),
+    albumArtist: fold(
+      rows.map((r) => r.albumArtist),
+      rows.map((r) => r.ovAlbumArtist)
+    ),
     album: fold(
       rows.map((r) => r.album),
       rows.map((r) => r.ovAlbum)
@@ -90,4 +107,59 @@ function foldArtwork(rows: readonly OverrideEditRow[]): OverrideFieldState<Artwo
     mixed,
     overridden: rows.some((row) => row.ovArtwork === 1)
   }
+}
+
+/**
+ * One track's generic fields for the editor's prefill — **W16-15**. `values`
+ * holds each field's *effective* value: the file's own, overlaid by the track's
+ * correction (a clear overlays as `null`). A field missing from `values` is
+ * empty. `overridden` names the fields carrying a correction.
+ */
+export interface TagFieldEditRow {
+  readonly values: ReadonlyMap<TagFieldKey, TagFieldValue | null>
+  readonly overridden: ReadonlySet<TagFieldKey>
+}
+
+/**
+ * One track's prefill row from a fresh taglib read and its corrections — the
+ * file's value, overlaid by each flushable correction (a clear as `null`), in
+ * the same canonical form the diff compares. A correction under a held key is
+ * not shown: the editor does not offer that field, so neither does its value.
+ */
+export function tagFieldEditRow(
+  file: TagFieldValues,
+  corrections: TagOverrideMap
+): TagFieldEditRow {
+  const values = new Map(file)
+  const overridden = new Set<TagFieldKey>()
+  for (const key of flushableOverrideKeys(corrections)) {
+    const field = tagField(key)
+    if (field === undefined) continue
+    values.set(key, canonicalTagValue(field, corrections.get(key) ?? null))
+    overridden.add(key)
+  }
+  return { values, overridden }
+}
+
+/**
+ * Folds the generic fields across a batch — the same shared-value-or-`mixed`
+ * rule as the grouped fields, except that equality is by value, so two tracks
+ * whose composer lists hold the same names in the same order agree.
+ */
+export function buildTagFieldEditState(
+  rows: readonly TagFieldEditRow[],
+  fields: readonly TagFieldKey[]
+): TagFieldEditState {
+  const state: Partial<Record<TagFieldKey, OverrideFieldState<TagFieldValue>>> = {}
+  for (const field of fields) {
+    const values = rows.map((row) => row.values.get(field) ?? null)
+    const first = values.length > 0 ? values[0] : null
+    const mixed = values.some((value) => !tagValuesEqual(value, first))
+    state[field] = {
+      value: mixed ? null : first,
+      mixed,
+      overridden: rows.some((row) => row.overridden.has(field))
+    }
+  }
+  return state
 }

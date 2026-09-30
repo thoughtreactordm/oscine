@@ -1,14 +1,18 @@
 import { ABSENT_ARTWORK, artworkRef, type ArtworkRef } from '@shared/artwork'
 import { normalizeLabel, splitGenres } from '@shared/genre'
+import { TAG_FIELDS, tagValuesEqual, type TagFieldKey, type TagFieldValue } from '@shared/tagFields'
 import type { TagSource } from '@shared/tags'
 import type {
   ArtworkDiff,
   FieldDiff,
   GenreDiff,
   GenreValue,
-  PendingWrite
+  PendingWrite,
+  TagFieldDiffs
 } from '@shared/tagWriteback'
 import type { TrackTags } from '../metadata'
+import type { TagOverrideMap } from '../overrides/tagOverrides'
+import { canonicalTagValue, refusedTagField, type TagFieldValues } from './genericFields'
 
 /**
  * The pending-write merge — **W16-1**, design authority D28.
@@ -55,6 +59,8 @@ import type { TrackTags } from '../metadata'
 export interface TrackOverrideRow {
   readonly title: string | null
   readonly artist_name: string | null
+  /** W16-14. `''` is a deliberate "no album artist" — the flush clears the frame. */
+  readonly album_artist_name: string | null
   readonly album_title: string | null
   readonly track_no: number | null
   readonly disc_no: number | null
@@ -66,6 +72,7 @@ export interface TrackOverrideRow {
 export const NO_OVERRIDE: TrackOverrideRow = {
   title: null,
   artist_name: null,
+  album_artist_name: null,
   album_title: null,
   track_no: null,
   disc_no: null,
@@ -119,6 +126,13 @@ export interface PendingWriteInput {
   } | null
   /** Genre canonicalization (W16-5); defaults to identity. */
   readonly canonicalize?: GenreCanonicalizer
+  /** The track's generic corrections (W16-17). Absent means none. */
+  readonly tagOverrides?: TagOverrideMap
+  /**
+   * A fresh taglib read of the fields {@link flushableOverrideKeys} names — the
+   * generic `current` side (R7). A key missing here reads as absent.
+   */
+  readonly fileFields?: TagFieldValues
 }
 
 /** One scalar field: the override wins when set, otherwise the file's value stands. */
@@ -190,6 +204,38 @@ function artworkDiff(
 }
 
 /**
+ * The generic keys a track's corrections name that the flush may write — the
+ * set the differ reads from the file and {@link computePendingWrite} diffs, in
+ * registry order. A correction under a held or read-only key is left standing
+ * and out of the review: it is not a pending write until its field is admitted.
+ */
+export function flushableOverrideKeys(overrides: TagOverrideMap | undefined): TagFieldKey[] {
+  if (overrides === undefined || overrides.size === 0) return []
+  return TAG_FIELDS.map((field) => field.key as TagFieldKey).filter(
+    (key) => overrides.has(key) && refusedTagField([key]) === null
+  )
+}
+
+/**
+ * The generic fields: a correction replaces the file's value outright, like the
+ * grouped scalars, compared in the canonical per-kind form on both sides.
+ */
+function tagFieldDiffs(input: PendingWriteInput): TagFieldDiffs {
+  const overrides = input.tagOverrides
+  const diffs: Partial<Record<TagFieldKey, FieldDiff<TagFieldValue>>> = {}
+  if (overrides === undefined) return diffs
+  const flushable = new Set(flushableOverrideKeys(overrides))
+  for (const field of TAG_FIELDS) {
+    const key = field.key as TagFieldKey
+    if (!flushable.has(key)) continue
+    const current = canonicalTagValue(field, input.fileFields?.get(key) ?? null)
+    const proposed = canonicalTagValue(field, overrides.get(key) ?? null)
+    diffs[key] = { current, proposed, changed: !tagValuesEqual(current, proposed) }
+  }
+  return diffs
+}
+
+/**
  * Merges one track's correction layers into its pending write.
  *
  * The single entry point: every field's diff, plus the `hasChanges` summary the
@@ -200,33 +246,39 @@ export function computePendingWrite(input: PendingWriteInput): PendingWrite {
 
   const title = scalarDiff(file.title, override.title)
   const artist = scalarDiff(file.artist, override.artist_name)
+  const albumArtist = scalarDiff(file.albumArtist, override.album_artist_name)
   const album = scalarDiff(file.album, override.album_title)
   const trackNo = scalarDiff(file.trackNo, override.track_no)
   const discNo = scalarDiff(file.discNo, override.disc_no)
   const year = scalarDiff(file.year, override.year)
   const genres = genreDiff(input)
   const artwork = artworkDiff(input.fileArtwork ?? ABSENT_ARTWORK, input.artworkOverride)
+  const fields = tagFieldDiffs(input)
 
   const hasChanges =
     title.changed ||
     artist.changed ||
+    albumArtist.changed ||
     album.changed ||
     trackNo.changed ||
     discNo.changed ||
     year.changed ||
     genres.changed ||
-    artwork.changed
+    artwork.changed ||
+    Object.values(fields).some((diff) => diff?.changed === true)
 
   return {
     trackId: input.trackId,
     title,
     artist,
+    albumArtist,
     album,
     trackNo,
     discNo,
     year,
     genres,
     artwork,
+    fields,
     hasChanges
   }
 }
@@ -262,6 +314,9 @@ export function redundantOverrideColumns(
   if (override.title !== null && override.title === file.title) redundant.push('title')
   if (override.artist_name !== null && override.artist_name === file.artist) {
     redundant.push('artist_name')
+  }
+  if (override.album_artist_name !== null && override.album_artist_name === file.albumArtist) {
+    redundant.push('album_artist_name')
   }
   if (override.album_title !== null && override.album_title === file.album) {
     redundant.push('album_title')

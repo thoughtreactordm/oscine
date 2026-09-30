@@ -7,6 +7,8 @@ import {
   AUDIO_CROSSFADE_MS,
   AUDIO_CROSSFADE_MS_KEY,
   AUDIO_DECODE_TRACK_CAP_MB,
+  AUDIO_EQ_ACTIVE,
+  AUDIO_EQ_ENABLED,
   AUDIO_OUTPUT_DEVICE,
   AUDIO_PREFETCH_DEPTH,
   AUDIO_REPLAY_GAIN_FALLBACK_DB,
@@ -15,6 +17,7 @@ import {
   MIB,
   PLAYBACK_PREVIOUS_BUTTON
 } from '../../../src/shared/settings'
+import type { EqualizerSpec } from '../../../src/shared/audio/equalizer'
 import { TRANSPORT_REPEAT_KEY } from '../../../src/renderer/playback/transportPreferences'
 import { perceptualVolumeToAmplitude } from '../../../src/renderer/playback/volumeCurve'
 import { settingsStoreFixture, storedValue } from '../settings/fixture'
@@ -233,6 +236,7 @@ function harness(
      */
     stallSessionFill?: boolean
     setOutputDevice?: PlaybackControllerDeps['setOutputDevice']
+    setEqualizer?: PlaybackControllerDeps['setEqualizer']
     onPlayStarted?: PlaybackControllerDeps['onPlayStarted']
     onListenDeparted?: PlaybackControllerDeps['onListenDeparted']
     /** The listen accumulator's clock, so a `startedAt` is something to assert. */
@@ -313,6 +317,7 @@ function harness(
     ...(options.createMediaSession ? { createMediaSession: options.createMediaSession } : {}),
     ...(options.settings ? { settings: options.settings } : {}),
     ...(options.setOutputDevice ? { setOutputDevice: options.setOutputDevice } : {}),
+    ...(options.setEqualizer ? { setEqualizer: options.setEqualizer } : {}),
     ...(options.onPlayStarted ? { onPlayStarted: options.onPlayStarted } : {}),
     ...(options.onListenDeparted ? { onListenDeparted: options.onListenDeparted } : {}),
     ...(options.now ? { now: options.now } : {}),
@@ -534,6 +539,78 @@ describe('createPlaybackController', () => {
         await settle()
 
         expect(setOutputDevice).toHaveBeenCalledWith('headphones')
+      })
+
+      describe('the equalizer curve', () => {
+        const oneBandSpec: EqualizerSpec = {
+          enabled: true,
+          preampDb: -3,
+          bands: [{ id: 'b1', type: 'peaking', frequencyHz: 1000, gainDb: 6, q: 1, enabled: true }]
+        }
+
+        it('pushes the stored curve at the router before anything plays', async () => {
+          // Immediate like the device, and for the same reason: the EQ is a
+          // property the contexts are built into, not a change to react to.
+          const store = settingsStoreFixture({
+            stored: { [AUDIO_EQ_ENABLED.key]: true, [AUDIO_EQ_ACTIVE.key]: oneBandSpec }
+          })
+          const setEqualizer = vi.fn()
+          harness({ settings: store.settings, setEqualizer })
+          await settle()
+
+          // Like the device, the stored blob loads a tick after the immediate
+          // fire, so the settled push is the one that matters, not the count.
+          expect(setEqualizer).toHaveBeenLastCalledWith(oneBandSpec)
+        })
+
+        it('carries a curve change made while a track is playing', async () => {
+          const store = viewStore()
+          const setEqualizer = vi.fn()
+          const bound = harness({ settings: store.settings, setEqualizer })
+          await bound.controller.playFromList({
+            sort: 'artist',
+            direction: 'asc',
+            index: 0,
+            track: track(0)
+          })
+          setEqualizer.mockClear()
+
+          await store.settings.set(AUDIO_EQ_ACTIVE.key, oneBandSpec)
+          await store.settings.set(AUDIO_EQ_ENABLED.key, true)
+          await settle()
+
+          expect(setEqualizer).toHaveBeenCalledWith(oneBandSpec)
+        })
+
+        it('reaches the router as enabled:false with the bands intact, not an empty list', async () => {
+          // The distinction W19-5's clip indicator reads: a disabled EQ is off but
+          // still carries its curve; an empty band list is a flat EQ in circuit.
+          const store = settingsStoreFixture({
+            stored: { [AUDIO_EQ_ENABLED.key]: false, [AUDIO_EQ_ACTIVE.key]: oneBandSpec }
+          })
+          const setEqualizer = vi.fn()
+          harness({ settings: store.settings, setEqualizer })
+          await settle()
+
+          expect(setEqualizer).toHaveBeenLastCalledWith({ ...oneBandSpec, enabled: false })
+          const pushed = setEqualizer.mock.lastCall?.[0] as EqualizerSpec
+          expect(pushed.enabled).toBe(false)
+          expect(pushed.bands).toHaveLength(1)
+        })
+
+        it('stops pushing once the controller is disposed', async () => {
+          const store = viewStore()
+          const setEqualizer = vi.fn()
+          const bound = harness({ settings: store.settings, setEqualizer })
+          await settle()
+          bound.controller.dispose()
+          setEqualizer.mockClear()
+
+          await store.settings.set(AUDIO_EQ_ACTIVE.key, oneBandSpec)
+          await settle()
+
+          expect(setEqualizer).not.toHaveBeenCalled()
+        })
       })
     })
 
@@ -909,6 +986,18 @@ describe('createPlaybackController', () => {
       // Still a permutation: forty positions, forty distinct rows.
       const seen = await traverse(h.controller, 39)
       expect(new Set(seen).size).toBe(40)
+    })
+
+    it('shuffling a set turns shuffle on and lets the permutation pick the opener', async () => {
+      const h = harness({ total: 40 })
+      expect(h.controller.shuffleEnabled.value).toBe(false)
+
+      await h.controller.shuffleFromList({ sort: 'artist', direction: 'asc', filters: {} })
+      await settle()
+
+      expect(h.controller.shuffleEnabled.value).toBe(true)
+      expect(h.controller.orderId()).toBe('shuffle:1234:-:list:artist:asc')
+      expect(h.controller.nowPlaying.value?.id).not.toBe(0)
     })
 
     it('starts at the top when no row was named and shuffle is off', async () => {

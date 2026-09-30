@@ -95,6 +95,7 @@ export const FACET_ACTIVATION_KEY = 'interface.facetActivation'
 export const CONFIRM_PLAYLIST_DELETE_KEY = 'interface.confirmPlaylistDelete'
 export const CONFIRM_ENTRY_REMOVAL_KEY = 'interface.confirmEntryRemoval'
 export const NOW_PLAYING_WAVEFORM_KEY = 'interface.nowPlayingWaveform'
+export const NOW_PLAYING_LYRICS_KEY = 'interface.nowPlayingLyrics'
 export const NOW_PLAYING_STAGE_TRANSPORT_KEY = 'interface.nowPlayingStageTransport'
 export const NOW_PLAYING_IDLE_AUTOSHOW_KEY = 'interface.nowPlayingIdleAutoShow'
 export const COMMAND_PALETTE_AFFORDANCE_KEY = 'interface.commandPaletteAffordance'
@@ -346,6 +347,19 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'A live trace of the audible track, along the bottom of the view. Off costs nothing; on costs one animation frame while a track is sounding.',
     keywords: ['waveform', 'visualizer', 'visualisation', 'now playing', 'animation', 'ribbon'],
     order: 110
+  }),
+
+  defineSetting<boolean>({
+    key: NOW_PLAYING_LYRICS_KEY,
+    scope: 'durable',
+    default: true,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'interface',
+    label: 'Lyrics on the Now Playing view',
+    help: 'A lyrics pane beside the record, synced to playback when the track has timed lyrics. Resolved from a sidecar .lrc or the file’s own tags — nothing leaves the machine. The stage also carries a toggle for it.',
+    keywords: ['lyrics', 'lrc', 'synced', 'now playing', 'karaoke', 'words'],
+    order: 111
   }),
 
   /**

@@ -14,6 +14,7 @@
  * exactly the mismatch that would bite at packaging time.
  */
 import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -88,6 +89,27 @@ try {
   })
 
   db.close()
+
+  check('optical drive Node-API prebuild loads', () => {
+    const optical = createRequire(import.meta.url)('@oscine/cdrip')
+    const command = optical._test('readCdb', 0, 1, false)
+    if (command.toString('hex') !== 'be0400000000000001100000') {
+      throw new Error('Unexpected MMC command from optical addon')
+    }
+    return `Node-API ${process.versions.napi}, MMC core callable`
+  })
+  try {
+    const optical = createRequire(import.meta.url)('@oscine/cdrip')
+    await optical.readToc('abi-probe-invalid-device')
+    throw new Error('Invalid drive unexpectedly opened')
+  } catch (error) {
+    if (error.code === 'unsupported-drive') {
+      console.log('  ok    optical drive libuv worker — typed rejection')
+    } else {
+      failed = true
+      console.log(`  FAIL  optical drive libuv worker — ${error.message}`)
+    }
+  }
 
   try {
     const { AudioContext } = await import('node-web-audio-api')

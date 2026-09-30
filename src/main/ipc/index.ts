@@ -6,6 +6,8 @@ import type { PlayHistoryService } from '../history/service'
 import type { LibraryService } from '../library/service'
 import type { TagWritebackService } from '../library/writeback/service'
 import type { UpdateService } from '../update'
+import type { RipService } from '../cdrip/service'
+import type { CoverSearchService } from '../artwork/coverSearch'
 import type { ListenService } from '../listens/service'
 import type { PlaylistService } from '../library/playlists/service'
 import type {
@@ -17,6 +19,7 @@ import type {
 import type { NetService } from '../net'
 import type { ScrobbleAccountsService } from '../scrobble/accounts'
 import type { ScrobbleStatusService } from '../scrobble/status'
+import type { PresenceSink } from '../discord/presenceSink'
 import type { SearchService } from '../search/service'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
@@ -31,9 +34,14 @@ import {
   assertWritebackPreviewRequest,
   assertOverrideEditStateRequest,
   assertSetOverridesRequest,
+  assertSetTagOverridesRequest,
+  assertTagFieldEditStateRequest,
+  assertRevertTagOverridesRequest,
   assertClearOverridesRequest,
   assertArtworkTargetRequest,
   assertArtworkFromBytesRequest,
+  assertArtworkSearchCoversRequest,
+  assertArtworkApplyRemoteRequest,
   assertCancelNetScopeRequest,
   assertScrobbleConnectRequest,
   assertScrobbleTargetRequest,
@@ -67,6 +75,7 @@ import {
   assertListTracksQuery,
   assertMoveEntriesRequest,
   assertGetSettingOverridesRequest,
+  assertListSettingAssignmentsRequest,
   assertGetTracksByIdsQuery,
   assertRelatedQuery,
   assertImportSettingsProfileRequest,
@@ -101,8 +110,10 @@ import {
   assertAddTagsRequest,
   assertRemoveTagRequest,
   assertRenameTagRequest,
-  assertSuggestTagsRequest
+  assertSuggestTagsRequest,
+  assertPresenceSignal
 } from './validate'
+import { registerCdripHandlers } from './cdrip'
 
 /**
  * Wires every channel in the contract to the library service.
@@ -132,7 +143,11 @@ export function registerIpcHandlers(
   tags: TagStore,
   tagSuggestions: TagSuggestionService,
   tagWriteback: TagWritebackService,
-  updates: UpdateService
+  updates: UpdateService,
+  rip: RipService,
+  pickRipDestination: () => Promise<string | null>,
+  coverSearch: CoverSearchService,
+  presence: PresenceSink
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -268,6 +283,11 @@ export function registerIpcHandlers(
     return detail
   })
 
+  handle('lyrics.get', async (request) => {
+    const { trackId } = assertRecord(request, 'request')
+    return library.getLyrics(assertPositiveInt(trackId, 'trackId'))
+  })
+
   handle('library.getTrackFileUrl', async (request) => {
     const { trackId } = assertRecord(request, 'request')
     const id = assertPositiveInt(trackId, 'trackId')
@@ -317,6 +337,23 @@ export function registerIpcHandlers(
     return null
   })
 
+  handle('tagOverrides.set', async (request) => {
+    const { trackIds, patch } = assertSetTagOverridesRequest(request)
+    await library.setTagOverrides({ trackIds, patch })
+    return null
+  })
+
+  handle('tagOverrides.revert', async (request) => {
+    const { trackIds, fields } = assertRevertTagOverridesRequest(request)
+    await library.revertTagOverrides({ trackIds, fields })
+    return null
+  })
+
+  handle('tagOverrides.getEditState', (request) => {
+    const { trackIds } = assertTagFieldEditStateRequest(request)
+    return library.getTagFieldEditState(trackIds)
+  })
+
   handle('tagWriteback.preview', (request) => {
     const { trackIds } = assertWritebackPreviewRequest(request)
     return tagWriteback.preview(trackIds)
@@ -360,6 +397,16 @@ export function registerIpcHandlers(
     return null
   })
 
+  handle('artwork.searchCovers', (request) => {
+    const { artist, album } = assertArtworkSearchCoversRequest(request)
+    return coverSearch.search(artist, album)
+  })
+
+  handle('artwork.applyRemoteCover', (request) => {
+    const { trackIds, url } = assertArtworkApplyRemoteRequest(request)
+    return coverSearch.applyRemoteCover(trackIds, url)
+  })
+
   handle('history.record', (request) => {
     const { trackId } = assertRecord(request, 'request')
     return history.record(assertPositiveInt(trackId, 'trackId'))
@@ -376,6 +423,16 @@ export function registerIpcHandlers(
 
   handle('listens.flushed', () => {
     listens.acknowledgeFlush()
+    return null
+  })
+
+  // W20-1: the throttled now-playing signal for Discord presence. A thin sink —
+  // validate the shape and forward it. The no-op sink swallows it today; W20-3
+  // swaps in the presence service. The handler returns `null` because the
+  // channel is fire-and-forget, and never throws: a `track: null` signal is the
+  // ordinary "clear presence" case, not a fault.
+  handle('presence.update', (request) => {
+    presence.update(assertPresenceSignal(request))
     return null
   })
 
@@ -670,6 +727,10 @@ export function registerIpcHandlers(
     settings.getOverrides(assertGetSettingOverridesRequest(request).scope)
   )
 
+  handle('settings.listAssignments', (request) =>
+    settings.listAssignments(assertListSettingAssignmentsRequest(request).key)
+  )
+
   handle('settings.set', (request) => settings.set(assertSetSettingRequest(request)))
 
   handle('settings.reset', (request) => settings.reset(assertResetSettingsRequest(request)))
@@ -775,6 +836,12 @@ export function registerIpcHandlers(
   // MusicBrainz records no outbound URLs for is an empty state rather than an
   // error, and an unresolved one never reaches a socket at all.
   handle('artist.links', (request) => links.get(assertGetArtistLinksRequest(request).artistId))
+
+  registerCdripHandlers({
+    rip,
+    pickDestination: pickRipDestination,
+    listRoots: () => library.listRoots()
+  })
 
   assertEveryChannelHandled()
 }

@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FJZGK6EKG2HRQN94MPQK0M
 title: 'EQ: per-entity preset assignment through the W8 cascade'
-status: backlog
+status: done
 priority: low
 labels:
   - eq
@@ -13,9 +13,9 @@ workstreamId: W19-6
 dependsOn:
   - 01M1FJWETAJMAMQ5VE07A2J9QP
   - 01M1FJXM0N7Q7RQV88PQ3CHV03
-order: 30
+order: 1
 created: '2026-09-01T22:56:00.613Z'
-updated: '2026-09-01T22:56:00.613Z'
+updated: '2026-09-27T00:20:50.240Z'
 ---
 ## Intent
 

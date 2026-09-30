@@ -52,6 +52,30 @@ export function settingAnchorId(key: string): string {
   return `${SETTING_ANCHOR_PREFIX}${key.replace(/[^A-Za-z0-9]+/g, '-')}`
 }
 
+/**
+ * Whether a descriptor's gate is shut, and what to say when it is.
+ *
+ * The presentational half of `SettingGate`: a row reads its gate key's live
+ * value through `valueOf` and, when the gate is shut, disables the control and
+ * shows the note. Pure and value-agnostic — `valueOf` is the only door to the
+ * store — so the rule ("open exactly when the gate key is `true`") is tested
+ * without a DOM or a Pinia store, the way the rest of this module is. `null`
+ * for a descriptor that names no gate, which is almost all of them.
+ */
+export interface SettingGateState {
+  readonly closed: boolean
+  readonly note: string
+}
+
+export function settingGateState(
+  descriptor: SettingDescriptor,
+  valueOf: (key: string) => unknown
+): SettingGateState | null {
+  const gate = descriptor.gatedBy
+  if (!gate) return null
+  return { closed: valueOf(gate.key) !== true, note: gate.note }
+}
+
 export interface SettingsRow {
   readonly key: string
   readonly descriptor: SettingDescriptor
