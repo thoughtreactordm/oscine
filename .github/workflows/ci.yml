@@ -112,8 +112,18 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
       - name: Install
         run: npm ci
+      # Same as release-build: the packaged app bundles a vendored `flac`, and
+      # the afterPack chmod fails outright when it is absent.
+      - name: Install reference FLAC encoder
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y flac
+      - name: Vendor FLAC encoder
+        run: npm run fetch:flac
       - name: Package
         run: npm run build && npx electron-builder --publish never
       - name: Check release artifacts
