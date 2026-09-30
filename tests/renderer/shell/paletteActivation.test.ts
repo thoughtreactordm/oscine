@@ -42,6 +42,7 @@ describe('activateHit', () => {
   function deps(overrides: Partial<HitActivationDeps> = {}): HitActivationDeps {
     return {
       playAlbum: vi.fn(),
+      playArtist: vi.fn(),
       playTrack: vi.fn(),
       openPlaylist: vi.fn(),
       openShow: vi.fn(),
@@ -79,11 +80,12 @@ describe('activateHit', () => {
     expect(d.close).toHaveBeenCalledOnce()
   })
 
-  it('deep-navigates an artist to its surface', () => {
-    const artist = deps()
-    activateHit(hit('artist', 1), artist)
-    expect(artist.navigate).toHaveBeenCalledWith('library')
-    expect(artist.close).toHaveBeenCalledOnce()
+  it('plays an artist in place without navigating, and closes', () => {
+    const d = deps()
+    activateHit(hit('artist', 1), d)
+    expect(d.playArtist).toHaveBeenCalledWith(1)
+    expect(d.navigate).not.toHaveBeenCalled()
+    expect(d.close).toHaveBeenCalledOnce()
   })
 
   it('downloads a show’s latest episode, opens its tab, and lands on Podcasts', () => {

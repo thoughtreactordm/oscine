@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import type { CommandPaletteGroup, CommandPaletteItem } from '@nuxt/ui'
 import type { SearchEntityKind, SearchHit } from '@shared/search'
 import { library, search as searchIpc } from '@renderer/ipc'
-import { albumPlayParams } from '@renderer/panels/discoverShelves'
+import { albumPlayParams, artistPlayParams } from '@renderer/panels/discoverShelves'
 import { useSettings } from '@renderer/settings'
 import { buildActionCommands } from '@renderer/shell/actionCommands'
 import { matchCommands, type Command } from '@renderer/shell/commandRegistry'
@@ -159,9 +159,10 @@ async function playTrackNow(trackId: number): Promise<void> {
   if (track) await playback.playTracks({ tracks: [track], index: 0 })
 }
 
-/** How an entity hit is activated — album/track play, a show downloads, the rest navigate. */
+/** How an entity hit is activated — album/artist/track play, a show downloads, the rest navigate. */
 const hitDeps: HitActivationDeps = {
   playAlbum: (albumId) => void playback.playFromList(albumPlayParams(albumId)),
+  playArtist: (artistId) => void playback.playFromList(artistPlayParams(artistId)),
   playTrack: (trackId) => void playTrackNow(trackId),
   openPlaylist: (playlistId) => playlists.openTab(playlistId),
   openShow: (podcastId) => podcasts.openTab(podcastId),
