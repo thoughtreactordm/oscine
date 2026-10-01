@@ -56,6 +56,21 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # The default NSIS artifactName is `${productName} Setup ${version}.${ext}` —
+  # `Oscine Setup 1.1.0.exe`, with spaces. That name travels three ways and the
+  # spaces are rewritten differently each time: electron-builder writes the
+  # `url:` in `latest.yml` with spaces collapsed to hyphens
+  # (`Oscine-Setup-1.1.0.exe`), while `gh release upload` (the CI publish path —
+  # see ci.yml / scripts/release-artifacts.mjs) hands GitHub the spaced file and
+  # GitHub rewrites the spaces to dots (`Oscine.Setup.1.1.0.exe`). The feed then
+  # points at a filename the release does not have, every self-update 404s on
+  # download, and the in-app updater (W6-6) reports a generic failure. Pinning a
+  # space-free name makes the local file, the `latest.yml` url and the uploaded
+  # asset identical. (electron-builder's own GitHub publisher papers over this;
+  # we bypass it with `--publish never` + `gh release upload`, so we carry the
+  # invariant ourselves.) Linux is unaffected: AppImage and deb names already
+  # have no spaces.
+  artifactName: ${productName}-Setup-${version}.${ext}
 
 linux:
   category: AudioVideo

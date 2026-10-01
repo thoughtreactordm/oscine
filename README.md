@@ -18,7 +18,7 @@ Download the latest release from [GitHub Releases](https://github.com/thoughtrea
 
 | Platform | Package |
 |---|---|
-| Windows | `Oscine.Setup.<version>.exe` (NSIS installer) |
+| Windows | `Oscine-Setup-<version>.exe` (NSIS installer) |
 | Debian, Ubuntu and derivatives | `oscine_<version>_amd64.deb` |
 | Other Linux distributions | `Oscine-<version>.AppImage` |
 
