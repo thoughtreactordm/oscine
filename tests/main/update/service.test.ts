@@ -165,6 +165,24 @@ describe('NSIS / AppImage', () => {
     const status = await service.check()
     expect(status.kind).toBe('error')
     expect(status.error).toBe('Oscine could not reach the update server.')
+    // The friendly headline keeps the raw reason alongside it, so a failure is
+    // diagnosable from the settings panel without an on-disk log.
+    expect(status.errorDetail).toBe('ENOTFOUND github.com')
+  })
+
+  it('clears the error detail once a later check succeeds', async () => {
+    silenceErrors()
+    const updater = new FakeUpdater()
+    updater.checkImpl = async () => {
+      throw new Error('ENOTFOUND github.com')
+    }
+    const service = createUpdateService(host({ updater }), () => {})
+    expect((await service.check()).errorDetail).toBe('ENOTFOUND github.com')
+    updater.checkImpl = null
+    const recovered = await service.check()
+    expect(recovered.kind).toBe('available')
+    expect(recovered.error).toBeNull()
+    expect(recovered.errorDetail).toBeNull()
   })
 
   it('refuses download and install when nothing is ready', async () => {
