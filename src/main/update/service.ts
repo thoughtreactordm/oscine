@@ -73,17 +73,23 @@ export function createUpdateService(
   let inFlight: Promise<UpdateStatus> | null = null
 
   const emit = (next: UpdateStatus): UpdateStatus => {
-    current = next
-    onChange(next)
-    return next
+    // A successful state carries no detail. The success emits all spread the
+    // previous status, so without this an `errorDetail` from an earlier failure
+    // would linger past the recovery; clearing it here means only `fail` ever
+    // sets one, and no emit site has to remember to reset it.
+    current = next.error === null ? { ...next, errorDetail: null } : next
+    onChange(current)
+    return current
   }
 
   const fail = (error: unknown): UpdateStatus => {
+    const { message, detail } = describeUpdateError(error)
     return emit({
       ...current,
       kind: 'error',
       progress: null,
-      error: publicUpdateError(error)
+      error: message,
+      errorDetail: detail
     })
   }
 
@@ -220,6 +226,7 @@ function initialStatus(channel: UpdateInstallChannel, currentVersion: string): U
     availableVersion: null,
     progress: null,
     error: null,
+    errorDetail: null,
     releasesUrl: OSCINE_RELEASES_URL
   }
 }
@@ -238,14 +245,31 @@ async function readDriverVersion(updater: AppUpdateDriver | null): Promise<strin
   return result.updateInfo.version
 }
 
-function publicUpdateError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
+/**
+ * Split a thrown update error into the headline the operator reads and the raw
+ * reason they act on. The headline stays friendly and categorised; the detail
+ * is the driver/network message, trimmed to one line and capped so a stack-y
+ * message cannot flood the settings panel. The full error is still logged.
+ */
+function describeUpdateError(error: unknown): { message: string; detail: string } {
+  const raw = error instanceof Error ? error.message : String(error)
   console.error('[update]', error)
-  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ENETUNREACH|fetch failed|HTTP 5\d\d/i.test(message)) {
+  return { message: friendlyUpdateMessage(raw), detail: trimDetail(raw) }
+}
+
+function friendlyUpdateMessage(raw: string): string {
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ENETUNREACH|fetch failed|HTTP 5\d\d/i.test(raw)) {
     return 'Oscine could not reach the update server.'
   }
-  if (/HTTP 404|had no version|no result/i.test(message)) {
+  if (/HTTP 404|had no version|no result/i.test(raw)) {
     return 'No published update metadata was found.'
   }
-  return 'The update could not be completed. See the application log for details.'
+  return 'The update could not be completed.'
+}
+
+const MAX_DETAIL_CHARS = 300
+
+function trimDetail(raw: string): string {
+  const oneLine = raw.replace(/\s+/g, ' ').trim()
+  return oneLine.length > MAX_DETAIL_CHARS ? `${oneLine.slice(0, MAX_DETAIL_CHARS - 1)}…` : oneLine
 }

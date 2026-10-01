@@ -50,7 +50,17 @@ export interface UpdateStatus {
   readonly currentVersion: string
   readonly availableVersion: string | null
   readonly progress: UpdateDownloadProgress | null
+  /** The friendly, categorised message shown as the headline on `kind: 'error'`. */
   readonly error: string | null
+  /**
+   * The raw underlying reason behind `error`, for the operator to act on.
+   *
+   * The friendly `error` keeps the headline readable; this carries the actual
+   * driver/network message so a failure is diagnosable without an on-disk log
+   * (there isn't one — main-process stderr is all the generic message ever
+   * pointed at). Always `null` when there is no error.
+   */
+  readonly errorDetail: string | null
   readonly releasesUrl: string
 }
 

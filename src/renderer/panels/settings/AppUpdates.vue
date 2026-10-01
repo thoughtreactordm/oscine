@@ -45,7 +45,8 @@ async function run(action: () => Promise<UpdateStatus>): Promise<void> {
     status.value = {
       ...status.value,
       kind: 'error',
-      error: (error as Error).message
+      error: (error as Error).message,
+      errorDetail: null
     }
   } finally {
     busy.value = false
@@ -124,6 +125,13 @@ const progressPercent = computed(() =>
           <template v-else-if="status.kind === 'error'">
             {{ status.error ?? 'The update could not be completed.' }}
           </template>
+        </p>
+
+        <p
+          v-if="status.kind === 'error' && status.errorDetail"
+          class="font-mono text-[10px] leading-snug break-words text-dimmed"
+        >
+          {{ status.errorDetail }}
         </p>
 
         <UProgress
