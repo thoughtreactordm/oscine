@@ -1,39 +1,25 @@
 import { WAVEFORM_SAMPLE_COUNT } from './AudioEngine'
+import type { DecodedAudioContextLease } from './decodedAudioContext'
 import type { StreamingMedia, StreamingPlatform } from './StreamingAudioEngine'
 
 const VOLUME_RAMP_SEC = 0.015
 const NORMALIZATION_RAMP_SEC = 0.05
 
-export interface BrowserStreamingPlatformOptions {
-  /**
-   * Hands the freshly built context to `AudioOutputRouter` so it lands on the
-   * selected output device.
-   *
-   * A hook rather than a `setOutputDevice` method on `StreamingPlatform`,
-   * because the element is captured by `createMediaElementSource` and so the
-   * sink is the context's, not the element's — a per-platform setter would be a
-   * second place to hold the same one desired device. Optional: a platform built
-   * without it plays to the system default, which is what the tests want.
-   */
-  adoptContext?: (context: AudioContext) => void
-
-  /**
-   * Where master volume connects. Defaults to `context.destination`; the EQ
-   * router supplies its chain input instead, so a long track R1 sent to the
-   * `<audio>` path is equalized exactly as a decoded one is. Optional for the
-   * same reason `adoptContext` is: a platform built without it still plays,
-   * which is what the existing tests want.
-   */
-  resolveDestination?: (context: AudioContext) => AudioNode
-}
-
 /**
  * Builds the real media graph:
- * `<audio>` → normalization → master volume → destination,
+ * `<audio>` → normalization → master volume → lease destination,
  * with a waveform analyser hung off normalization as a sink.
+ *
+ * The context is leased from the same pool the decoded slots use, never built
+ * here. Every `AudioContext` opens its own output stream, and the OS mixer lists
+ * each one as a separate "oscine" volume control. A context per streaming
+ * platform left one such control per scheduler slot that had ever streamed a
+ * long track, all idle, all indistinguishable from the one carrying sound. One
+ * context means one stream, and the lease's destination is the EQ chain input
+ * the pool already built on it, with the sink already adopted by the router.
  */
 export function createBrowserStreamingPlatform(
-  options: BrowserStreamingPlatformOptions = {}
+  lease: DecodedAudioContextLease<AudioContext>
 ): StreamingPlatform {
   const element = new Audio()
   element.preload = 'metadata'
@@ -41,8 +27,7 @@ export function createBrowserStreamingPlatform(
   // protocol is CORS-enabled, so request an origin-clean media source.
   element.crossOrigin = 'anonymous'
 
-  const context = new AudioContext()
-  options.adoptContext?.(context)
+  const { context } = lease
   const normalizationGain = context.createGain()
   const masterGain = context.createGain()
   const analyser = context.createAnalyser()
@@ -50,7 +35,7 @@ export function createBrowserStreamingPlatform(
   const source = context.createMediaElementSource(element)
   source.connect(normalizationGain)
   normalizationGain.connect(masterGain)
-  masterGain.connect(options.resolveDestination?.(context) ?? context.destination)
+  masterGain.connect(lease.destination)
   // Ahead of master volume, matching the decoded path so the visualization does
   // not change shape when R1 sends a long track down this one.
   normalizationGain.connect(analyser)
@@ -126,7 +111,9 @@ export function createBrowserStreamingPlatform(
       normalizationGain.disconnect()
       masterGain.disconnect()
       analyser.disconnect()
-      void context.close()
+      // Shared with the decoded slots, so not ours to close. The pool closes it
+      // when its last lease goes.
+      lease.release()
     }
   }
 }

@@ -3,10 +3,8 @@
  *
  * The EQ is deliberately not part of `AudioEngine`, for the same reason the
  * output device is not (see `outputDevice.ts`): there is no master bus in this
- * app. The graph terminates in two places — the decoded path's master gain and
- * the streaming path's — and up to three contexts are live at once: the pool
- * hands one pooled context to both decoded scheduler slots, and each streaming
- * engine builds its own. An engine-level EQ would be per-slot, which during a
+ * app. The graph has a master gain per path per scheduler slot, and all of them
+ * lease one pooled context. An engine-level EQ would be per-slot, which during a
  * crossfade is twice the biquads and two parameter targets to keep in sync for
  * no benefit, and would rebuild the chain at every gapless boundary. Placed per
  * context — one chain between the master gains and `destination` — it survives
@@ -352,9 +350,8 @@ export class EqualizerRouter {
   /**
    * Forget chains on closed contexts.
    *
-   * The pool closes its context when the last slot releases and each streaming
-   * platform closes its own; neither tells this router, and neither should have
-   * to. Holding a closed chain would leak it and make every later `setSpec` do
+   * The pool closes its context when the last lease is released, and does not
+   * tell this router; it should not have to. Holding a closed chain would leak it and make every later `setSpec` do
    * work that can only fail.
    */
   #prune(): void {

@@ -175,11 +175,11 @@ export class GuardedAudioEngine implements AudioEngine {
    * Read from whichever path won admission.
    *
    * This is the whole reason the tap is on the interface rather than on a
-   * context. There is no node both paths share — decoded slots lease one
-   * `AudioContext` from the pool while each streaming path builds its own, and
-   * nodes cannot be connected across contexts. A caller tapping "the" master
-   * gain would get a visualization that died exactly when R1 sent a long track
-   * to streaming.
+   * context. Both paths lease the same pooled `AudioContext`, but each hangs its
+   * own analyser ahead of its own master gain, and nothing downstream of those
+   * belongs to one track: the pooled context sums both scheduler slots through
+   * a crossfade. A caller tapping the context would see a shape no single track
+   * has, so the engine reads whichever path won admission.
    */
   readWaveform(into: WaveformBuffer): boolean {
     return this.#active?.readWaveform(into) ?? false
