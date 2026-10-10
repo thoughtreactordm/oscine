@@ -2,13 +2,14 @@
  * Where audio goes, for every context the audio module owns.
  *
  * `audio.outputDevice` is deliberately not part of `AudioEngine`. The sink is a
- * property of an `AudioContext`, and the two paths do not have one context each
- * — the decoded path shares a single pooled context between the playing and
- * prefetched slots so their clocks agree, and the streaming path builds one per
- * engine. An engine-level setter would therefore be a setter that four objects
- * could each apply to a device two of them share. The router below is the shape
- * that actually matches: one desired device, applied to every live context, and
- * applied again to each new one as it is created.
+ * property of an `AudioContext`, and engines do not have one context each —
+ * both scheduler slots and both of each slot's paths lease a single pooled
+ * context, so their clocks agree and the OS sees one stream. An engine-level
+ * setter would therefore be a setter that four objects could each apply to a
+ * device they all share. The router below is the shape that actually matches:
+ * one desired device, applied to every live context, and applied again to each
+ * new one as it is created — the pool builds a fresh context whenever its last
+ * lease has gone and playback starts again.
  *
  * `setSinkId` on `AudioContext` is Chromium-only and recent. It is feature-
  * detected rather than assumed, and `supported` is what the settings control
@@ -91,9 +92,8 @@ export class AudioOutputRouter {
   /**
    * Forget closed contexts.
    *
-   * The pool closes its context when the last slot is disposed and a streaming
-   * platform closes its own; neither tells this router, and neither should have
-   * to. Holding a closed context would leak it and make every later `setDevice`
+   * The pool closes its context when the last lease is released, and does not
+   * tell this router; it should not have to. Holding a closed context would leak it and make every later `setDevice`
    * do work that can only reject.
    */
   #prune(): void {

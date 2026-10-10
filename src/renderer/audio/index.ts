@@ -132,7 +132,10 @@ export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): AudioE
   // The sink is adopted first, then the EQ chain is built on the same context —
   // both routers keep every live and future context pointed at one desired
   // value, the pattern `outputDevice.ts` documents.
-  const decodedContext = new DecodedAudioContextPool(
+  //
+  // Both paths lease from this one pool, so the app holds a single context and
+  // the OS mixer shows a single stream for it — see `browserStreamingPlatform.ts`.
+  const sharedContext = new DecodedAudioContextPool(
     () => router.adopt(new AudioContext()),
     (context) => equalizer.attach(context)
   )
@@ -140,14 +143,9 @@ export function createAudioEngineFactory(policy: Partial<R1Policy> = {}): AudioE
 
   const createEngine = (): AudioEngine =>
     new GuardedAudioEngine({
-      decoded: new DecodedAudioEngine(decodedBuffers, decodedContext.acquire()),
+      decoded: new DecodedAudioEngine(decodedBuffers, sharedContext.acquire()),
       createStreaming: () =>
-        new StreamingAudioEngine(
-          createBrowserStreamingPlatform({
-            adoptContext: (context) => router.adopt(context),
-            resolveDestination: (context) => equalizer.attach(context)
-          })
-        ),
+        new StreamingAudioEngine(createBrowserStreamingPlatform(sharedContext.acquire())),
       policy,
       reservations,
       resolveTrack: async (trackId) => {

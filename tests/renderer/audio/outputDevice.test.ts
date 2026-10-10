@@ -39,9 +39,9 @@ describe('AudioOutputRouter', () => {
   })
 
   it('points a context built later at the device already chosen', async () => {
-    // The case the router exists for: the streaming path builds its context the
-    // first time a track streams, which can be long after the operator picked a
-    // device. A per-engine setter would have missed this one.
+    // The case the router exists for: the pool builds a fresh context whenever
+    // playback restarts after its last lease went, which can be long after the
+    // operator picked a device. A per-engine setter would have missed this one.
     const router = new AudioOutputRouter()
     await router.setDevice('usb-dac')
 

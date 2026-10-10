@@ -26,6 +26,10 @@ function contextDestination<T extends ClosableAudioContext>(context: T): AudioNo
  * Gapless and crossfade scheduling can only be sample-accurate when both
  * sources use the same clock. Leases keep that shared device alive until both
  * slot engines are disposed, then close it exactly once.
+ *
+ * The streaming path leases from the same pool despite the name. Its media
+ * element joins this context, so the app holds one `AudioContext` and the OS
+ * mixer shows one output stream for it, not one per path.
  */
 export class DecodedAudioContextPool<T extends ClosableAudioContext> {
   readonly #createContext: () => T
