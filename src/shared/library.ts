@@ -171,15 +171,19 @@ export interface TrackFormatDetail {
  *
  * `playCount` and `lastPlayedAt` sort on the cached columns rather than on an
  * aggregate over `listens`, which is the entire reason the cache exists. They
- * are unindexed, like `durationSec` and for the same reason: a sort is a
- * one-off, an index is a cost on every write, and the first of these to be
- * *measured* slow is the one that earns one.
+ * are unindexed: a sort is a one-off, an index on `tracks` is a cost on every
+ * write, and the first of these to be *measured* slow is the one that earns one.
+ *
+ * `year` is the album's year — the value the Year column shows — so it sorts
+ * across the `albums` join the way `artist` and `album` do, and costs `tracks`
+ * no index at all.
  */
 export const TRACK_SORT_COLUMNS = [
   'trackNo',
   'title',
   'artist',
   'album',
+  'year',
   'durationSec',
   'playCount',
   'lastPlayedAt'

@@ -26,12 +26,26 @@ describe('listTracks at the scale target', () => {
         .run('Synthetic', '/synthetic', 1).lastInsertRowid
     )
     const insertArtist = db.prepare('INSERT INTO artists (name) VALUES (?)')
-    const insertAlbum = db.prepare('INSERT INTO albums (title, album_artist_id) VALUES (?, ?)')
+    const insertAlbum = db.prepare(
+      'INSERT INTO albums (title, album_artist_id, year) VALUES (?, ?, ?)'
+    )
     const artistIds = Array.from({ length: 2_000 }, (_, index) =>
       Number(insertArtist.run(`Artist ${String(index).padStart(4, '0')}`).lastInsertRowid)
     )
+    // Sixty years over 8,000 albums: ~1,600 tracks share each year, the tie the
+    // year sort has to break by album without sorting the whole library. Years
+    // run in contiguous blocks of ids, as the titles already do, so the year and
+    // album sorts walk `tracks` with the same locality and the budget compares
+    // query shapes. Striped years (`index % 60`) cost the year sort ~6 ms of
+    // cache misses here that the album sort is simply never asked to pay.
     const albumIds = Array.from({ length: 8_000 }, (_, index) =>
-      Number(insertAlbum.run(`Album ${String(index).padStart(4, '0')}`, null).lastInsertRowid)
+      Number(
+        insertAlbum.run(
+          `Album ${String(index).padStart(4, '0')}`,
+          null,
+          1960 + Math.floor((index * 60) / 8_000)
+        ).lastInsertRowid
+      )
     )
     const insertTrack = db.prepare(
       `INSERT INTO tracks (
@@ -72,7 +86,7 @@ describe('listTracks at the scale target', () => {
   it('resolves a deep one-row page without a full-library sort', async () => {
     const medians: number[] = []
 
-    for (const sort of ['trackNo', 'title', 'artist', 'album', 'durationSec'] as const) {
+    for (const sort of ['trackNo', 'title', 'artist', 'album', 'year', 'durationSec'] as const) {
       for (const direction of ['asc', 'desc'] as const) {
         const query: ListTracksQuery = {
           sort,

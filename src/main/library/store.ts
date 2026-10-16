@@ -191,6 +191,17 @@ interface SortKey {
   /** Suppresses the nulls-last prefix for expressions that cannot be NULL. */
   readonly notNull?: boolean
   /**
+   * A non-null column of the joined dimension: NULL only where the join found
+   * no row.
+   *
+   * The joined-sort query's tagged half is an inner join, where such a key can
+   * never be NULL, so it drops the nulls-last prefix there without changing a
+   * single row's position. That matters because the prefix is an expression no
+   * index holds — left in, it splits the ORDER BY from the dimension index and
+   * SQLite sorts every equal-value group instead of reading it in order.
+   */
+  readonly joined?: boolean
+  /**
    * Ascending whichever way the column is sorted.
    *
    * Only a tiebreaker uses this. Reversing the Album column should reverse the
@@ -226,6 +237,22 @@ const SORT_KEYS: Record<TrackSortColumn, readonly SortKey[]> = {
   album: [
     { expr: 'al.title', text: true },
     { expr: 't.album_id', fixed: true },
+    ...PLAYING_ORDER.map((key) => ({ ...key, fixed: true }))
+  ],
+  // The album's year, then the album, then playing order. A year is shared by
+  // hundreds of albums, and ordering within it by year alone would leave every
+  // album released that year interleaved track by track. Reversing the column
+  // reverses the years; the albums inside one still read A to Z, and each still
+  // plays in order.
+  //
+  // `al.id` where the album sort says `t.album_id` — the same value wherever an
+  // album exists, but `al.id` is the rowid every `albums` index ends in, so
+  // migration 027's (year, title) indexes deliver all three album-level keys
+  // already ordered and only the tracks inside each album are left to sort.
+  year: [
+    { expr: 'al.year' },
+    { expr: 'al.title', text: true, fixed: true, joined: true },
+    { expr: 'al.id', fixed: true, joined: true },
     ...PLAYING_ORDER.map((key) => ({ ...key, fixed: true }))
   ],
   durationSec: [{ expr: 't.duration_ms' }],
@@ -290,14 +317,41 @@ export const ALBUM_GROUP_PROJECTION = `
   al.artwork_hash AS artworkHash
 `
 
+type JoinedIndex =
+  | 'idx_artists_order_name'
+  | 'idx_albums_order_title'
+  | 'idx_albums_order_year_asc'
+  | 'idx_albums_order_year_desc'
+
 interface JoinedSort {
   /** Table holding the displayed value, scanned in its indexed order. */
   readonly table: 'artists' | 'albums'
-  readonly alias: 'sort_ar' | 'sort_al'
-  readonly index: 'idx_artists_order_name' | 'idx_albums_order_title'
+  /**
+   * `year` takes `al`, the alias `TRACK_JOINS` gives albums, because its
+   * tiebreakers are the album sort's keys and those read `al.title`. Neither
+   * other sort has a tiebreaker that reads its dimension.
+   */
+  readonly alias: 'sort_ar' | 'sort_al' | 'al'
+  /**
+   * One index, scanned either way, when the dimension supplies a single key.
+   * Per direction when it supplies more and some of them are `fixed`: a reverse
+   * scan would reverse those too, so each direction needs an index of its own —
+   * migration 002's reasoning for `tracks`, applied to a dimension.
+   */
+  readonly index: JoinedIndex | Readonly<Record<'ASC' | 'DESC', JoinedIndex>>
   readonly trackIndex: 'idx_tracks_artist' | 'idx_tracks_album'
   readonly foreignKey: 'artist_id' | 'album_id'
   readonly value: string
+  /** Text values fold case, as `SortKey.text`. A year must not: the index is BINARY. */
+  readonly text: boolean
+  /**
+   * The value can be NULL on a dimension row that exists.
+   *
+   * An artist always has a name and an album a title, so a track lacks the
+   * value exactly when it lacks the foreign key. An album can lack a year, and
+   * its tracks belong in the nulls-last tail alongside the album-less ones.
+   */
+  readonly nullable: boolean
 }
 
 /**
@@ -316,7 +370,9 @@ const JOINED_SORTS: Partial<Record<TrackSortColumn, JoinedSort>> = {
     index: 'idx_artists_order_name',
     trackIndex: 'idx_tracks_artist',
     foreignKey: 'artist_id',
-    value: 'sort_ar.name'
+    value: 'sort_ar.name',
+    text: true,
+    nullable: false
   },
   album: {
     table: 'albums',
@@ -324,7 +380,19 @@ const JOINED_SORTS: Partial<Record<TrackSortColumn, JoinedSort>> = {
     index: 'idx_albums_order_title',
     trackIndex: 'idx_tracks_album',
     foreignKey: 'album_id',
-    value: 'sort_al.title'
+    value: 'sort_al.title',
+    text: true,
+    nullable: false
+  },
+  year: {
+    table: 'albums',
+    alias: 'al',
+    index: { ASC: 'idx_albums_order_year_asc', DESC: 'idx_albums_order_year_desc' },
+    trackIndex: 'idx_tracks_album',
+    foreignKey: 'album_id',
+    value: 'al.year',
+    text: false,
+    nullable: true
   }
 }
 
@@ -1040,10 +1108,18 @@ function orderByClause(keys: readonly SortKey[], direction: 'ASC' | 'DESC'): str
  * nulls-last half is a separate query instead of a prefix. It still has to
  * agree with `orderByClause` to the row, so it takes the remaining keys from
  * the same table rather than restating them.
+ *
+ * `inner` is the tagged half, where the dimension row exists and a `joined` key
+ * needs no nulls-last prefix.
  */
-function joinedTiebreakers(keys: readonly SortKey[], direction: 'ASC' | 'DESC'): string {
+function joinedTiebreakers(
+  keys: readonly SortKey[],
+  direction: 'ASC' | 'DESC',
+  inner: boolean
+): string {
   return keys
     .slice(1)
+    .map((key) => (inner && key.joined ? { ...key, notNull: true } : key))
     .map((key) => `${orderByFragment(key, direction)}, `)
     .join('')
 }
@@ -1816,9 +1892,9 @@ export class LibraryStore {
    * Reads an artist/album page without sorting the whole track table.
    *
    * The dimension table supplies non-null rows in indexed order. Null rows are
-   * a separate id-ordered tail, which exactly matches listTracks' nulls-last
-   * contract. Splitting the query also makes a page that crosses that boundary
-   * cheap instead of forcing a compound-query sort.
+   * a separate tail ordered by the remaining keys, which exactly matches
+   * listTracks' nulls-last contract. Splitting the query also makes a page that
+   * crosses that boundary cheap instead of forcing a compound-query sort.
    */
   private listTrackIdsByJoinedSort(
     query: ListTrackIdsQuery,
@@ -1826,13 +1902,26 @@ export class LibraryStore {
     direction: 'ASC' | 'DESC'
   ): number[] {
     const rootPredicate = query.rootId === undefined ? '' : 'AND t.root_id = @rootId'
-    const tiebreakers = joinedTiebreakers(SORT_KEYS[query.sort], direction)
+    const keys = SORT_KEYS[query.sort]
+    const index = typeof sort.index === 'string' ? sort.index : sort.index[direction]
+    const collate = sort.text ? ' COLLATE NOCASE' : ''
     const params = { rootId: query.rootId ?? null, limit: query.limit, offset: query.offset }
+    // A nullable value needs the dimension row to tell the two halves apart; a
+    // non-null one is present exactly when the foreign key is.
+    const dimension = `${sort.table} ${sort.alias} ON ${sort.alias}.id = t.${sort.foreignKey}`
+    const tagged = sort.nullable
+      ? { join: `JOIN ${dimension}`, where: `${sort.value} IS NOT NULL` }
+      : { join: '', where: `t.${sort.foreignKey} IS NOT NULL` }
+    const untagged = sort.nullable
+      ? { join: `LEFT JOIN ${dimension}`, where: `${sort.value} IS NULL` }
+      : { join: '', where: `t.${sort.foreignKey} IS NULL` }
+
     const { total: taggedTotal } = this.db
       .prepare(
         `SELECT count(*) AS total
          FROM tracks t
-         WHERE t.${sort.foreignKey} IS NOT NULL
+         ${tagged.join}
+         WHERE ${tagged.where}
          ${rootPredicate}`
       )
       .get(params) as { total: number }
@@ -1847,12 +1936,13 @@ export class LibraryStore {
           this.db
             .prepare(
               `SELECT t.id AS id
-               FROM ${sort.table} ${sort.alias} INDEXED BY ${sort.index}
+               FROM ${sort.table} ${sort.alias} INDEXED BY ${index}
                JOIN tracks t INDEXED BY ${sort.trackIndex}
                  ON t.${sort.foreignKey} = ${sort.alias}.id
-               WHERE 1 = 1
+               WHERE ${sort.nullable ? tagged.where : '1 = 1'}
                ${rootPredicate}
-               ORDER BY ${sort.value} COLLATE NOCASE ${direction}, ${tiebreakers}t.id ASC
+               ORDER BY ${sort.value}${collate} ${direction},
+                        ${joinedTiebreakers(keys, direction, true)}t.id ASC
                LIMIT @limit OFFSET @offset`
             )
             .all({ ...params, limit: taggedLimit })
@@ -1869,9 +1959,10 @@ export class LibraryStore {
             .prepare(
               `SELECT t.id AS id
                FROM tracks t
-               WHERE t.${sort.foreignKey} IS NULL
+               ${untagged.join}
+               WHERE ${untagged.where}
                ${rootPredicate}
-               ORDER BY ${tiebreakers}t.id ASC
+               ORDER BY ${joinedTiebreakers(keys, direction, false)}t.id ASC
                LIMIT @limit OFFSET @offset`
             )
             .all({ ...params, limit: nullLimit, offset: nullOffset })

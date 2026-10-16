@@ -78,7 +78,8 @@ describe('openDatabase', () => {
         'rip-sessions',
         'rip-artwork',
         'track-overrides-album-artist',
-        'track-tag-overrides'
+        'track-tag-overrides',
+        'index-album-year-order'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -135,7 +136,8 @@ describe('openDatabase', () => {
         'rip-sessions',
         'rip-artwork',
         'track-overrides-album-artist',
-        'track-tag-overrides'
+        'track-tag-overrides',
+        'index-album-year-order'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -181,7 +183,8 @@ describe('openDatabase', () => {
         'rip-sessions',
         'rip-artwork',
         'track-overrides-album-artist',
-        'track-tag-overrides'
+        'track-tag-overrides',
+        'index-album-year-order'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
@@ -792,7 +795,8 @@ describe('migration 023 rip sessions', () => {
         'rip-sessions',
         'rip-artwork',
         'track-overrides-album-artist',
-        'track-tag-overrides'
+        'track-tag-overrides',
+        'index-album-year-order'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -817,7 +821,8 @@ describe('migration 025 track_overrides.album_artist_name (W16-14)', () => {
     try {
       expect(migration.applied.map((step) => step.name)).toEqual([
         'track-overrides-album-artist',
-        'track-tag-overrides'
+        'track-tag-overrides',
+        'index-album-year-order'
       ])
       expect(
         db
@@ -844,7 +849,10 @@ describe('migration 026 track_tag_overrides (W16-15)', () => {
 
     const { db, migration } = openDatabase(file)
     try {
-      expect(migration.applied.map((step) => step.name)).toEqual(['track-tag-overrides'])
+      expect(migration.applied.map((step) => step.name)).toEqual([
+        'track-tag-overrides',
+        'index-album-year-order'
+      ])
       expect(db.prepare('SELECT count(*) AS n FROM track_tag_overrides').get()).toEqual({ n: 0 })
       expect(
         db.prepare('SELECT title FROM track_overrides WHERE track_id = ?').get(trackId)
@@ -862,6 +870,40 @@ describe('migration 026 track_tag_overrides (W16-15)', () => {
       ).toThrow()
       db.prepare('DELETE FROM tracks WHERE id = ?').run(trackId)
       expect(db.prepare('SELECT count(*) AS n FROM track_tag_overrides').get()).toEqual({ n: 0 })
+    } finally {
+      db.close()
+    }
+  })
+})
+
+describe('migration 027 album year order', () => {
+  const BEFORE_027 = MIGRATIONS.findIndex((step) => step.name === 'index-album-year-order')
+
+  it('indexes an existing library for the year sort without touching its albums', () => {
+    const old = new Database(file)
+    migrate(old, MIGRATIONS.slice(0, BEFORE_027))
+    old
+      .prepare('INSERT INTO albums (title, album_artist_id, year) VALUES (?, ?, ?)')
+      .run('Kind of Blue', null, 1959)
+    old.close()
+
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.applied.map((step) => step.name)).toEqual(['index-album-year-order'])
+      expect(db.prepare('SELECT title, year FROM albums').all()).toEqual([
+        { title: 'Kind of Blue', year: 1959 }
+      ])
+      const indexes = db
+        .prepare(
+          `SELECT name FROM sqlite_master
+           WHERE type = 'index' AND tbl_name = 'albums' AND name LIKE 'idx_albums_order_year_%'
+           ORDER BY name`
+        )
+        .all()
+      expect(indexes).toEqual([
+        { name: 'idx_albums_order_year_asc' },
+        { name: 'idx_albums_order_year_desc' }
+      ])
     } finally {
       db.close()
     }
