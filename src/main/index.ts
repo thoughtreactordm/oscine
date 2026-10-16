@@ -75,6 +75,7 @@ import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
 import {
   createGitHubPublishedVersionReader,
   createUpdateService,
+  loadAutoUpdater,
   type AppUpdateDriver
 } from './update'
 import { readCappedText } from './net/http'
@@ -919,8 +920,13 @@ if (!app.requestSingleInstanceLock()) {
     })
     let updater: AppUpdateDriver | null = null
     if (updateChannelCanSelfUpdate(updateChannel)) {
-      const { autoUpdater } = await import('electron-updater')
-      updater = autoUpdater as AppUpdateDriver
+      // A driver that fails to load costs the operator self-update, not the
+      // app: the service reports it on the next Check.
+      try {
+        updater = await loadAutoUpdater()
+      } catch (error) {
+        console.error('[update] could not load electron-updater', error)
+      }
     }
     const updates = createUpdateService(
       {
