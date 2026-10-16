@@ -52,7 +52,6 @@ type DisplayColumnKey =
   | 'favorite'
   | 'albumArtist'
   | 'discNo'
-  | 'year'
   | 'codec'
   | 'sampleRateHz'
   | 'bitDepth'

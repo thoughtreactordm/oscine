@@ -25,6 +25,7 @@ import { ripArtwork } from './024-rip-artwork'
 import { ripSessions } from './023-rip-sessions'
 import { trackOverridesAlbumArtist } from './025-track-overrides-album-artist'
 import { trackTagOverrides } from './026-track-tag-overrides'
+import { indexAlbumYearOrder } from './027-index-album-year-order'
 
 /**
  * Every migration, in order.
@@ -61,5 +62,6 @@ export const MIGRATIONS: readonly Migration[] = [
   ripSessions,
   ripArtwork,
   trackOverridesAlbumArtist,
-  trackTagOverrides
+  trackTagOverrides,
+  indexAlbumYearOrder
 ]

@@ -57,10 +57,16 @@ beforeAll(async () => {
   artistIds = Array.from({ length: 200 }, (_, index) =>
     Number(insertArtist.run(`Artist ${String(index).padStart(3, '0')}`).lastInsertRowid)
   )
+  // Every tenth album has no year, so the year sort's nulls-last tail holds
+  // album-less tracks and yearless-album tracks both — the two ways a track can
+  // lack the value, which only that sort's query shape has to tell apart.
   albumIds = Array.from({ length: 250 }, (_, index) =>
     Number(
-      insertAlbum.run(`Album ${String(index).padStart(3, '0')}`, null, 1970 + (index % 50))
-        .lastInsertRowid
+      insertAlbum.run(
+        `Album ${String(index).padStart(3, '0')}`,
+        null,
+        index % 10 === 9 ? null : 1970 + (index % 50)
+      ).lastInsertRowid
     )
   )
   const insertTrack = db.prepare(
@@ -253,6 +259,74 @@ describe('album ordering', () => {
       else expect(disc).toBeGreaterThan(prevDisc)
     }
   }, 30_000)
+})
+
+/**
+ * What the year column orders, pinned the way `album ordering` pins its own.
+ *
+ * Years in the chosen direction with unknown years last; inside one year the
+ * albums A to Z whichever way the years run; inside one album, playing order.
+ * Tracks on a yearless album come before tracks on no album at all, because the
+ * tail is ordered by the album keys and an absent title sorts last.
+ */
+describe('year ordering', () => {
+  type Row = { year: number | null; album: string | null; disc: number; track: number }
+
+  async function rows(direction: SortDirection): Promise<Row[]> {
+    const out: Row[] = []
+    for (let offset = 0; offset < TRACK_COUNT; offset += ROW_PAGE) {
+      const page = await service.listTracks({ sort: 'year', direction, offset, limit: ROW_PAGE })
+      for (const track of page.tracks) {
+        out.push({
+          year: track.year,
+          album: track.album,
+          disc: track.discNo ?? 1,
+          track: track.trackNo ?? 0
+        })
+      }
+    }
+    return out
+  }
+
+  it.each(['asc', 'desc'] as const)(
+    'orders years %s, albums within a year A to Z, and each album in playing order',
+    async (direction) => {
+      const list = await rows(direction)
+      expect(list).toHaveLength(TRACK_COUNT)
+
+      // The three sections, in order and each contiguous.
+      const section = (row: Row): number => (row.year !== null ? 0 : row.album !== null ? 1 : 2)
+      const sections = list.map(section)
+      expect(sections).toEqual([...sections].sort((a, b) => a - b))
+      expect(new Set(sections)).toEqual(new Set([0, 1, 2]))
+
+      const seenAlbums = new Set<string>()
+      for (let index = 1; index < list.length; index++) {
+        const prev = list[index - 1]!
+        const row = list[index]!
+        if (row.album === null || prev.album === null) continue
+        if (section(row) !== section(prev)) {
+          seenAlbums.add(prev.album)
+          continue
+        }
+        if (row.year !== prev.year) {
+          expect(Math.sign(row.year! - prev.year!)).toBe(direction === 'asc' ? 1 : -1)
+        } else if (row.album !== prev.album) {
+          expect(row.album.localeCompare(prev.album)).toBeGreaterThan(0)
+        } else if (row.disc === prev.disc) {
+          expect(row.track).toBeGreaterThanOrEqual(prev.track)
+        } else {
+          expect(row.disc).toBeGreaterThan(prev.disc)
+        }
+        // Contiguous: an album that has ended never reappears.
+        if (row.album !== prev.album) {
+          expect(seenAlbums.has(row.album)).toBe(false)
+          seenAlbums.add(prev.album)
+        }
+      }
+    },
+    30_000
+  )
 })
 
 /**
