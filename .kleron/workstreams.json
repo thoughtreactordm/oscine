@@ -252,6 +252,20 @@
         "W8",
         "W10"
       ]
+    },
+    {
+      "tag": "W22",
+      "name": "Field Notes",
+      "description": "Oscine's year-in-review: an animated, slide-by-slide retrospective of a calendar year of listening, built from the `listens` log (D17), saved once generated so it can be viewed again, and able to include other devices' listening through explicit exports. Scoped as a **post-1.0 follow-up**. Design authority is the wiki page `oscine-field-notes`; W21 is reserved for Oscine Remote, so this stream is W22.\n\nOwns decision **D34 — Field Notes composes, never merges.** Each install owns its own `library.db` (D11), so an operator on Linux and Windows has two partial years. Field Notes reads the host's `listens` plus N imported `oscine.listens` exports, composes them in a scratch connection with the library attached **read-only**, aggregates, saves the resulting report, and discards the rest. Imported listens never reach `library.db`, the Stats dashboard, `tracks.play_count` or Discover. This is consistent with D11, not an amendment: the export is explicit and the composition merges nothing. Merging other machines' listens *into* the library stays W10-13's job; the two share a serialization, not a code path.\n\nSettled in `oscine-field-notes` as D34.1–D34.10: the `oscine.listens` v1 export (snapshot rows, no `track_id`, whole log, untrusted on import); imports not remembered; the scratch composer (host wins a collision, scratch-only snapshot linking for artwork and formats); one report per calendar year, generated anytime, regenerate replaces with a warning; the report is a frozen, versioned snapshot of aggregates with pure upgraders; a `recaps` table classified *carried*; ranking by minutes listened; time buckets in the host's zone; \"Field Notes\" in UI copy only, `recap` in code; and a pure slide model behind a full-window, token-themed viewer.\n\nOwns risk **R15 — report permanence (medium, maintenance)**: a saved report cannot be regenerated from the same inputs, so every report schema version is permanent and the viewer must render all of them.\n\nDepends on W10 (the listens log and `StatsStore`), W8 (the settings registry for the install ID), W4 (the shell and token layer) and W13 (the Command Palette entry) for reuse and surface, not for permission.\n\nDoes NOT write imported listens to the library, remember import files, open a socket, enqueue scrobbles, or implement W10-13's merge. Does NOT reopen D11, D14 or D17. Soundtrack, share-as-image and non-calendar ranges are deferred.",
+      "color": "teal",
+      "order": 20,
+      "cardCounter": 7,
+      "dependsOn": [
+        "W4",
+        "W8",
+        "W10",
+        "W13"
+      ]
     }
   ]
 }

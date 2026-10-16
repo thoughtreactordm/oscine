@@ -168,7 +168,7 @@ import type {
 import type { OverrideEditState, OverrideField, OverridePatch } from './overrides'
 import type { TagFieldEditState, TagFieldKey, TagFieldPatch } from './tagFields'
 import type { ArtworkRef, CoverArtCandidate } from './artwork'
-import type { InstalledTheme } from './theme'
+import type { InstalledTheme, NoctaliaSetupResult, NoctaliaStatus, NoctaliaVersion } from './theme'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -1162,6 +1162,21 @@ export interface IpcContract {
   'theme.import': { request: null; response: { id: string; name: string } | null }
   /** Reveal the themes folder in the OS file manager, creating it if absent. */
   'theme.revealFolder': { request: null; response: void }
+  /**
+   * Where Noctalia sync stands, and the last valid palette — Linux only;
+   * `unsupported` elsewhere. Followed by `theme.noctaliaChanged`.
+   */
+  'theme.noctaliaStatus': { request: null; response: NoctaliaStatus }
+  /** Drop the watch and read the palette again, after the operator fixed something. */
+  'theme.noctaliaRetry': { request: null; response: NoctaliaStatus }
+  /**
+   * Install Oscine's template into Noctalia's configuration. The only path that
+   * ever writes there, and only on this explicit request — startup never does.
+   */
+  'theme.noctaliaSetup': {
+    request: { version: NoctaliaVersion }
+    response: NoctaliaSetupResult
+  }
 
   /**
    * Abandon everything main is fetching on behalf of a scope.
@@ -1465,6 +1480,11 @@ export interface IpcEventContract {
    * the island hydrates from `update.status` then follows this.
    */
   'update.changed': UpdateStatus
+  /**
+   * Noctalia sync moved — a new palette, a bad write, the source switched. The
+   * theme hydrates from `theme.noctaliaStatus` then follows this.
+   */
+  'theme.noctaliaChanged': NoctaliaStatus
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -1621,6 +1641,9 @@ export const IPC_CHANNELS = [
   'theme.listInstalled',
   'theme.import',
   'theme.revealFolder',
+  'theme.noctaliaStatus',
+  'theme.noctaliaRetry',
+  'theme.noctaliaSetup',
   'net.cancelScope',
   'scrobble.status',
   'scrobble.connect',
@@ -1650,7 +1673,8 @@ export const IPC_EVENT_CHANNELS = [
   'settings.changed',
   'listens.flushRequested',
   'scrobble.statusChanged',
-  'update.changed'
+  'update.changed',
+  'theme.noctaliaChanged'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**

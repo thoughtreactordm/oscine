@@ -130,6 +130,9 @@ export type SettingControl<T> =
  * `network.externalLookups` (D14): a public cover lookup is an online request,
  * so it hangs off the same consent every other network-dependent choice does.
  */
+/** `process.platform` values the app ships on. */
+export type SettingPlatform = 'linux' | 'win32' | 'darwin'
+
 export interface SettingGate {
   /** The key that opens this one. Open exactly when that key's value is `true`. */
   readonly key: string
@@ -204,6 +207,15 @@ export interface SettingDefinition<
    * one-key-per-category-slot audit that only exists to keep the rail tidy.
    */
   internal?: boolean
+  /**
+   * The platforms whose settings surface draws this row. Omit for all of them.
+   *
+   * Presentation only, like the flags below: the key is registered, validated
+   * and stored everywhere, so a profile moving between machines never loses it.
+   * Whoever acts on the value is still the one to ignore it where it means
+   * nothing — the row being hidden is not what makes it inert.
+   */
+  platforms?: readonly SettingPlatform[]
   /** Presentation flags. Neither changes what the key does. */
   advanced?: boolean
   requiresRestart?: boolean
@@ -243,6 +255,8 @@ export interface SettingDescriptor<
   /** The key that has to be truthy for this row to be live, or null. */
   readonly gatedBy: SettingGate | null
   readonly internal: boolean
+  /** Null for every platform. */
+  readonly platforms: readonly SettingPlatform[] | null
   readonly advanced: boolean
   readonly requiresRestart: boolean
 }
@@ -285,6 +299,7 @@ export function defineSetting<
     order = 0,
     gatedBy,
     internal = false,
+    platforms,
     advanced = false,
     requiresRestart = false
   } = definition
@@ -308,6 +323,8 @@ export function defineSetting<
   if (!internal && definition.order === undefined)
     fail('order is required unless the key is internal')
   if (internal && control) fail('an internal key has no row to render, so it takes no control')
+  if (platforms && internal) fail('an internal key has no row for a platform to hide')
+  if (platforms && platforms.length === 0) fail('platforms, when given, names at least one')
 
   let checked: SettingValidation<T>
   try {
@@ -356,6 +373,7 @@ export function defineSetting<
     order,
     gatedBy: gatedBy ? Object.freeze({ ...gatedBy }) : null,
     internal,
+    platforms: platforms ? Object.freeze([...platforms]) : null,
     advanced,
     requiresRestart
   })

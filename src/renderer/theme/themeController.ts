@@ -14,6 +14,8 @@ import {
   DEFAULT_THEME_ID,
   findTheme,
   resolveTheme,
+  withNoctaliaColors,
+  type NoctaliaPalette,
   type RampSpec,
   type ResolvedTheme,
   type ThemeMode,
@@ -42,6 +44,14 @@ export interface ThemeInputs {
    * observes rather than the operator states.
    */
   readonly reactiveSeed: string | null
+  /**
+   * The Noctalia palette when the colour source is the desktop, else null.
+   *
+   * Observed, not stated, for the same reason as the seed: it is whatever the
+   * desktop's colour scheme is right now. It never touches primary — see
+   * `withNoctaliaColors` — so it sits under the seed rather than competing.
+   */
+  readonly noctalia: NoctaliaPalette | null
 }
 
 export interface ThemeState {
@@ -72,7 +82,8 @@ export const DEFAULT_INPUTS: ThemeInputs = {
   overrides: {},
   systemDark: false,
   systemReducedMotion: false,
-  reactiveSeed: null
+  reactiveSeed: null,
+  noctalia: null
 }
 
 /** The ramp role reactive colour drives, and the only one it may touch. */
@@ -106,7 +117,11 @@ export function computeTheme(inputs: ThemeInputs): ThemeState {
   const mode = resolveMode(inputs.mode, inputs.systemDark)
   const selected = findTheme(inputs.themeId)
   const theme = selected ?? findTheme(DEFAULT_THEME_ID) ?? BUILT_IN_THEMES[0]!
-  const overrides = withReactiveSeed(inputs.overrides, inputs.reactiveSeed)
+  // Desktop colours over the operator's, then the cover's accent over the
+  // theme's. Noctalia leaves `color.primary` alone, so the seed still yields only
+  // to an override the operator wrote.
+  const authored = withNoctaliaColors(inputs.overrides, inputs.noctalia, mode)
+  const overrides = withReactiveSeed(authored, inputs.reactiveSeed)
 
   return {
     resolved: resolveTheme({
@@ -118,7 +133,7 @@ export function computeTheme(inputs: ThemeInputs): ThemeState {
     mode,
     themeId: theme.id,
     themeMissing: selected === undefined,
-    reactiveSeed: overrides === inputs.overrides ? null : inputs.reactiveSeed
+    reactiveSeed: overrides === authored ? null : inputs.reactiveSeed
   }
 }
 

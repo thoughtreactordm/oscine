@@ -14,6 +14,7 @@
 
 import type { ThemeOverrides } from '@shared/theme'
 import { applyTheme } from './applyTheme'
+import { cachedNoctaliaPalette } from './noctaliaCache'
 import { computeTheme, DEFAULT_INPUTS, type ThemeInputs, type ThemeState } from './themeController'
 
 let inputs: ThemeInputs = DEFAULT_INPUTS
@@ -79,7 +80,9 @@ export function installTheme(): void {
     ...inputs,
     mode: storedPreference(),
     systemDark: window.matchMedia(DARK_SCHEME).matches,
-    systemReducedMotion: prefersReducedMotion()
+    systemReducedMotion: prefersReducedMotion(),
+    // Replayed for the same reason the mode is; see `noctaliaCache.ts`.
+    noctalia: cachedNoctaliaPalette()
   }
   render()
 

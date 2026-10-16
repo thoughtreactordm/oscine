@@ -6,7 +6,16 @@ import {
   THEME_OVERRIDES_KEY,
   settingDefault
 } from '../../src/shared/settings'
-import { BUILT_IN_THEMES, findTheme, parseColor, resolveTheme, toHex } from '../../src/shared/theme'
+import {
+  BUILT_IN_THEMES,
+  NOCTALIA_ROLES,
+  findTheme,
+  parseColor,
+  resolveTheme,
+  toHex,
+  type NoctaliaColors,
+  type NoctaliaPalette
+} from '../../src/shared/theme'
 
 /**
  * The claim `backgroundColor: '#0a0a0a'` used to make and could not keep.
@@ -111,5 +120,22 @@ describe('WINDOW_BACKGROUND_KEYS', () => {
       expect(findTheme, key).toBeTypeOf('function')
       expect(() => settingDefault(key)).not.toThrow()
     }
+  })
+})
+
+describe('resolveWindowBackground with a Noctalia palette', () => {
+  const role = (fill: string) =>
+    Object.fromEntries(NOCTALIA_ROLES.map((name) => [name, fill])) as NoctaliaColors
+  const noctalia: NoctaliaPalette = { version: 1, light: role('#f4f0f6'), dark: role('#1a1720') }
+
+  it('paints the desktop surface for the variant showing', () => {
+    expect(resolveWindowBackground(reader(), true, noctalia)).toBe('#1a1720')
+    expect(resolveWindowBackground(reader(), false, noctalia)).toBe('#f4f0f6')
+  })
+
+  it('is the theme surface without one', () => {
+    expect(resolveWindowBackground(reader(), true, null)).toBe(
+      resolveWindowBackground(reader(), true)
+    )
   })
 })

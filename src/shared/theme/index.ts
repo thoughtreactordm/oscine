@@ -32,6 +32,21 @@ export {
   type ContrastPair
 } from './contrast'
 
+export {
+  NOCTALIA_ROLES,
+  NOCTALIA_TEMPLATE_NAME,
+  noctaliaTemplate,
+  parseNoctaliaPalette,
+  withNoctaliaColors,
+  type NoctaliaColors,
+  type NoctaliaPalette,
+  type NoctaliaRole,
+  type NoctaliaSetupResult,
+  type NoctaliaStatus,
+  type NoctaliaVersion,
+  type ThemeColorSource
+} from './noctalia'
+
 export { hasOverrides, parseOverrides, withOverride, withoutOverride } from './overrides'
 
 export {

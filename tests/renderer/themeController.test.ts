@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { BUILT_IN_THEMES, DEFAULT_THEME_ID, rampFromSeed } from '@shared/theme'
+import {
+  BUILT_IN_THEMES,
+  DEFAULT_THEME_ID,
+  NOCTALIA_ROLES,
+  rampFromSeed,
+  type NoctaliaColors,
+  type NoctaliaPalette
+} from '@shared/theme'
 import {
   computeTheme,
   DEFAULT_INPUTS,
@@ -154,5 +161,55 @@ describe('windowBackground', () => {
       expect(windowBackground(dark)).toBe(dark.resolved.tokens.get('surface.base'))
       expect(windowBackground(dark)).not.toBe(windowBackground(light))
     }
+  })
+})
+
+describe('computeTheme with a Noctalia palette', () => {
+  const role = (fill: string) =>
+    Object.fromEntries(NOCTALIA_ROLES.map((name) => [name, fill])) as NoctaliaColors
+  const noctalia: NoctaliaPalette = {
+    version: 1,
+    light: role('#f4f0f6'),
+    dark: { ...role('#1a1720'), tertiary: '#d9bbef' }
+  }
+  const seed = 'oklch(0.68 0.18 264)'
+
+  it('takes surfaces and info from the desktop, in the variant showing', () => {
+    const dark = computeTheme(inputs({ mode: 'dark', noctalia }))
+    expect(dark.resolved.tokens.get('surface.base')).toBe('#1a1720')
+    expect(dark.resolved.tokens.get('accent.info')).toBe('#d9bbef')
+
+    const light = computeTheme(inputs({ mode: 'light', noctalia }))
+    expect(light.resolved.tokens.get('surface.base')).toBe('#f4f0f6')
+  })
+
+  it('leaves primary to the theme when nothing is playing', () => {
+    const plain = computeTheme(inputs({ mode: 'dark' }))
+    const desktop = computeTheme(inputs({ mode: 'dark', noctalia }))
+    for (const [id, value] of plain.resolved.tokens) {
+      if (id.startsWith('color.primary') || id === 'accent.primary') {
+        expect(desktop.resolved.tokens.get(id)).toBe(value)
+      }
+    }
+  })
+
+  it('still lets the cover art drive the accent', () => {
+    const reactive = computeTheme(inputs({ mode: 'dark', noctalia, reactiveSeed: seed }))
+    expect(reactive.reactiveSeed).toBe(seed)
+    expect(reactive.resolved.cssVars.get('--oscine-color-primary-500')).toBe(
+      rampFromSeed(seed)?.['500']
+    )
+    expect(reactive.resolved.tokens.get('surface.base')).toBe('#1a1720')
+  })
+
+  it('still lets an accent the operator set beat the cover art', () => {
+    const chosen = computeTheme(
+      inputs({
+        noctalia,
+        reactiveSeed: seed,
+        overrides: { 'color.primary': { mode: 'seed', seed: '#ff0000' } }
+      })
+    )
+    expect(chosen.reactiveSeed).toBeNull()
   })
 })

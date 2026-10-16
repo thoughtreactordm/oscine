@@ -34,6 +34,8 @@ import {
   parseOverrides,
   resolveTheme,
   toHex,
+  withNoctaliaColors,
+  type NoctaliaPalette,
   type ThemeMode
 } from '@shared/theme'
 
@@ -62,7 +64,16 @@ export interface DurableReader {
  */
 const FALLBACK = '#000000'
 
-export function resolveWindowBackground(read: DurableReader, systemDark: boolean): string {
+/**
+ * `noctalia` is the palette Noctalia sync holds, or null when it is off. Passed
+ * in rather than read, for the reason `systemDark` is: it is observed state,
+ * not a durable key, and this module stays a pure function of its inputs.
+ */
+export function resolveWindowBackground(
+  read: DurableReader,
+  systemDark: boolean,
+  noctalia: NoctaliaPalette | null = null
+): string {
   const preference = read.get<ThemeModePreference>(THEME_MODE_KEY)
   const mode: ThemeMode = preference === 'system' ? (systemDark ? 'dark' : 'light') : preference
 
@@ -72,7 +83,7 @@ export function resolveWindowBackground(read: DurableReader, systemDark: boolean
   const { tokens } = resolveTheme({
     theme,
     mode,
-    overrides: parseOverrides(read.get(THEME_OVERRIDES_KEY))
+    overrides: withNoctaliaColors(parseOverrides(read.get(THEME_OVERRIDES_KEY)), noctalia, mode)
   })
 
   const surface = tokens.get('surface.base')

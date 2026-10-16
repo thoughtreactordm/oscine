@@ -98,6 +98,7 @@ export type {
   ReplayGainMode
 } from './settings/audio'
 export {
+  THEME_COLOR_SOURCE_KEY,
   THEME_MODE_KEY,
   THEME_NAME_KEY,
   THEME_OVERRIDES_KEY,
