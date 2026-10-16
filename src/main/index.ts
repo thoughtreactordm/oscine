@@ -68,6 +68,7 @@ import { resolveLastfmAppKey } from './scrobble/lastfm/appKey'
 import { createListenbrainzTarget } from './scrobble/listenbrainz/target'
 import { createListenbrainzTransport } from './scrobble/listenbrainz/transport'
 import { backfillOnboardingCompleted, SqliteSettingsService } from './settings'
+import { NoctaliaSync } from './theme/noctalia'
 import { FsThemeFileService } from './theme/service'
 import { createArtistBiographyService, createArtistImageService } from './wikipedia'
 import { resolveWindowBackground, WINDOW_BACKGROUND_KEYS } from './windowTheme'
@@ -81,6 +82,7 @@ import { OSCINE_USER_AGENT } from './net/userAgent'
 import type { EpisodeDownloadProgress } from '@shared/podcasts'
 import type { ScrobbleTarget } from '@shared/scrobble'
 import { detectUpdateChannel, updateChannelCanSelfUpdate, type UpdateStatus } from '@shared/update'
+import type { NoctaliaStatus } from '@shared/theme'
 import {
   AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
   DISCORD_DISPLAY,
@@ -90,6 +92,7 @@ import {
   DISCORD_STATUS_TEMPLATE,
   DISCORD_WHEN_PAUSED,
   LASTFM_LOVE_ON_FAVORITE,
+  THEME_COLOR_SOURCE_KEY,
   type DiscordDisplay,
   type DiscordWhenPaused,
   type SettingsChange
@@ -314,6 +317,12 @@ let scrobbleStatus: ScrobbleStatusService | null = null
  */
 let presenceService: PresenceService | null = null
 
+/**
+ * The same again: a `theme.colorSource` write has to start or stop the watch,
+ * and the settings service that reports it is constructed first.
+ */
+let noctaliaSync: NoctaliaSync | null = null
+
 function broadcastScrobbleStatus(): void {
   if (!mainWindow || !scrobbleStatus) return
   emit(mainWindow.webContents, 'scrobble.statusChanged', [...scrobbleStatus.status().targets])
@@ -321,6 +330,10 @@ function broadcastScrobbleStatus(): void {
 
 function broadcastUpdateStatus(status: UpdateStatus): void {
   if (mainWindow) emit(mainWindow.webContents, 'update.changed', status)
+}
+
+function broadcastNoctaliaStatus(status: NoctaliaStatus): void {
+  if (mainWindow) emit(mainWindow.webContents, 'theme.noctaliaChanged', status)
 }
 
 /**
@@ -518,6 +531,11 @@ if (!app.requestSingleInstanceLock()) {
         if (changes.some((change) => WINDOW_BACKGROUND_KEYS.includes(change.key))) {
           applyWindowBackground()
         }
+        // Switching the colour source starts or stops the watch; the status it
+        // publishes is what repaints, window background included.
+        if (changes.some((change) => change.key === THEME_COLOR_SOURCE_KEY)) {
+          noctaliaSync?.sync()
+        }
         // A live `discord.*` change re-derives presence now, rather than
         // waiting for the next track (W20-4). Harmless until W20-3 registers the
         // descriptors — no `discord.*` change can fire before then.
@@ -527,7 +545,11 @@ if (!app.requestSingleInstanceLock()) {
 
     const applyWindowBackground = (): void => {
       mainWindow?.setBackgroundColor(
-        resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors)
+        resolveWindowBackground(
+          settings,
+          nativeTheme.shouldUseDarkColors,
+          noctaliaSync?.palette() ?? null
+        )
       )
     }
     for (const notice of settings.loadNotices()) {
@@ -543,6 +565,19 @@ if (!app.requestSingleInstanceLock()) {
       pickImportFile: pickThemeImportFile,
       appVersion: app.getVersion()
     })
+
+    // Linux desktop colours. Before the window, so its first background is
+    // already the desktop's; reads the palette file and never writes Noctalia's
+    // configuration except through the explicit setup request.
+    const noctalia = new NoctaliaSync({
+      enabled: () => settings.get<string>(THEME_COLOR_SOURCE_KEY) === 'noctalia',
+      onChanged: (status) => {
+        broadcastNoctaliaStatus(status)
+        applyWindowBackground()
+      }
+    })
+    noctaliaSync = noctalia
+    noctalia.sync()
 
     // D-ONB-7: an existing install must not be dropped into the wizard. Runs
     // while the key is still unset, and only writes `true` — a fresh directory
@@ -991,6 +1026,7 @@ if (!app.requestSingleInstanceLock()) {
       // Take presence down and disconnect the Discord socket before the window
       // and database go, so a closed Oscine leaves no stale "Playing" card (W20-4).
       presence.stop()
+      noctalia.stop()
 
       // First of the awaited steps, because it is the only one that needs the
       // renderer alive and
@@ -1057,7 +1093,8 @@ if (!app.requestSingleInstanceLock()) {
       coverSearch,
       // W20-4: presence's main-side sink — the service that maps the signal to a
       // Discord activity and drives the client, in place of W20-1's no-op stub.
-      presence
+      presence,
+      noctalia
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was
@@ -1067,7 +1104,9 @@ if (!app.requestSingleInstanceLock()) {
     // it finds no connected target and goes back to sleep.
     scrobbleDrain.start()
 
-    mainWindow = createWindow(resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors))
+    mainWindow = createWindow(
+      resolveWindowBackground(settings, nativeTheme.shouldUseDarkColors, noctalia.palette())
+    )
     // The other way the answer changes: the OS flips while the preference is
     // `system`.
     nativeTheme.on('updated', applyWindowBackground)

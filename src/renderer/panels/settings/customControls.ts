@@ -1,5 +1,6 @@
 import type { Component } from 'vue'
 import OutputDeviceControl from './OutputDeviceControl.vue'
+import ColorSourceControl from './theme/ColorSourceControl.vue'
 import ThemeEditorControl from './theme/ThemeEditorControl.vue'
 import ThemePickerControl from './theme/ThemePickerControl.vue'
 
@@ -33,6 +34,9 @@ import ThemePickerControl from './theme/ThemePickerControl.vue'
  * folder, read at runtime. `theme.name` used to be a static `select`; the
  * dropped-in themes are what pushed it through this hatch.
  *
+ * `colorSource` is the fourth: the choice is a plain enum, but the setup
+ * action and the live sync status beside it are not values a registry holds.
+ *
  * The key is the name in the descriptor, not the component's — `themeEditor` is
  * what `src/shared/settings/theme.ts` writes, and `src/shared` cannot import a
  * renderer component to say so.
@@ -40,7 +44,8 @@ import ThemePickerControl from './theme/ThemePickerControl.vue'
 export const CUSTOM_SETTING_CONTROLS: Readonly<Record<string, Component>> = Object.freeze({
   OutputDeviceControl,
   themeEditor: ThemeEditorControl,
-  themePicker: ThemePickerControl
+  themePicker: ThemePickerControl,
+  colorSource: ColorSourceControl
 })
 
 export function customSettingControl(name: string): Component | null {

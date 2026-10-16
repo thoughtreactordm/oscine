@@ -12,6 +12,7 @@ import {
 } from '@shared/settings'
 import {
   buildSettingsCatalog,
+  isSurfacedSetting,
   matchesSettingQuery,
   settingAnchorId,
   settingGateState
@@ -406,5 +407,50 @@ describe('changed from default', () => {
     expect(catalog.rows).toEqual([])
     expect(catalog.filtered).toBe(true)
     expect(catalog.changedOnly).toBe(true)
+  })
+})
+
+describe('a platform-specific setting', () => {
+  const LINUX_ONLY = defineSetting<boolean>({
+    key: 'network.testOnlyLinux',
+    scope: 'durable',
+    default: false,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    platforms: ['linux'],
+    category: 'network',
+    label: 'Test only Linux',
+    help: 'Means something on one OS.',
+    order: 40
+  })
+
+  it('is surfaced on its platform and hidden elsewhere', () => {
+    expect(isSurfacedSetting(LINUX_ONLY, 'linux')).toBe(true)
+    expect(isSurfacedSetting(LINUX_ONLY, 'win32')).toBe(false)
+  })
+
+  it('is surfaced where no host is known, as under test', () => {
+    expect(isSurfacedSetting(LINUX_ONLY, null)).toBe(true)
+  })
+
+  it('does not hide a setting that names no platform', () => {
+    expect(isSurfacedSetting(FAKE_TOGGLE, 'win32')).toBe(true)
+  })
+
+  it('refuses an empty platform list', () => {
+    expect(() =>
+      defineSetting<boolean>({
+        key: 'network.testOnlyNone',
+        scope: 'durable',
+        default: false,
+        validate: booleanValue(),
+        control: { kind: 'toggle' },
+        platforms: [],
+        category: 'network',
+        label: 'Test only none',
+        help: 'Shown nowhere.',
+        order: 50
+      })
+    ).toThrow('platforms')
   })
 })

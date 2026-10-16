@@ -20,6 +20,7 @@ import {
   type SettingCategoryId,
   type SettingDescriptor
 } from '@shared/settings'
+import { HOST_PLATFORM } from '../../platform'
 
 /**
  * Prefix on every row's DOM id.
@@ -201,9 +202,20 @@ function categoryOrder(id: SettingCategoryId): number {
  * Exported because W8-8's inline popovers ask the same question of the keys a
  * panel declares, and a panel that could surface a key the full view refuses
  * would be the first crack in "one definition, two renderings".
+ *
+ * `platform` defaults to the host's; a test passes one to say which OS it means.
  */
-export function isSurfacedSetting(descriptor: SettingDescriptor): boolean {
-  return !descriptor.internal && descriptor.control !== null
+export function isSurfacedSetting(
+  descriptor: SettingDescriptor,
+  platform: string | null = HOST_PLATFORM
+): boolean {
+  if (descriptor.internal || descriptor.control === null) return false
+  // A row for another OS's feature is not drawn. The key itself is untouched.
+  return (
+    descriptor.platforms === null ||
+    platform === null ||
+    (descriptor.platforms as readonly string[]).includes(platform)
+  )
 }
 
 /**
@@ -249,7 +261,9 @@ export function buildSettingsCatalog(
   const narrows = (descriptor: SettingDescriptor): boolean =>
     matchesSettingQuery(descriptor, query) && (!changedOnly || changedKeys.has(descriptor.key))
 
-  const shown = descriptors.filter(isSurfacedSetting).slice().sort(compareDescriptors)
+  const shown = descriptors
+    .filter((descriptor) => isSurfacedSetting(descriptor))
+    .sort(compareDescriptors)
 
   const sections = SETTING_CATEGORIES.map((category): SettingsSection => {
     const inCategory = shown.filter((descriptor) => descriptor.category === category.id)

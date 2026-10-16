@@ -23,6 +23,7 @@ import type { PresenceSink } from '../discord/presenceSink'
 import type { SearchService } from '../search/service'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
+import type { NoctaliaSync } from '../theme/noctalia'
 import type { ThemeFileService } from '../theme/service'
 import type { StatsService } from '../stats/service'
 import type { TagStore } from '../tags/store'
@@ -147,7 +148,8 @@ export function registerIpcHandlers(
   rip: RipService,
   pickRipDestination: () => Promise<string | null>,
   coverSearch: CoverSearchService,
-  presence: PresenceSink
+  presence: PresenceSink,
+  noctalia: NoctaliaSync
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -756,6 +758,29 @@ export function registerIpcHandlers(
   handle('theme.import', () => themeFiles.importTheme())
 
   handle('theme.revealFolder', () => themeFiles.revealFolder())
+
+  handle('theme.noctaliaStatus', () => noctalia.status())
+
+  handle('theme.noctaliaRetry', () => noctalia.retry())
+
+  handle('theme.noctaliaSetup', (request) => {
+    const version = (request as { version?: unknown } | null)?.version
+    if (version !== 'auto' && version !== 'v4' && version !== 'v5') {
+      throw new OscineError('invalid-request', 'Choose a Noctalia version to set up.')
+    }
+    try {
+      return noctalia.setup(version)
+    } catch (error) {
+      // A filesystem failure's message carries a path, so it stays in the log.
+      if (typeof (error as NodeJS.ErrnoException).code === 'string') {
+        console.error('[noctalia] setup failed:', error)
+        throw new OscineError('io-error', 'Noctalia’s configuration could not be written.')
+      }
+      // Setup's own refusals — a conflicting entry, a hand-edited template — are
+      // written for the operator and name no absolute path.
+      throw new OscineError('conflict', (error as Error).message)
+    }
+  })
 
   handle('net.cancelScope', (request) =>
     net.cancelScope(assertCancelNetScopeRequest(request).scope)

@@ -54,6 +54,7 @@ import type {
   SearchPodcastCatalogQuery
 } from '@shared/podcasts'
 import type { UpdateStatus } from '@shared/update'
+import type { NoctaliaStatus, NoctaliaVersion } from '@shared/theme'
 
 /**
  * The renderer's view of the IPC boundary.
@@ -415,13 +416,19 @@ export const settings = {
  * Portable `.osctheme` files — export the theme in force, list what has been
  * dropped into the themes folder, import one from elsewhere, or reveal the
  * folder. Applying a listed theme is not here: it is three ordinary
- * `settings.set` writes the store already makes.
+ * `settings.set` writes the store already makes. Also Noctalia sync's status,
+ * retry and setup, on Linux.
  */
 export const theme = {
   export: (name: string) => unwrap(window.oscine.theme.export(name)),
   listInstalled: () => unwrap(window.oscine.theme.listInstalled()),
   import: () => unwrap(window.oscine.theme.import()),
-  revealFolder: () => unwrap(window.oscine.theme.revealFolder())
+  revealFolder: () => unwrap(window.oscine.theme.revealFolder()),
+  noctaliaStatus: () => unwrap(window.oscine.theme.noctaliaStatus()),
+  noctaliaRetry: () => unwrap(window.oscine.theme.noctaliaRetry()),
+  noctaliaSetup: (version: NoctaliaVersion) => unwrap(window.oscine.theme.noctaliaSetup(version)),
+  onNoctaliaChanged: (listener: (status: NoctaliaStatus) => void) =>
+    window.oscine.theme.onNoctaliaChanged(listener)
 }
 
 /**

@@ -8,23 +8,24 @@
  * the one setting not in the Theme section. Migration `008-theme-keys` carries
  * the stored row across.
  *
- * All four are durable but **not portable**. A theme is not a configuration:
+ * All of them are durable but **not portable**. A theme is not a configuration:
  * communities trade named, self-contained themes, not a colleague's whole
  * settings table with a palette buried in it. So these leave a settings profile
  * (W8-13's export bundle holds them back on `portable: false`) and travel as
  * their own `.osctheme` file instead — `../theme/themeFile.ts`, which carries
  * the overrides, the base theme and the mode under a name a picker can list.
  *
- * `theme.reactive` is the fourth and the odd one: a durable key whose *effect*
- * is deliberately not durable, and which no `.osctheme` carries — its accent is
- * this machine's now-playing colour, not part of the authored look. See its
- * note below.
+ * `theme.reactive` and `theme.colorSource` are the odd ones: durable keys whose
+ * *effect* is deliberately not durable, and which no `.osctheme` carries — the
+ * accent is this machine's now-playing colour and the palette is this desktop's,
+ * neither part of the authored look. See their notes below.
  */
 
 import {
   DEFAULT_THEME_ID,
   LEGACY_DEFAULT_THEME_ID,
   parseOverrides,
+  type ThemeColorSource,
   type ThemeOverrides
 } from '../theme'
 import {
@@ -44,6 +45,7 @@ export const THEME_MODE_KEY = 'theme.mode'
 export const THEME_NAME_KEY = 'theme.name'
 export const THEME_REACTIVE_KEY = 'theme.reactive'
 export const THEME_OVERRIDES_KEY = 'theme.overrides'
+export const THEME_COLOR_SOURCE_KEY = 'theme.colorSource'
 
 /**
  * A theme id is *not* validated against the shipped list.
@@ -122,6 +124,29 @@ export const THEME_SETTINGS: readonly SettingDescriptor[] = [
     help: 'Each theme carries its own light and dark variant.',
     keywords: ['theme', 'palette', 'colours', 'colors', 'appearance', 'high contrast'],
     order: 20
+  }),
+
+  /*
+   * Like `theme.reactive`, a durable switch over colours that are observed rather
+   * than authored: the palette lives on `ThemeInputs`, read from the file
+   * Noctalia writes, and never reaches `theme.overrides` or an `.osctheme`. Off
+   * Linux the row is not drawn and a stored `noctalia` is ignored by main.
+   */
+  defineSetting<ThemeColorSource>({
+    key: THEME_COLOR_SOURCE_KEY,
+    scope: 'durable',
+    // See the header: theme keys travel as an `.osctheme`, not in a profile.
+    portable: false,
+    default: 'oscine',
+    validate: enumValue<ThemeColorSource>(['oscine', 'noctalia']),
+    // Custom for the setup and status beside the choice; see `ColorSourceControl.vue`.
+    control: { kind: 'custom', component: 'colorSource' },
+    platforms: ['linux'],
+    category: 'theme',
+    label: 'Color source',
+    help: 'Take surfaces, text and the supporting colors from your Noctalia desktop. The accent still comes from the theme, or from the cover art with Reactive color on.',
+    keywords: ['noctalia', 'desktop', 'wallpaper', 'material', 'quickshell', 'system colors'],
+    order: 22
   }),
 
   /*

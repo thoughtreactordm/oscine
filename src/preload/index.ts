@@ -62,6 +62,7 @@ import type { RipProgress, RipRequest, RipResumeRequest } from '@shared/cdrip'
 import type { OverrideField, OverridePatch } from '@shared/overrides'
 import type { TagFieldKey, TagFieldPatch } from '@shared/tagFields'
 import type { UpdateStatus } from '@shared/update'
+import type { NoctaliaStatus, NoctaliaVersion } from '@shared/theme'
 
 /**
  * The entire main/renderer seam.
@@ -104,6 +105,11 @@ function subscribe<E extends IpcEventChannel>(
 }
 
 const api = {
+  /**
+   * The host OS, for the settings rows that only mean something on one. Not a
+   * capability check — main still refuses what the platform cannot do.
+   */
+  platform: process.platform,
   versions: {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
@@ -482,7 +488,14 @@ const api = {
     /** Open dialog, then copy the chosen file into the themes folder. */
     import: () => request('theme.import', null),
     /** Reveal the themes folder in the OS file manager. */
-    revealFolder: () => request('theme.revealFolder', null)
+    revealFolder: () => request('theme.revealFolder', null),
+    /** Linux desktop colours: where sync stands, and the last valid palette. */
+    noctaliaStatus: () => request('theme.noctaliaStatus', null),
+    noctaliaRetry: () => request('theme.noctaliaRetry', null),
+    /** Install the template into Noctalia's configuration — only ever on request. */
+    noctaliaSetup: (version: NoctaliaVersion) => request('theme.noctaliaSetup', { version }),
+    onNoctaliaChanged: (listener: (status: NoctaliaStatus) => void) =>
+      subscribe('theme.noctaliaChanged', listener)
   },
   net: {
     /**

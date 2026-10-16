@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useNoctaliaSync } from '@renderer/theme/useNoctaliaSync'
 import { useReactiveAccent } from '@renderer/theme/useReactiveAccent'
 import { useThemeStore } from '@renderer/stores/theme'
 
@@ -21,6 +22,12 @@ useThemeStore()
  * is ephemeral — see `ThemeInputs.reactiveSeed`.
  */
 useReactiveAccent()
+
+/*
+ * Once more: the desktop palette is a standing subscription to main, and it
+ * stays out of the store because it is observed state, like the seed.
+ */
+useNoctaliaSync()
 </script>
 
 <template>
