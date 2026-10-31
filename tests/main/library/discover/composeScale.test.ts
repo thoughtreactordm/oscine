@@ -37,16 +37,24 @@ const GENRES = 5
  * reality. Run-to-run spread is ~15 ms, and Vitest saturates every core with
  * other files while this one measures, which costs ~10 ms more.
  *
- * So: 320, about 20% clear of the loaded p95. That is deliberately a
+ * So it went to 320, about 20% clear of the loaded p95. That is deliberately a
  * catch-the-quadratic budget rather than a catch-the-creep one. A measurement
  * with ±15 ms of noise cannot honestly police a 35 ms regression, and pretending
  * otherwise is what produced a test that failed half the time for no reason. If
  * Discover needs defending at that resolution it wants a benchmark on a quiet
  * machine, not an assertion inside the unit suite.
  *
+ * W24-4 re-measured it with the suite grown to 317 files. In isolation compose
+ * still costs ~265 ms, and the same on the commit before W24-4, so nothing in
+ * compose had moved. Under the full suite on a busy desktop, though, the p95 ran
+ * from 288 to 405 ms across runs and its predecessor sat at ~295. "20% clear of
+ * the loaded p95" had become a coin toss again. So: 450, the same rule applied
+ * to today's loaded number. A quadratic at 100k rows still blows through it by
+ * an order of magnitude, which is all this assertion was ever for.
+ *
  * Compose is memoized per UTC day, so a real tab-open pays this once.
  */
-const BUDGET_MS = 320
+const BUDGET_MS = 450
 
 describe('compose at the scale target', () => {
   let opened: ReturnType<typeof openDatabase>

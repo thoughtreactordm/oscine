@@ -111,8 +111,13 @@ describe('listTracks at the scale target', () => {
 
     // The pre-fix query takes 40–125 ms here because every column builds a
     // temporary 100k-row sort. The indexed path keeps the same deep lookup
-    // inside this deliberately conservative 30 ms regression budget.
-    expectWithinBudget(Math.max(...medians), 30, 'deep one-row page median')
+    // inside a 36 ms regression budget, still clear of the pre-fix floor.
+    //
+    // It was 30, which was about 15% over the measured ~26 ms on an idle run.
+    // Migration 028's two scan-fact columns made rows a little wider (~27 ms),
+    // and under the full parallel suite the median reached 33 ms, so 30 had
+    // started failing on load rather than on a regression.
+    expectWithinBudget(Math.max(...medians), 36, 'deep one-row page median')
   })
 
   it('keeps warm first-page browse, facet and true-infix search under one frame', async () => {
