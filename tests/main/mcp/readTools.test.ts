@@ -21,7 +21,7 @@ import { TagWritebackService, trackPathResolver } from '../../../src/main/librar
 import { TagStore } from '../../../src/main/tags/store'
 import { NO_LIBRARY_CHANGES } from '../../../src/main/library/changes'
 import { SqliteStatsService } from '../../../src/main/stats/service'
-import { bundleQueryWorker, type QueryProcessHarness } from './queryProcess'
+import { bundleQueryWorker, RM_RETRY, type QueryProcessHarness } from './queryProcess'
 
 /**
  * The W24-4 read tools end to end — an SDK client over an in-memory transport,
@@ -296,9 +296,9 @@ describe('W24-4 structured read tools', () => {
     await client.close()
     await server.close()
     queryHost.close()
-    harness.dispose()
+    await harness.dispose()
     opened.db.close()
-    rmSync(dir, { recursive: true, force: true })
+    rmSync(dir, RM_RETRY)
   })
 
   async function call(

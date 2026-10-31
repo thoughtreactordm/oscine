@@ -17,7 +17,34 @@ export interface QueryProcessHarness {
   spawn(libraryPath: string): SpawnQueryProcess
   /** Processes spawned so far that have not exited. */
   alive(): number
-  dispose(): void
+  /**
+   * Kills every live worker, waits for each to exit, then removes the bundle.
+   * The wait is the point: on Windows a worker that has been signalled but not
+   * yet reaped still holds the library file open, so removing the directory
+   * that contains it fails with EPERM. Callers must await this before deleting
+   * any directory a worker had a file open in.
+   */
+  dispose(): Promise<void>
+}
+
+/** Retries absorb Windows' lag between a process exiting and its handles closing. */
+export const RM_RETRY = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 } as const
+
+const EXIT_TIMEOUT_MS = 5000
+
+function killAndAwaitExit(child: ReturnType<typeof fork>): Promise<void> {
+  return new Promise((resolveExit) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolveExit()
+      return
+    }
+    const timer = setTimeout(resolveExit, EXIT_TIMEOUT_MS)
+    child.once('exit', () => {
+      clearTimeout(timer)
+      resolveExit()
+    })
+    child.kill('SIGKILL')
+  })
 }
 
 export async function bundleQueryWorker(): Promise<QueryProcessHarness> {
@@ -50,9 +77,9 @@ export async function bundleQueryWorker(): Promise<QueryProcessHarness> {
       return process
     },
     alive: () => live.size,
-    dispose: () => {
-      for (const child of live) child.kill('SIGKILL')
-      rmSync(dir, { recursive: true, force: true })
+    dispose: async () => {
+      await Promise.all([...live].map(killAndAwaitExit))
+      rmSync(dir, RM_RETRY)
     }
   }
 }

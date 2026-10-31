@@ -10,7 +10,7 @@ import type { QueryResult, QueryRows } from '../../../src/main/mcp/query/protoco
 import { runQuery } from '../../../src/main/mcp/query/run'
 import { singleStatement } from '../../../src/main/mcp/query/statement'
 import { openConfinedConnection } from '../../../src/main/mcp/sqlConfinement'
-import { bundleQueryWorker, type QueryProcessHarness } from './queryProcess'
+import { bundleQueryWorker, RM_RETRY, type QueryProcessHarness } from './queryProcess'
 
 /**
  * `query_library` — **W24-5**, `oscine-mcp` → D36.4, D36.4.2, R19.
@@ -303,11 +303,11 @@ describe('the query process', () => {
     host = createQueryHost({ spawn: harness.spawn(path), timeoutMs: 1500 })
   })
 
-  afterAll(() => {
+  afterAll(async () => {
     host?.close()
-    harness?.dispose()
+    await harness?.dispose()
     opened.db.close()
-    rmSync(dir, { recursive: true, force: true })
+    rmSync(dir, RM_RETRY)
   })
 
   it('answers from its own read-only connection', async () => {
