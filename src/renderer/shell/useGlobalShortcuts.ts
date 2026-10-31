@@ -4,6 +4,7 @@ import { resolveShortcut, type ShortcutAction } from '@renderer/shell/globalShor
 import { shellTabs } from '@renderer/shell/routes'
 import { usePaletteStore } from '@renderer/stores/palette'
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { useVisualizerStore } from '@renderer/stores/visualizer'
 import { useZenStore } from '@renderer/stores/zen'
 
 /**
@@ -68,6 +69,7 @@ export function useGlobalShortcuts(): void {
   const palette = usePaletteStore()
   const playback = usePlaybackStore()
   const zen = useZenStore()
+  const visualizer = useVisualizerStore()
   const router = useRouter()
 
   /** Runs an action and reports whether it claimed the key. */
@@ -108,6 +110,21 @@ export function useGlobalShortcuts(): void {
       case 'zen':
         zen.toggle()
         return true
+      case 'visualizer': {
+        // Stage-only (D35.5): with no stage mounted, or the control unavailable
+        // on it, the key is not claimed. Inside Zen the toggle is the store's
+        // session override, never a write of the stage setting.
+        const stage = visualizer.stage
+        if (action.action === 'toggle') {
+          if (!stage?.canToggle) return false
+          visualizer.toggle()
+          return true
+        }
+        if (!stage?.showing) return false
+        if (action.action === 'next') visualizer.next()
+        else visualizer.previous()
+        return true
+      }
     }
   }
 

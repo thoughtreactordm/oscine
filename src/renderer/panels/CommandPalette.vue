@@ -11,6 +11,7 @@ import {
 } from '@renderer/panels/discoverShelves'
 import { useSettings } from '@renderer/settings'
 import { buildActionCommands } from '@renderer/shell/actionCommands'
+import { buildVisualizerCommands } from '@renderer/shell/visualizerCommands'
 import { matchCommands, type Command } from '@renderer/shell/commandRegistry'
 import {
   buildNavigationCommands,
@@ -32,7 +33,9 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { usePodcastsStore } from '@renderer/stores/podcasts'
 import { useSettingsNavStore } from '@renderer/stores/settingsNav'
+import { useVisualizerStore } from '@renderer/stores/visualizer'
 import { useZenStore } from '@renderer/stores/zen'
+import { availableEffects } from '@renderer/visualizer/registry'
 
 /**
  * The command palette — D21's one prefixed modal, and RQ1's spike.
@@ -64,6 +67,7 @@ const podcasts = usePodcastsStore()
 const settings = useSettings()
 const settingsNav = useSettingsNavStore()
 const zen = useZenStore()
+const visualizer = useVisualizerStore()
 const toast = useToast()
 
 const search = createPaletteSearch({ query: searchIpc.query })
@@ -131,6 +135,21 @@ const actionCommands = buildActionCommands({
   cycleRepeat: () => playback.cycleRepeat(),
   clearQueue: () => playback.clearQueue(),
   toggleZen: () => zen.toggle(),
+  notify,
+  close
+})
+
+/**
+ * W23-6's visualizer verbs, in the Actions group beside Zen. Built from the
+ * effects available when the palette mounts; until the WebGL2 tier (W23-8) can
+ * remove one mid-session that is the whole of the list.
+ */
+const visualizerCommands = buildVisualizerCommands({
+  effects: availableEffects(),
+  toggle: () => visualizer.toggle(),
+  next: () => visualizer.next(),
+  previous: () => visualizer.previous(),
+  select: (id) => visualizer.select(id),
   notify,
   close
 })
@@ -219,7 +238,10 @@ const groups = computed<CommandPaletteGroup[]>(() => {
   // whole group; blended shows them only once there is text to match and caps
   // them, so a keystroke of entities is never buried under every command.
   if (mode === 'action' || (mode === 'blended' && text.length > 0)) {
-    const items = matchCommands([...actionCommands, ...onboardingCommands], text)
+    const items = matchCommands(
+      [...actionCommands, ...visualizerCommands, ...onboardingCommands],
+      text
+    )
     if (items.length > 0) {
       out.push({
         id: 'actions',

@@ -33,6 +33,7 @@ export type ShortcutAction =
   | { readonly kind: 'volume'; readonly delta: number }
   | { readonly kind: 'navigate'; readonly tabIndex: number }
   | { readonly kind: 'zen'; readonly action: 'toggle' }
+  | { readonly kind: 'visualizer'; readonly action: 'toggle' | 'next' | 'prev' }
 
 export interface ShortcutChord {
   readonly key: string
@@ -56,8 +57,8 @@ export interface ShortcutChord {
   readonly interactive: boolean
 }
 
-/** The two categories the Help reference groups the set under. */
-export type ShortcutCategory = 'Playback' | 'Navigation'
+/** The categories the Help reference groups the set under. */
+export type ShortcutCategory = 'Playback' | 'Navigation' | 'Visualizer'
 
 export interface ShortcutSpec {
   /** Stable id — the handle W8 will hang a rebinding off. */
@@ -85,6 +86,11 @@ function justMod(chord: ShortcutChord): boolean {
 /** Shift alone — the seek modifier, chosen so it never collides with Mod. */
 function justShift(chord: ShortcutChord): boolean {
   return chord.shiftKey && !chord.ctrlKey && !chord.metaKey && !chord.altKey
+}
+
+/** Ctrl or ⌘ with Shift, and no Alt — the visualizer's chords (W23-6). */
+function modShift(chord: ShortcutChord): boolean {
+  return (chord.ctrlKey || chord.metaKey) && chord.shiftKey && !chord.altKey
 }
 
 /** No modifier at all — the bare keys, Space and Escape. */
@@ -230,6 +236,37 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
         chord.key.toLowerCase() === 'z'
       return f11 || modShiftZ ? { kind: 'zen', action: 'toggle' } : null
     }
+  },
+  // The stage visualizer (W23-6, D35.5). Mod+Shift is the one modifier pair the
+  // table had left free on these keys: Mod+arrows skip tracks and Shift+arrows
+  // seek, so the effect step sits beside them as "the same direction, one layer
+  // further out", and V names what it toggles. They act only on the stage —
+  // the dispatcher leaves the key alone anywhere else.
+  {
+    id: 'visualizerToggle',
+    category: 'Visualizer',
+    description: 'Show / hide the visualizer',
+    keys: ['meta', 'Shift', 'V'],
+    match: (chord) =>
+      modShift(chord) && chord.key.toLowerCase() === 'v'
+        ? { kind: 'visualizer', action: 'toggle' }
+        : null
+  },
+  {
+    id: 'visualizerPrevious',
+    category: 'Visualizer',
+    description: 'Previous visualizer',
+    keys: ['meta', 'Shift', 'arrowleft'],
+    match: (chord) =>
+      modShift(chord) && chord.key === 'ArrowLeft' ? { kind: 'visualizer', action: 'prev' } : null
+  },
+  {
+    id: 'visualizerNext',
+    category: 'Visualizer',
+    description: 'Next visualizer',
+    keys: ['meta', 'Shift', 'arrowright'],
+    match: (chord) =>
+      modShift(chord) && chord.key === 'ArrowRight' ? { kind: 'visualizer', action: 'next' } : null
   }
 ]
 

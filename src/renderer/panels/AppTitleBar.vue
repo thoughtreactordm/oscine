@@ -89,7 +89,7 @@ const shortcutHint = computed(() =>
 )
 
 /** The order the reference groups G6's set; the categories the table carries. */
-const SHORTCUT_CATEGORIES: readonly ShortcutCategory[] = ['Playback', 'Navigation']
+const SHORTCUT_CATEGORIES: readonly ShortcutCategory[] = ['Playback', 'Navigation', 'Visualizer']
 
 /**
  * The fixed 1.0 shortcut set (G6), grouped for the reference modal and read
