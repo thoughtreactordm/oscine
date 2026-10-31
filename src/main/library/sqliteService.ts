@@ -7,6 +7,7 @@ import {
   MAX_TRACK_ID_PAGE,
   type GetTracksByIdsQuery,
   type LibraryNotice,
+  type LibraryOverview,
   type LibraryRoot,
   type LibraryWatchMode,
   type ListAlbumsResult,
@@ -321,6 +322,10 @@ export class SqliteLibraryService implements LibraryService {
     return this.store
       .listRoots()
       .map((root) => toLibraryRoot(root, this.watchModes.get(root.id) ?? 'starting'))
+  }
+
+  async overview(): Promise<LibraryOverview> {
+    return this.store.libraryOverview()
   }
 
   async scanRoot(rootId: number): Promise<ScanSummary> {

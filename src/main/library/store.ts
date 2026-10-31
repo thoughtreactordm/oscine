@@ -4,6 +4,7 @@ import type {
   ArtistFacet,
   GetTracksByIdsQuery,
   LibraryBrowseFilters,
+  LibraryOverview,
   ListAlbumsResult,
   ListArtistsResult,
   ListFacetIdsQuery,
@@ -1147,6 +1148,83 @@ export class LibraryStore {
 
   listRoots(): RootRow[] {
     return this.statements.listRoots.all() as RootRow[]
+  }
+
+  /**
+   * Counts, formats, roots and per-field coverage in one read — **W24-1**.
+   *
+   * Coverage is over the *effective* value, the same one `overrideEditState`
+   * reads: title, artist, album, numbering and year are materialised into the
+   * indexed rows, while album artist, genre and artwork resolve through their
+   * override tables here. Four aggregate statements over indexed columns, which
+   * stays well inside a frame at the 100k-track scale target.
+   */
+  libraryOverview(): LibraryOverview {
+    const totals = this.db
+      .prepare(
+        `SELECT COUNT(*)                          AS tracks,
+                COUNT(DISTINCT album_id)          AS albums,
+                COALESCE(SUM(duration_ms), 0)     AS totalDurationMs,
+                COALESCE(SUM(size), 0)            AS totalBytes
+         FROM tracks`
+      )
+      .get() as { tracks: number; albums: number; totalDurationMs: number; totalBytes: number }
+    const { artists } = this.db
+      .prepare(
+        `SELECT COUNT(*) AS artists FROM artists a
+         WHERE EXISTS (SELECT 1 FROM tracks t WHERE t.artist_id = a.id)
+            OR EXISTS (SELECT 1 FROM albums al JOIN tracks t ON t.album_id = al.id
+                       WHERE al.album_artist_id = a.id)`
+      )
+      .get() as { artists: number }
+    const formats = this.db
+      .prepare(
+        `SELECT codec, COUNT(*) AS tracks FROM tracks
+         GROUP BY codec ORDER BY tracks DESC, codec`
+      )
+      .all() as LibraryOverview['formats']
+    const roots = this.db
+      .prepare(
+        `SELECT r.id, r.label AS name, COUNT(t.id) AS tracks
+         FROM roots r LEFT JOIN tracks t ON t.root_id = r.id
+         GROUP BY r.id ORDER BY r.id`
+      )
+      .all() as LibraryOverview['roots']
+    const coverage = this.db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(NULLIF(TRIM(t.title), '') IS NOT NULL), 0)                  AS title,
+           COALESCE(SUM(t.artist_id IS NOT NULL), 0)                                AS artist,
+           COALESCE(SUM(t.album_id IS NOT NULL), 0)                                 AS album,
+           COALESCE(SUM(NULLIF(TRIM(COALESCE(o.album_artist_name, aa.name)), '') IS NOT NULL), 0)
+                                                                                    AS albumArtist,
+           COALESCE(SUM(t.track_no IS NOT NULL), 0)                                 AS trackNo,
+           COALESCE(SUM(t.disc_no IS NOT NULL), 0)                                  AS discNo,
+           COALESCE(SUM(al.year IS NOT NULL), 0)                                    AS year,
+           COALESCE(SUM(NULLIF(TRIM(COALESCE(o.genre, t.genre)), '') IS NOT NULL), 0) AS genre,
+           COALESCE(SUM((CASE WHEN awo.track_id IS NOT NULL THEN awo.image_hash
+                              ELSE al.artwork_hash END) IS NOT NULL), 0)            AS artwork,
+           COALESCE(SUM(t.rg_track_gain IS NOT NULL), 0)                            AS replayGainTrack,
+           COALESCE(SUM(t.rg_album_gain IS NOT NULL), 0)                            AS replayGainAlbum,
+           COALESCE(SUM(EXISTS (SELECT 1 FROM track_tags tt WHERE tt.track_id = t.id)), 0)
+                                                                                    AS userTags
+         FROM tracks t
+         LEFT JOIN albums  al ON al.id = t.album_id
+         LEFT JOIN artists aa ON aa.id = al.album_artist_id
+         LEFT JOIN track_overrides   o   ON o.track_id   = t.id
+         LEFT JOIN artwork_overrides awo ON awo.track_id = t.id`
+      )
+      .get() as LibraryOverview['coverage']
+    const { tracksWithCorrections } = this.db
+      .prepare(
+        `SELECT COUNT(*) AS tracksWithCorrections FROM (
+           SELECT track_id FROM track_overrides
+           UNION SELECT track_id FROM track_tag_overrides
+           UNION SELECT track_id FROM artwork_overrides
+         )`
+      )
+      .get() as { tracksWithCorrections: number }
+    return { ...totals, artists, formats, roots, coverage, tracksWithCorrections }
   }
 
   getRoot(rootId: number): RootRow | null {
