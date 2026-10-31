@@ -67,9 +67,26 @@ export function oklch(l: number, c: number, h: number, alpha = 1): Oklch {
  */
 function oklchToLinearRgb({ l, c, h }: Oklch): LinearRgb {
   const rad = (h * Math.PI) / 180
-  const a = c * Math.cos(rad)
-  const b = c * Math.sin(rad)
+  oklabToLinearRgbInto(l, c * Math.cos(rad), c * Math.sin(rad), RGB_SCRATCH, 0)
+  return { r: RGB_SCRATCH[0] ?? 0, g: RGB_SCRATCH[1] ?? 0, b: RGB_SCRATCH[2] ?? 0 }
+}
 
+const RGB_SCRATCH = new Float64Array(3)
+
+/**
+ * OKLab (the Cartesian form: `a = c·cos h`, `b = c·sin h`) to linear-light
+ * sRGB, written into `out[offset..offset + 3)` and *not* clamped.
+ *
+ * The allocation-free form, for callers that run per rendered frame — the stage
+ * visualizer's palette lerps in OKLab and converts every frame it is moving.
+ */
+export function oklabToLinearRgbInto(
+  l: number,
+  a: number,
+  b: number,
+  out: Float32Array | Float64Array,
+  offset: number
+): void {
   const lp = l + 0.3963377774 * a + 0.2158037573 * b
   const mp = l - 0.1055613458 * a - 0.0638541728 * b
   const sp = l - 0.0894841775 * a - 1.291485548 * b
@@ -78,11 +95,9 @@ function oklchToLinearRgb({ l, c, h }: Oklch): LinearRgb {
   const mc = mp * mp * mp
   const sc = sp * sp * sp
 
-  return {
-    r: 4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc,
-    g: -1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc,
-    b: -0.0041960863 * lc - 0.7034186147 * mc + 1.707614701 * sc
-  }
+  out[offset] = 4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc
+  out[offset + 1] = -1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc
+  out[offset + 2] = -0.0041960863 * lc - 0.7034186147 * mc + 1.707614701 * sc
 }
 
 function linearRgbToOklch({ r, g, b }: LinearRgb, alpha: number): Oklch {
@@ -107,7 +122,8 @@ function linearRgbToOklch({ r, g, b }: LinearRgb, alpha: number): Oklch {
 /* Gamma                                                                       */
 /* -------------------------------------------------------------------------- */
 
-function gammaEncode(channel: number): number {
+/** Linear-light to gamma-encoded sRGB, one channel, clamped to 0–1 first. */
+export function gammaEncode(channel: number): number {
   const v = clamp(channel, 0, 1)
   return v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055
 }
