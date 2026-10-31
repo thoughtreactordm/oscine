@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
 import { normalizeLabel } from '@shared/genre'
+import { NO_LIBRARY_CHANGES, type LibraryChangeNotifier } from '../library/changes'
 
 /**
  * `tags` and `track_tags`, and the statements they are made of — **migration
@@ -116,7 +117,11 @@ export class TagStore {
     label: string
   }) => Tag | null
 
-  constructor(db: Database.Database) {
+  /** Announces each committed write as `library.changed` (D36.9). */
+  private readonly changes: LibraryChangeNotifier
+
+  constructor(db: Database.Database, changes: LibraryChangeNotifier = NO_LIBRARY_CHANGES) {
+    this.changes = changes
     this.statements = {
       // The vocabulary with a live per-tag count. `LEFT JOIN` and `count(track_id)`
       // so a hypothetical orphan (one the prune should have taken) still lists,
@@ -418,13 +423,15 @@ export class TagStore {
     if (norm === null) return null
 
     const ids = [...new Set(trackIds)]
-    return this.addTransaction({
+    const tag = this.addTransaction({
       key: norm.key,
       label: norm.label,
       source,
       ids,
       now: Date.now()
     })
+    this.changes.notify({ tags: ids })
+    return tag
   }
 
   /**
@@ -439,7 +446,9 @@ export class TagStore {
   removeTag(trackIds: readonly number[], tagId: number): RemoveTagResult {
     const ids = [...new Set(trackIds)]
     if (ids.length === 0) return { removed: 0, pruned: false }
-    return this.removeTransaction({ tagId, ids: JSON.stringify(ids) })
+    const result = this.removeTransaction({ tagId, ids: JSON.stringify(ids) })
+    if (result.removed > 0) this.changes.notify({ tags: ids })
+    return result
   }
 
   /**
@@ -455,6 +464,9 @@ export class TagStore {
   renameTag(tagId: number, label: string): Tag | null {
     const norm = normalizeLabel(label)
     if (norm === null) return null
-    return this.renameTransaction({ tagId, key: norm.key, label: norm.label })
+    const tag = this.renameTransaction({ tagId, key: norm.key, label: norm.label })
+    // Every track carrying the tag is touched, and naming them would cost a read.
+    if (tag !== null) this.changes.notify({ tags: 'all' })
+    return tag
   }
 }

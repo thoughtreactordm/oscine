@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { IpcResult } from '@shared/errors'
 import type { AgentAccessStatus } from '@shared/agentAccess'
+import type { LibraryChanged } from '@shared/libraryChanges'
 import type {
   IpcChannel,
   IpcEventChannel,
@@ -190,7 +191,9 @@ const api = {
       subscribe('library.scanProgress', listener),
     onNotice: (listener: (notice: LibraryNotice) => void) => subscribe('library.notice', listener),
     onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
-      subscribe('library.replayGainProgress', listener)
+      subscribe('library.replayGainProgress', listener),
+    /** Playlists, corrections or user tags changed under the renderer (D36.9). */
+    onChanged: (listener: (event: LibraryChanged) => void) => subscribe('library.changed', listener)
   },
   /**
    * Track-metadata editing — **W16 (editor)**. Records corrections in

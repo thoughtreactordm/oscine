@@ -170,6 +170,7 @@ import type { TagFieldEditState, TagFieldKey, TagFieldPatch } from './tagFields'
 import type { ArtworkRef, CoverArtCandidate } from './artwork'
 import type { InstalledTheme, NoctaliaSetupResult, NoctaliaStatus, NoctaliaVersion } from './theme'
 import type { AgentAccessStatus } from './agentAccess'
+import type { LibraryChanged } from './libraryChanges'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -1509,6 +1510,14 @@ export interface IpcEventContract {
    * Settings section and the title-bar indicator.
    */
   'agentAccess.changed': AgentAccessStatus
+  /**
+   * Playlists, corrections or user tags changed under the renderer (**D36.9**,
+   * W24-3). Sent by the write services themselves, once per committed call —
+   * never once per row — naming the affected ids by kind. The renderer
+   * refetches what is named, and ignores `origin: 'renderer'`: its own writes
+   * already applied their results locally.
+   */
+  'library.changed': LibraryChanged
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -1703,7 +1712,8 @@ export const IPC_EVENT_CHANNELS = [
   'scrobble.statusChanged',
   'update.changed',
   'theme.noctaliaChanged',
-  'agentAccess.changed'
+  'agentAccess.changed',
+  'library.changed'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**

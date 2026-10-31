@@ -21,6 +21,7 @@ import ShellTabs from '@renderer/shell/ShellTabs.vue'
 import Tunedeck from '@renderer/panels/Tunedeck.vue'
 import { TUNEDECK_PANE } from '@renderer/panels/tunedeck/tunedeckPanes'
 import { useBrowseStore } from '@renderer/stores/browse'
+import { useLibraryChangesStore } from '@renderer/stores/libraryChanges'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { useOnboardingStore } from '@renderer/stores/onboarding'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -56,6 +57,7 @@ import { TAB_NAV_BAR_KEY } from '@shared/settings'
 const route = useRoute()
 const router = useRouter()
 const roots = useLibraryRootsStore()
+const libraryChanges = useLibraryChangesStore()
 const playback = usePlaybackStore()
 const playlists = usePlaylistsStore()
 const shell = useShellStore()
@@ -282,6 +284,8 @@ watch(
  */
 onMounted(() => {
   roots.start()
+  // Writes made outside this window — an agent, a dev command (D36.9).
+  libraryChanges.start()
   void playlists.refresh()
   // After hydration, not before: until `settings.getAll` lands the surface
   // holds the done-key's default (`false`) and would open the wizard on every
@@ -295,6 +299,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   roots.stop()
+  libraryChanges.stop()
   playback.dispose()
 })
 </script>

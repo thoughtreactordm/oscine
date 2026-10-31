@@ -16,6 +16,7 @@ import type {
   PlaylistExportResult,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
+import { NO_LIBRARY_CHANGES, type LibraryChangeNotifier } from '../changes'
 import { renderM3u8, suggestedFileName, withM3u8Extension, type M3uTrack } from './m3u8'
 import { PlaylistStore } from './store'
 
@@ -58,17 +59,21 @@ export interface SqlitePlaylistDeps {
   pickExportFile: (suggestedName: string) => Promise<string | null>
   /** Injectable so a test can assert on `updatedAt` without racing the clock. */
   now?: () => number
+  /** Announces each committed write as `library.changed` (D36.9). Silent when omitted. */
+  changes?: LibraryChangeNotifier
 }
 
 export class SqlitePlaylistService implements PlaylistService {
   private readonly store: PlaylistStore
   private readonly now: () => number
   private readonly pickExportFile: SqlitePlaylistDeps['pickExportFile']
+  private readonly changes: LibraryChangeNotifier
 
   constructor(deps: SqlitePlaylistDeps) {
     this.store = new PlaylistStore(deps.db)
     this.now = deps.now ?? (() => Date.now())
     this.pickExportFile = deps.pickExportFile
+    this.changes = deps.changes ?? NO_LIBRARY_CHANGES
   }
 
   async list(): Promise<Playlist[]> {
@@ -76,19 +81,27 @@ export class SqlitePlaylistService implements PlaylistService {
   }
 
   async create(name: string): Promise<Playlist> {
-    return this.store.create(name, this.now())
+    const playlist = this.store.create(name, this.now())
+    this.changes.notify({ playlists: [playlist.id] })
+    return playlist
   }
 
   async rename(playlistId: number, name: string): Promise<Playlist> {
-    return this.store.rename(playlistId, name, this.now())
+    const playlist = this.store.rename(playlistId, name, this.now())
+    this.changes.notify({ playlists: [playlistId] })
+    return playlist
   }
 
   async delete(playlistId: number): Promise<void> {
     this.store.delete(playlistId)
+    this.changes.notify({ playlists: [playlistId], playlistEntries: [playlistId] })
   }
 
   async reorder(playlistId: number, toIndex: number): Promise<Playlist[]> {
-    return this.store.reorder(playlistId, toIndex, this.now())
+    const list = this.store.reorder(playlistId, toIndex, this.now())
+    // Every position after the moved row shifted, so the whole rail order is news.
+    this.changes.notify({ playlists: 'all' })
+    return list
   }
 
   async listEntries(query: ListPlaylistEntriesQuery): Promise<ListPlaylistEntriesResult> {
@@ -106,20 +119,39 @@ export class SqlitePlaylistService implements PlaylistService {
   }
 
   async addTracks(request: AddTracksToPlaylistRequest): Promise<Playlist> {
-    return this.store.addTracks(request.playlistId, request.trackIds, request.insertion, this.now())
+    const playlist = this.store.addTracks(
+      request.playlistId,
+      request.trackIds,
+      request.insertion,
+      this.now()
+    )
+    this.notifyEntries(request.playlistId)
+    return playlist
   }
 
   async moveEntries(request: MovePlaylistEntriesRequest): Promise<Playlist> {
-    return this.store.moveEntries(
+    const playlist = this.store.moveEntries(
       request.playlistId,
       request.entryIds,
       request.insertion,
       this.now()
     )
+    this.notifyEntries(request.playlistId)
+    return playlist
   }
 
   async removeEntries(request: RemovePlaylistEntriesRequest): Promise<Playlist> {
-    return this.store.removeEntries(request.playlistId, request.entryIds, this.now())
+    const playlist = this.store.removeEntries(request.playlistId, request.entryIds, this.now())
+    this.notifyEntries(request.playlistId)
+    return playlist
+  }
+
+  /**
+   * One event for an entry edit however many rows it moved. The playlist row is
+   * named too: its count and `updatedAt` moved with the entries.
+   */
+  private notifyEntries(playlistId: number): void {
+    this.changes.notify({ playlists: [playlistId], playlistEntries: [playlistId] })
   }
 
   /**

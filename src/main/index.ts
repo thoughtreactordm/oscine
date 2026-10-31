@@ -86,6 +86,8 @@ import type { ScrobbleTarget } from '@shared/scrobble'
 import { detectUpdateChannel, updateChannelCanSelfUpdate, type UpdateStatus } from '@shared/update'
 import type { NoctaliaStatus } from '@shared/theme'
 import type { AgentAccessStatus } from '@shared/agentAccess'
+import type { LibraryChanged } from '@shared/libraryChanges'
+import { createLibraryChangeNotifier } from './library/changes'
 import {
   AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
   DISCORD_DISPLAY,
@@ -336,6 +338,10 @@ let agentAccessService: AgentAccessService | null = null
 
 function broadcastAgentAccess(status: AgentAccessStatus): void {
   if (mainWindow) emit(mainWindow.webContents, 'agentAccess.changed', status)
+}
+
+function broadcastLibraryChanged(event: LibraryChanged): void {
+  if (mainWindow) emit(mainWindow.webContents, 'library.changed', event)
 }
 
 function broadcastScrobbleStatus(): void {
@@ -815,8 +821,14 @@ if (!app.requestSingleInstanceLock()) {
     // cache, on its own 'lyrics' scope. One more D14 source, no new HTTP stack.
     const lyricsNetwork = createLyricsNetworkService({ client: net.client, cache })
 
+    // D36.9 — one notifier for every write service that can change what the
+    // renderer is showing: playlists, both correction layers and user tags.
+    // Each committed service call becomes one `library.changed`, whoever made it.
+    const libraryChanges = createLibraryChangeNotifier({ emit: broadcastLibraryChanged })
+
     const library = new SqliteLibraryService({
       db,
+      changes: libraryChanges,
       lyricsNetwork,
       artworkCacheDir: artworkCachePath(),
       artworkOriginalsDir: artworkOriginalsPath(),
@@ -860,7 +872,11 @@ if (!app.requestSingleInstanceLock()) {
 
     // Its own service on the same connection: playlists own two tables the
     // library layer never touches, and the library owns the rest.
-    const playlists = new SqlitePlaylistService({ db, pickExportFile: pickPlaylistExportFile })
+    const playlists = new SqlitePlaylistService({
+      db,
+      pickExportFile: pickPlaylistExportFile,
+      changes: libraryChanges
+    })
 
     // And the same again for the trail, which owns one table and reads the
     // library's tracks only through the shared projection.
@@ -914,7 +930,7 @@ if (!app.requestSingleInstanceLock()) {
     // applying a tag is a local write, and D7 keeps it there — v1 never touches
     // the file's own genre frames. Rescan-safe by the W15-1 schema, so the store
     // is just handed the connection and asked nothing more.
-    const tags = new TagStore(db)
+    const tags = new TagStore(db, libraryChanges)
 
     // W15-4 — the tag suggestions D14's fifth source. It resolves the playing
     // track's artist MBID off the `artists` row, looks the artist's genres and
@@ -939,7 +955,9 @@ if (!app.requestSingleInstanceLock()) {
       retire: (trackId, fields) => library.retireWrittenOverrides(trackId, fields),
       // W16-11: the cover is resolved from the override store at apply time,
       // never from bytes the review held (R7, same discipline as the text fields).
-      resolveArtwork: (trackId) => library.artworkWriteIntent(trackId)
+      resolveArtwork: (trackId) => library.artworkWriteIntent(trackId),
+      // The per-file retires above each announce; one event for the whole flush.
+      batch: (fn) => libraryChanges.batch(fn)
     })
 
     // W6-6 — manual in-app updates. The driver is loaded only for the two

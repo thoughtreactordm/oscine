@@ -131,6 +131,23 @@ export const usePlaylistsStore = defineStore('playlists', () => {
    */
   const entriesEdited = ref<{ playlistId: number; seq: number } | null>(null)
 
+  /** Set when `refreshAfterChange` lands while a read is already in flight. */
+  let refreshAgain = false
+
+  /**
+   * `refresh` for a write made elsewhere — a `library.changed` (D36.9).
+   *
+   * Unlike the mount-time call this cannot be dropped by the in-flight guard: a
+   * read already under way may predate the write, so it is read once more after.
+   */
+  async function refreshAfterChange(): Promise<void> {
+    if (loading.value) {
+      refreshAgain = true
+      return
+    }
+    await refresh()
+  }
+
   function noteEntriesChanged(playlistId: number): void {
     entriesEdited.value = { playlistId, seq: (entriesEdited.value?.seq ?? 0) + 1 }
   }
@@ -149,6 +166,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   async function refresh(): Promise<void> {
     if (loading.value) return
     loading.value = true
+    refreshAgain = false
     try {
       list.value = await playlists.list()
       // A persisted id whose playlist no longer exists cannot stay — it may have
@@ -168,6 +186,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     } finally {
       loading.value = false
     }
+    if (refreshAgain) await refresh()
   }
 
   /**
@@ -397,6 +416,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     noteEntriesChanged,
     reorder,
     exportM3u8,
+    refreshAfterChange,
     viewCreated
   }
 })

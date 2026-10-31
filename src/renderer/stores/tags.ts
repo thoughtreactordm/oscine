@@ -8,7 +8,9 @@ import type {
   TagSummary,
   TrackTagView
 } from '@shared/tags'
+import type { LibraryChangeIds } from '@shared/libraryChanges'
 import { tags } from '@renderer/ipc'
+import { refreshTrackTagCache } from '@renderer/stores/libraryChangePlan'
 
 /**
  * User tags in the renderer — **W15**.
@@ -277,6 +279,22 @@ export const useTagsStore = defineStore('tags', () => {
     if (vocabulary.value.length > 0) void refreshVocabulary()
   }
 
+  /**
+   * Re-reads tags someone else changed — a `library.changed` naming `tags`
+   * (D36.9). Only cached tracks are re-read and only moved views rewritten, so
+   * a repeated payload repaints nothing. The change is published with the
+   * payload's ids, not just the cached ones: a coverage pane may be showing
+   * tracks this cache never held. Never rejects.
+   */
+  async function refetchTracks(ids: LibraryChangeIds): Promise<void> {
+    try {
+      await refreshTrackTagCache(trackTags.value, ids, (chunk) => tags.forTracks(chunk))
+    } catch {
+      // Silent: a stale chip is a smaller wrong than a thrown event handler.
+    }
+    noteChanged(ids === 'all' ? [] : ids)
+  }
+
   async function refreshVocabulary(): Promise<void> {
     try {
       vocabulary.value = await tags.list()
@@ -298,6 +316,7 @@ export const useTagsStore = defineStore('tags', () => {
     rename,
     suggest,
     forArtist,
+    refetchTracks,
     refreshVocabulary
   }
 })

@@ -1,5 +1,6 @@
 import { OscineError, type IpcResult } from '@shared/errors'
 import type { AgentAccessStatus } from '@shared/agentAccess'
+import type { LibraryChanged } from '@shared/libraryChanges'
 import type {
   ListFacetIdsQuery,
   ListFacetsQuery,
@@ -119,7 +120,9 @@ export const library = {
     window.oscine.library.onScanProgress(listener),
   onNotice: (listener: (notice: LibraryNotice) => void) => window.oscine.library.onNotice(listener),
   onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
-    window.oscine.library.onReplayGainProgress(listener)
+    window.oscine.library.onReplayGainProgress(listener),
+  onChanged: (listener: (event: LibraryChanged) => void) =>
+    window.oscine.library.onChanged(listener)
 }
 
 /**
