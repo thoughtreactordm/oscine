@@ -6,8 +6,10 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import type { TabSession, TabStop } from '@shared/settings'
 import type {
   Playlist,
+  PlaylistExclusion,
   PlaylistExportResult,
   PlaylistInsertion,
+  PlaylistKind,
   PlaylistPathStyle
 } from '@shared/playlists'
 
@@ -364,6 +366,53 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     }
   }
 
+  /**
+   * Make smart / Make static (D36.8). Nothing runs: a smart playlist is one the
+   * operator's agent may keep up to date when asked, and the app never does.
+   */
+  async function setKind(playlistId: number, kind: PlaylistKind): Promise<void> {
+    try {
+      await playlists.setKind(playlistId, kind)
+      await refresh()
+    } catch (cause) {
+      report(cause, 'That playlist could not be changed.')
+    }
+  }
+
+  /** The operator's brief for a smart playlist. Blank clears it. */
+  async function setBrief(playlistId: number, brief: string | null): Promise<boolean> {
+    try {
+      await playlists.setBrief(playlistId, brief)
+      await refresh()
+      return true
+    } catch (cause) {
+      report(cause, 'That brief could not be saved.')
+      return false
+    }
+  }
+
+  /** The tracks kept out of a smart playlist, or `null` when the read failed. */
+  async function listExclusions(playlistId: number): Promise<PlaylistExclusion[] | null> {
+    try {
+      return await playlists.listExclusions(playlistId)
+    } catch (cause) {
+      report(cause, 'Could not read the excluded tracks.')
+      return null
+    }
+  }
+
+  /** Lets excluded tracks back in; omit `trackIds` for all of them. */
+  async function clearExclusions(playlistId: number, trackIds?: readonly number[]): Promise<void> {
+    try {
+      await playlists.clearExclusions(
+        trackIds === undefined ? { playlistId } : { playlistId, trackIds: [...trackIds] }
+      )
+      await refresh()
+    } catch (cause) {
+      report(cause, 'Those exclusions could not be cleared.')
+    }
+  }
+
   async function reorder(playlistId: number, toIndex: number): Promise<void> {
     try {
       // Returns the whole list rather than the moved playlist, so the rail
@@ -415,6 +464,10 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     entriesEdited,
     noteEntriesChanged,
     reorder,
+    setKind,
+    setBrief,
+    listExclusions,
+    clearExclusions,
     exportM3u8,
     refreshAfterChange,
     viewCreated
