@@ -9,6 +9,9 @@ import { defineConfig } from 'vitest/config'
  * Electron 43 (ABI 148). `npm run verify:native` is what proves that claim
  * against the Electron binary itself; these tests get to stay fast and plain.
  */
+/** The suites that assert wall-clock budgets through `tests/support/perfBudget.ts`. */
+const SCALE_SUITES = ['tests/**/*Scale.test.ts']
+
 export default defineConfig({
   // Only the aliases the app itself defines. Tests reach into src/main and
   // src/renderer by relative path rather than through a test-only alias that
@@ -27,7 +30,6 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
 
     // The scale suites seed six-figure row counts in a hook, then measure a fast
     // query. The seed is CPU-bound — the trigram FTS trigger dominates, and a
@@ -42,6 +44,30 @@ export default defineConfig({
     // a genuinely hung test; a real seed on a dev machine clears it with room to
     // spare.
     testTimeout: process.env.CI ? 30_000 : 15_000,
-    hookTimeout: process.env.CI ? 300_000 : 30_000
+    hookTimeout: process.env.CI ? 300_000 : 30_000,
+
+    // The wall-clock budget suites run as a second group, after every other file
+    // has finished. Measured alongside the rest of the suite, their p95 tracked
+    // the suite's size rather than Oscine's code: with 317 files compose's loaded
+    // p95 sat at ~300 ms, and the W24-5 files alone moved it to 410-505 ms
+    // against an isolated cost that had not moved (~270 ms on both commits). A
+    // budget that has to be re-derived every time a test file lands is measuring
+    // the test runner. In their own group the four suites share the machine only
+    // with each other, so the numbers in their budget comments are the code's.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'unit',
+          include: ['tests/**/*.test.ts'],
+          exclude: SCALE_SUITES,
+          sequence: { groupOrder: 0 }
+        }
+      },
+      {
+        extends: true,
+        test: { name: 'scale', include: SCALE_SUITES, sequence: { groupOrder: 1 } }
+      }
+    ]
   }
 })

@@ -52,6 +52,11 @@ const GENRES = 5
  * to today's loaded number. A quadratic at 100k rows still blows through it by
  * an order of magnitude, which is all this assertion was ever for.
  *
+ * W24-5 added two files and the loaded p95 ran 410-505 ms while compose itself
+ * still cost ~270 ms. Rather than raise it a third time, the budget suites now
+ * run as their own group after the rest (`vitest.config.ts`), and there the p95
+ * is ~270 ms again. 450 stays, as headroom for a busy CI share.
+ *
  * Compose is memoized per UTC day, so a real tab-open pays this once.
  */
 const BUDGET_MS = 450
