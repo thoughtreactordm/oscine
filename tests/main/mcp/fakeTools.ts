@@ -22,6 +22,7 @@ export function overviewOnlyTools(overview: LibraryOverview): AgentToolDeps {
     },
     playlists: { list: unused, listEntries: unused },
     stats: { query: unused, summary: unused },
-    history: { list: unused }
+    history: { list: unused },
+    query: { run: unused }
   }
 }

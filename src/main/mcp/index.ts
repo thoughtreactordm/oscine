@@ -1,4 +1,8 @@
-import { McpServer, type RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
+import {
+  McpServer,
+  type RegisteredResource,
+  type RegisteredTool
+} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
   AGENT_CAPABILITIES,
   AGENT_SERVER_DEFAULT_PORT,
@@ -11,6 +15,7 @@ import { registerIssuesTool, type IssueReadDeps } from './tools/issues'
 import { registerLibraryOverview, type LibraryOverviewDeps } from './tools/libraryOverview'
 import { registerListeningTools, type ListeningReadDeps } from './tools/listening'
 import { registerPlaylistTools, type PlaylistReadDeps } from './tools/playlists'
+import { registerQueryTools, type QueryLibraryDeps } from './tools/query'
 import { registerTagFieldsTool } from './tools/tagFields'
 import { registerTrackTools, type TrackReadDeps } from './tools/tracks'
 
@@ -37,6 +42,8 @@ export interface AgentToolDeps {
   playlists: PlaylistReadDeps
   stats: ListeningReadDeps['stats']
   history: ListeningReadDeps['history']
+  /** The query host (W24-5): agent SQL runs in its process, never on main's connection. */
+  query: QueryLibraryDeps
 }
 
 /**
@@ -45,9 +52,12 @@ export interface AgentToolDeps {
  * A new tool goes in exactly one group. The grouping is the gate: a tool that
  * is registered outside this list is a tool no capability switch can hide.
  */
+/** A tool, or a resource (W24-5's views), gated exactly as a tool is. */
+type AgentSurface = RegisteredTool | RegisteredResource
+
 interface AgentToolGroup {
   capability: AgentCapability
-  register(server: McpServer, deps: AgentToolDeps): RegisteredTool[]
+  register(server: McpServer, deps: AgentToolDeps): AgentSurface[]
 }
 
 export const AGENT_TOOL_GROUPS: readonly AgentToolGroup[] = [
@@ -60,13 +70,14 @@ export const AGENT_TOOL_GROUPS: readonly AgentToolGroup[] = [
       ...registerPlaylistTools(server, { playlists: deps.playlists, tracks: deps.library }),
       ...registerListeningTools(server, { stats: deps.stats, history: deps.history }),
       registerTagFieldsTool(server),
-      registerIssuesTool(server, deps.library)
+      registerIssuesTool(server, deps.library),
+      ...registerQueryTools(server, deps.query)
     ]
   }
 ]
 
 /** Each session server's tools by capability, so a switch can reach them. */
-const toolsByServer = new WeakMap<McpServer, Map<AgentCapability, RegisteredTool[]>>()
+const toolsByServer = new WeakMap<McpServer, Map<AgentCapability, AgentSurface[]>>()
 
 /**
  * One fully registered server per session; see `server.ts` for why.
@@ -91,7 +102,7 @@ export function createAgentMcpServer(
         'a session.'
     }
   )
-  const groups = new Map<AgentCapability, RegisteredTool[]>(
+  const groups = new Map<AgentCapability, AgentSurface[]>(
     AGENT_CAPABILITIES.map((capability) => [capability, []])
   )
   for (const group of AGENT_TOOL_GROUPS) {
@@ -118,15 +129,18 @@ export function applyAgentCapabilities(
 ): boolean {
   const groups = toolsByServer.get(server)
   if (!groups) return false
-  let changed = false
-  for (const [capability, tools] of groups) {
-    for (const tool of tools) {
-      if (tool.enabled !== capabilities[capability]) {
-        tool.enabled = capabilities[capability]
-        changed = true
+  let toolsChanged = false
+  let resourcesChanged = false
+  for (const [capability, surfaces] of groups) {
+    for (const surface of surfaces) {
+      if (surface.enabled !== capabilities[capability]) {
+        surface.enabled = capabilities[capability]
+        if ('readCallback' in surface) resourcesChanged = true
+        else toolsChanged = true
       }
     }
   }
-  if (changed) server.sendToolListChanged()
-  return changed
+  if (toolsChanged) server.sendToolListChanged()
+  if (resourcesChanged) server.sendResourceListChanged()
+  return toolsChanged || resourcesChanged
 }

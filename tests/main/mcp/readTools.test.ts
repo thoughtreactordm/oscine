@@ -11,7 +11,9 @@ import { AgentReadStore } from '../../../src/main/library/agentReads'
 import { SqlitePlaylistService } from '../../../src/main/library/playlists/service'
 import { LibraryStore } from '../../../src/main/library/store'
 import { createAgentMcpServer, type AgentToolDeps } from '../../../src/main/mcp'
+import { createQueryHost, type QueryHost } from '../../../src/main/mcp/query/host'
 import { SqliteStatsService } from '../../../src/main/stats/service'
+import { bundleQueryWorker, type QueryProcessHarness } from './queryProcess'
 
 /**
  * The W24-4 read tools end to end — an SDK client over an in-memory transport,
@@ -188,10 +190,15 @@ describe('W24-4 structured read tools', () => {
   let fixture: Fixture
   let server: McpServer
   let client: Client
+  let harness: QueryProcessHarness
+  let queryHost: QueryHost
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'oscine-read-tools-'))
     opened = openDatabase(join(dir, 'library.db'))
+    // W24-5: query_library runs in the real query process, on this fixture.
+    harness = await bundleQueryWorker()
+    queryHost = createQueryHost({ spawn: harness.spawn(join(dir, 'library.db')) })
     const { db } = opened
     const playlists = new SqlitePlaylistService({ db, pickExportFile: async () => null })
     fixture = await seed(opened, playlists)
@@ -210,7 +217,8 @@ describe('W24-4 structured read tools', () => {
       },
       playlists,
       stats: new SqliteStatsService({ db }),
-      history: new SqlitePlayHistoryService({ db })
+      history: new SqlitePlayHistoryService({ db }),
+      query: queryHost
     }
     server = createAgentMcpServer(deps, '0.0.0-test')
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
@@ -222,6 +230,8 @@ describe('W24-4 structured read tools', () => {
   afterAll(async () => {
     await client.close()
     await server.close()
+    queryHost.close()
+    harness.dispose()
     opened.db.close()
     rmSync(dir, { recursive: true, force: true })
   })
@@ -497,6 +507,19 @@ describe('W24-4 structured read tools', () => {
     })
   })
 
+  it('query_library returns capped rows and refuses what it must, as tool errors', async () => {
+    const page = await call('query_library', { sql: 'SELECT id, title FROM mcp_tracks', limit: 5 })
+    expect(page).toMatchObject({ columns: ['id', 'title'], rowCount: 5, truncated: true })
+    const refused = await client.callTool({
+      name: 'query_library',
+      arguments: { sql: 'SELECT * FROM settings' }
+    })
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('not-authorized')
+    const views = await call('describe_views', { view: 'mcp_tracks' })
+    expect((views.views as { name: string }[]).map((view) => view.name)).toEqual(['mcp_tracks'])
+  })
+
   /**
    * D36.3: no absolute path crosses the boundary. Every listed tool must have an
    * entry here, so a new tool cannot skip the check by being forgotten.
@@ -520,6 +543,16 @@ describe('W24-4 structured read tools', () => {
         { check: 'yearMismatch' },
         { check: 'duplicates' },
         { check: 'artistVariants' }
+      ],
+      describe_views: [{}],
+      query_library: [
+        { sql: 'SELECT * FROM mcp_tracks', limit: 1000 },
+        { sql: 'SELECT * FROM mcp_albums', limit: 1000 },
+        { sql: 'SELECT * FROM mcp_artists', limit: 1000 },
+        { sql: 'SELECT * FROM mcp_playlists', limit: 1000 },
+        { sql: 'SELECT * FROM mcp_playlist_entries', limit: 1000 },
+        { sql: 'SELECT * FROM mcp_listens', limit: 1000 },
+        { sql: 'SELECT * FROM mcp_track_tags', limit: 1000 }
       ]
     }
     const { tools } = await client.listTools()

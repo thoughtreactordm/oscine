@@ -104,6 +104,8 @@ import {
 } from '@shared/settings'
 import { createAgentAccessService, type AgentAccessService } from './mcp/agentAccess'
 import { createAgentTokenStore } from './mcp/tokenStore'
+import { utilityQueryProcess } from './mcp/query/electronProcess'
+import { createQueryHost } from './mcp/query/host'
 
 const isDev = !app.isPackaged
 const rendererDir = join(__dirname, '../renderer')
@@ -893,6 +895,7 @@ if (!app.requestSingleInstanceLock()) {
     // listens while `mcp.enabled` is off: the first sync below is a no-op then.
     // The token is sealed with `safeStorage` like D19's credentials, in a file
     // of its own, and is only touched once the operator has turned access on.
+    const queryHost = createQueryHost({ spawn: utilityQueryProcess(filePath) })
     const agentAccess = createAgentAccessService({
       settings,
       tokens: createAgentTokenStore({
@@ -900,7 +903,10 @@ if (!app.requestSingleInstanceLock()) {
         io: createCredentialFileIo(agentTokenPath())
       }),
       // The same services IPC calls (D36.3), which is why this waits for them.
-      tools: { library, playlists, stats, history },
+      // `query` is the exception that proves it: agent SQL runs in its own
+      // process on a confined read-only connection, never on `db` (D36.4, R19).
+      // Nothing is spawned until an agent first queries.
+      tools: { library, playlists, stats, history, query: queryHost },
       version: app.getVersion(),
       onStatusChanged: broadcastAgentAccess
     })
@@ -1088,6 +1094,7 @@ if (!app.requestSingleInstanceLock()) {
       noctalia.stop()
       // No agent call may start against a database that is about to close.
       void agentAccess.stop()
+      queryHost.close()
 
       // First of the awaited steps, because it is the only one that needs the
       // renderer alive and

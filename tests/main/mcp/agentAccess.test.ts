@@ -3,7 +3,10 @@ import { connect } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
+import {
+  ResourceListChangedNotificationSchema,
+  ToolListChangedNotificationSchema
+} from '@modelcontextprotocol/sdk/types.js'
 import type { LibraryOverview } from '@shared/library'
 import type { AgentAccessStatus } from '@shared/agentAccess'
 import {
@@ -18,6 +21,7 @@ import {
   type AgentAccessService
 } from '../../../src/main/mcp/agentAccess'
 import type { AgentTokenStore } from '../../../src/main/mcp/tokenStore'
+import { VIEWS_RESOURCE_URI } from '../../../src/main/mcp/tools/query'
 import { overviewOnlyTools } from './fakeTools'
 
 /**
@@ -252,7 +256,14 @@ describe('agent access lifecycle', () => {
     client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
       notified += 1
     })
+    let resourcesNotified = 0
+    client.setNotificationHandler(ResourceListChangedNotificationSchema, () => {
+      resourcesNotified += 1
+    })
     expect((await client.listTools()).tools.map((tool) => tool.name)).toContain('library_overview')
+    expect((await client.listResources()).resources.map((resource) => resource.uri)).toEqual([
+      VIEWS_RESOURCE_URI
+    ])
 
     await set(MCP_CAPABILITY_KEYS.read, false)
     await waitFor(() => notified === 1)
@@ -261,6 +272,9 @@ describe('agent access lifecycle', () => {
     )
     const refused = await client.callTool({ name: 'library_overview', arguments: {} })
     expect(refused.isError).toBe(true)
+    // W24-5's views resource is Read's too, and goes with it.
+    await waitFor(() => resourcesNotified === 1)
+    expect((await client.listResources()).resources).toEqual([])
 
     await set(MCP_CAPABILITY_KEYS.read, true)
     await waitFor(() => notified === 2)
