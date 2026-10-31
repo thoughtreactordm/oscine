@@ -204,11 +204,18 @@ With the visualizer on, the stage changes in three ways, as `[[prospective-ideas
    wash itself, and the blurred cover `<img>` is dropped only once the canvas is showing an
    identical frame: the handoff in D35.12. No new z-index is introduced: the existing order
    (wash → body → transport at 10 → stage toggles at 20) holds as is.
-2. **The cover cluster moves to the upper-right corner.** The art drops from `--stage-art-max`
+2. **The cover cluster moves to the upper-left corner.** The art drops from `--stage-art-max`
    to a compact size and the caption sits beside it, both on a scrim panel (the token layer's
-   scrim / on-scrim pair). The move is a FLIP animation: measure both layouts, apply the
-   inverse `transform`, and animate `transform` and `opacity` only, on the compositor, timed
-   with the emergence (D35.12). Layout properties are never animated per frame. The scrim is
+   scrim / on-scrim pair). *Amended 2026-10-31 from upper-right:* with lyrics on, the record
+   already sits on the left and lyrics on the right, so a right-hand corner swapped the two
+   sides and read as jarring. The left corner keeps the record on its own side, and lyrics
+   keep their column on the right. The panels are frosted (a backdrop blur under a lightened
+   scrim) and feathered at every edge. *Amended 2026-10-31 (W23-5), replacing the FLIP move:*
+   the layout changes by a plain fade-through of the stage body — out over one motion
+   duration, switch while nothing shows, back in over another. A FLIP of the art with the
+   caption and lyrics cross-fading as they travel was built and rejected by the operator: the
+   flight read as gimmicky and the scrim panels lingered. Only `opacity` animates; layout
+   properties are never animated per frame. The scrim is
    the legibility guarantee: text contrast is a property of the theme, never of whatever the
    effect drew under it. In the High Contrast theme the scrim is opaque.
 3. **The waveform ribbon is suppressed** while an effect is running, without changing
@@ -222,7 +229,8 @@ The visualizer toggle sits beside the lyrics toggle in the stage's top-right con
 with the same hover/focus fade and the same `LYRICS_MIN_STAGE_WIDTH`-style width gate.
 
 **Lyrics stay.** Turning the visualizer on never hides lyrics the operator asked for. With
-both on, the cover cluster goes to the corner as above, and `LyricsPane` keeps its column,
+both on, the cover cluster goes to the corner as above, and `LyricsPane` keeps its column on
+the right,
 sitting on its own darkened scrim panel (the same scrim pair as the cluster), so the lyric
 lines' contrast never depends on the effect either. The panel is part of the stage layout;
 `LyricsPane` itself is unchanged.
@@ -498,18 +506,19 @@ an effect at 0 with the CSS wash by screenshot, effect by effect.
 
 | Event | What happens |
 |---|---|
-| Visualizer on | handoff → emergence 0 → 1 over ~1.2 s; the cover cluster's FLIP move to the corner runs alongside it (D35.4) |
-| Visualizer off | emergence 1 → 0 and the cluster returns over the same time → handoff back → canvas unmounts, loop stops |
-| Pause | analysis decays (D35.2); after 3 s paused, emergence eases to 0 over ~1.2 s and the loop stops on the wash frame. The layout does not move |
+| Visualizer on | the stage body fades through to the corner layout (D35.4); handoff → emergence 0 → 1 over ~0.6 s |
+| Visualizer off | the body fades through back to the centred layout; emergence 1 → 0 → handoff back → canvas unmounts, loop stops |
+| Pause | analysis decays (D35.2); after 3 s paused, emergence eases to 0 over ~0.6 s and the loop stops on the wash frame. The layout does not move |
 | Resume | loop restarts, emergence 0 → 1 |
-| Effect switch, same surface | emergence → 0 over ~0.4 s, swap, → 1 |
+| Effect switch, same surface | emergence → 0 over ~0.3 s, swap, → 1 |
 | Effect switch, 2D ↔ WebGL | the same, with the canvas element replaced at emergence 0. Both tiers draw the same wash, so the swap is invisible |
 | Track change | the cover crossfade (D35.11) runs inside the wash and the effect at once; emergence is untouched |
 | Context loss | the CSS wash is restored instantly; the first 2D effect grows from it |
 | No cover | the stage shows no wash today and neither does the host (the synthetic cover feeds effects, not the wash); emergence grows from the bare stage |
 
 All durations are multiples of `--oscine-motion-duration`, so the motion tokens govern them,
-with the defaults above. Reduced motion never reaches this table, because the visualizer is
+with the defaults above. *Amended 2026-10-31 (W23-5):* the emergence is 4× (0.6 s) and the
+switch 2× (0.3 s) rather than ~1.2 s and ~0.4 s — the operator found the longer ease sluggish. Reduced motion never reaches this table, because the visualizer is
 off under it (D35.7).
 
 ## R16 — GPU and driver variance
@@ -613,7 +622,7 @@ Three phases, and the stream can stop after any of them and still ship, as with 
 | **W23-2** | Palette model and flash guard (D35.3, D35.8): token read, OKLab lerp, High Contrast behaviour; the pure luminance guard and onset envelope with synthetic-strobe tests. | — |
 | **W23-3** | Cover input (D35.11), the tier-independent half: host decode of `artwork.large`, the two-slot crossfade and `close()` lifecycle, the pure swatch function and its tests, the palette-synthesised stand-in for no cover. | W23-2 |
 | **W23-4** | `VisualizerStage` host and stage layout (D35.1, D35.4, D35.7): canvas keyed on surface, registry, lifecycle (idle, hidden, reduced motion, unmount disposal), the corner cluster on its scrim (moving without animation for now), the lyrics scrim panel, ribbon suppression, the stage toggle, the five settings and the Zen override. In this card the CSS wash simply stays underneath and the canvas is a transparent `overlay` layer that fades in with emergence. Ships with **Bars**. Also amends `fermata-design` §11 to record that visualizers left the deferral list, in the same note style as the three items already there. | W23-1, W23-2, W23-3 |
-| **W23-5** | Wash and transitions (D35.12), on the 2D tier: the four `@property` wash properties shared with `.stage-wash-img`, the 2D wash pass, the CSS ↔ canvas handoff, `overlay`/`grow` emergence and `washUnder`, every row of the transitions table including pause-settles-to-wash, the FLIP cluster move, and the `VITE_VISUALIZER_HOLD_EMERGENCE` flag. | W23-4 |
+| **W23-5** | Wash and transitions (D35.12), on the 2D tier: the four `@property` wash properties shared with `.stage-wash-img`, the 2D wash pass, the CSS ↔ canvas handoff, `overlay`/`grow` emergence and `washUnder`, every row of the transitions table including pause-settles-to-wash, the fade-through layout change (amended from a FLIP move), and the `VITE_VISUALIZER_HOLD_EMERGENCE` flag. | W23-4 |
 | **W23-6** | Controls (D35.5): next/previous, the label caption, cycle on track change, the `SHORTCUTS` entries and dispatch, Command Palette commands, unknown-id fallback. | W23-4 |
 | **W23-7** | **Halo**, **Trace** and **Mosaic** (2D). Mosaic is the first `grow` effect and proves the contract before the GPU tier exists. | W23-5 |
 | **W23-8** | WebGL2 tier (D35.6, plus the GPU halves of D35.11 and D35.12): the capability probe, `visualizer/gl/` helpers, the cover upload helper and its texture rules, re-upload on context restore, the GPU wash pass matched to the 2D one, compile-failure handling, context loss with the CSS wash restored instantly, the resolution budget and `quality` tiers with the `auto` frame-time backoff, effects excluded when unavailable. | W23-5 |

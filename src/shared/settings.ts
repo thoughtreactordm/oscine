@@ -55,7 +55,13 @@ export {
   TAB_NAV_BAR_KEY,
   TRACK_ACTIVATION_KEY,
   TRACK_DENSITY_KEY,
-  ZEN_MODE_TOGGLE_BUTTON_KEY
+  ZEN_MODE_TOGGLE_BUTTON_KEY,
+  NOW_PLAYING_VISUALIZER_KEY,
+  VISUALIZER_IN_ZEN_KEY,
+  VISUALIZER_EFFECT_KEY,
+  VISUALIZER_CYCLE_KEY,
+  VISUALIZER_QUALITY_KEY,
+  DEFAULT_VISUALIZER_EFFECT
 } from './settings/interface'
 export type {
   AlbumArtSize,
@@ -66,7 +72,9 @@ export type {
   FileSizeFormat,
   NowPlayingIdleInterval,
   TrackActivation,
-  TrackDensity
+  TrackDensity,
+  VisualizerCycle,
+  VisualizerQuality
 } from './settings/interface'
 export {
   AUDIO_CROSSFADE_MS,
