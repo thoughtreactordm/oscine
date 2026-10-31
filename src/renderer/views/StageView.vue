@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useLyricsStore } from '@renderer/stores/lyrics'
 import { useZenStore } from '@renderer/stores/zen'
@@ -8,6 +8,8 @@ import { useStageTransport } from '@renderer/shell/useStageTransport'
 import { useSettings } from '@renderer/settings'
 import { currentTheme, onThemeChange } from '@renderer/theme'
 import { visualizerToggle, visualizerWanted } from '@renderer/visualizer/gate'
+import { DEFAULT_MOTION_SEC } from '@renderer/visualizer/stageTransition'
+import { MOTION_DURATION_PROPERTY, parseCssDurationSec } from '@renderer/visualizer/wash'
 import {
   NOW_PLAYING_LYRICS_KEY,
   NOW_PLAYING_VISUALIZER_KEY,
@@ -99,6 +101,10 @@ const highContrast = ref(currentTheme().themeId === 'high-contrast')
 let releaseTheme: (() => void) | null = null
 
 onMounted(() => {
+  // Anything decided before this frame is painted starts in place, unanimated.
+  requestAnimationFrame(() => {
+    painted = true
+  })
   motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   reducedMotion.value = motionQuery.matches
   motionQuery.addEventListener('change', onMotionChange)
@@ -107,6 +113,9 @@ onMounted(() => {
   })
 })
 onBeforeUnmount(() => {
+  layoutGeneration++
+  layoutFade?.cancel()
+  layoutFade = null
   motionQuery?.removeEventListener('change', onMotionChange)
   motionQuery = null
   releaseTheme?.()
@@ -126,6 +135,112 @@ function toggleVisualizer(): void {
   const action = visualizerToggle(visualizerInputs.value)
   if (action.kind === 'session') zen.visualizerOverride = action.value
   else void settings.set<boolean>(NOW_PLAYING_VISUALIZER_KEY, action.value)
+}
+
+/**
+ * Every transition passes through the wash (W23-5, D35.12). Wanted
+ * (`showVisualizer`) is only the start of it; three pieces of state follow it:
+ *
+ * - `hostMounted` — the host stays mounted after it stops being wanted, while
+ *   the effect settles back into the wash and hands it back, and unmounts only
+ *   when it says it has retired. The ribbon fades back in then.
+ * - `canvasOwnsWash` — mirrored from the host. True fades the `<img>` out
+ *   (opacity only, one motion duration, linear) while the host's canvas fades
+ *   the identical wash in at the matching rate; false is the reverse.
+ * - `layoutOn` — the visualizer layout (cluster in the corner, panels on their
+ *   scrims). It changes by a plain fade-through of the stage body: out, switch
+ *   while nothing shows, back in — one motion duration each way. Nothing moves
+ *   across the stage. Before the first paint it simply starts in place.
+ *
+ * Reduced motion skips all of it: the visualizer is off there (D35.7), at once.
+ */
+const bodyRef = ref<HTMLElement | null>(null)
+const hostMounted = ref(false)
+const canvasOwnsWash = ref(false)
+const layoutOn = ref(false)
+let painted = false
+let layoutGeneration = 0
+let layoutFade: Animation | null = null
+
+function motionMs(): number {
+  const section = sectionRef.value
+  const motion = section
+    ? parseCssDurationSec(getComputedStyle(section).getPropertyValue(MOTION_DURATION_PROPERTY))
+    : null
+  return (motion ?? DEFAULT_MOTION_SEC) * 1000
+}
+
+function fadeBodyIn(body: HTMLElement, from: number, ms: number): void {
+  layoutFade = body.animate([{ opacity: from }, { opacity: 1 }], {
+    duration: ms * (1 - from),
+    easing: 'ease-out'
+  })
+}
+
+/**
+ * Fade the body out, switch the layout while it is invisible, fade it back in.
+ * A change mid-fade picks up from the opacity on screen; turning back before
+ * the switch just fades back in.
+ */
+async function changeLayout(next: boolean): Promise<void> {
+  const generation = ++layoutGeneration
+  const body = bodyRef.value
+  const ms = motionMs()
+  if (!body || !painted || reducedMotion.value || ms <= 0) {
+    layoutFade?.cancel()
+    layoutFade = null
+    layoutOn.value = next
+    return
+  }
+  const shown = Number.parseFloat(getComputedStyle(body).opacity)
+  const from = Number.isFinite(shown) ? shown : 1
+  layoutFade?.cancel()
+  if (layoutOn.value === next) {
+    fadeBodyIn(body, from, ms)
+    return
+  }
+  const out = body.animate([{ opacity: from }, { opacity: 0 }], {
+    duration: ms * from,
+    easing: 'ease-in',
+    fill: 'forwards'
+  })
+  layoutFade = out
+  try {
+    await out.finished
+  } catch {
+    return // cancelled by a newer change, which owns the body now
+  }
+  if (generation !== layoutGeneration) return
+  layoutOn.value = next
+  await nextTick()
+  if (generation !== layoutGeneration) return
+  fadeBodyIn(body, 0, ms)
+  out.cancel()
+}
+
+watch(
+  showVisualizer,
+  (on) => {
+    if (on) hostMounted.value = true
+    void changeLayout(on)
+  },
+  { immediate: true }
+)
+
+watch(reducedMotion, (reduced) => {
+  if (!reduced) return
+  hostMounted.value = false
+  canvasOwnsWash.value = false
+})
+
+function onHostWash(hidden: boolean): void {
+  canvasOwnsWash.value = hidden
+}
+
+function onHostRetired(): void {
+  if (showVisualizer.value) return
+  hostMounted.value = false
+  canvasOwnsWash.value = false
 }
 
 /**
@@ -214,7 +329,7 @@ const byline = computed(() => {
     class="relative flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden bg-default"
     :class="{
       'stage-immersive': stageOwnsTransport,
-      'stage-visualizer': showVisualizer,
+      'stage-visualizer': layoutOn,
       'stage-scrim-opaque': highContrast
     }"
     aria-label="Now playing"
@@ -227,6 +342,8 @@ const byline = computed(() => {
       transport bar and the focused song-list headers use, so authoring them in
       the token editor moves this wash in lockstep with every other cover
       backdrop rather than leaving the largest one behind — see `.stage-wash-img`.
+      While the visualizer has the stage its canvas draws this same wash, and
+      this one is faded out under it (D35.12) — opacity only, never its filter.
     -->
     <Transition name="stage-wash">
       <img
@@ -236,16 +353,22 @@ const byline = computed(() => {
         alt=""
         aria-hidden="true"
         class="stage-wash-img pointer-events-none absolute inset-0 size-full object-cover"
+        :class="{ 'stage-wash-handed-off': canvasOwnsWash }"
         draggable="false"
       />
     </Transition>
 
     <!--
       The visualizer, in the wash slot (D35.4): over the wash, behind the body,
-      no z-index of its own. Until W23-5 the CSS wash above stays underneath and
-      this canvas fades in over it with the emergence.
+      no z-index of its own. It draws the wash itself, takes it over from the
+      `<img>` above and hands it back before it unmounts (D35.12).
     -->
-    <VisualizerStage v-if="showVisualizer" />
+    <VisualizerStage
+      v-if="hostMounted"
+      :active="showVisualizer"
+      @wash="onHostWash"
+      @retired="onHostRetired"
+    />
 
     <!--
       Exit affordance — the one always-reachable way out when Zen has hidden the
@@ -309,6 +432,7 @@ const byline = computed(() => {
     </div>
 
     <div
+      ref="bodyRef"
       class="stage-body relative flex h-full min-h-0 w-full flex-col p-4 sm:p-8"
       :class="{ 'stage-has-lyrics': showLyrics }"
       :style="{ paddingBottom: contentBottomReserve }"
@@ -382,11 +506,17 @@ const byline = computed(() => {
       Last child, so it stacks over the wash and the record without needing a
       z-index of its own. It only exists on this route: the loop is bounded by
       the component's lifetime, and leaving the tab is what stops it. Suppressed
-      while the visualizer shows (D35.4) — two visualizers at the foot of one
-      stage is noise — without touching `interface.nowPlayingWaveform`, so the
-      operator's ribbon comes back when the visualizer goes off.
+      while the visualizer is mounted (D35.4) — two visualizers at the foot of
+      one stage is noise — without touching `interface.nowPlayingWaveform`, so
+      the operator's ribbon comes back once the visualizer has settled away. It
+      fades rather than cutting; the wrapper is the stage's own box, so the
+      ribbon positions against it exactly as it did against the section.
     -->
-    <WaveformRibbon v-if="!showVisualizer" />
+    <Transition name="stage-ribbon">
+      <div v-if="!hostMounted" class="pointer-events-none absolute inset-0">
+        <WaveformRibbon />
+      </div>
+    </Transition>
 
     <!--
       The Zen transport. The bar the frame dropped, rebuilt from the same shared
@@ -444,6 +574,20 @@ const byline = computed(() => {
  */
 section {
   --stage-art-max: clamp(10rem, min(58vmin, calc(100dvh - 26rem)), 40rem);
+}
+
+/*
+ * The wash's look, in one place (D35.12): `.stage-wash-img` draws with these and
+ * the visualizer host reads them to draw the identical wash on its canvas, so a
+ * token-editor change moves both together. They are registered (the unscoped
+ * block at the end) so their computed values are a resolved length and numbers,
+ * not the `calc(…)` text an unregistered property would hand the host.
+ */
+section {
+  --stage-wash-blur: calc(var(--oscine-cover-blur) * 1.6);
+  --stage-wash-saturate: 2.2;
+  --stage-wash-opacity: calc(var(--oscine-cover-bleed) * 1.1);
+  --stage-wash-scale: 1.25;
 }
 
 /*
@@ -545,8 +689,9 @@ section {
  * unchanged) keep their own classes and still read on the scrim. In the High
  * Contrast theme the panel is opaque (below).
  *
- * The move is a layout switch with no animation here; the FLIP move timed with
- * the emergence is W23-5.
+ * The switch is a fade-through of the stage body (W23-5, `changeLayout`): out,
+ * switch while nothing shows, back in. Nothing moves across the stage, and no
+ * layout property is ever animated.
  */
 section {
   /*
@@ -813,12 +958,34 @@ section:hover .stage-lyrics-toggle,
  * song-list header (`FocusedBackdrop.vue`'s `saturate`). The multipliers hold
  * the resting look this used to hardcode — a `blur-3xl` (64px) off the 40px
  * default blur, and `opacity-20` off the ~0.18 default bleed, the same 1.1 the
- * focused header uses — while now tracking whatever the token editor sets.
+ * focused header uses — while now tracking whatever the token editor sets. The
+ * multipliers live in the `--stage-wash-*` properties on the section, which the
+ * visualizer host reads too.
+ *
+ * The opacity transition is the handoff (D35.12): one motion duration, linear,
+ * because the host fades its canvas wash in against exactly that ramp. Only the
+ * opacity ever moves; the filter is never animated. A cover change still uses
+ * the `stage-wash` transition below, whose rules come later and take over.
  */
 .stage-wash-img {
-  filter: blur(calc(var(--oscine-cover-blur) * 1.6)) saturate(2.2);
-  opacity: calc(var(--oscine-cover-bleed) * 1.1);
-  transform: scale(1.25);
+  filter: blur(var(--stage-wash-blur)) saturate(var(--stage-wash-saturate));
+  opacity: var(--stage-wash-opacity);
+  transform: scale(var(--stage-wash-scale));
+  transition: opacity var(--oscine-motion-duration) linear;
+}
+
+.stage-wash-handed-off {
+  opacity: 0;
+}
+
+.stage-ribbon-enter-active,
+.stage-ribbon-leave-active {
+  transition: opacity calc(var(--oscine-motion-duration) * 2) ease;
+}
+
+.stage-ribbon-enter-from,
+.stage-ribbon-leave-to {
+  opacity: 0;
 }
 
 .stage-art-enter-active,
@@ -848,5 +1015,35 @@ section:hover .stage-lyrics-toggle,
   .stage-wash-leave-active {
     transition-duration: 120ms;
   }
+}
+</style>
+
+<style>
+/*
+ * Registered so their computed values resolve (W23-5, D35.12). Global by
+ * nature — `@property` has no scope — and named for the stage alone.
+ */
+@property --stage-wash-blur {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --stage-wash-saturate {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+@property --stage-wash-opacity {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+@property --stage-wash-scale {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
 }
 </style>
