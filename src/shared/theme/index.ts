@@ -11,7 +11,9 @@
 export {
   clampToGamut,
   formatOklch,
+  gammaEncode,
   isOutOfGamut,
+  oklabToLinearRgbInto,
   oklch,
   parseColor,
   relativeLuminance,
