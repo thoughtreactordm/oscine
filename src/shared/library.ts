@@ -630,3 +630,47 @@ export interface ReplayGainJobProgress {
   updatedAt: string
   done: boolean
 }
+
+/**
+ * Indexed fields an overview reports coverage for — the *effective* value, the
+ * file's own with any standing correction applied. Generic registry fields
+ * (`tagFields.ts`) are not indexed, so they cannot be counted without reading
+ * every file; they are absent here on purpose.
+ */
+export const LIBRARY_COVERAGE_FIELDS = [
+  'title',
+  'artist',
+  'album',
+  'albumArtist',
+  'trackNo',
+  'discNo',
+  'year',
+  'genre',
+  'artwork',
+  'replayGainTrack',
+  'replayGainAlbum',
+  'userTags'
+] as const
+
+export type LibraryCoverageField = (typeof LIBRARY_COVERAGE_FIELDS)[number]
+
+/**
+ * The whole library in one read — W24-1's `library_overview`.
+ *
+ * Roots are named by their label, never their path: the overview crosses to an
+ * external agent, and no absolute path crosses that boundary (D36.3).
+ */
+export interface LibraryOverview {
+  tracks: number
+  albums: number
+  artists: number
+  totalDurationMs: number
+  totalBytes: number
+  /** Codec → track count, most tracks first; `null` codec is an unprobed file. */
+  formats: { codec: string | null; tracks: number }[]
+  roots: { id: number; name: string; tracks: number }[]
+  /** Tracks with a non-empty effective value per field. */
+  coverage: Record<LibraryCoverageField, number>
+  /** Tracks carrying at least one standing correction of any kind. */
+  tracksWithCorrections: number
+}

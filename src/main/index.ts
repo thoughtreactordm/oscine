@@ -98,6 +98,7 @@ import {
   type DiscordWhenPaused,
   type SettingsChange
 } from '@shared/settings'
+import { devAgentServerConfig, startAgentServer } from './mcp'
 
 const isDev = !app.isPackaged
 const rendererDir = join(__dirname, '../renderer')
@@ -824,6 +825,15 @@ if (!app.requestSingleInstanceLock()) {
       canComputeReplayGain: () => settings.get<boolean>(AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING.key)
     })
 
+    // W24-1: the agent server spike (oscine-mcp → D36.1). Dev builds only, and
+    // only with OSCINE_MCP_DEV=1 — its token is a fixed dev constant, so a
+    // packaged build must never listen with it. W24-2 replaces the flag with
+    // `mcp.enabled` and a generated token.
+    const agentConfig = isDev ? devAgentServerConfig(process.env) : null
+    const agentServer = agentConfig
+      ? startAgentServer(agentConfig, { library }, app.getVersion())
+      : null
+
     // Its own service on the same connection: playlists own two tables the
     // library layer never touches, and the library owns the rest.
     const playlists = new SqlitePlaylistService({ db, pickExportFile: pickPlaylistExportFile })
@@ -1033,6 +1043,8 @@ if (!app.requestSingleInstanceLock()) {
       // and database go, so a closed Oscine leaves no stale "Playing" card (W20-4).
       presence.stop()
       noctalia.stop()
+      // No agent call may start against a database that is about to close.
+      void agentServer?.close()
 
       // First of the awaited steps, because it is the only one that needs the
       // renderer alive and

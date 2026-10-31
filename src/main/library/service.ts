@@ -1,5 +1,6 @@
 import type {
   GetTracksByIdsQuery,
+  LibraryOverview,
   LibraryRoot,
   ListAlbumsResult,
   ListArtistsResult,
@@ -42,6 +43,12 @@ import type { ArtworkRef } from '@shared/artwork'
 export interface LibraryService {
   addRoot(): Promise<LibraryRoot | null>
   listRoots(): Promise<LibraryRoot[]>
+  /**
+   * Counts, formats, roots by name and per-field coverage (W24-1). Read by the
+   * agent surface (`src/main/mcp/`), not by IPC: roots come back by label, so
+   * the result is safe to hand across D36.3's no-absolute-path boundary.
+   */
+  overview(): Promise<LibraryOverview>
   scanRoot(rootId: number): Promise<ScanSummary>
   /**
    * Forgets a library folder and returns the roots that are left.
