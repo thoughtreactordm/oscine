@@ -42,7 +42,9 @@ const ORGANIZE_TOOLS = [
   'remove_playlist_entries',
   'set_playlist_order',
   'add_user_tag',
-  'remove_user_tag'
+  'remove_user_tag',
+  'set_smart_playlist',
+  'update_agent_notes'
 ]
 
 describe('organize tools', () => {

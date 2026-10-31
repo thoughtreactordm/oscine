@@ -602,6 +602,22 @@ describe('W24-4 structured read tools', () => {
     const dryRun = true
     // remove_user_tag refuses a tag that does not exist.
     new TagStore(opened.db).addTag(trackIds.slice(0, 1), 'Path check', 'user')
+    // update_agent_notes refuses a static playlist, and get_playlist lists a
+    // smart one's exclusions: a second, smart playlist with one, outside the fixture.
+    const smartId = Number(
+      opened.db
+        .prepare(
+          `INSERT INTO playlists (name, position, created_at, updated_at, kind, brief)
+           VALUES ('Path smart', 99, 1, 1, 'smart', 'Late night')`
+        )
+        .run().lastInsertRowid
+    )
+    opened.db
+      .prepare(
+        `INSERT INTO playlist_exclusions (playlist_id, track_id, source, created_at)
+         VALUES (?, ?, 'operator', 1)`
+      )
+      .run(smartId, trackIds[0])
     const calls: Record<string, Record<string, unknown>[]> = {
       create_playlist: [{ name: 'Path check', dryRun }],
       rename_playlist: [{ playlistId, name: 'Path check', dryRun }],
@@ -611,6 +627,8 @@ describe('W24-4 structured read tools', () => {
         { playlistId, entryIds: entryIds.slice(-1), insertion: { at: 'start' }, dryRun }
       ],
       remove_playlist_entries: [{ playlistId, entryIds: entryIds.slice(0, 1), dryRun }],
+      set_smart_playlist: [{ playlistId, kind: 'smart', brief: 'Path check', dryRun }],
+      update_agent_notes: [{ playlistId: smartId, notes: 'Path check', dryRun }],
       set_playlist_order: [{ playlistId, entryIds: [...entryIds].reverse(), dryRun }],
       add_user_tag: [{ trackIds, label: 'Path check', dryRun }],
       remove_user_tag: [{ trackIds, label: 'Path check', dryRun }],
@@ -623,7 +641,10 @@ describe('W24-4 structured read tools', () => {
       list_albums: [{ limit: 500 }],
       list_artists: [{ limit: 500 }],
       list_playlists: [{}],
-      get_playlist: [{ playlistId: fixture.playlistId, fields: [...ALL_FIELDS] }],
+      get_playlist: [
+        { playlistId: fixture.playlistId, fields: [...ALL_FIELDS] },
+        { playlistId: smartId, fields: [...ALL_FIELDS] }
+      ],
       top_listened: [{ dimension: 'track' }, { dimension: 'album' }, { dimension: 'artist' }],
       listening_summary: [{}],
       recent_plays: [{}],

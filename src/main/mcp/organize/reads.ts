@@ -29,6 +29,8 @@ export interface OrganizeReads {
   tagByKey(key: string): OrganizeTag | null
   /** Which of these tracks carry the tag. */
   tracksWithTag(tagId: number, trackIds: readonly number[]): Set<number>
+  /** Which of these tracks the playlist excludes (D36.8). */
+  excluded(playlistId: number, trackIds: readonly number[]): Set<number>
 }
 
 export function createOrganizeReads(db: Database.Database): OrganizeReads {
@@ -44,6 +46,10 @@ export function createOrganizeReads(db: Database.Database): OrganizeReads {
     tracksWithTag: db.prepare(
       `SELECT track_id AS id FROM track_tags
        WHERE tag_id = ? AND track_id IN (SELECT value FROM json_each(?))`
+    ),
+    excluded: db.prepare(
+      `SELECT track_id AS id FROM playlist_exclusions
+       WHERE playlist_id = ? AND track_id IN (SELECT value FROM json_each(?))`
     )
   }
   const idSet = (rows: unknown[]): Set<number> =>
@@ -55,6 +61,8 @@ export function createOrganizeReads(db: Database.Database): OrganizeReads {
       idSet(statements.existingTracks.all(JSON.stringify([...new Set(trackIds)]))),
     tagByKey: (key) => (statements.tagByKey.get(key) as OrganizeTag | undefined) ?? null,
     tracksWithTag: (tagId, trackIds) =>
-      idSet(statements.tracksWithTag.all(tagId, JSON.stringify([...new Set(trackIds)])))
+      idSet(statements.tracksWithTag.all(tagId, JSON.stringify([...new Set(trackIds)]))),
+    excluded: (playlistId, trackIds) =>
+      idSet(statements.excluded.all(playlistId, JSON.stringify([...new Set(trackIds)])))
   }
 }

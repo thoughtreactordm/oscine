@@ -20,7 +20,7 @@ export function overviewOnlyTools(overview: LibraryOverview): AgentToolDeps {
       issueSummary: unused,
       findIssues: unused
     },
-    playlists: { list: unused, listEntries: unused },
+    playlists: { list: unused, listEntries: unused, listExclusions: unused },
     stats: { query: unused, summary: unused },
     history: { list: unused },
     query: { run: unused },
@@ -41,14 +41,18 @@ export function overviewOnlyTools(overview: LibraryOverview): AgentToolDeps {
         reorder: unused,
         addTracks: unused,
         moveEntries: unused,
-        removeEntries: unused
+        removeEntries: unused,
+        setKind: unused,
+        setBrief: unused,
+        setAgentNotes: unused
       },
       tags: { addTag: unused, removeTag: unused },
       reads: {
         entries: unused,
         existingTracks: unused,
         tagByKey: unused,
-        tracksWithTag: unused
+        tracksWithTag: unused,
+        excluded: unused
       }
     },
     stage: {

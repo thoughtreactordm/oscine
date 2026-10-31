@@ -33,13 +33,22 @@ import type { TagStore } from '../../tags/store'
  * |---|---|---|
  * | `playlist` | `name` | the name, or `null` when the playlist does not exist |
  * | `playlist` | `position` | its index in the rail, or `null` when absent |
+ * | `playlist` | `kind` | `'static'` or `'smart'`, or `null` when absent (W24-9) |
+ * | `playlist` | `brief` | the operator's brief, or `null` |
+ * | `playlist` | `agentNotes` | the agent's notes, or `null` |
+ * | `playlist` | `exclusions` | excluded track ids, ascending (`[]` when absent) |
  * | `playlistEntries` | `entries` | track ids in playing order (`[]` when absent: it has none) |
  * | `override` | an {@link OverrideField} | the staged correction, or `null` for none |
  * | `tagOverride` | a registry key | `{ value }` (value `null` is a staged clear), or `null` for none |
  * | `tags` | `labels` | `[{ key, label, source }]` sorted by key |
  *
- * A later card that journals a new kind of write (W24-9's smart-playlist fields)
- * adds its field here, with a test that a write and a read round-trip.
+ * A later card that journals a new kind of write adds its field here, with a
+ * test that a write and a read round-trip.
+ *
+ * Entries are restored with the `restore` actor (W24-9): exclusions are their
+ * own field, so putting entries back must not exclude or un-exclude anything.
+ * `refreshed_at` is not journaled — it records that an agent worked on the
+ * playlist, which a revert does not undo.
  */
 
 export type JournalValue =
@@ -71,7 +80,19 @@ export interface JournalEntity {
 
 export interface JournalEntityDeps {
   db: Database.Database
-  playlists: Pick<PlaylistService, 'rename' | 'delete' | 'reorder' | 'addTracks' | 'removeEntries'>
+  playlists: Pick<
+    PlaylistService,
+    | 'rename'
+    | 'delete'
+    | 'reorder'
+    | 'addTracks'
+    | 'removeEntries'
+    | 'setKind'
+    | 'setBrief'
+    | 'setAgentNotes'
+    | 'addExclusions'
+    | 'clearExclusions'
+  >
   library: Pick<
     LibraryService,
     'setOverrides' | 'clearOverrides' | 'setTagOverrides' | 'revertTagOverrides'
@@ -120,6 +141,12 @@ export function createJournalEntities(deps: JournalEntityDeps): JournalEntities 
   const { db } = deps
   const statements = {
     playlistName: db.prepare('SELECT name FROM playlists WHERE id = ?'),
+    smartFields: db.prepare(
+      'SELECT kind, brief, agent_notes AS agentNotes FROM playlists WHERE id = ?'
+    ),
+    exclusions: db.prepare(
+      'SELECT track_id AS id FROM playlist_exclusions WHERE playlist_id = ? ORDER BY track_id'
+    ),
     tabIds: db.prepare('SELECT id FROM playlists ORDER BY position ASC, id ASC'),
     entries: db.prepare(
       'SELECT id, track_id AS trackId FROM playlist_entries WHERE playlist_id = ? ORDER BY position ASC, id ASC'
@@ -146,6 +173,8 @@ export function createJournalEntities(deps: JournalEntityDeps): JournalEntities 
   const entryRows = (playlistId: number): Array<{ id: number; trackId: number }> =>
     statements.entries.all(playlistId) as Array<{ id: number; trackId: number }>
   const tagRows = (trackId: number): TagRow[] => statements.trackTags.all(trackId) as TagRow[]
+  const exclusionIds = (playlistId: number): number[] =>
+    (statements.exclusions.all(playlistId) as Array<{ id: number }>).map((row) => row.id)
 
   const playlist: JournalEntity = {
     kind: 'playlist',
@@ -161,6 +190,12 @@ export function createJournalEntities(deps: JournalEntityDeps): JournalEntities 
         )
         return index === -1 ? null : index
       }
+      if (field === 'kind' || field === 'brief' || field === 'agentNotes') {
+        const row = statements.smartFields.get(id) as
+          { kind: string; brief: string | null; agentNotes: string | null } | undefined
+        return row?.[field] ?? null
+      }
+      if (field === 'exclusions') return exclusionIds(id)
       throw new JournalFieldError(`"${field}" is not a journaled playlist field.`)
     },
     async write(id, field, value) {
@@ -183,6 +218,45 @@ export function createJournalEntities(deps: JournalEntityDeps): JournalEntities 
       if (field === 'position') {
         if (typeof value !== 'number') throw new JournalConflictError('The playlist is gone.')
         await deps.playlists.reorder(id, value)
+        return
+      }
+      if (field === 'kind') {
+        if (value === null) {
+          if (!playlistExists(id)) return
+          throw new JournalConflictError('The playlist exists, so it has a kind.')
+        }
+        if (value !== 'static' && value !== 'smart') {
+          throw new JournalFieldError('A kind is "static" or "smart".')
+        }
+        await deps.playlists.setKind(id, value)
+        return
+      }
+      if (field === 'brief' || field === 'agentNotes') {
+        if (value !== null && typeof value !== 'string') {
+          throw new JournalFieldError(`${field} is a string or null.`)
+        }
+        if (!playlistExists(id)) {
+          if (value === null) return
+          throw new JournalConflictError('The playlist is gone.')
+        }
+        await (field === 'brief'
+          ? deps.playlists.setBrief(id, value)
+          : deps.playlists.setAgentNotes(id, value))
+        return
+      }
+      if (field === 'exclusions') {
+        if (!Array.isArray(value)) throw new JournalFieldError('Exclusions are recorded as a list.')
+        const target = new Set(value as number[])
+        if (!playlistExists(id)) {
+          if (target.size === 0) return
+          throw new JournalConflictError('The playlist is gone.')
+        }
+        const current = new Set(exclusionIds(id))
+        const letIn = [...current].filter((trackId) => !target.has(trackId))
+        const keepOut = [...target].filter((trackId) => !current.has(trackId))
+        if (letIn.length > 0)
+          await deps.playlists.clearExclusions({ playlistId: id, trackIds: letIn })
+        if (keepOut.length > 0) await deps.playlists.addExclusions(id, keepOut, 'agent')
         return
       }
       throw new JournalFieldError(`"${field}" is not a journaled playlist field.`)
@@ -217,10 +291,16 @@ export function createJournalEntities(deps: JournalEntityDeps): JournalEntities 
         keep += 1
       }
       const drop = current.slice(keep).map((row) => row.id)
-      if (drop.length > 0) await deps.playlists.removeEntries({ playlistId: id, entryIds: drop })
+      const restore = { actor: 'restore' } as const
+      if (drop.length > 0) {
+        await deps.playlists.removeEntries({ playlistId: id, entryIds: drop }, restore)
+      }
       const add = target.slice(keep)
       if (add.length > 0) {
-        await deps.playlists.addTracks({ playlistId: id, trackIds: add, insertion: { at: 'end' } })
+        await deps.playlists.addTracks(
+          { playlistId: id, trackIds: add, insertion: { at: 'end' } },
+          restore
+        )
       }
     }
   }
