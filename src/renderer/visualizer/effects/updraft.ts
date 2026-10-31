@@ -1,6 +1,7 @@
 import type { AnalysisFrame } from '../analysisFrame'
 import { PaletteSlot, type Palette } from '../palette'
 import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
+import { createDrive } from './drive'
 
 /**
  * **Updraft** — W23-7: a few hundred motes drifting on a slowly changing swirl
@@ -11,11 +12,12 @@ import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2
  *
  * - **The air** is the curl of a sum-of-sines stream function that drifts in
  *   time ({@link flowVelocity}): divergence-free, so motes swirl and never
- *   bunch into sinks, and analytic, so it costs a few `sin`s per mote. A gentle
- *   constant rise is the updraft.
- * - **The music**: the level sets how fast the air moves; the bass stirs a
- *   vortex round the centre; an onset puffs every mote outward from it, a
- *   push that decays rather than a jump.
+ *   bunch into sinks, and analytic, so it costs a few `sin`s per mote.
+ * - **The music**: the level and the heat set how fast the air moves; the
+ *   bass stirs a vortex round the centre; every beat bursts the motes outward
+ *   from it (the drive's pulse, so a push that decays rather than a jump) and
+ *   thickens and brightens the trails. The brightness (pitch) sets the draft:
+ *   a bright passage rises, a bass-heavy one sinks.
  * - **The trails** are a ring of positions every mote shares, laid at a fixed
  *   {@link TRAIL_STEP_SEC} of clamped time, drawn as segments bucketed by age —
  *   one stroke per age per colour, faint at the tail, bright at the mote.
@@ -28,22 +30,29 @@ import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2
 
 /** Positions are in units of the stage's shorter side, from its centre. */
 const FLOW_SPEED = 0.05
-const RISE = 0.025
-const LEVEL_SPEED = 1.4
-const BASE_SPEED = 0.55
+/** The draft (units/s upward) at the darkest spectrum and added at the brightest: bass sinks, treble rises. */
+const RISE_FLOOR = -0.04
+const RISE_BRIGHTNESS = 0.2
+const LEVEL_SPEED = 3.5
+const BASE_SPEED = 0.45
+/** The heat multiplies every speed by up to this much more. */
+const HEAT_SPEED = 1.5
 /** The bass vortex: tangential speed at full bass, and the core radius that keeps it finite. */
-const VORTEX = 0.09
+const VORTEX = 0.3
 const VORTEX_CORE = 0.12
-/** The onset puff: outward speed at full strength, and its decay. */
-const PUFF = 0.35
-const PUFF_TAU_SEC = 0.3
+/** The beat's puff: outward speed at a full pulse. */
+const PUFF = 1.1
 const ENERGY_TAU_SEC = 0.25
 /** How far past the edge a mote may drift before it is reborn. */
 const MARGIN = 0.08
 const MAX_STEP_SEC = 1 / 60
 const TRAIL_STEP_SEC = 1 / 24
 const TRAIL = 16
-const TRAIL_ALPHA = 0.6
+const TRAIL_ALPHA = 0.5
+/** The heat and the beat brighten the trails; the beat thickens them. */
+const HEAT_ALPHA = 0.35
+const PULSE_ALPHA = 0.35
+const PULSE_WIDTH = 2
 /** One mote in this many is drawn in `--ui-text-highlighted`, the rest in `--ui-primary`. */
 const HIGHLIGHT_EVERY = 3
 
@@ -84,7 +93,10 @@ export function createUpdraft<I>(
   let head = 0
   let level = 0
   let bass = 0
-  let puff = 0
+  let heat = 0
+  let pulse = 0
+  let rise = 0
+  const drive = createDrive()
 
   function random(): number {
     seed ^= seed << 13
@@ -108,18 +120,18 @@ export function createUpdraft<I>(
   for (let mote = 0; mote < motes; mote++) rebirth(mote)
 
   function advance(dtSec: number): void {
-    const speed = BASE_SPEED + level * LEVEL_SPEED
+    const speed = (BASE_SPEED + level * LEVEL_SPEED) * (1 + heat * HEAT_SPEED)
     for (let mote = 0; mote < motes; mote++) {
       const x = posX[mote]
       const y = posY[mote]
       flowVelocity(x, y, time, velocity)
       let vx = velocity[0] * speed
-      let vy = velocity[1] * speed - RISE
+      let vy = velocity[1] * speed - rise
       const r = Math.sqrt(x * x + y * y)
       if (r > 1e-4) {
         // Tangential round the centre (bass), radial out from it (onsets).
         const swirl = (VORTEX * bass) / (r + VORTEX_CORE)
-        const push = PUFF * puff
+        const push = PUFF * pulse
         vx += (-y / r) * swirl + (x / r) * push
         vy += (x / r) * swirl + (y / r) * push
       }
@@ -184,8 +196,10 @@ export function createUpdraft<I>(
       const energyFollow = follow(dt, ENERGY_TAU_SEC)
       level += (audio.level - level) * energyFollow
       bass += (audio.bass - bass) * energyFollow
-      puff += (0 - puff) * follow(dt, PUFF_TAU_SEC)
-      if (audio.onset > puff) puff = audio.onset
+      drive.update(audio, dt)
+      pulse = drive.pulse
+      heat = drive.heat
+      rise = RISE_FLOOR + drive.brightness * RISE_BRIGHTNESS
       const steps = Math.ceil(dt / MAX_STEP_SEC)
       for (let n = 0; n < steps; n++) {
         advance(dt / steps)
@@ -204,11 +218,13 @@ export function createUpdraft<I>(
       ctx.globalCompositeOperation = 'source-over'
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
-      ctx.lineWidth = Math.max(1, unit * 0.0025)
+      ctx.lineWidth = Math.max(1, unit * 0.0025 * (1 + pulse * PULSE_WIDTH))
+      const glow = Math.min(1.6, 1 + heat * HEAT_ALPHA + pulse * PULSE_ALPHA)
 
       for (let age = 0; age < TRAIL; age++) {
         const strength = (age + 1) / TRAIL
-        ctx.globalAlpha = strength * Math.sqrt(strength) * TRAIL_ALPHA * intensity
+        ctx.globalAlpha =
+          Math.min(1, strength * Math.sqrt(strength) * TRAIL_ALPHA * glow) * intensity
         ctx.strokeStyle = palette.css[PaletteSlot.accent]
         segments(age, false, cx, cy, unit)
         ctx.stroke()

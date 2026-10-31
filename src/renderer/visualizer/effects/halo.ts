@@ -11,6 +11,7 @@ import {
   type Quality2D,
   type Stage2D
 } from './draw2d'
+import { createDrive } from './drive'
 
 /**
  * **Halo** — W23-7, D35.9: a radial spectrum ringing a disc of the cover,
@@ -23,13 +24,16 @@ import {
  * - **The disc** is the cover, object-cover into a circle at the centre. During
  *   a track change it is the previous and current covers added at `1 − mix` and
  *   `mix` (the wash pass's exact-lerp trick), so the disc crossfades with the
- *   wash under it. It breathes with the bass and swells a little on an onset.
+ *   wash under it. It breathes with the bass and swells hard on every beat.
  * - **The ring** is the 64 bands mirrored left and right around the disc, so
  *   the low end sits at the top and the bottom and the picture is symmetric, as
- *   spokes in `--ui-primary`. Behind it a slower echo of the same spectrum is
- *   traced as a closed outline in `--ui-text-highlighted`. The whole ring turns
- *   slowly.
- * - **On an onset** a thin ring leaves the disc's rim and fades as it widens.
+ *   spokes in `--ui-primary`. Their reach follows the level and leaps on the
+ *   beat (the spectrum is auto-gained, so loudness is put back here), and they
+ *   thicken on the beat. Behind them a slower echo of the same spectrum is
+ *   traced as a closed outline in `--ui-text-highlighted`, brighter as the
+ *   song heats up. The whole ring turns slowly at rest and much faster hot.
+ * - **On each onset** a ring leaves the disc's rim and fades as it widens; up
+ *   to {@link RINGS} are in flight at once, living longer as the heat rises.
  *   The onset is already envelope-shaped by the guard, so it cannot jump.
  *
  * Every colour is a palette slot or the cover; nothing is allocated per frame
@@ -42,29 +46,41 @@ const TAU = Math.PI * 2
 /** The disc's radius, as a fraction of the stage's shorter side. */
 const DISC_RADIUS = 0.15
 /** How far the bass and an onset swell the disc. */
-const BASS_SWELL = 0.05
-const ONSET_SWELL = 0.07
+const BASS_SWELL = 0.14
+const ONSET_SWELL = 0.22
 /** The disc's opacity: it is the cover, but it sits in a composition, not a gallery. */
 const DISC_ALPHA = 0.92
 const RIM_ALPHA = 0.55
 /** Gap between the rim and the spokes, and the loudest spoke's length, as fractions of the shorter side. */
 const SPOKE_GAP = 0.018
-const SPOKE_REACH = 0.24
+const SPOKE_REACH = 0.28
+/** The spokes' reach: this much at silence, plus the level's and the beat's and the heat's share. */
+const REACH_FLOOR = 0.55
+const LEVEL_REACH = 0.6
+const PULSE_REACH = 0.45
+const HEAT_REACH = 0.2
+/** A beat thickens the spokes; the heat brightens the echo and spins the ring. */
+const PULSE_WIDTH = 0.8
+const HEAT_ECHO = 0.8
+const HEAT_TURN = 8
 /** A spoke's width as a fraction of its slot on the rim. */
 const SPOKE_FILL = 0.55
 const SPOKE_ALPHA = 0.88
 /** The slow echo: how long it takes to let go, and how strongly it is drawn. */
 const ECHO_RELEASE_SEC = 0.7
 const ECHO_ALPHA = 0.35
-/** Radians per second the ring turns. One turn every ~2 minutes. */
+/** Radians per second the ring turns at rest: one turn every ~2 minutes. */
 const TURN_SPEED = 0.05
 /** The onset swell's decay. */
-const PULSE_TAU_SEC = 0.18
 /** The onset ring: below this strength none starts; it travels this far (× shorter side) over its life. */
 const RING_MIN_ONSET = 0.15
 const RING_LIFE_SEC = 0.9
-const RING_TRAVEL = 0.32
-const RING_ALPHA = 0.5
+/** At full heat the onset rings live this much longer. */
+const HEAT_RING_LIFE = 1
+const RING_TRAVEL = 0.5
+const RING_ALPHA = 0.6
+/** Onset rings in flight at once. */
+const RINGS = 4
 /** Bands under this draw no spoke. */
 const DRAW_FLOOR = 0.004
 
@@ -92,9 +108,10 @@ export function createHalo<I>(
   let width = 0
   let height = 0
   let turn = 0
-  let pulse = 0
-  let ringAge = RING_LIFE_SEC
-  let ringStrength = 0
+  const drive = createDrive()
+  const ringAges = new Float32Array(RINGS).fill(Infinity)
+  const ringStrengths = new Float32Array(RINGS)
+  let youngest = 0
 
   function drawDisc(cover: Cover2D<I>, cx: number, cy: number, r: number, alpha: number): void {
     const previous = cover.previous
@@ -146,19 +163,29 @@ export function createHalo<I>(
       ctx.clearRect(0, 0, width, height)
 
       // State first, so it advances whether or not there is a surface to draw on.
-      turn = (turn + TURN_SPEED * dtSec) % TAU
+      drive.update(audio, dtSec)
+      const pulse = drive.pulse
+      const heat = drive.heat
+      turn = (turn + TURN_SPEED * (1 + heat * HEAT_TURN) * dtSec) % TAU
       const release = follow(dtSec, ECHO_RELEASE_SEC)
       for (let band = 0; band < ANALYSIS_BANDS; band++) {
         const value = audio.spectrum[band]
         echo[band] = value > echo[band] ? value : echo[band] + (value - echo[band]) * release
       }
-      pulse += (0 - pulse) * follow(dtSec, PULSE_TAU_SEC)
-      if (audio.onset > pulse) pulse = audio.onset
-      ringAge += dtSec
-      const ringLeft = ringAge < RING_LIFE_SEC ? ringStrength * (1 - ringAge / RING_LIFE_SEC) : 0
-      if (audio.onset >= RING_MIN_ONSET && audio.onset > ringLeft) {
-        ringAge = 0
-        ringStrength = audio.onset
+      const ringLife = RING_LIFE_SEC * (1 + heat * HEAT_RING_LIFE)
+      for (let n = 0; n < RINGS; n++) ringAges[n] += dtSec
+      // A new ring only when this onset beats what the youngest still carries,
+      // so one envelope-shaped onset ramping over a few frames launches one ring.
+      const left =
+        ringAges[youngest] < ringLife
+          ? ringStrengths[youngest] * (1 - ringAges[youngest] / ringLife)
+          : 0
+      if (audio.onset >= RING_MIN_ONSET && audio.onset > left) {
+        let slot = 0
+        for (let n = 1; n < RINGS; n++) if (ringAges[n] > ringAges[slot]) slot = n
+        ringAges[slot] = 0
+        ringStrengths[slot] = audio.onset
+        youngest = slot
       }
       if (width <= 0 || height <= 0) return
 
@@ -166,7 +193,7 @@ export function createHalo<I>(
       const short = width < height ? width : height
       const cx = width / 2
       const cy = height / 2
-      const swell = 1 + audio.bass * BASS_SWELL + pulse * ONSET_SWELL * intensity
+      const swell = 1 + audio.bass * BASS_SWELL + pulse * ONSET_SWELL
       const r = short * DISC_RADIUS * swell
 
       if (stage.cover) drawDisc(stage.cover, cx, cy, r, DISC_ALPHA * intensity)
@@ -184,13 +211,16 @@ export function createHalo<I>(
       ctx.stroke()
 
       const inner = r + short * SPOKE_GAP
-      const reach = short * SPOKE_REACH
+      const reach =
+        short *
+        SPOKE_REACH *
+        (REACH_FLOOR + audio.level * LEVEL_REACH + pulse * PULSE_REACH + heat * HEAT_REACH)
       const turnCos = Math.cos(turn)
       const turnSin = Math.sin(turn)
 
       // The echo, behind the spokes: one closed outline.
       if (drawEcho) {
-        ctx.globalAlpha = ECHO_ALPHA * intensity
+        ctx.globalAlpha = Math.min(1, ECHO_ALPHA * (1 + heat * HEAT_ECHO)) * intensity
         ctx.strokeStyle = palette.css[PaletteSlot.textHighlighted]
         ctx.lineWidth = Math.max(1, short * 0.002)
         ctx.beginPath()
@@ -208,7 +238,7 @@ export function createHalo<I>(
       // The spokes: one path, one stroke.
       ctx.globalAlpha = SPOKE_ALPHA * intensity
       ctx.strokeStyle = palette.css[PaletteSlot.accent]
-      ctx.lineWidth = Math.max(1, ((TAU * inner) / SPOKES) * SPOKE_FILL)
+      ctx.lineWidth = Math.max(1, ((TAU * inner) / SPOKES) * SPOKE_FILL * (1 + pulse * PULSE_WIDTH))
       ctx.beginPath()
       for (let spoke = 0; spoke < SPOKES; spoke++) {
         const value = audio.spectrum[bandOf[spoke]]
@@ -221,18 +251,18 @@ export function createHalo<I>(
       }
       ctx.stroke()
 
-      // The onset ring.
-      if (ringAge < RING_LIFE_SEC) {
-        const progress = ringAge / RING_LIFE_SEC
-        const alpha = ringStrength * (1 - progress) * (1 - progress) * RING_ALPHA * intensity
-        if (alpha > 0.002) {
-          ctx.globalAlpha = alpha
-          ctx.strokeStyle = palette.css[PaletteSlot.textHighlighted]
-          ctx.lineWidth = Math.max(1, short * 0.004 * (1 - progress))
-          ctx.beginPath()
-          ctx.arc(cx, cy, r + progress * short * RING_TRAVEL, 0, TAU)
-          ctx.stroke()
-        }
+      // The onset rings.
+      ctx.strokeStyle = palette.css[PaletteSlot.textHighlighted]
+      for (let n = 0; n < RINGS; n++) {
+        if (!(ringAges[n] < ringLife)) continue
+        const progress = ringAges[n] / ringLife
+        const alpha = ringStrengths[n] * (1 - progress) * (1 - progress) * RING_ALPHA * intensity
+        if (alpha <= 0.002) continue
+        ctx.globalAlpha = alpha
+        ctx.lineWidth = Math.max(1, short * 0.006 * ringStrengths[n] * (1 - progress))
+        ctx.beginPath()
+        ctx.arc(cx, cy, r + progress * short * RING_TRAVEL, 0, TAU)
+        ctx.stroke()
       }
 
       ctx.globalAlpha = 1

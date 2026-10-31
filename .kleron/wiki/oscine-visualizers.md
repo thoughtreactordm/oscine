@@ -350,7 +350,7 @@ which no 2004 visualizer had. Working names follow the songbird motif and can ch
 | **Bars** | 2D | overlay | mirrored log-spectrum bars with falling peak caps, rising from a centre line | — |
 | **Halo** | 2D | overlay | a radial spectrum ringing a disc of the cover, pulsing on onsets | cover |
 | **Trace** | 2D | overlay | the waveform as a slow-drifting ribbon with fading afterimages | — |
-| **Whorl** | 2D | overlay | the waveform as a closed ring whose afterimages expand and turn outward into a fading spiral; bass sets the spin | — |
+| **Whorl** | 2D | overlay | the waveform as a closed ring leaving a tunnel of past rings that rush outward and twist; as the song heats up the tunnel speeds up and its rings live for seconds, and beats surge it and leave bright rings | — |
 | **Silk** | 2D | overlay | a few threads drawn by pendulum pens whose rates drift with bass, mid and treble, trailing long fading tails as the figures loop and re-form | — |
 | **Updraft** | 2D | overlay | a few hundred motes on a slowly drifting divergence-free flow field, trailing smoke; level sets speed, bass stirs a vortex, onsets puff them outward | — |
 | **Gyre** | 2D | overlay | the spectrum as paired arcs orbiting on concentric rings, arc length by level, neighbours counter-rotating, motion-blur tails | — |
@@ -374,7 +374,10 @@ onset waves — it read as hokey both times, and the operator cut it. No 2D effe
 the host's `grow` path (W23-5) stays, and is first exercised by Drift (W23-9). In its place
 W23-7 added four line-and-trail effects in Trace's vein — **Whorl**, **Silk**, **Updraft** and
 **Gyre** — all keeping their history as preallocated rings redrawn by age (never a canvas faded
-into itself, which leaves 8-bit ghosts and fades at the frame rate).
+into itself, which leaves 8-bit ghosts and fades at the frame rate). All six non-Bars 2D effects
+read a shared **drive** (`effects/drive.ts`) that puts back the dynamics the normalised analysis
+frame removes: a beat `pulse`, a section `heat` (loudness, onset rate and a climbing level,
+followed over seconds) and a `brightness` (spectral centroid, a stand-in for pitch).
 
 Effects that don't need the cover (`needs.cover` unset) don't get the texture, and with the
 default `washUnder` they still sit on the wash, so the cover's colour field shows through

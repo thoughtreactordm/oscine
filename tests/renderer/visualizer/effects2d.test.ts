@@ -7,6 +7,7 @@ import type {
   Quality2D
 } from '../../../src/renderer/visualizer/effects/draw2d'
 import { createHalo } from '../../../src/renderer/visualizer/effects/halo'
+import { createDrive, spectralCentroid } from '../../../src/renderer/visualizer/effects/drive'
 import { createGyre, ringLevel } from '../../../src/renderer/visualizer/effects/gyre'
 import { createSilk } from '../../../src/renderer/visualizer/effects/silk'
 import { createTrace } from '../../../src/renderer/visualizer/effects/trace'
@@ -380,6 +381,13 @@ function steadyPaths(core: Core, dt: number, frames: number): number[][] {
   return ctx.ops.flatMap((op) => (op.kind === 'stroke' || op.kind === 'fill' ? [op.path] : []))
 }
 
+/**
+ * Paths agree to half a pixel. The drive's followers chase a target that moves
+ * within a frame, which differs at the sub-pixel level between frame rates;
+ * a step-count or per-frame-smoothing bug shows as pixels (Silk's was 1.4).
+ */
+const SAME_PATH_PX = 0.5
+
 function expectSamePaths(slow: number[][], fast: number[][], tolerance: number): void {
   expect(fast).toHaveLength(slow.length)
   let worst = 0
@@ -410,7 +418,7 @@ describe('Gyre', () => {
     expectSamePaths(
       steadyPaths(createGyre, 1 / 40, 81),
       steadyPaths(createGyre, 1 / 120, 243),
-      1e-3
+      SAME_PATH_PX
     )
   })
 })
@@ -421,7 +429,7 @@ describe('Silk', () => {
     expectSamePaths(
       steadyPaths(createSilk, 1 / 40, 81),
       steadyPaths(createSilk, 1 / 120, 243),
-      1e-3
+      SAME_PATH_PX
     )
   })
 })
@@ -461,5 +469,125 @@ describe('Updraft', () => {
         expect(op.path[k + 1]).toBeLessThan(1200 + 0.1 * 800)
       }
     }
+  })
+})
+
+/** A frame for a section: loud and busy (an onset every `beatSec`) or quiet. */
+function section(frame: MutableFrame, timeSec: number, dt: number, loud: boolean): void {
+  animate(frame, timeSec, dt)
+  if (loud) {
+    frame.level = 0.85
+    frame.onset = timeSec % 0.25 < dt ? 1 : 0
+  } else {
+    frame.level = 0.2
+    frame.onset = 0
+    for (let index = 0; index < frame.waveform.length; index++) frame.waveform[index] *= 0.2
+  }
+}
+
+describe('the drive', () => {
+  it('jumps on a beat and lets go', () => {
+    const drive = createDrive()
+    const frame = makeFrame()
+    frame.silent = false
+    frame.onset = 0.8
+    drive.update(frame, 1 / 60)
+    expect(drive.pulse).toBeCloseTo(0.8)
+    frame.onset = 0
+    for (let n = 0; n < 60; n++) drive.update(frame, 1 / 60)
+    expect(drive.pulse).toBeLessThan(0.02)
+  })
+
+  it('heats up through a loud, busy section and cools in a quiet one', () => {
+    const drive = createDrive()
+    const frame = makeFrame()
+    let time = 0
+    for (let n = 0; n < 6 * 60; n++) {
+      time += 1 / 60
+      section(frame, time, 1 / 60, true)
+      drive.update(frame, 1 / 60)
+    }
+    const hot = drive.heat
+    expect(hot).toBeGreaterThan(0.6)
+    for (let n = 0; n < 10 * 60; n++) {
+      time += 1 / 60
+      section(frame, time, 1 / 60, false)
+      drive.update(frame, 1 / 60)
+    }
+    expect(drive.heat).toBeLessThan(hot * 0.3)
+  })
+
+  it('heats the same whatever the frame rate', () => {
+    function heatAt(dt: number): number {
+      const drive = createDrive()
+      const frame = makeFrame()
+      const frames = Math.round(4 / dt)
+      for (let n = 0; n < frames; n++) {
+        section(frame, (n + 1) * dt, dt, true)
+        drive.update(frame, dt)
+      }
+      return drive.heat
+    }
+    expect(heatAt(1 / 120)).toBeCloseTo(heatAt(1 / 30), 1)
+  })
+
+  it('reads a bright spectrum as high and a dark one as low', () => {
+    const dark = new Float32Array(ANALYSIS_BANDS)
+    const bright = new Float32Array(ANALYSIS_BANDS)
+    for (let band = 0; band < ANALYSIS_BANDS; band++) {
+      dark[band] = band < 10 ? 1 : 0
+      bright[band] = band > 50 ? 1 : 0
+    }
+    expect(spectralCentroid(dark)).toBeLessThan(0.15)
+    expect(spectralCentroid(bright)).toBeGreaterThan(0.8)
+    expect(spectralCentroid(new Float32Array(ANALYSIS_BANDS))).toBe(0.5)
+  })
+})
+
+describe('oomph', () => {
+  /** How many strokes the effect draws in its last frame after `seconds` of a section. */
+  function strokesAfter(core: Core, loud: boolean, seconds: number): number {
+    const ctx = new RecordingContext()
+    const effect = core(ctx, 'auto')
+    effect.resize(1280, 720)
+    const frame = makeFrame()
+    let time = 0
+    for (let n = 0; n < seconds * 60; n++) {
+      time += 1 / 60
+      section(frame, time, 1 / 60, loud)
+      ctx.ops = []
+      effect.frame(frame, makePalette(), makeStage(), 1 / 60)
+    }
+    return ctx.ops.filter((op) => op.kind === 'stroke').length
+  }
+
+  it('Whorl builds a long tunnel as the song picks up', () => {
+    const quiet = strokesAfter(createWhorl, false, 6)
+    const loud = strokesAfter(createWhorl, true, 6)
+    expect(loud).toBeGreaterThan(quiet * 2.5)
+    expect(loud).toBeGreaterThan(25)
+  })
+
+  it('Trace draws a loud passage bigger than a quiet one', () => {
+    function extent(loud: boolean): number {
+      const ctx = new RecordingContext()
+      const trace = createTrace(ctx, 'auto')
+      trace.resize(1280, 720)
+      const frame = makeFrame()
+      let time = 0
+      for (let n = 0; n < 120; n++) {
+        time += 1 / 60
+        section(frame, time, 1 / 60, loud)
+        frame.onset = 0
+        ctx.ops = []
+        trace.frame(frame, makePalette(), makeStage(), 1 / 60)
+      }
+      // The live ribbon is the last stroke.
+      const live = ctx.ops.filter((op) => op.kind === 'stroke').at(-1)
+      if (!live || live.kind !== 'stroke') throw new Error('nothing drawn')
+      const ys = live.path.filter((_, index) => index % 2 === 1)
+      return Math.max(...ys) - Math.min(...ys)
+    }
+    expect(extent(true)).toBeGreaterThan(extent(false) * 2)
   })
 })
