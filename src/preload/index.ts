@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { IpcResult } from '@shared/errors'
+import type { AgentAccessStatus } from '@shared/agentAccess'
 import type {
   IpcChannel,
   IpcEventChannel,
@@ -603,6 +604,17 @@ const api = {
      * of third-party content.
      */
     links: (artistId: number) => request('artist.links', { artistId })
+  },
+  agentAccess: {
+    /** Local MCP server status (W24-2). Never carries the token. */
+    status: () => request('agentAccess.status', null),
+    retry: () => request('agentAccess.retry', null),
+    /** The bearer token, on explicit request only. */
+    revealToken: () => request('agentAccess.revealToken', null),
+    regenerateToken: () => request('agentAccess.regenerateToken', null),
+    /** Returns an unsubscribe function. Call it on unmount. */
+    onChanged: (listener: (status: AgentAccessStatus) => void) =>
+      subscribe('agentAccess.changed', listener)
   }
 } as const
 

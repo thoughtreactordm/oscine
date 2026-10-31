@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { join } from 'node:path'
 import {
+  AGENT_TOKEN_ARTIFACT,
   ARTWORK_CACHE_ARTIFACT,
   ARTWORK_ORIGINALS_ARTIFACT,
   CACHE_DATABASE_ARTIFACT,
@@ -21,6 +22,7 @@ export const ARTWORK_ORIGINALS_DIRECTORY = ARTWORK_ORIGINALS_ARTIFACT.name
 export const PODCASTS_DIRECTORY = PODCASTS_ARTIFACT.name
 export const SCROBBLE_CREDENTIALS_FILENAME = SCROBBLE_CREDENTIALS_ARTIFACT.name
 export const THEMES_DIRECTORY = THEMES_ARTIFACT.name
+export const AGENT_TOKEN_FILENAME = AGENT_TOKEN_ARTIFACT.name
 
 /**
  * Where the library lives on this machine.
@@ -84,6 +86,15 @@ export function podcastsDirectoryPath(): string {
  */
 export function scrobbleCredentialsPath(): string {
   return join(app.getPath('userData'), SCROBBLE_CREDENTIALS_FILENAME)
+}
+
+/**
+ * The agent server's bearer token (W24-2), sealed by `safeStorage`. A file of
+ * its own for `scrobbleCredentialsPath`'s reasons: never a settings row, so
+ * never in a profile, a bundle or a `SELECT *`.
+ */
+export function agentTokenPath(): string {
+  return join(app.getPath('userData'), AGENT_TOKEN_FILENAME)
 }
 
 /**

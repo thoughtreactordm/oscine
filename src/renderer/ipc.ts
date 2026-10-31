@@ -1,4 +1,5 @@
 import { OscineError, type IpcResult } from '@shared/errors'
+import type { AgentAccessStatus } from '@shared/agentAccess'
 import type {
   ListFacetIdsQuery,
   ListFacetsQuery,
@@ -465,6 +466,21 @@ export const scrobble = {
   /** Returns an unsubscribe function. Call it on unmount. */
   onStatusChanged: (listener: (targets: ScrobbleTargetStatus[]) => void) =>
     window.oscine.scrobble.onStatusChanged(listener)
+}
+
+/**
+ * Agent access — the local MCP server's status, its token on request, and the
+ * two operator actions on it (W24-2). The switches themselves are ordinary
+ * settings writes.
+ */
+export const agentAccess = {
+  status: () => unwrap(window.oscine.agentAccess.status()),
+  retry: () => unwrap(window.oscine.agentAccess.retry()),
+  revealToken: () => unwrap(window.oscine.agentAccess.revealToken()),
+  regenerateToken: () => unwrap(window.oscine.agentAccess.regenerateToken()),
+  /** Returns an unsubscribe function. Call it on unmount. */
+  onChanged: (listener: (status: AgentAccessStatus) => void) =>
+    window.oscine.agentAccess.onChanged(listener)
 }
 
 /**

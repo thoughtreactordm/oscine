@@ -13,7 +13,8 @@ import {
   libraryDatabasePath,
   podcastsDirectoryPath,
   scrobbleCredentialsPath,
-  themesDirectoryPath
+  themesDirectoryPath,
+  agentTokenPath
 } from './db/location'
 import { SqlitePlayHistoryService } from './history/service'
 import { SqliteListenService } from './listens/service'
@@ -84,6 +85,7 @@ import type { EpisodeDownloadProgress } from '@shared/podcasts'
 import type { ScrobbleTarget } from '@shared/scrobble'
 import { detectUpdateChannel, updateChannelCanSelfUpdate, type UpdateStatus } from '@shared/update'
 import type { NoctaliaStatus } from '@shared/theme'
+import type { AgentAccessStatus } from '@shared/agentAccess'
 import {
   AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
   DISCORD_DISPLAY,
@@ -98,7 +100,8 @@ import {
   type DiscordWhenPaused,
   type SettingsChange
 } from '@shared/settings'
-import { devAgentServerConfig, startAgentServer } from './mcp'
+import { createAgentAccessService, type AgentAccessService } from './mcp/agentAccess'
+import { createAgentTokenStore } from './mcp/tokenStore'
 
 const isDev = !app.isPackaged
 const rendererDir = join(__dirname, '../renderer')
@@ -325,6 +328,16 @@ let presenceService: PresenceService | null = null
  */
 let noctaliaSync: NoctaliaSync | null = null
 
+/**
+ * And agent access (W24-2): `mcp.*` writes start, stop and re-gate the server
+ * live, and the settings service that reports them is constructed first.
+ */
+let agentAccessService: AgentAccessService | null = null
+
+function broadcastAgentAccess(status: AgentAccessStatus): void {
+  if (mainWindow) emit(mainWindow.webContents, 'agentAccess.changed', status)
+}
+
 function broadcastScrobbleStatus(): void {
   if (!mainWindow || !scrobbleStatus) return
   emit(mainWindow.webContents, 'scrobble.statusChanged', [...scrobbleStatus.status().targets])
@@ -542,6 +555,9 @@ if (!app.requestSingleInstanceLock()) {
         // waiting for the next track (W20-4). Harmless until W20-3 registers the
         // descriptors — no `discord.*` change can fire before then.
         presenceService?.onSettingsChanged(changes)
+        // `mcp.enabled`/`mcp.port` start or stop the listener; a capability
+        // switch re-gates every open session's tools (W24-2).
+        agentAccessService?.onSettingsChanged(changes)
       }
     })
 
@@ -825,14 +841,22 @@ if (!app.requestSingleInstanceLock()) {
       canComputeReplayGain: () => settings.get<boolean>(AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING.key)
     })
 
-    // W24-1: the agent server spike (oscine-mcp → D36.1). Dev builds only, and
-    // only with OSCINE_MCP_DEV=1 — its token is a fixed dev constant, so a
-    // packaged build must never listen with it. W24-2 replaces the flag with
-    // `mcp.enabled` and a generated token.
-    const agentConfig = isDev ? devAgentServerConfig(process.env) : null
-    const agentServer = agentConfig
-      ? startAgentServer(agentConfig, { library }, app.getVersion())
-      : null
+    // Agent access (oscine-mcp → D36.1, W24-2). Off by default, and nothing
+    // listens while `mcp.enabled` is off: the first sync below is a no-op then.
+    // The token is sealed with `safeStorage` like D19's credentials, in a file
+    // of its own, and is only touched once the operator has turned access on.
+    const agentAccess = createAgentAccessService({
+      settings,
+      tokens: createAgentTokenStore({
+        sealer: safeStorage,
+        io: createCredentialFileIo(agentTokenPath())
+      }),
+      tools: { library },
+      version: app.getVersion(),
+      onStatusChanged: broadcastAgentAccess
+    })
+    agentAccessService = agentAccess
+    void agentAccess.sync()
 
     // Its own service on the same connection: playlists own two tables the
     // library layer never touches, and the library owns the rest.
@@ -1044,7 +1068,7 @@ if (!app.requestSingleInstanceLock()) {
       presence.stop()
       noctalia.stop()
       // No agent call may start against a database that is about to close.
-      void agentServer?.close()
+      void agentAccess.stop()
 
       // First of the awaited steps, because it is the only one that needs the
       // renderer alive and
@@ -1112,7 +1136,8 @@ if (!app.requestSingleInstanceLock()) {
       // W20-4: presence's main-side sink — the service that maps the signal to a
       // Discord activity and drives the client, in place of W20-1's no-op stub.
       presence,
-      noctalia
+      noctalia,
+      agentAccess
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

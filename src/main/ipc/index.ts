@@ -24,6 +24,8 @@ import type { SearchService } from '../search/service'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
 import type { NoctaliaSync } from '../theme/noctalia'
+import type { AgentAccessService } from '../mcp/agentAccess'
+import { CredentialSealingUnavailableError } from '../scrobble/credentials'
 import type { ThemeFileService } from '../theme/service'
 import type { StatsService } from '../stats/service'
 import type { TagStore } from '../tags/store'
@@ -149,7 +151,8 @@ export function registerIpcHandlers(
   pickRipDestination: () => Promise<string | null>,
   coverSearch: CoverSearchService,
   presence: PresenceSink,
-  noctalia: NoctaliaSync
+  noctalia: NoctaliaSync,
+  agentAccess: AgentAccessService
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -866,6 +869,22 @@ export function registerIpcHandlers(
     rip,
     pickDestination: pickRipDestination,
     listRoots: () => library.listRoots()
+  })
+
+  // W24-2: agent access. The switches are settings writes; these are the parts
+  // that are not stored values — status, the token, and the two actions on them.
+  handle('agentAccess.status', () => agentAccess.status())
+  handle('agentAccess.retry', () => agentAccess.sync())
+  handle('agentAccess.revealToken', () => agentAccess.revealToken())
+  handle('agentAccess.regenerateToken', async () => {
+    try {
+      return await agentAccess.regenerateToken()
+    } catch (error) {
+      if (error instanceof CredentialSealingUnavailableError) {
+        throw new OscineError('io-error', error.message)
+      }
+      throw error
+    }
   })
 
   assertEveryChannelHandled()

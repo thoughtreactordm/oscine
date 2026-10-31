@@ -169,6 +169,7 @@ import type { OverrideEditState, OverrideField, OverridePatch } from './override
 import type { TagFieldEditState, TagFieldKey, TagFieldPatch } from './tagFields'
 import type { ArtworkRef, CoverArtCandidate } from './artwork'
 import type { InstalledTheme, NoctaliaSetupResult, NoctaliaStatus, NoctaliaVersion } from './theme'
+import type { AgentAccessStatus } from './agentAccess'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -1409,6 +1410,23 @@ export interface IpcContract {
     request: GetArtistLinksRequest
     response: ArtistLinksResult
   }
+
+  /**
+   * Agent access (W24-2, `oscine-mcp` → D36.1/D36.10): whether the local MCP
+   * server is listening, why not, and who is connected. Never carries the
+   * token. Followed by `agentAccess.changed`.
+   */
+  'agentAccess.status': { request: null; response: AgentAccessStatus }
+  /** Try to listen again — after the operator freed the port, say. */
+  'agentAccess.retry': { request: null; response: AgentAccessStatus }
+  /**
+   * The bearer token, for the operator to copy into an agent's config. Its own
+   * channel so it is sent only when the section asks, never broadcast. Null
+   * while access is off or before a token exists.
+   */
+  'agentAccess.revealToken': { request: null; response: string | null }
+  /** Replace the token and end every open session (D36.1). */
+  'agentAccess.regenerateToken': { request: null; response: AgentAccessStatus }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -1485,6 +1503,12 @@ export interface IpcEventContract {
    * theme hydrates from `theme.noctaliaStatus` then follows this.
    */
   'theme.noctaliaChanged': NoctaliaStatus
+  /**
+   * Agent access moved — the listener started, stopped or failed, a session
+   * opened or closed, an agent write began or ended (W24-2). Drives the
+   * Settings section and the title-bar indicator.
+   */
+  'agentAccess.changed': AgentAccessStatus
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -1658,7 +1682,11 @@ export const IPC_CHANNELS = [
   'artist.biography',
   'artist.relations',
   'artist.image',
-  'artist.links'
+  'artist.links',
+  'agentAccess.status',
+  'agentAccess.retry',
+  'agentAccess.revealToken',
+  'agentAccess.regenerateToken'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [
@@ -1674,7 +1702,8 @@ export const IPC_EVENT_CHANNELS = [
   'listens.flushRequested',
   'scrobble.statusChanged',
   'update.changed',
-  'theme.noctaliaChanged'
+  'theme.noctaliaChanged',
+  'agentAccess.changed'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**

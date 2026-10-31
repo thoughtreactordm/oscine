@@ -47,6 +47,9 @@ export const SETTING_CATEGORIES = [
   { id: 'theme', label: 'Theme', icon: 'i-tabler-palette', order: 45 },
   { id: 'podcasts', label: 'Podcasts', icon: 'i-tabler-microphone', order: 50 },
   { id: 'network', label: 'Network', icon: 'i-tabler-world', order: 60 },
+  // W24-2: the local MCP server (`oscine-mcp` → D36.10). `integrations` rather
+  // than `agents` so the id outlives the one thing in it today.
+  { id: 'integrations', label: 'Agent access', icon: 'i-tabler-plug-connected', order: 65 },
   // Always on the rail: the in-app updater lives here as an island, not a
   // stored key, so the section would otherwise vanish (W6-6).
   { id: 'about', label: 'About', icon: 'i-tabler-info-circle', order: 70, alwaysSurface: true }
