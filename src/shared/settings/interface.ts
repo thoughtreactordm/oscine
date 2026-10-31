@@ -39,7 +39,13 @@
  * machine, so W8-13's export bundle should carry them.
  */
 
-import { booleanValue, defineSetting, enumValue, type SettingDescriptor } from './kernel'
+import {
+  booleanValue,
+  defineSetting,
+  enumValue,
+  stringValue,
+  type SettingDescriptor
+} from './kernel'
 
 export type AlbumArtSize = 'small' | 'medium' | 'large'
 
@@ -103,6 +109,24 @@ export const TAB_NAV_BAR_KEY = 'interface.tabNavBar'
 export const COLOR_MODE_TOGGLE_KEY = 'interface.colorModeToggle'
 export const ZEN_MODE_TOGGLE_BUTTON_KEY = 'interface.zenModeToggleButton'
 export const ONBOARDING_COMPLETED_KEY = 'interface.onboardingCompleted'
+export const NOW_PLAYING_VISUALIZER_KEY = 'interface.nowPlayingVisualizer'
+export const VISUALIZER_IN_ZEN_KEY = 'interface.visualizerInZen'
+export const VISUALIZER_EFFECT_KEY = 'interface.visualizerEffect'
+export const VISUALIZER_CYCLE_KEY = 'interface.visualizerCycle'
+export const VISUALIZER_QUALITY_KEY = 'interface.visualizerQuality'
+
+/**
+ * The stage visualizer's default effect — the first entry of the renderer's
+ * static registry (D35.1, D35.5). It lives here because the descriptor needs a
+ * default and `src/shared` cannot import the renderer; the registry's first
+ * effect declares its `id` as this constant, so the two cannot drift.
+ */
+export const DEFAULT_VISUALIZER_EFFECT = 'bars'
+
+/** Advance the visualizer on track change, in registry order or at random (D35.5). */
+export type VisualizerCycle = 'off' | 'track' | 'shuffle'
+/** The render budget (D35.6). Machine-local: the GPU belongs to the machine. */
+export type VisualizerQuality = 'auto' | 'low' | 'high'
 
 export type ColorModeToggle = 'none' | 'switch' | 'button'
 
@@ -347,6 +371,98 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     help: 'A live trace of the audible track, along the bottom of the view. Off costs nothing; on costs one animation frame while a track is sounding.',
     keywords: ['waveform', 'visualizer', 'visualisation', 'now playing', 'animation', 'ribbon'],
     order: 110
+  }),
+
+  /*
+   * The stage visualizer, W23 (D35.5). Five keys, slotted between the ribbon and
+   * the lyrics so the Now Playing rows read together. The stage toggle writes
+   * `nowPlayingVisualizer` the way the lyrics toggle writes its key; Zen never
+   * writes it — `visualizerInZen` is an override the stage resolves, and a toggle
+   * made inside Zen is session-only (see `visualizer/gate.ts`).
+   */
+  defineSetting<boolean>({
+    key: NOW_PLAYING_VISUALIZER_KEY,
+    scope: 'durable',
+    default: false,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'interface',
+    label: 'Visualizer on the Now Playing view',
+    help: 'Draw a live visualizer over the Now Playing backdrop and move the record to the corner. Off while the system asks for reduced motion. The stage also carries a toggle for it.',
+    keywords: ['visualizer', 'visualiser', 'visualisation', 'spectrum', 'bars', 'now playing'],
+    order: 110.1
+  }),
+
+  defineSetting<boolean>({
+    key: VISUALIZER_IN_ZEN_KEY,
+    scope: 'durable',
+    default: false,
+    validate: booleanValue(),
+    control: { kind: 'toggle' },
+    category: 'interface',
+    label: 'Always show the visualizer in Zen mode',
+    help: 'Zen shows the visualizer whatever the Now Playing toggle says, and leaving Zen puts the stage back as it was.',
+    keywords: ['visualizer', 'visualiser', 'zen', 'kiosk', 'fullscreen'],
+    order: 110.2
+  }),
+
+  /*
+   * Any non-empty string, known or not (D35.5): the host resolves an id missing
+   * from the registry to the first available effect at runtime and leaves the
+   * stored value alone, so a branch with fewer effects does not destroy the
+   * choice. Internal for now — with one effect a picker is a select of one; the
+   * stage's next/previous and the palette entries (W23-6) are what edit it.
+   */
+  defineSetting<string>({
+    key: VISUALIZER_EFFECT_KEY,
+    scope: 'durable',
+    default: DEFAULT_VISUALIZER_EFFECT,
+    validate: stringValue({ maxLength: 64 }),
+    internal: true,
+    category: 'interface',
+    label: 'Visualizer effect',
+    help: 'Which effect the Now Playing visualizer shows.'
+  }),
+
+  defineSetting<VisualizerCycle>({
+    key: VISUALIZER_CYCLE_KEY,
+    scope: 'durable',
+    default: 'off',
+    validate: enumValue<VisualizerCycle>(['off', 'track', 'shuffle']),
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'off', label: 'Keep the current effect' },
+        { value: 'track', label: 'Next effect on each track' },
+        { value: 'shuffle', label: 'Random effect on each track' }
+      ]
+    },
+    category: 'interface',
+    label: 'Change visualizer on track change',
+    help: 'Step through the available effects as the tracks change, in order or at random.',
+    keywords: ['visualizer', 'visualiser', 'cycle', 'shuffle', 'rotate', 'effect'],
+    order: 110.3
+  }),
+
+  defineSetting<VisualizerQuality>({
+    key: VISUALIZER_QUALITY_KEY,
+    scope: 'durable',
+    portable: false,
+    default: 'auto',
+    validate: enumValue<VisualizerQuality>(['auto', 'low', 'high']),
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'auto', label: 'Automatic' },
+        { value: 'low', label: 'Low (30 fps)' },
+        { value: 'high', label: 'High (full resolution, 60 fps)' }
+      ]
+    },
+    category: 'interface',
+    label: 'Visualizer quality',
+    help: 'How much of this machine’s graphics budget the visualizer may spend. Automatic drops to Low when frames run long. Kept per machine, not in exported settings.',
+    keywords: ['visualizer', 'visualiser', 'quality', 'gpu', 'performance', 'fps', 'frame rate'],
+    order: 110.4
   }),
 
   defineSetting<boolean>({
