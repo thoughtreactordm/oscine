@@ -16,6 +16,7 @@ import { registerChangesetTools } from './tools/changesets'
 import { registerIssuesTool, type IssueReadDeps } from './tools/issues'
 import { registerLibraryOverview, type LibraryOverviewDeps } from './tools/libraryOverview'
 import { registerListeningTools, type ListeningReadDeps } from './tools/listening'
+import { registerOrganizeTools, type OrganizeDeps } from './tools/organize'
 import { registerPlaylistTools, type PlaylistReadDeps } from './tools/playlists'
 import { registerQueryTools, type QueryLibraryDeps } from './tools/query'
 import { registerTagFieldsTool } from './tools/tagFields'
@@ -48,6 +49,8 @@ export interface AgentToolDeps {
   query: QueryLibraryDeps
   /** The change journal (W24-6): every agent write is recorded in a changeset (D36.6). */
   journal: AgentJournal
+  /** Playlist and user-tag writes (W24-7), each through the journal wrapper. */
+  organize: OrganizeDeps
 }
 
 /** What one session's tools know about the session itself, beside the services. */
@@ -97,6 +100,10 @@ export const AGENT_TOOL_GROUPS: readonly AgentToolGroup[] = [
       registerIssuesTool(server, deps.library),
       ...registerQueryTools(server, deps.query)
     ]
+  },
+  {
+    capability: 'organize',
+    register: (server, deps, session) => registerOrganizeTools(server, deps.organize, session)
   },
   {
     capability: ['organize', 'stage'],

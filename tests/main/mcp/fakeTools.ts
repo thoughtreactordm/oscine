@@ -32,6 +32,24 @@ export function overviewOnlyTools(overview: LibraryOverview): AgentToolDeps {
       list: unused,
       count: unused,
       get: unused
+    },
+    organize: {
+      playlists: {
+        list: unused,
+        create: unused,
+        rename: unused,
+        reorder: unused,
+        addTracks: unused,
+        moveEntries: unused,
+        removeEntries: unused
+      },
+      tags: { addTag: unused, removeTag: unused },
+      reads: {
+        entries: unused,
+        existingTracks: unused,
+        tagByKey: unused,
+        tracksWithTag: unused
+      }
     }
   }
 }

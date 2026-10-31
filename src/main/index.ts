@@ -105,6 +105,7 @@ import {
 import { createAgentAccessService, type AgentAccessService } from './mcp/agentAccess'
 import { createJournalEntities } from './mcp/journal/entities'
 import { createAgentJournal } from './mcp/journal/journal'
+import { createOrganizeReads } from './mcp/organize/reads'
 import { createAgentTokenStore } from './mcp/tokenStore'
 import { utilityQueryProcess } from './mcp/query/electronProcess'
 import { createQueryHost } from './mcp/query/host'
@@ -930,7 +931,16 @@ if (!app.requestSingleInstanceLock()) {
       // `query` is the exception that proves it: agent SQL runs in its own
       // process on a confined read-only connection, never on `db` (D36.4, R19).
       // Nothing is spawned until an agent first queries.
-      tools: { library, playlists, stats, history, query: queryHost, journal: agentJournal },
+      tools: {
+        library,
+        playlists,
+        stats,
+        history,
+        query: queryHost,
+        journal: agentJournal,
+        // Organize (W24-7): the same playlist service and tag store IPC uses.
+        organize: { playlists, tags, reads: createOrganizeReads(db) }
+      },
       version: app.getVersion(),
       onStatusChanged: broadcastAgentAccess
     })

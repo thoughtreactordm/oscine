@@ -13,6 +13,7 @@ import { LibraryStore } from '../../../src/main/library/store'
 import { createAgentMcpServer, type AgentToolDeps } from '../../../src/main/mcp'
 import { createJournalEntities } from '../../../src/main/mcp/journal/entities'
 import { createAgentJournal, type AgentJournal } from '../../../src/main/mcp/journal/journal'
+import { createOrganizeReads } from '../../../src/main/mcp/organize/reads'
 import { createQueryHost, type QueryHost } from '../../../src/main/mcp/query/host'
 import { TagStore } from '../../../src/main/tags/store'
 import { NO_LIBRARY_CHANGES } from '../../../src/main/library/changes'
@@ -242,7 +243,8 @@ describe('W24-4 structured read tools', () => {
       stats: new SqliteStatsService({ db }),
       history: new SqlitePlayHistoryService({ db }),
       query: queryHost,
-      journal
+      journal,
+      organize: { playlists, tags: new TagStore(db), reads: createOrganizeReads(db) }
     }
     server = createAgentMcpServer(deps, '0.0.0-test')
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
@@ -549,7 +551,30 @@ describe('W24-4 structured read tools', () => {
    * entry here, so a new tool cannot skip the check by being forgotten.
    */
   it('never returns an absolute path from any tool', async () => {
+    const trackIds = Object.values(fixture.ids).slice(0, 3)
+    const entryIds = (
+      opened.db
+        .prepare('SELECT id FROM playlist_entries WHERE playlist_id = ? ORDER BY position, id')
+        .all(fixture.playlistId) as Array<{ id: number }>
+    ).map((row) => row.id)
+    // The Organize tools (W24-7) as dry runs, so the fixture stays as the
+    // other tests read it.
+    const playlistId = fixture.playlistId
+    const dryRun = true
+    // remove_user_tag refuses a tag that does not exist.
+    new TagStore(opened.db).addTag(trackIds.slice(0, 1), 'Path check', 'user')
     const calls: Record<string, Record<string, unknown>[]> = {
+      create_playlist: [{ name: 'Path check', dryRun }],
+      rename_playlist: [{ playlistId, name: 'Path check', dryRun }],
+      reorder_playlists: [{ playlistId, toIndex: 0, dryRun }],
+      add_to_playlist: [{ playlistId, trackIds, dryRun }],
+      move_playlist_entries: [
+        { playlistId, entryIds: entryIds.slice(-1), insertion: { at: 'start' }, dryRun }
+      ],
+      remove_playlist_entries: [{ playlistId, entryIds: entryIds.slice(0, 1), dryRun }],
+      set_playlist_order: [{ playlistId, entryIds: [...entryIds].reverse(), dryRun }],
+      add_user_tag: [{ trackIds, label: 'Path check', dryRun }],
+      remove_user_tag: [{ trackIds, label: 'Path check', dryRun }],
       library_overview: [{}],
       find_tracks: [{ fields: [...ALL_FIELDS], limit: 500 }],
       get_tracks: [{ ids: Object.values(fixture.ids).slice(0, 500), fields: [...ALL_FIELDS] }],
