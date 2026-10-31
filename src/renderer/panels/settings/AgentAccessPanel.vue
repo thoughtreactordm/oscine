@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import {
   agentClientSnippets,
   agentServerUrl,
+  type AgentBridgeLaunch,
   type AgentClientSnippet,
   type AgentSession
 } from '@shared/agentAccess'
@@ -33,6 +34,8 @@ const enabled = computed(() => settings.get<boolean>(MCP_ENABLED_KEY) === true)
 const status = computed(() => store.status)
 
 const token = ref<string | null>(null)
+/** How Claude Desktop starts the stdio bridge (W24-10); null until known. */
+const bridge = ref<AgentBridgeLaunch | null>(null)
 const revealed = ref(false)
 const busy = ref<'retry' | 'regenerate' | null>(null)
 const confirmingRegenerate = ref(false)
@@ -44,6 +47,12 @@ async function loadToken(): Promise<void> {
   } catch (error) {
     console.warn('[agent access] could not read the token:', error)
     token.value = null
+  }
+  if (bridge.value) return
+  try {
+    bridge.value = await agentAccess.bridgeLaunch()
+  } catch (error) {
+    console.warn('[agent access] could not locate the stdio bridge:', error)
   }
 }
 
@@ -65,7 +74,7 @@ const url = computed(() => status.value?.url ?? agentServerUrl(status.value?.por
 const MASK = '••••••••••••••••'
 
 const snippets = computed<readonly AgentClientSnippet[]>(() =>
-  token.value ? agentClientSnippets(url.value, token.value) : []
+  token.value ? agentClientSnippets(url.value, token.value, bridge.value) : []
 )
 
 function shown(text: string): string {

@@ -61,7 +61,8 @@ describe('agent access settings', () => {
 
 describe('agent client snippets', () => {
   const url = agentServerUrl(47318)
-  const snippets = agentClientSnippets(url, 'tok-123')
+  const bridge = { command: '/opt/Oscine/oscine', args: ['/opt/Oscine/resources/mcp/b.cjs'] }
+  const snippets = agentClientSnippets(url, 'tok-123', bridge)
 
   it('builds the Claude Code command with the bearer header', () => {
     expect(snippets.find((s) => s.id === 'claude-code')?.text).toBe(
@@ -83,8 +84,38 @@ describe('agent client snippets', () => {
     })
   })
 
-  it('leaves Claude Desktop pending until the stdio bridge exists', () => {
-    expect(snippets.find((s) => s.id === 'claude-desktop')?.text).toBeNull()
+  it('starts the stdio bridge with the app binary for Claude Desktop', () => {
+    const desktop = snippets.find((s) => s.id === 'claude-desktop')?.text
+    expect(JSON.parse(desktop ?? '')).toEqual({
+      mcpServers: {
+        oscine: {
+          command: '/opt/Oscine/oscine',
+          args: ['/opt/Oscine/resources/mcp/b.cjs'],
+          env: {
+            ELECTRON_RUN_AS_NODE: '1',
+            OSCINE_MCP_URL: 'http://127.0.0.1:47318/mcp',
+            OSCINE_MCP_TOKEN: 'tok-123'
+          }
+        }
+      }
+    })
+  })
+
+  it('keeps Windows paths intact through the JSON block', () => {
+    const windows = {
+      command: 'C:\\Program Files\\Oscine\\Oscine.exe',
+      args: ['C:\\Program Files\\Oscine\\resources\\mcp\\b.cjs']
+    }
+    const desktop = agentClientSnippets(url, 't', windows).find((s) => s.id === 'claude-desktop')
+    const entry = JSON.parse(desktop?.text ?? '').mcpServers.oscine
+    expect(entry.command).toBe(windows.command)
+    expect(entry.args).toEqual(windows.args)
+  })
+
+  it('leaves Claude Desktop without a block when the bridge cannot be found', () => {
+    const desktop = agentClientSnippets(url, 't', null).find((s) => s.id === 'claude-desktop')
+    expect(desktop?.text).toBeNull()
+    expect(desktop?.hint).toMatch(/could not be located/)
   })
 })
 

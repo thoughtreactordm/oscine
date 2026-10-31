@@ -173,7 +173,7 @@ import type { OverrideEditState, OverrideField, OverridePatch } from './override
 import type { TagFieldEditState, TagFieldKey, TagFieldPatch } from './tagFields'
 import type { ArtworkRef, CoverArtCandidate } from './artwork'
 import type { InstalledTheme, NoctaliaSetupResult, NoctaliaStatus, NoctaliaVersion } from './theme'
-import type { AgentAccessStatus } from './agentAccess'
+import type { AgentAccessStatus, AgentBridgeLaunch } from './agentAccess'
 import type {
   AgentChangesetSummary,
   AgentRevertResult,
@@ -1447,6 +1447,12 @@ export interface IpcContract {
   'agentAccess.revealToken': { request: null; response: string | null }
   /** Replace the token and end every open session (D36.1). */
   'agentAccess.regenerateToken': { request: null; response: AgentAccessStatus }
+  /**
+   * How a stdio-only client starts the bridge (W24-10): the app binary and the
+   * bridge script, as absolute paths in this platform's form, for the Claude
+   * Desktop snippet. Null when the script cannot be found in this install.
+   */
+  'agentAccess.bridgeLaunch': { request: null; response: AgentBridgeLaunch | null }
 
   /**
    * The agent change journal (W24-6, `oscine-mcp` → D36.6): recent changesets,
@@ -1743,6 +1749,7 @@ export const IPC_CHANNELS = [
   'agentAccess.retry',
   'agentAccess.revealToken',
   'agentAccess.regenerateToken',
+  'agentAccess.bridgeLaunch',
   'agentChangesets.list',
   'agentChangesets.revert'
 ] as const satisfies readonly IpcChannel[]

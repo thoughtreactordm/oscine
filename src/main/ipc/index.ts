@@ -25,6 +25,7 @@ import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
 import type { NoctaliaSync } from '../theme/noctalia'
 import type { AgentAccessService } from '../mcp/agentAccess'
+import type { AgentBridgeLaunch } from '@shared/agentAccess'
 import { ChangesetNotFoundError, type AgentJournal } from '../mcp/journal/journal'
 import { CredentialSealingUnavailableError } from '../scrobble/credentials'
 import type { ThemeFileService } from '../theme/service'
@@ -159,7 +160,8 @@ export function registerIpcHandlers(
   presence: PresenceSink,
   noctalia: NoctaliaSync,
   agentAccess: AgentAccessService,
-  agentJournal: AgentJournal
+  agentJournal: AgentJournal,
+  agentBridgeLaunch: () => AgentBridgeLaunch | null
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -902,6 +904,9 @@ export function registerIpcHandlers(
   handle('agentAccess.status', () => agentAccess.status())
   handle('agentAccess.retry', () => agentAccess.sync())
   handle('agentAccess.revealToken', () => agentAccess.revealToken())
+  // W24-10: where the stdio bridge is, for the Claude Desktop snippet. Not a
+  // secret, and not gated on access being on — the token is what is.
+  handle('agentAccess.bridgeLaunch', () => agentBridgeLaunch())
   handle('agentAccess.regenerateToken', async () => {
     try {
       return await agentAccess.regenerateToken()

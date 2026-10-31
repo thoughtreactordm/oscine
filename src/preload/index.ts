@@ -626,6 +626,8 @@ const api = {
     /** The bearer token, on explicit request only. */
     revealToken: () => request('agentAccess.revealToken', null),
     regenerateToken: () => request('agentAccess.regenerateToken', null),
+    /** How Claude Desktop starts the stdio bridge (W24-10). */
+    bridgeLaunch: () => request('agentAccess.bridgeLaunch', null),
     /** Returns an unsubscribe function. Call it on unmount. */
     onChanged: (listener: (status: AgentAccessStatus) => void) =>
       subscribe('agentAccess.changed', listener)

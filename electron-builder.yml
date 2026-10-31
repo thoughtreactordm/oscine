@@ -49,6 +49,13 @@ win:
   extraResources:
     - from: resources/bin/win32-${arch}
       to: bin
+    # W24-10: the stdio bridge for stdio-only MCP clients, run by this app's
+    # own binary under ELECTRON_RUN_AS_NODE (src/main/mcp/bridgeLaunch.ts).
+    # Listed per platform, next to the binaries, so neither block can drop it.
+    - from: resources/mcp
+      to: mcp
+      filter:
+        - oscine-mcp-bridge.cjs
   files:
     - '!node_modules/better-sqlite3/prebuilds/linux*'
     - '!node_modules/@oscine/cdrip/prebuilds/linux-*'
@@ -80,6 +87,13 @@ linux:
   extraResources:
     - from: resources/bin/linux-${arch}
       to: bin
+    # W24-10: the stdio bridge for stdio-only MCP clients, run by this app's
+    # own binary under ELECTRON_RUN_AS_NODE (src/main/mcp/bridgeLaunch.ts).
+    # Listed per platform, next to the binaries, so neither block can drop it.
+    - from: resources/mcp
+      to: mcp
+      filter:
+        - oscine-mcp-bridge.cjs
   files:
     - '!node_modules/better-sqlite3/prebuilds/win32*'
     - '!node_modules/@oscine/cdrip/prebuilds/win32-*'

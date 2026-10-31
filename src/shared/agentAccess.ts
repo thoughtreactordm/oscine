@@ -96,6 +96,29 @@ export const AGENT_SERVER_NAME = 'oscine'
 
 export type AgentClientId = 'claude-code' | 'claude-desktop' | 'generic'
 
+/**
+ * How a stdio-only client starts Oscine's bridge (**W24-10**, D36.1): the app's
+ * own binary, run as plain Node, with the bridge script as its one argument.
+ * Both paths are absolute and already in the host platform's form — main
+ * resolves them, so nothing here splices a separator.
+ */
+export interface AgentBridgeLaunch {
+  readonly command: string
+  readonly args: readonly string[]
+}
+
+/**
+ * The environment the bridge reads. `ELECTRON_RUN_AS_NODE` is what makes the
+ * app binary a Node runtime instead of a second Oscine window; the names of the
+ * other two are mirrored in `resources/mcp/oscine-mcp-bridge.cjs`, which cannot
+ * import this file, and a test holds the two together end to end.
+ */
+export const AGENT_BRIDGE_ENV = {
+  runAsNode: 'ELECTRON_RUN_AS_NODE',
+  url: 'OSCINE_MCP_URL',
+  token: 'OSCINE_MCP_TOKEN'
+} as const
+
 /** One ready-to-paste block in Settings → Agent access. */
 export interface AgentClientSnippet {
   readonly id: AgentClientId
@@ -103,17 +126,22 @@ export interface AgentClientSnippet {
   /** What the operator does with `text`. */
   readonly hint: string
   /**
-   * The block itself, or null when this client cannot be configured yet —
-   * Claude Desktop needs the W24-10 stdio bridge, which has not shipped.
+   * The block itself, or null when this client cannot be configured here —
+   * Claude Desktop, when main could not say where the bridge is.
    */
   readonly text: string | null
 }
 
 /**
- * The config blocks for each client kind (D36.10), built from the URL and the
- * token. Pure, so the exact strings are tested rather than eyeballed.
+ * The config blocks for each client kind (D36.10), built from the URL, the
+ * token and, for stdio-only clients, how to start the bridge. Pure, so the
+ * exact strings are tested rather than eyeballed.
  */
-export function agentClientSnippets(url: string, token: string): readonly AgentClientSnippet[] {
+export function agentClientSnippets(
+  url: string,
+  token: string,
+  bridge: AgentBridgeLaunch | null
+): readonly AgentClientSnippet[] {
   const authorization = `Bearer ${token}`
   return [
     {
@@ -127,8 +155,28 @@ export function agentClientSnippets(url: string, token: string): readonly AgentC
     {
       id: 'claude-desktop',
       label: 'Claude Desktop',
-      hint: 'Claude Desktop starts local servers over stdio. It connects through Oscine’s stdio bridge, which arrives in a later update.',
-      text: null
+      hint: bridge
+        ? 'Paste into claude_desktop_config.json (Settings → Developer → Edit Config), then restart Claude Desktop. It starts Oscine’s stdio bridge, which needs Oscine running with agent access on.'
+        : 'Claude Desktop starts local servers over stdio through Oscine’s bridge, which could not be located in this install.',
+      text: bridge
+        ? JSON.stringify(
+            {
+              mcpServers: {
+                [AGENT_SERVER_NAME]: {
+                  command: bridge.command,
+                  args: bridge.args,
+                  env: {
+                    [AGENT_BRIDGE_ENV.runAsNode]: '1',
+                    [AGENT_BRIDGE_ENV.url]: url,
+                    [AGENT_BRIDGE_ENV.token]: token
+                  }
+                }
+              }
+            },
+            null,
+            2
+          )
+        : null
     },
     {
       id: 'generic',

@@ -491,6 +491,8 @@ export const agentAccess = {
   retry: () => unwrap(window.oscine.agentAccess.retry()),
   revealToken: () => unwrap(window.oscine.agentAccess.revealToken()),
   regenerateToken: () => unwrap(window.oscine.agentAccess.regenerateToken()),
+  /** How Claude Desktop starts the stdio bridge (W24-10). */
+  bridgeLaunch: () => unwrap(window.oscine.agentAccess.bridgeLaunch()),
   /** Returns an unsubscribe function. Call it on unmount. */
   onChanged: (listener: (status: AgentAccessStatus) => void) =>
     window.oscine.agentAccess.onChanged(listener)

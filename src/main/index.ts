@@ -103,6 +103,7 @@ import {
   type SettingsChange
 } from '@shared/settings'
 import { createAgentAccessService, type AgentAccessService } from './mcp/agentAccess'
+import { resolveBridgeLaunch } from './mcp/bridgeLaunch'
 import { createJournalEntities } from './mcp/journal/entities'
 import { createAgentJournal } from './mcp/journal/journal'
 import { createOrganizeReads } from './mcp/organize/reads'
@@ -1203,7 +1204,24 @@ if (!app.requestSingleInstanceLock()) {
       presence,
       noctalia,
       agentAccess,
-      agentJournal
+      agentJournal,
+      // W24-10: resolved on request, so an AppImage's stable copy of the bridge
+      // is refreshed the first time Settings asks after an update.
+      () => {
+        try {
+          return resolveBridgeLaunch({
+            isPackaged: app.isPackaged,
+            execPath: process.execPath,
+            resourcesPath: process.resourcesPath,
+            appRoot: app.getAppPath(),
+            appImage: process.env.APPIMAGE,
+            stableDir: join(app.getPath('userData'), 'mcp')
+          })
+        } catch (error) {
+          console.error('[mcp] could not place the stdio bridge:', error)
+          return null
+        }
+      }
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was
