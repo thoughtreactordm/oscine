@@ -1,6 +1,7 @@
 import type { AnalysisFrame } from '../analysisFrame'
 import { PaletteSlot, type Palette } from '../palette'
-import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
+import { type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
+import { createWaveformReader } from './waveform'
 
 /**
  * **Trace** — W23-7, D35.9: the waveform as a slow-drifting ribbon with fading
@@ -44,11 +45,6 @@ const SWAY = 0.08
 const SWAY_PERIOD_SEC = 17
 const TILT = 0.1
 const TILT_PERIOD_SEC = 29
-/** Auto-scale: the follower is held at this; the gain never leaves the range. */
-const GAIN_TARGET = 0.9
-const GAIN_MIN = 1
-const GAIN_MAX = 8
-const PEAK_RELEASE_SEC = 1.5
 /** The band's width (× shorter side) at rest and how much the level adds. */
 const BAND_WIDTH = 0.008
 const BAND_LEVEL_WIDTH = 0.012
@@ -57,29 +53,13 @@ const CORE_ALPHA = 0.9
 
 const POINTS_BY_QUALITY: Readonly<Record<Quality2D, number>> = { low: 96, auto: 160, high: 240 }
 
-/**
- * The first rising zero crossing in the first half of `samples`, or 0 when
- * there is none — the start of the span a triggered scope draws.
- */
-export function triggerIndex(samples: ArrayLike<number>, span: number): number {
-  const limit = samples.length - span
-  for (let index = 1; index <= limit; index++) {
-    if (samples[index - 1] < 0 && samples[index] >= 0) return index
-  }
-  return 0
-}
-
 export function createTrace<I>(
   ctx: Draw2D<I>,
   quality: Quality2D
 ): Effect2DInstance<I, AnalysisFrame, Palette> {
   const points = POINTS_BY_QUALITY[quality]
-  /** The taper: 0 at both ends, 1 across the middle. */
-  const taper = new Float32Array(points)
-  for (let point = 0; point < points; point++) {
-    taper[point] = Math.sqrt(Math.sin((point / (points - 1)) * Math.PI))
-  }
-  const live = new Float32Array(points)
+  const reader = createWaveformReader(points)
+  const live = reader.points
   const amplitudes = new Float32Array(points * SNAPSHOTS)
   const centres = new Float32Array(SNAPSHOTS)
   const tilts = new Float32Array(SNAPSHOTS)
@@ -92,29 +72,6 @@ export function createTrace<I>(
   let sinceSnapshot = 0
   let swayPhase = 0
   let tiltPhase = 0
-  let peak = GAIN_TARGET
-
-  /** Read this frame's ribbon into `live`, in amplitude units (×1 = full scale). */
-  function readLive(samples: ArrayLike<number>, dtSec: number): void {
-    const length = samples.length
-    const span = length >> 1
-    const start = triggerIndex(samples, span)
-    let framePeak = 0
-    for (let index = start; index < start + span; index++) {
-      const value = samples[index] < 0 ? -samples[index] : samples[index]
-      if (value > framePeak) framePeak = value
-    }
-    peak =
-      framePeak > peak ? framePeak : peak + (framePeak - peak) * follow(dtSec, PEAK_RELEASE_SEC)
-    let gain = peak > 0 ? GAIN_TARGET / peak : GAIN_MAX
-    gain = gain < GAIN_MIN ? GAIN_MIN : gain > GAIN_MAX ? GAIN_MAX : gain
-    const step = points > 1 ? (span - 1) / (points - 1) : 0
-    for (let point = 0; point < points; point++) {
-      const sample = length > 0 ? samples[start + Math.round(point * step)] : 0
-      const value = sample * gain
-      live[point] = (value < -1 ? -1 : value > 1 ? 1 : value) * taper[point]
-    }
-  }
 
   function snapshot(centre: number, tilt: number): void {
     amplitudes.set(live, head * points)
@@ -155,7 +112,7 @@ export function createTrace<I>(
       swayPhase = (swayPhase + (dtSec / SWAY_PERIOD_SEC) * Math.PI * 2) % (Math.PI * 2)
       tiltPhase = (tiltPhase + (dtSec / TILT_PERIOD_SEC) * Math.PI * 2) % (Math.PI * 2)
       for (let slot = 0; slot < SNAPSHOTS; slot++) ages[slot] += dtSec
-      readLive(audio.waveform, dtSec)
+      reader.read(audio.waveform, dtSec)
 
       // Positions are kept as fractions of the height, so a resize keeps the history.
       const centre = 0.5 + Math.sin(swayPhase) * SWAY
