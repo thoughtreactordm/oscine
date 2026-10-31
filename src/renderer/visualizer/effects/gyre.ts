@@ -1,6 +1,7 @@
 import { ANALYSIS_BANDS, type AnalysisFrame } from '../analysisFrame'
 import { PaletteSlot, type Palette } from '../palette'
 import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
+import { createDrive } from './drive'
 
 /**
  * **Gyre** — W23-7: the spectrum as arcs orbiting on concentric rings.
@@ -12,8 +13,13 @@ import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2
  *   log-spaced), bass innermost. Each ring carries two arcs, opposite each
  *   other, whose length is its group's level.
  * - **Spin.** Neighbouring rings turn in opposite directions, inner ones slowly
- *   and outer ones faster, and a loud ring turns faster still; an onset kicks
- *   every ring on a little. Angles are integrated in clamped time.
+ *   and outer ones faster; a loud ring turns much faster, and every beat kicks
+ *   them all on. Angles are integrated in clamped time.
+ * - **Oomph.** A beat spreads the rings outward (the outer ones most) and
+ *   thickens them; the heat holds them open and lengthens arcs and tails. A
+ *   ring whose bands jump above their own recent level — a note landing in its
+ *   range — flares thicker and brighter, so melody and pitch movement light up
+ *   their own rings.
  * - **Tails.** Each arc trails fainter, thinner copies of itself set back along
  *   its path by how far it turns in {@link TAIL_LAG_SEC} — a motion blur that
  *   is longer the faster the ring turns, computed rather than remembered.
@@ -31,12 +37,23 @@ const STROKE = 0.42
 const BASE_SPEED = 0.22
 const SPEED_STEP = 0.11
 /** A full-level ring turns this much faster; an onset kicks every ring by this much. */
-const LEVEL_BOOST = 1.2
-const KICK = 1.5
-const KICK_TAU_SEC = 0.45
+const LEVEL_BOOST = 2.5
+const KICK = 3
+/** A beat spreads the rings outward, the outermost most; the heat holds them open. */
+const PULSE_SPREAD = 0.3
+const HEAT_SPREAD = 0.12
+/** A ring jumping above its own recent level flares: how slow "recent" is, and how much it shows. */
+const RECENT_TAU_SEC = 0.8
+const FLARE_GAIN = 3
+const FLARE_WIDTH = 1.5
+const FLARE_ALPHA = 0.6
+/** The beat thickens every ring; the heat lengthens arcs and tails. */
+const PULSE_WIDTH = 0.8
+const HEAT_ARC = 0.3
+const HEAT_TAIL = 2
 /** Arc length in radians: at silence, and added at full level. */
 const MIN_ARC = 0.04
-const MAX_ARC = 2.1
+const MAX_ARC = 2.4
 /** How quickly an arc's length follows its level: grows fast, shrinks slower. */
 const ATTACK_SEC = 0.04
 const RELEASE_SEC = 0.22
@@ -75,6 +92,9 @@ export function createGyre<I>(
   const lengths = new Float32Array(rings)
   const speeds = new Float32Array(rings)
   const colours = new Uint8Array(rings)
+  const recent = new Float32Array(rings)
+  const flares = new Float32Array(rings)
+  const drive = createDrive()
   for (let ring = 0; ring < rings; ring++) {
     // Start each ring somewhere different, so they never line up at birth.
     angles[ring] = ring * 2.399963
@@ -83,7 +103,6 @@ export function createGyre<I>(
 
   let width = 0
   let height = 0
-  let kick = 0
 
   /** Path both of a ring's arcs, centred on `centre`, `length` long. */
   function arcs(cx: number, cy: number, r: number, centre: number, length: number): void {
@@ -106,15 +125,20 @@ export function createGyre<I>(
 
       const attack = follow(dtSec, ATTACK_SEC)
       const release = follow(dtSec, RELEASE_SEC)
-      kick += (0 - kick) * follow(dtSec, KICK_TAU_SEC)
-      if (audio.onset > kick) kick = audio.onset
+      drive.update(audio, dtSec)
+      const pulse = drive.pulse
+      const heat = drive.heat
+      const recentFollow = follow(dtSec, RECENT_TAU_SEC)
       for (let ring = 0; ring < rings; ring++) {
         const level = ringLevel(audio.spectrum, ring, rings)
         const length = MIN_ARC + level * MAX_ARC
+        recent[ring] += (level - recent[ring]) * recentFollow
+        const flare = (level - recent[ring]) * FLARE_GAIN
+        flares[ring] = flare < 0 ? 0 : flare > 1 ? 1 : flare
         lengths[ring] += (length - lengths[ring]) * (length > lengths[ring] ? attack : release)
         const direction = ring % 2 === 0 ? 1 : -1
         speeds[ring] =
-          direction * (BASE_SPEED + ring * SPEED_STEP) * (1 + level * LEVEL_BOOST + kick * KICK)
+          direction * (BASE_SPEED + ring * SPEED_STEP) * (1 + level * LEVEL_BOOST + pulse * KICK)
         angles[ring] = (angles[ring] + speeds[ring] * dtSec) % (Math.PI * 2)
       }
       if (width <= 0 || height <= 0) return
@@ -130,23 +154,28 @@ export function createGyre<I>(
       ctx.lineJoin = 'round'
 
       for (let ring = 0; ring < rings; ring++) {
-        const r = inner + (ring + 0.5) * gap
-        const width0 = Math.max(1, gap * STROKE)
-        const lag = speeds[ring] * TAIL_LAG_SEC
+        const out = (ring + 1) / rings
+        const r =
+          (inner + (ring + 0.5) * gap) * (1 + (pulse * PULSE_SPREAD + heat * HEAT_SPREAD) * out)
+        const flare = flares[ring]
+        const width0 = Math.max(1, gap * STROKE * (1 + pulse * PULSE_WIDTH + flare * FLARE_WIDTH))
+        const lag = speeds[ring] * TAIL_LAG_SEC * (1 + heat * HEAT_TAIL)
+        const length = lengths[ring] * (1 + heat * HEAT_ARC)
+        const glow = Math.min(1 / HEAD_ALPHA, 1 + flare * FLARE_ALPHA)
         ctx.strokeStyle = palette.css[colours[ring]]
         // Tails, furthest back first, so the head lies on top.
         let fade = HEAD_ALPHA
         for (let k = 1; k <= tails; k++) fade *= TAIL_FADE
         for (let k = tails; k >= 1; k--) {
-          ctx.globalAlpha = fade * intensity
+          ctx.globalAlpha = Math.min(1, fade * glow) * intensity
           ctx.lineWidth = Math.max(1, width0 * (1 - k / (tails + 2)))
-          arcs(cx, cy, r, angles[ring] - lag * k, lengths[ring])
+          arcs(cx, cy, r, angles[ring] - lag * k, length)
           ctx.stroke()
           fade /= TAIL_FADE
         }
-        ctx.globalAlpha = HEAD_ALPHA * intensity
+        ctx.globalAlpha = Math.min(1, HEAD_ALPHA * glow) * intensity
         ctx.lineWidth = width0
-        arcs(cx, cy, r, angles[ring], lengths[ring])
+        arcs(cx, cy, r, angles[ring], length)
         ctx.stroke()
       }
 
