@@ -296,6 +296,19 @@ export const BUNDLE_TABLES: readonly BundleTable[] = [
     name: 'rip_session_tracks',
     side: 'excluded',
     why: 'Rides with its parent session. The files it names live on this machine’s roots.'
+  },
+  {
+    name: 'agent_changesets',
+    side: 'excluded',
+    why:
+      'D36.6’s journal of what an agent did on this machine, excluded like `play_history`: a ' +
+      'changeset is a statement about one session against this library’s ids, and its Revert ' +
+      'would act on whatever rows another machine happens to number the same.'
+  },
+  {
+    name: 'agent_changes',
+    side: 'excluded',
+    why: 'Rides with its parent changeset. Entity ids are local surrogates with no portable form.'
   }
 ]
 
