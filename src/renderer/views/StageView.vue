@@ -7,14 +7,12 @@ import { useElementSize } from '@renderer/shell/useElementSize'
 import { useStageTransport } from '@renderer/shell/useStageTransport'
 import { useSettings } from '@renderer/settings'
 import { currentTheme, onThemeChange } from '@renderer/theme'
-import { visualizerToggle, visualizerWanted } from '@renderer/visualizer/gate'
+import { useVisualizerStore } from '@renderer/stores/visualizer'
+import { resolveEffect } from '@renderer/visualizer/gate'
+import { availableEffects } from '@renderer/visualizer/registry'
 import { DEFAULT_MOTION_SEC } from '@renderer/visualizer/stageTransition'
 import { MOTION_DURATION_PROPERTY, parseCssDurationSec } from '@renderer/visualizer/wash'
-import {
-  NOW_PLAYING_LYRICS_KEY,
-  NOW_PLAYING_VISUALIZER_KEY,
-  VISUALIZER_IN_ZEN_KEY
-} from '@shared/settings'
+import { NOW_PLAYING_LYRICS_KEY, VISUALIZER_EFFECT_KEY } from '@shared/settings'
 import LyricsPane from '@renderer/panels/LyricsPane.vue'
 import QuickMenu from '@renderer/panels/QuickMenu.vue'
 import NowPlayingActions from '@renderer/panels/transport/NowPlayingActions.vue'
@@ -77,18 +75,14 @@ function toggleLyrics(): void {
  * with Zen's override applied (`visualizer/gate.ts`): with
  * `interface.visualizerInZen` on Zen shows it regardless, and a toggle pressed
  * inside Zen is a session override on the Zen store — Zen never writes
- * `interface.nowPlayingVisualizer`. It shows only with a track, under the same
+ * `interface.nowPlayingVisualizer`. The verbs live on the visualizer store, so
+ * this button, the shortcuts and the palette share them (W23-6). It shows only with a track, under the same
  * width gate as lyrics, and never under reduced motion: a static visualizer is
  * just a background image, and the wash already is one. The toggle stays visible
  * then, disabled, and says why.
  */
-const visualizerInputs = computed(() => ({
-  stageSetting: settings.get<boolean>(NOW_PLAYING_VISUALIZER_KEY),
-  inZenSetting: settings.get<boolean>(VISUALIZER_IN_ZEN_KEY),
-  zenActive: zen.active,
-  zenOverride: zen.visualizerOverride
-}))
-const visualizerOn = computed(() => visualizerWanted(visualizerInputs.value))
+const visualizer = useVisualizerStore()
+const visualizerOn = computed(() => visualizer.wanted)
 
 const reducedMotion = ref(false)
 let motionQuery: MediaQueryList | null = null
@@ -132,10 +126,71 @@ const visualizerLabel = computed(() => {
   return visualizerOn.value ? 'Hide visualizer' : 'Show visualizer'
 })
 function toggleVisualizer(): void {
-  const action = visualizerToggle(visualizerInputs.value)
-  if (action.kind === 'session') zen.visualizerOverride = action.value
-  else void settings.set<boolean>(NOW_PLAYING_VISUALIZER_KEY, action.value)
+  visualizer.toggle()
 }
+
+/**
+ * The stage's presence for the shortcuts (W23-6, D35.5): they act only here, and
+ * only when the control they stand for would — toggle when the button is
+ * enabled, next/previous when the visualizer is on the stage to see it step.
+ */
+watch(
+  () => ({
+    canToggle: showVisualizerToggle.value && !reducedMotion.value,
+    showing: showVisualizer.value
+  }),
+  (presence) => {
+    visualizer.stage = presence
+  },
+  { immediate: true }
+)
+onBeforeUnmount(() => {
+  visualizer.stage = null
+})
+
+/**
+ * `interface.visualizerCycle` (D35.5): a track change under a showing
+ * visualizer advances the effect. Only while it is showing — a cycle nobody
+ * sees would just churn the setting.
+ */
+watch(
+  () => playback.nowPlaying?.id ?? null,
+  (id, previous) => {
+    if (id !== null && previous !== null && id !== previous && showVisualizer.value) {
+      visualizer.cycle()
+    }
+  }
+)
+
+/**
+ * The switch caption (D35.5): the effect's label, briefly, on the scrim, so
+ * stepping through effects is navigable without opening anything. It follows
+ * the *resolved* effect, so a stored id that resolves to the same effect shows
+ * nothing, and it only fires while the visualizer is showing — turning it on is
+ * not a switch.
+ */
+const SWITCH_CAPTION_MS = 1600
+const shownEffect = computed(() =>
+  resolveEffect(availableEffects(), settings.get<string>(VISUALIZER_EFFECT_KEY))
+)
+const switchCaption = ref<string | null>(null)
+let switchCaptionTimer: ReturnType<typeof setTimeout> | null = null
+watch(shownEffect, (next, previous) => {
+  if (!next || next === previous || !showVisualizer.value) return
+  switchCaption.value = next.label
+  if (switchCaptionTimer !== null) clearTimeout(switchCaptionTimer)
+  switchCaptionTimer = setTimeout(() => {
+    switchCaption.value = null
+    switchCaptionTimer = null
+  }, SWITCH_CAPTION_MS)
+})
+watch(showVisualizer, (showing) => {
+  if (!showing) switchCaption.value = null
+})
+onBeforeUnmount(() => {
+  if (switchCaptionTimer !== null) clearTimeout(switchCaptionTimer)
+  switchCaptionTimer = null
+})
 
 /**
  * Every transition passes through the wash (W23-5, D35.12). Wanted
@@ -369,6 +424,19 @@ const byline = computed(() => {
       @wash="onHostWash"
       @retired="onHostRetired"
     />
+
+    <!--
+      The switch caption (D35.5): the new effect's label on a small scrim pill,
+      fading out on its own. A status region, so stepping by keyboard is
+      announced as well as seen.
+    -->
+    <div class="stage-switch-caption-slot" role="status" aria-live="polite">
+      <Transition name="stage-switch-caption">
+        <span v-if="switchCaption" :key="switchCaption" class="stage-switch-caption">
+          {{ switchCaption }}
+        </span>
+      </Transition>
+    </div>
 
     <!--
       Exit affordance — the one always-reachable way out when Zen has hidden the
@@ -950,6 +1018,46 @@ section:hover .stage-lyrics-toggle,
   .stage-lyrics-toggle {
     transition-duration: 0ms;
   }
+}
+
+/*
+ * The visualizer switch caption (W23-6, D35.5): top centre, clear of the
+ * top-right controls, on a small frosted scrim pill. Never takes the pointer.
+ */
+.stage-switch-caption-slot {
+  position: absolute;
+  top: 0.75rem;
+  inset-inline: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.stage-switch-caption {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--oscine-on-scrim);
+  background: color-mix(in oklab, var(--oscine-scrim) 65%, transparent);
+  backdrop-filter: blur(calc(var(--oscine-cover-blur) * 0.5));
+}
+
+.stage-scrim-opaque .stage-switch-caption {
+  color: var(--ui-text-highlighted);
+  background: var(--ui-bg-elevated);
+  backdrop-filter: none;
+}
+
+.stage-switch-caption-enter-active,
+.stage-switch-caption-leave-active {
+  transition: opacity calc(var(--oscine-motion-duration) * 2) ease;
+}
+
+.stage-switch-caption-enter-from,
+.stage-switch-caption-leave-to {
+  opacity: 0;
 }
 
 /*
