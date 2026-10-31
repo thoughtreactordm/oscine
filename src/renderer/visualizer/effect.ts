@@ -15,25 +15,36 @@ import type { Palette } from './palette'
  * clamped to 0.1 s) and the analysis frame, never a frame count — and allocate
  * nothing per frame. Every colour they draw is a function of palette entries
  * (D35.3), and every output is multiplied by `stage.intensity` (D35.8).
+ *
+ * The wash is not the effect's to draw unless it is a `grow` effect: the host
+ * keeps it on a canvas of its own under an `overlay` effect's.
  */
 
 export type VisualizerSurface = '2d' | 'webgl2'
 
 /**
- * The rendered wash, for `grow` effects (D35.12). The host does not draw a wash
- * of its own until W23-5; until then the CSS wash sits under an `overlay`
- * canvas and this is always null.
+ * The rendered wash, for `grow` effects (D35.12): the stage's blurred cover
+ * exactly as it should appear — fitted, scaled, blurred, saturated and at the
+ * wash opacity, on a transparent canvas the size of the effect's own. A `grow`
+ * effect draws it as is at emergence 0 and so *is* the wash there; it is
+ * transparent when the track has no cover. On the 2D tier it is the host's wash
+ * canvas; the WebGL2 tier's texture arrives with W23-8, and until then this is
+ * null on that surface.
  */
 export interface WashInput {
   readonly source: CanvasImageSource | WebGLTexture
 }
 
 export interface StageInputs {
-  /** 0 = the wash, 1 = the effect (D35.12). Overlay effects may ignore it; the host applies it. */
+  /**
+   * 0 = the wash, 1 = the effect (D35.12). `overlay` effects may ignore it: the
+   * host fades their canvas in over the wash by it. `grow` effects must equal
+   * `wash` at 0 and scale their motion up from there.
+   */
   readonly emergence: number
   /** The flash guard's multiplier (D35.8). Every effect multiplies it into its output. */
   readonly intensity: number
-  /** Null until W23-5. */
+  /** The wash on the 2D tier; null on WebGL2 until W23-8. */
   readonly wash: WashInput | null
   /** Null unless the effect declares `needs.cover` (D35.11). */
   readonly cover: StageCoverInput | null
@@ -67,7 +78,10 @@ export interface VisualizerEffect {
   readonly needs?: { readonly cover?: boolean; readonly stereo?: boolean }
   /** D35.12. */
   readonly emergence: 'overlay' | 'grow'
-  /** D35.12; overlay only, 0..1, default 1. */
+  /**
+   * D35.12; `overlay` only, 0..1, default 1: how much of the wash stays under
+   * the effect at full emergence.
+   */
   readonly washUnder?: number
   create(target: EffectTarget): EffectInstance
 }
