@@ -266,6 +266,35 @@
         "W10",
         "W13"
       ]
+    },
+    {
+      "tag": "W23",
+      "name": "Stage Visualizers",
+      "description": "Switchable, audio-reactive effects on the Now Playing stage that grow out of the blurred cover wash and settle back into it. Scoped as a **post-1.0 follow-up**. Design authority is the wiki page `oscine-visualizers`; the stream owns the **D35** block (D35.1–D35.12) and risks **R16** and **R17**.\n\nTakes up a deferral rather than reopening anything: design §11 lists visualizers among the v1 *deferrals, not rejections*, and `prospective-ideas` § Visualizations is the operator's own sketch (effects replace the stage background; the cover and details move to the upper-right corner). Both of its points are carried into D35.4.\n\nOwns decision **D35 — a visualizer is a reader of the tap, never a node in the graph.** Audio comes only from `AudioEngine.readWaveform` via `playback.readWaveform`, the same read the waveform ribbon makes. No effect, library or helper names an `AnalyserNode`, builds an `AudioNode` or touches an `AudioContext`, so an R1 replacement engine keeps every visualizer working as long as it implements the read. The only engine change is the optional stereo tap (D35.10), isolated in the last phase.\n\nThe rest of the design, in brief:\n- Colour comes from the resolved token ramp, so Reactive color reaches the effects for free (D35.3).\n- The cover is a texture at the existing 640-px tier, with a crossfade between tracks, a synthesised stand-in when there's no cover, and 16 swatches for multi-hue effects (D35.11).\n- The host draws the wash itself, once per cover, with the token-driven parameters shared with the CSS wash through `@property` custom properties. Every transition passes through it (on, off, pause, effect switch, 2D ↔ WebGL swap, context loss), with `overlay` effects fading in over the wash and `grow` effects distorting it from zero (D35.12).\n- Canvas 2D is the floor and raw WebGL2 an optional tier: probed with `failIfMajorPerformanceCaveat`, resolution-budgeted, recovering from context loss (D35.6).\n- A host-level flash guard keeps every effect under three full-field flashes per second and is always on (D35.8, R17).\n\nOperator decisions recorded on 2026-10-31: lyrics stay alongside the visualizer on a darkened scrim panel; Zen turns the visualizer on behind `interface.visualizerInZen` (default off) without writing the stage toggle; the flash guard has no off switch.\n\nThree phases, each shippable on its own:\n- **Phase 1 (W23-1..7):** a complete 2D feature with the seamless transitions and Mosaic, the first `grow` effect.\n- **Phase 2 (W23-8..12):** the WebGL2 tier and the rest of the cover effects.\n- **Phase 3 (W23-13..14):** the stereo tap and the X/Y scope.\n- **W23-15** is the two-platform viewing verification.\n\nOwns risks **R16 — GPU and driver variance (medium, platform)** and **R17 — photosensitive flashing (high, safety)**.\n\nDepends on W3 (the tap and the engine contract), W4 (the stage, the shell and the token layer), W8 (the settings registry) and W13 (the Command Palette) for reuse and surface, not for permission.\n\nDoes NOT add IPC, a migration, main-process code or a network request. Does NOT bundle third-party presets (butterchurn/Milkdrop) or a rendering library (three.js, regl). Does NOT add an artwork size tier. Does NOT animate the CSS wash's `filter` or any layout property per frame. Does NOT write `interface.nowPlayingWaveform` when it suppresses the ribbon, or `interface.nowPlayingVisualizer` when Zen overrides it. Does NOT reopen D1, D7, D14 or D30.",
+      "color": "violet",
+      "order": 21,
+      "cardCounter": 15,
+      "dependsOn": [
+        "W3",
+        "W4",
+        "W8",
+        "W13"
+      ]
+    },
+    {
+      "tag": "W24",
+      "name": "Agent Access",
+      "description": "A local MCP server inside Oscine so the operator's own AI agent (Claude Code, Claude Desktop, Cursor, anything that speaks MCP) can read the library and act on it through defined tools. Targeted at **1.2 alongside W23**. Design authority is the wiki page `oscine-mcp`; the stream owns the **D36** block (D36.1–D36.10) and risks **R18** and **R19**.\n\nOwns decision **D36 — Oscine is a tool surface, not an AI feature.** The app ships no model, no API key and no outbound AI call; nothing runs unless an external agent calls a tool, and nothing in the app depends on one being present.\n\nIn brief:\n- The server lives in main, on Streamable HTTP at `127.0.0.1`, with a bearer token and `Origin`/`Host` checks, behind `mcp.enabled` (default off; nothing listens while off). A stdio bridge serves clients that only launch stdio servers. It is separate from W21 Remote's listener (D36.1).\n- Built on the official `@modelcontextprotocol/sdk` over `node:http`, with zod schemas (D36.2).\n- Tools call the same services the IPC handlers call, validate every input, return compact capped output with cursors, and never return absolute paths (D36.3).\n- Reads are structured tools (including `find_issues` for cleanup) plus read-only SQL over stable `mcp_*` views, run in a worker with a `readonly` connection, a timeout and a row cap (D36.4).\n- Every write goes through the layer a manual edit uses: tag corrections stage into the override layers and reach files only through the operator's Apply in the write-back review; playlists and user tags go through their services. `tagWriteback.apply` is never a tool. Favorites are excluded because they push to Last.fm (D36.5).\n- Every agent write is journaled into a changeset that reverts as one, conflict-aware (D36.6). The operator switches the Read, Organize and Stage capabilities (D36.7).\n- **Smart playlists** (D36.8): a `kind = 'smart'` playlist with an operator `brief`, agent `agent_notes` and operator-driven exclusions, which any agent may keep up to date on request. The app never refreshes one on its own.\n- A coalesced `library.changed` event keeps the renderer current (D36.9), and the operator can always see sessions and changesets (D36.10).\n\nOwns risks **R18 — prompt injection through library content (high, safety)** and **R19 — main-thread starvation and bulk scale (medium, performance)**.\n\nDepends on W2 (schema and services), W5 (playlists), W8 (the settings registry), W15 (user tags) and W16 (the override layers and write-back review) for reuse and surface, not for permission.\n\nDoes NOT ship or call a model, make a network request, listen beyond loopback, write any byte to an audio file, or reopen D7, D11, D14, D19 or D28.",
+      "color": "sky",
+      "order": 22,
+      "cardCounter": 11,
+      "dependsOn": [
+        "W2",
+        "W5",
+        "W8",
+        "W15",
+        "W16"
+      ]
     }
   ]
 }

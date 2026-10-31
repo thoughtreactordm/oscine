@@ -1,7 +1,7 @@
 ---
 taskId: 01M1FK0CYN0GP3FGMWN6JJZVYG
 title: 'EQ: listening verification — clicks, zipper, and both playback paths'
-status: triage
+status: done
 priority: high
 labels:
   - eq
@@ -16,7 +16,7 @@ dependsOn:
   - 01M1FJYKECE08QTX8M1E7PSDA3
 order: 0
 created: '2026-09-01T22:56:29.652Z'
-updated: '2026-09-01T22:56:29.652Z'
+updated: '2026-10-31T15:53:04.703Z'
 ---
 ## Why this exists as a human card
 
