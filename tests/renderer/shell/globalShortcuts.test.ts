@@ -129,8 +129,10 @@ describe('resolveShortcut — playback', () => {
   })
 
   it('keeps seek and skip on different modifiers so neither shadows the other', () => {
-    // Shift+Left is a seek, Ctrl+Left is a skip; a chord holding both is neither.
-    expect(resolveShortcut(chord({ key: 'ArrowLeft', shiftKey: true, ctrlKey: true }))).toBeNull()
+    // Shift+Left is a seek, Ctrl+Left is a skip; a chord holding both is neither
+    // — it is the visualizer's previous-effect step (W23-6).
+    const both = resolveShortcut(chord({ key: 'ArrowLeft', shiftKey: true, ctrlKey: true }))
+    expect(both).toEqual({ kind: 'visualizer', action: 'prev' })
   })
 })
 
@@ -208,6 +210,75 @@ describe('SHORTCUTS table', () => {
 
   it('covers each of G6’s named categories', () => {
     const categories = new Set(SHORTCUTS.map((spec) => spec.category))
-    expect(categories).toEqual(new Set(['Playback', 'Navigation']))
+    expect(categories).toEqual(new Set(['Playback', 'Navigation', 'Visualizer']))
+  })
+
+  it('never lets two bindings claim the same chord', () => {
+    const keys = [' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'F11']
+    keys.push(...'abcdefghijklmnopqrstuvwxyz123456789'.split(''))
+    for (const key of keys) {
+      for (const mask of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]) {
+        const c = chord({
+          key,
+          ctrlKey: (mask & 1) !== 0,
+          metaKey: (mask & 2) !== 0,
+          shiftKey: (mask & 4) !== 0,
+          altKey: (mask & 8) !== 0
+        })
+        const claimed = SHORTCUTS.filter((spec) => spec.match(c) !== null).map((spec) => spec.id)
+        expect(claimed.length, `${key} mask ${mask}: ${claimed.join(', ')}`).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+})
+
+describe('resolveShortcut — visualizer (W23-6)', () => {
+  it('toggles on Ctrl/Cmd + Shift + V, case-insensitively', () => {
+    const toggle = { kind: 'visualizer', action: 'toggle' }
+    expect(resolveShortcut(chord({ key: 'V', ctrlKey: true, shiftKey: true }))).toEqual(toggle)
+    expect(resolveShortcut(chord({ key: 'v', metaKey: true, shiftKey: true }))).toEqual(toggle)
+  })
+
+  it('steps on Ctrl/Cmd + Shift + arrows', () => {
+    expect(resolveShortcut(chord({ key: 'ArrowRight', ctrlKey: true, shiftKey: true }))).toEqual({
+      kind: 'visualizer',
+      action: 'next'
+    })
+    expect(resolveShortcut(chord({ key: 'ArrowLeft', metaKey: true, shiftKey: true }))).toEqual({
+      kind: 'visualizer',
+      action: 'prev'
+    })
+  })
+
+  it('keeps clear of skip, seek and Zen on neighbouring modifiers', () => {
+    expect(resolveShortcut(chord({ key: 'ArrowRight', ctrlKey: true }))).toEqual({
+      kind: 'transport',
+      action: 'next'
+    })
+    expect(resolveShortcut(chord({ key: 'ArrowRight', shiftKey: true }))?.kind).toBe('seek')
+    expect(resolveShortcut(chord({ key: 'v', ctrlKey: true }))).toBeNull()
+    expect(resolveShortcut(chord({ key: 'v', shiftKey: true }))).toBeNull()
+    expect(
+      resolveShortcut(chord({ key: 'v', ctrlKey: true, shiftKey: true, altKey: true }))
+    ).toBeNull()
+    expect(resolveShortcut(chord({ key: 'z', ctrlKey: true, shiftKey: true }))?.kind).toBe('zen')
+  })
+
+  it('stands down while a text control is focused', () => {
+    expect(
+      resolveShortcut(chord({ key: 'v', ctrlKey: true, shiftKey: true, editable: true }))
+    ).toBeNull()
+    expect(
+      resolveShortcut(chord({ key: 'ArrowRight', ctrlKey: true, shiftKey: true, editable: true }))
+    ).toBeNull()
+  })
+
+  it('is listed in the Help reference under its own category', () => {
+    const visualizer = SHORTCUTS.filter((spec) => spec.category === 'Visualizer')
+    expect(visualizer.map((spec) => spec.id)).toEqual([
+      'visualizerToggle',
+      'visualizerPrevious',
+      'visualizerNext'
+    ])
   })
 })
