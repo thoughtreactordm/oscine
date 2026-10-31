@@ -140,6 +140,25 @@ export interface PendingWrite {
   readonly fields: TagFieldDiffs
   /** True when at least one field's `changed` is set. */
   readonly hasChanges: boolean
+  /**
+   * Which of this track's standing corrections an agent made — **W24-8**,
+   * `oscine-mcp` → D36.6. Absent when none did. Resolved when the review
+   * loads, by a join against the agent journal, not stored on the overrides.
+   */
+  readonly agent?: AgentProvenance
+}
+
+/**
+ * The agent provenance of one track's corrections — **W24-8**.
+ *
+ * A field counts when its correction is still exactly what an agent changeset
+ * left: an operator edit made after it, or a revert, takes the field out.
+ */
+export interface AgentProvenance {
+  /** The writable fields whose current correction an agent made. */
+  readonly fields: readonly WritebackField[]
+  /** The changesets those corrections came from, ascending. */
+  readonly changesetIds: readonly number[]
 }
 
 /**

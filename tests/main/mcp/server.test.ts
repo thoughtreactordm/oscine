@@ -105,7 +105,7 @@ describe('agent MCP server', () => {
       const { tools } = await client.listTools()
       expect(tools.map((tool) => tool.name)).toContain('library_overview')
       // Every tool is a read (W24-1, W24-4) except the journal's own two (W24-6)
-      // and the Organize tools (W24-7).
+      // the Organize tools (W24-7) and the Stage tools' two writes (W24-8).
       const writes = [
         'begin_changeset',
         'revert_changeset',
@@ -117,7 +117,9 @@ describe('agent MCP server', () => {
         'remove_playlist_entries',
         'set_playlist_order',
         'add_user_tag',
-        'remove_user_tag'
+        'remove_user_tag',
+        'stage_tag_changes',
+        'revert_staged'
       ]
       expect(
         tools

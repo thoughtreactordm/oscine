@@ -15,6 +15,9 @@ import { createJournalEntities } from '../../../src/main/mcp/journal/entities'
 import { createAgentJournal, type AgentJournal } from '../../../src/main/mcp/journal/journal'
 import { createOrganizeReads } from '../../../src/main/mcp/organize/reads'
 import { createQueryHost, type QueryHost } from '../../../src/main/mcp/query/host'
+import { createStageReads } from '../../../src/main/mcp/stage/reads'
+import { TagWritebackDiffer } from '../../../src/main/library/writeback/differ'
+import { TagWritebackService, trackPathResolver } from '../../../src/main/library/writeback/service'
 import { TagStore } from '../../../src/main/tags/store'
 import { NO_LIBRARY_CHANGES } from '../../../src/main/library/changes'
 import { SqliteStatsService } from '../../../src/main/stats/service'
@@ -244,7 +247,43 @@ describe('W24-4 structured read tools', () => {
       history: new SqlitePlayHistoryService({ db }),
       query: queryHost,
       journal,
-      organize: { playlists, tags: new TagStore(db), reads: createOrganizeReads(db) }
+      organize: { playlists, tags: new TagStore(db), reads: createOrganizeReads(db) },
+      // Stage (W24-8) runs as dry runs here, and list_staged diffs against a
+      // stand-in file read, so no fixture file needs to exist on disk.
+      stage: {
+        library: {
+          setOverrides: noWrites,
+          clearOverrides: noWrites,
+          setTagOverrides: noWrites,
+          revertTagOverrides: noWrites,
+          pendingWritebackTrackIds: async () => store.pendingWritebackTrackIds()
+        },
+        writeback: new TagWritebackService({
+          differ: new TagWritebackDiffer(
+            db,
+            async () => ({
+              title: 'On disk',
+              artist: 'On disk',
+              album: 'On disk',
+              albumArtist: 'On disk',
+              trackNo: 1,
+              discNo: 1,
+              year: 1999,
+              durationMs: 1000,
+              codec: 'flac',
+              sampleRate: 44_100,
+              channels: 2,
+              bitDepth: 16,
+              genre: 'On disk',
+              replayGain: null,
+              lyrics: null
+            }),
+            async () => new Map()
+          ),
+          resolvePath: trackPathResolver(db)
+        }),
+        reads: createStageReads(db)
+      }
     }
     server = createAgentMcpServer(deps, '0.0.0-test')
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
@@ -575,6 +614,9 @@ describe('W24-4 structured read tools', () => {
       set_playlist_order: [{ playlistId, entryIds: [...entryIds].reverse(), dryRun }],
       add_user_tag: [{ trackIds, label: 'Path check', dryRun }],
       remove_user_tag: [{ trackIds, label: 'Path check', dryRun }],
+      stage_tag_changes: [{ changes: [{ trackIds, set: { albumArtist: 'Path check' } }], dryRun }],
+      list_staged: [{}, { changeset: 'current' }],
+      revert_staged: [{ trackIds, dryRun }],
       library_overview: [{}],
       find_tracks: [{ fields: [...ALL_FIELDS], limit: 500 }],
       get_tracks: [{ ids: Object.values(fixture.ids).slice(0, 500), fields: [...ALL_FIELDS] }],

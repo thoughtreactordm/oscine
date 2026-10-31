@@ -50,6 +50,17 @@ export function overviewOnlyTools(overview: LibraryOverview): AgentToolDeps {
         tagByKey: unused,
         tracksWithTag: unused
       }
+    },
+    stage: {
+      library: {
+        setOverrides: unused,
+        clearOverrides: unused,
+        setTagOverrides: unused,
+        revertTagOverrides: unused,
+        pendingWritebackTrackIds: unused
+      },
+      writeback: { preview: unused },
+      reads: { tracks: unused, stagedFields: unused, changesetTracks: unused }
     }
   }
 }

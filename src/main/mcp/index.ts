@@ -19,6 +19,7 @@ import { registerListeningTools, type ListeningReadDeps } from './tools/listenin
 import { registerOrganizeTools, type OrganizeDeps } from './tools/organize'
 import { registerPlaylistTools, type PlaylistReadDeps } from './tools/playlists'
 import { registerQueryTools, type QueryLibraryDeps } from './tools/query'
+import { registerStageTools, type StageDeps } from './tools/stage'
 import { registerTagFieldsTool } from './tools/tagFields'
 import { registerTrackTools, type TrackReadDeps } from './tools/tracks'
 
@@ -51,6 +52,12 @@ export interface AgentToolDeps {
   journal: AgentJournal
   /** Playlist and user-tag writes (W24-7), each through the journal wrapper. */
   organize: OrganizeDeps
+  /**
+   * Staged tag corrections (W24-8), through the override services and the
+   * journal wrapper. The write-back service is narrowed to `preview`: the
+   * flush is the operator's Apply and is never reachable from a tool (D36.5).
+   */
+  stage: StageDeps
 }
 
 /** What one session's tools know about the session itself, beside the services. */
@@ -104,6 +111,10 @@ export const AGENT_TOOL_GROUPS: readonly AgentToolGroup[] = [
   {
     capability: 'organize',
     register: (server, deps, session) => registerOrganizeTools(server, deps.organize, session)
+  },
+  {
+    capability: 'stage',
+    register: (server, deps, session) => registerStageTools(server, deps.stage, session)
   },
   {
     capability: ['organize', 'stage'],

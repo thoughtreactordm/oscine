@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3'
 import { OscineError } from '@shared/errors'
 import {
   isGroupedWritebackField,
+  type AgentProvenance,
   type PendingWrite,
   type WritebackField,
   type WritebackOutcome,
@@ -84,6 +85,11 @@ export interface TagWritebackServiceDeps {
    * apply is one event, not a thousand. Defaults to running the flush as is.
    */
   readonly batch?: <T>(fn: () => Promise<T>) => Promise<T>
+  /**
+   * Which loaded rows' corrections an agent made (W24-8, D36.6), joined from
+   * the agent journal as the review loads. Absent, no row carries `agent`.
+   */
+  readonly provenance?: (trackIds: readonly number[]) => ReadonlyMap<number, AgentProvenance>
   /** Clock for progress throttling. Defaults to `Date.now`. */
   readonly now?: () => number
   /** Minimum gap between progress emissions, in ms. Defaults to 50. */
@@ -128,6 +134,9 @@ export class TagWritebackService {
   private readonly now: () => number
   private readonly throttleMs: number
   private readonly batch: <T>(fn: () => Promise<T>) => Promise<T>
+  private readonly provenance?: (
+    trackIds: readonly number[]
+  ) => ReadonlyMap<number, AgentProvenance>
 
   /** Set for the lifetime of one flush; its `aborted` flag is what cancel flips. */
   private inFlight: { aborted: boolean } | null = null
@@ -143,6 +152,7 @@ export class TagWritebackService {
     this.now = deps.now ?? Date.now
     this.throttleMs = deps.throttleMs ?? PROGRESS_THROTTLE_MS
     this.batch = deps.batch ?? ((fn) => fn())
+    this.provenance = deps.provenance
   }
 
   /**
@@ -176,7 +186,12 @@ export class TagWritebackService {
       }
       if (pending !== null && pending.hasChanges) out.push(pending)
     }
-    return out
+    if (this.provenance === undefined || out.length === 0) return out
+    const agent = this.provenance(out.map((pending) => pending.trackId))
+    return out.map((pending) => {
+      const found = agent.get(pending.trackId)
+      return found === undefined ? pending : { ...pending, agent: found }
+    })
   }
 
   /**

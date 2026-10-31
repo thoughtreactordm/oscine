@@ -106,6 +106,8 @@ import { createAgentAccessService, type AgentAccessService } from './mcp/agentAc
 import { createJournalEntities } from './mcp/journal/entities'
 import { createAgentJournal } from './mcp/journal/journal'
 import { createOrganizeReads } from './mcp/organize/reads'
+import { createAgentProvenance } from './mcp/journal/provenance'
+import { createStageReads } from './mcp/stage/reads'
 import { createAgentTokenStore } from './mcp/tokenStore'
 import { utilityQueryProcess } from './mcp/query/electronProcess'
 import { createQueryHost } from './mcp/query/host'
@@ -915,9 +917,35 @@ if (!app.requestSingleInstanceLock()) {
     // with its before and after, and restored only through the services a
     // manual edit uses — so it needs them all, and the change notifier, to
     // revert as one `library.changed`.
+    // W16-6 — the staged tag write-back review's main half. It flushes the
+    // correction layers `tags` and the override rows own back into the actual
+    // file tags through the atomic engine (W16-2/W16-4), reading each file fresh
+    // so the diff and the write both reconcile out-of-band edits rather than
+    // clobber them (R7). The renderer scopes a review to a track set and never
+    // sees a path.
+    const tagWriteback = new TagWritebackService({
+      differ: new TagWritebackDiffer(db),
+      resolvePath: trackPathResolver(db),
+      // The review's default is every unwritten correction (W16-6), and a flush
+      // retires the overrides it lands so the track leaves the list.
+      pendingTrackIds: () => library.pendingWritebackTrackIds(),
+      retire: (trackId, fields) => library.retireWrittenOverrides(trackId, fields),
+      // W16-11: the cover is resolved from the override store at apply time,
+      // never from bytes the review held (R7, same discipline as the text fields).
+      resolveArtwork: (trackId) => library.artworkWriteIntent(trackId),
+      // The per-file retires above each announce; one event for the whole flush.
+      batch: (fn) => libraryChanges.batch(fn),
+      // W24-8: rows whose correction an agent changeset left are badged in the
+      // review — a join against the journal at load time (D36.6). Late-bound:
+      // the journal's entities are built below, from services built above.
+      provenance: (trackIds) => agentProvenance.forTracks(trackIds)
+    })
+
+    const journalEntities = createJournalEntities({ db, playlists, library, tags })
+    const agentProvenance = createAgentProvenance({ db, entities: journalEntities })
     const agentJournal = createAgentJournal({
       db,
-      entities: createJournalEntities({ db, playlists, library, tags }),
+      entities: journalEntities,
       changes: libraryChanges,
       onChanged: broadcastAgentChangesets
     })
@@ -939,7 +967,10 @@ if (!app.requestSingleInstanceLock()) {
         query: queryHost,
         journal: agentJournal,
         // Organize (W24-7): the same playlist service and tag store IPC uses.
-        organize: { playlists, tags, reads: createOrganizeReads(db) }
+        organize: { playlists, tags, reads: createOrganizeReads(db) },
+        // Stage corrections (W24-8): the override services IPC calls, and the
+        // review's preview — never its apply (D36.5).
+        stage: { library, writeback: tagWriteback, reads: createStageReads(db) }
       },
       version: app.getVersion(),
       onStatusChanged: broadcastAgentAccess
@@ -974,26 +1005,6 @@ if (!app.requestSingleInstanceLock()) {
     // offered when it is neither on the file nor already the operator's, and the
     // whole networked half is silent when consent is off.
     const tagSuggestions = createTagSuggestionService({ db, client: net.client, cache, tags })
-
-    // W16-6 — the staged tag write-back review's main half. It flushes the
-    // correction layers `tags` and the override rows own back into the actual
-    // file tags through the atomic engine (W16-2/W16-4), reading each file fresh
-    // so the diff and the write both reconcile out-of-band edits rather than
-    // clobber them (R7). The renderer scopes a review to a track set and never
-    // sees a path.
-    const tagWriteback = new TagWritebackService({
-      differ: new TagWritebackDiffer(db),
-      resolvePath: trackPathResolver(db),
-      // The review's default is every unwritten correction (W16-6), and a flush
-      // retires the overrides it lands so the track leaves the list.
-      pendingTrackIds: () => library.pendingWritebackTrackIds(),
-      retire: (trackId, fields) => library.retireWrittenOverrides(trackId, fields),
-      // W16-11: the cover is resolved from the override store at apply time,
-      // never from bytes the review held (R7, same discipline as the text fields).
-      resolveArtwork: (trackId) => library.artworkWriteIntent(trackId),
-      // The per-file retires above each announce; one event for the whole flush.
-      batch: (fn) => libraryChanges.batch(fn)
-    })
 
     // W6-6 — manual in-app updates. The driver is loaded only for the two
     // installs that actually self-update (NSIS, AppImage). A `.deb` never sees
