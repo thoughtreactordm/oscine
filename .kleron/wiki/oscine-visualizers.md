@@ -350,6 +350,10 @@ which no 2004 visualizer had. Working names follow the songbird motif and can ch
 | **Bars** | 2D | overlay | mirrored log-spectrum bars with falling peak caps, rising from a centre line | — |
 | **Halo** | 2D | overlay | a radial spectrum ringing a disc of the cover, pulsing on onsets | cover |
 | **Trace** | 2D | overlay | the waveform as a slow-drifting ribbon with fading afterimages | — |
+| **Whorl** | 2D | overlay | the waveform as a closed ring whose afterimages expand and turn outward into a fading spiral; bass sets the spin | — |
+| **Silk** | 2D | overlay | a few threads drawn by pendulum pens whose rates drift with bass, mid and treble, trailing long fading tails as the figures loop and re-form | — |
+| **Updraft** | 2D | overlay | a few hundred motes on a slowly drifting divergence-free flow field, trailing smoke; level sets speed, bass stirs a vortex, onsets puff them outward | — |
+| **Gyre** | 2D | overlay | the spectrum as paired arcs orbiting on concentric rings, arc length by level, neighbours counter-rotating, motion-blur tails | — |
 | **Drift** | WebGL2 | grow | a feedback field: each frame warps, zooms and rotates the last, bass drives zoom, the waveform is injected as a line. Seeded from the cover, so the image melts into the tunnel rather than one building out of black | cover |
 | **Plumage** | WebGL2 | grow | the cover as a texture, displaced and kaleidoscoped by band energies, chromatic split on onsets | cover |
 | **Rainfall** | WebGL2 | grow | a height-field ripple over the cover; each onset drops a ring, sized by its strength and placed by its dominant band | cover |
@@ -367,7 +371,10 @@ stage visibly starts to move.
 **Mosaic was dropped (W23-7, 2026-10-31).** A 2D `grow` effect was to cut the cover into
 tiles. Built twice — tiles lifting and tilting on their bands, then two-sided tiles flipping in
 onset waves — it read as hokey both times, and the operator cut it. No 2D effect is `grow` now:
-the host's `grow` path (W23-5) stays, and is first exercised by Drift (W23-9).
+the host's `grow` path (W23-5) stays, and is first exercised by Drift (W23-9). In its place
+W23-7 added four line-and-trail effects in Trace's vein — **Whorl**, **Silk**, **Updraft** and
+**Gyre** — all keeping their history as preallocated rings redrawn by age (never a canvas faded
+into itself, which leaves 8-bit ghosts and fades at the frame rate).
 
 Effects that don't need the cover (`needs.cover` unset) don't get the texture, and with the
 default `washUnder` they still sit on the wash, so the cover's colour field shows through
@@ -629,7 +636,7 @@ Three phases, and the stream can stop after any of them and still ship, as with 
 | **W23-4** | `VisualizerStage` host and stage layout (D35.1, D35.4, D35.7): canvas keyed on surface, registry, lifecycle (idle, hidden, reduced motion, unmount disposal), the corner cluster on its scrim (moving without animation for now), the lyrics scrim panel, ribbon suppression, the stage toggle, the five settings and the Zen override. In this card the CSS wash simply stays underneath and the canvas is a transparent `overlay` layer that fades in with emergence. Ships with **Bars**. Also amends `fermata-design` §11 to record that visualizers left the deferral list, in the same note style as the three items already there. | W23-1, W23-2, W23-3 |
 | **W23-5** | Wash and transitions (D35.12), on the 2D tier: the four `@property` wash properties shared with `.stage-wash-img`, the 2D wash pass, the CSS ↔ canvas handoff, `overlay`/`grow` emergence and `washUnder`, every row of the transitions table including pause-settles-to-wash, the fade-through layout change (amended from a FLIP move), and the `VITE_VISUALIZER_HOLD_EMERGENCE` flag. | W23-4 |
 | **W23-6** | Controls (D35.5): next/previous, the label caption, cycle on track change, the `SHORTCUTS` entries and dispatch, Command Palette commands, unknown-id fallback. | W23-4 |
-| **W23-7** | **Halo** and **Trace** (2D). Mosaic was in scope and was dropped (see D35.9). | W23-5 |
+| **W23-7** | **Halo**, **Trace**, **Whorl**, **Silk**, **Updraft** and **Gyre** (2D). Mosaic was in scope and was dropped; the four wispy/spinny effects replaced it (see D35.9). | W23-5 |
 | **W23-8** | WebGL2 tier (D35.6, plus the GPU halves of D35.11 and D35.12): the capability probe, `visualizer/gl/` helpers, the cover upload helper and its texture rules, re-upload on context restore, the GPU wash pass matched to the 2D one, compile-failure handling, context loss with the CSS wash restored instantly, the resolution budget and `quality` tiers with the `auto` frame-time backoff, effects excluded when unavailable. | W23-5 |
 | **W23-9** | **Drift**, seeded from the cover. | W23-8 |
 | **W23-10** | **Plumage**. | W23-8 |
