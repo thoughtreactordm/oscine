@@ -57,14 +57,12 @@ export type Cover2D<I> = CoverInput<CoverSlot<I & CoverBitmap, unknown>>
 
 /**
  * `StageInputs` as a 2D effect core sees it. The wash is narrowed to something
- * `drawImage` takes (on the 2D tier it is the host's wash canvas) and carries
- * the wash's scale, so a `grow` effect can fit the cover exactly as the wash is
- * fitted.
+ * `drawImage` takes: on the 2D tier it is the host's wash canvas.
  */
 export interface Stage2D<I> {
   readonly emergence: number
   readonly intensity: number
-  readonly wash: { readonly source: I; readonly scale: number } | null
+  readonly wash: { readonly source: I } | null
   readonly cover: Cover2D<I> | null
 }
 
@@ -116,24 +114,4 @@ export function fitCover(
   out.x = boxX + (boxW - sourceWidth * k) / 2
   out.y = boxY + (boxH - sourceHeight * k) / 2
   return true
-}
-
-/**
- * Draw the part of a fitted bitmap that lands on the destination rect
- * `(dx, dy, dw, dh)` — in fit space — at `(px, py, dw, dh)` on the context.
- * One `drawImage`, no allocation.
- */
-export function drawFittedRegion<I>(
-  ctx: Draw2D<I>,
-  bitmap: I,
-  fit: CoverFit,
-  dx: number,
-  dy: number,
-  dw: number,
-  dh: number,
-  px: number,
-  py: number
-): void {
-  const k = fit.k
-  ctx.drawImage(bitmap, (dx - fit.x) / k, (dy - fit.y) / k, dw / k, dh / k, px, py, dw, dh)
 }

@@ -350,7 +350,6 @@ which no 2004 visualizer had. Working names follow the songbird motif and can ch
 | **Bars** | 2D | overlay | mirrored log-spectrum bars with falling peak caps, rising from a centre line | — |
 | **Halo** | 2D | overlay | a radial spectrum ringing a disc of the cover, pulsing on onsets | cover |
 | **Trace** | 2D | overlay | the waveform as a slow-drifting ribbon with fading afterimages | — |
-| **Mosaic** | 2D | grow | the cover as a board of two-sided tiles, the wash on the front and the sharp cover on the back; each onset sends a wave from its dominant band's column that turns every tile it passes, and tiles drift home in quiet passages; at rest the tiles close up into the wash | cover |
 | **Drift** | WebGL2 | grow | a feedback field: each frame warps, zooms and rotates the last, bass drives zoom, the waveform is injected as a line. Seeded from the cover, so the image melts into the tunnel rather than one building out of black | cover |
 | **Plumage** | WebGL2 | grow | the cover as a texture, displaced and kaleidoscoped by band energies, chromatic split on onsets | cover |
 | **Rainfall** | WebGL2 | grow | a height-field ripple over the cover; each onset drops a ring, sized by its strength and placed by its dominant band | cover |
@@ -360,10 +359,15 @@ which no 2004 visualizer had. Working names follow the songbird motif and can ch
 
 **Drift** is the effect that gives the old WMP feel, and it is the one that needs the GPU:
 per-pixel feedback at full-stage size is exactly what 2D canvas cannot do at frame rate.
-The cover effects (**Plumage**, **Rainfall**, **Groove**, **Mosaic**) are the ones only a
+The cover effects (**Plumage**, **Rainfall**, **Groove**) are the ones only a
 local-library player does well, since every track brings its own image. They are also the
 `grow` effects, which is what makes D35.12 seamless rather than a crossfade: the cover on the
 stage visibly starts to move.
+
+**Mosaic was dropped (W23-7, 2026-10-31).** A 2D `grow` effect was to cut the cover into
+tiles. Built twice — tiles lifting and tilting on their bands, then two-sided tiles flipping in
+onset waves — it read as hokey both times, and the operator cut it. No 2D effect is `grow` now:
+the host's `grow` path (W23-5) stays, and is first exercised by Drift (W23-9).
 
 Effects that don't need the cover (`needs.cover` unset) don't get the texture, and with the
 default `washUnder` they still sit on the wash, so the cover's colour field shows through
@@ -495,7 +499,7 @@ effect). Each effect declares how it uses it:
   wash and then the effect over it, with the effect's output scaled by emergence. The effect
   does nothing special. `washUnder` (0..1, default 1) is how much wash stays under the effect
   at full emergence, so by default every overlay effect sits on the cover's colour field.
-- **`grow`** (cover effects: Mosaic, Drift, Plumage, Rainfall, Groove). The effect receives
+- **`grow`** (cover effects: Drift, Plumage, Rainfall, Groove). The effect receives
   `stage.wash` and must produce the wash at emergence 0, with its displacement, feedback,
   tiling or smear scaling up from zero. Plumage at 0 is the blurred cover sitting still; at 1
   it is the full effect. This is the seamless case: the stage's own cover starts to move.
@@ -611,8 +615,9 @@ Answered by the operator on 2026-10-31, when the stream was carded.
 Three phases, and the stream can stop after any of them and still ship, as with W17:
 
 - **Phase 1** (W23-1..7) is a complete feature on the 2D tier: the host, the seamless wash
-  transitions, controls, safety and idle discipline, and four effects, including one cover
-  effect (Mosaic).
+  transitions, controls, safety and idle discipline, and the 2D effects. (It first named a
+  2D cover effect, Mosaic, as the proof of `grow`; Mosaic was dropped in W23-7 — see the
+  note under D35.9 — so the first `grow` effect is Drift, W23-9.)
 - **Phase 2** (W23-8..12) adds the GPU tier and the rest of the cover effects.
 - **Phase 3** (W23-13..14) is the only phase that touches the audio layer.
 
@@ -624,7 +629,7 @@ Three phases, and the stream can stop after any of them and still ship, as with 
 | **W23-4** | `VisualizerStage` host and stage layout (D35.1, D35.4, D35.7): canvas keyed on surface, registry, lifecycle (idle, hidden, reduced motion, unmount disposal), the corner cluster on its scrim (moving without animation for now), the lyrics scrim panel, ribbon suppression, the stage toggle, the five settings and the Zen override. In this card the CSS wash simply stays underneath and the canvas is a transparent `overlay` layer that fades in with emergence. Ships with **Bars**. Also amends `fermata-design` §11 to record that visualizers left the deferral list, in the same note style as the three items already there. | W23-1, W23-2, W23-3 |
 | **W23-5** | Wash and transitions (D35.12), on the 2D tier: the four `@property` wash properties shared with `.stage-wash-img`, the 2D wash pass, the CSS ↔ canvas handoff, `overlay`/`grow` emergence and `washUnder`, every row of the transitions table including pause-settles-to-wash, the fade-through layout change (amended from a FLIP move), and the `VITE_VISUALIZER_HOLD_EMERGENCE` flag. | W23-4 |
 | **W23-6** | Controls (D35.5): next/previous, the label caption, cycle on track change, the `SHORTCUTS` entries and dispatch, Command Palette commands, unknown-id fallback. | W23-4 |
-| **W23-7** | **Halo**, **Trace** and **Mosaic** (2D). Mosaic is the first `grow` effect and proves the contract before the GPU tier exists. | W23-5 |
+| **W23-7** | **Halo** and **Trace** (2D). Mosaic was in scope and was dropped (see D35.9). | W23-5 |
 | **W23-8** | WebGL2 tier (D35.6, plus the GPU halves of D35.11 and D35.12): the capability probe, `visualizer/gl/` helpers, the cover upload helper and its texture rules, re-upload on context restore, the GPU wash pass matched to the 2D one, compile-failure handling, context loss with the CSS wash restored instantly, the resolution budget and `quality` tiers with the `auto` frame-time backoff, effects excluded when unavailable. | W23-5 |
 | **W23-9** | **Drift**, seeded from the cover. | W23-8 |
 | **W23-10** | **Plumage**. | W23-8 |

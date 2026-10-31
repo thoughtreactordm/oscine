@@ -2,7 +2,6 @@ import type { VisualizerEffect } from './effect'
 import { BARS } from './effects/bars'
 import { create2D } from './effects/canvas2d'
 import { createHalo } from './effects/halo'
-import { createMosaic } from './effects/mosaic'
 import { createTrace } from './effects/trace'
 
 /** W23-7: a radial spectrum ringing a disc of the cover. */
@@ -24,16 +23,6 @@ const TRACE: VisualizerEffect = {
   create: create2D(createTrace, 'Trace')
 }
 
-/** W23-7: the cover in tiles that lift on their bands; the first `grow` effect. */
-const MOSAIC: VisualizerEffect = {
-  id: 'mosaic',
-  label: 'Mosaic',
-  surface: '2d',
-  needs: { cover: true },
-  emergence: 'grow',
-  create: create2D(createMosaic, 'Mosaic')
-}
-
 /**
  * The stage's effects, in display order — **D35.1**.
  *
@@ -43,7 +32,7 @@ const MOSAIC: VisualizerEffect = {
  * visualizer always has something to show without a GPU (D35.6) — its `id` is
  * `DEFAULT_VISUALIZER_EFFECT` from the shared settings for the same reason.
  */
-export const VISUALIZER_EFFECTS: readonly VisualizerEffect[] = [BARS, HALO, TRACE, MOSAIC]
+export const VISUALIZER_EFFECTS: readonly VisualizerEffect[] = [BARS, HALO, TRACE]
 
 /**
  * The effects that can run this session. Everything until the WebGL2 tier
