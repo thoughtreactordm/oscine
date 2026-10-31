@@ -19,6 +19,10 @@ import {
  * Nothing here imports Web Audio, `@renderer`, or the DOM: like `equalizerModel`
  * it is unit-tested under plain Node, so it reaches `eqResponse` by relative path
  * and keeps the axis mapping shared with the curve.
+ *
+ * Each step has an `…Into` variant that writes into caller-owned buffers (W23-1,
+ * D35.2). The stage visualizer runs this at 60 fps and must not allocate per
+ * frame; the EQ pane keeps the allocating forms, which are now thin wrappers.
  */
 
 const MIN_HZ = MIN_DISPLAY_FREQUENCY_HZ
@@ -37,8 +41,16 @@ const WINDOW_GAIN_COMPENSATION = 2
 
 /** A copy of `samples` under a Hann window, which tames the FFT's spectral leakage. */
 export function applyHann(samples: Float32Array): Float32Array {
+  return applyHannInto(samples, new Float32Array(samples.length))
+}
+
+/**
+ * {@link applyHann} into `out`, which must be `samples.length` long. Safe in
+ * place (`out === samples`): each sample is read once, before it is written.
+ */
+export function applyHannInto(samples: Float32Array, out: Float32Array): Float32Array {
   const n = samples.length
-  const out = new Float32Array(n)
+  if (out.length !== n) throw new RangeError(`applyHannInto: out holds ${out.length}, needs ${n}`)
   if (n <= 1) {
     out.set(samples)
     return out
@@ -100,17 +112,54 @@ function transformRadix2(re: Float64Array, im: Float64Array): void {
  */
 export function fftMagnitudes(samples: Float32Array): Float32Array {
   const n = samples.length
+  const mag = new Float32Array(Math.max(0, n >> 1))
+  if (!isPowerOfTwo(n)) return mag
+  return fftMagnitudesInto(samples, mag, createFftScratch(n))
+}
+
+/** The FFT's working space: real and imaginary parts, one `Float64Array` each of the FFT size. */
+export interface FftScratch {
+  readonly re: Float64Array
+  readonly im: Float64Array
+}
+
+export function createFftScratch(size: number): FftScratch {
+  return { re: new Float64Array(size), im: new Float64Array(size) }
+}
+
+function isPowerOfTwo(n: number): boolean {
+  return n >= 2 && (n & (n - 1)) === 0
+}
+
+/**
+ * {@link fftMagnitudes} into `out` (`samples.length / 2` long), transforming in
+ * `scratch` (`samples.length` long). A non-power-of-two length zero-fills `out`.
+ */
+export function fftMagnitudesInto(
+  samples: Float32Array,
+  out: Float32Array,
+  scratch: FftScratch
+): Float32Array {
+  const n = samples.length
   const half = n >> 1
-  if (n < 2 || (n & (n - 1)) !== 0) return new Float32Array(Math.max(0, half))
-  const re = new Float64Array(n)
-  const im = new Float64Array(n)
-  for (let i = 0; i < n; i++) re[i] = samples[i]
-  transformRadix2(re, im)
-  const mag = new Float32Array(half)
-  for (let i = 0; i < half; i++) {
-    mag[i] = (Math.hypot(re[i], im[i]) / n) * WINDOW_GAIN_COMPENSATION
+  if (out.length !== Math.max(0, half)) {
+    throw new RangeError(`fftMagnitudesInto: out holds ${out.length}, needs ${half}`)
   }
-  return mag
+  if (!isPowerOfTwo(n)) {
+    out.fill(0)
+    return out
+  }
+  const { re, im } = scratch
+  if (re.length !== n || im.length !== n) {
+    throw new RangeError(`fftMagnitudesInto: scratch holds ${re.length}/${im.length}, needs ${n}`)
+  }
+  for (let i = 0; i < n; i++) re[i] = samples[i]
+  im.fill(0)
+  transformRadix2(re, im)
+  for (let i = 0; i < half; i++) {
+    out[i] = (Math.hypot(re[i], im[i]) / n) * WINDOW_GAIN_COMPENSATION
+  }
+  return out
 }
 
 /** A linear magnitude as dB, floored so silence is a number rather than `-Infinity`. */
@@ -136,6 +185,18 @@ export function resampleLogAxis(
   floorDb = SPECTRUM_FLOOR_DB
 ): Float32Array {
   const out = new Float32Array(Math.max(0, points))
+  return resampleLogAxisInto(magnitudes, sampleRateHz, out, minHz, maxHz, floorDb)
+}
+
+/** {@link resampleLogAxis} into `out`, whose length is the number of display points. */
+export function resampleLogAxisInto(
+  magnitudes: Float32Array,
+  sampleRateHz: number,
+  out: Float32Array,
+  minHz = MIN_HZ,
+  maxHz = MAX_HZ,
+  floorDb = SPECTRUM_FLOOR_DB
+): Float32Array {
   if (out.length === 0 || magnitudes.length === 0 || sampleRateHz <= 0) {
     out.fill(floorDb)
     return out

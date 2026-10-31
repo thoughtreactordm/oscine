@@ -8,10 +8,14 @@ import {
   SPECTRUM_FFT_SIZE,
   SPECTRUM_FLOOR_DB,
   applyHann,
+  applyHannInto,
+  createFftScratch,
   createSpectrumSmoother,
   fftMagnitudes,
+  fftMagnitudesInto,
   magnitudeToDb,
   resampleLogAxis,
+  resampleLogAxisInto,
   spectrumFrameDb
 } from '../../../../src/renderer/panels/tools/spectrumModel'
 
@@ -118,5 +122,63 @@ describe('createSpectrumSmoother', () => {
     smoother.push(new Float32Array([0, 0, 0]))
     smoother.reset()
     expect(smoother.active()).toBe(false)
+  })
+})
+
+describe('…Into variants (W23-1)', () => {
+  function mixed(): Float32Array {
+    const out = sine(1000)
+    const low = sine(90)
+    for (let i = 0; i < out.length; i++) out[i] = 0.6 * out[i] + 0.3 * low[i]
+    return out
+  }
+
+  it('applyHannInto matches applyHann, and works in place', () => {
+    const samples = mixed()
+    const expected = applyHann(samples)
+    const out = new Float32Array(samples.length)
+    expect(applyHannInto(samples, out)).toBe(out)
+    expect(Array.from(out)).toEqual(Array.from(expected))
+
+    const inPlace = samples.slice()
+    applyHannInto(inPlace, inPlace)
+    expect(Array.from(inPlace)).toEqual(Array.from(expected))
+  })
+
+  it('fftMagnitudesInto matches fftMagnitudes, and a reused scratch carries nothing over', () => {
+    const samples = applyHann(mixed())
+    const expected = fftMagnitudes(samples)
+    const scratch = createFftScratch(SPECTRUM_FFT_SIZE)
+    const out = new Float32Array(SPECTRUM_FFT_SIZE / 2)
+
+    // A different signal through the same scratch first: the second pass must not see it.
+    fftMagnitudesInto(applyHann(sine(5000)), out, scratch)
+    expect(fftMagnitudesInto(samples, out, scratch)).toBe(out)
+    expect(Array.from(out)).toEqual(Array.from(expected))
+  })
+
+  it('fftMagnitudesInto zero-fills for a non-power-of-two length', () => {
+    const out = new Float32Array(3).fill(7)
+    fftMagnitudesInto(new Float32Array(6).fill(1), out, createFftScratch(6))
+    expect(Array.from(out)).toEqual([0, 0, 0])
+  })
+
+  it('resampleLogAxisInto matches resampleLogAxis', () => {
+    const magnitudes = fftMagnitudes(applyHann(mixed()))
+    const expected = resampleLogAxis(magnitudes, RATE, 64, 30, 16000)
+    const out = new Float32Array(64)
+    expect(resampleLogAxisInto(magnitudes, RATE, out, 30, 16000)).toBe(out)
+    expect(Array.from(out)).toEqual(Array.from(expected))
+  })
+
+  it('rejects buffers of the wrong size rather than writing a partial result', () => {
+    const samples = new Float32Array(SPECTRUM_FFT_SIZE)
+    expect(() => applyHannInto(samples, new Float32Array(8))).toThrow(RangeError)
+    expect(() =>
+      fftMagnitudesInto(samples, new Float32Array(8), createFftScratch(SPECTRUM_FFT_SIZE))
+    ).toThrow(RangeError)
+    expect(() =>
+      fftMagnitudesInto(samples, new Float32Array(SPECTRUM_FFT_SIZE / 2), createFftScratch(8))
+    ).toThrow(RangeError)
   })
 })
