@@ -33,6 +33,12 @@ export type VisualizerSurface = '2d' | 'webgl2'
  */
 export interface WashInput {
   readonly source: CanvasImageSource | WebGLTexture
+  /**
+   * `--stage-wash-scale`, the wash's `scale()` about the centre. A `grow`
+   * effect that lays the sharp cover over the wash fits it object-cover at
+   * this scale, so the two line up as the blur resolves (W23-7, Mosaic).
+   */
+  readonly scale: number
 }
 
 export interface StageInputs {

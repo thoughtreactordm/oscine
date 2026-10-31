@@ -178,7 +178,7 @@ let growDrawn = false
 let cover: CoverSource<StageCoverSlot> | null = null
 let coverFading = false
 let washPass: WashPass | null = null
-let washInput: WashInput | null = null
+let washInput: { -readonly [K in keyof WashInput]: WashInput[K] } | null = null
 let look: WashLook | null = null
 let styleDirty = true
 let wakeFrames = 0
@@ -236,6 +236,7 @@ function readStyle(): void {
   if (next) {
     look = next
     washPass?.setLook(next)
+    if (washInput) washInput.scale = next.scale
   }
   const motionSec = parseCssDurationSec(style.getPropertyValue(MOTION_DURATION_PROPERTY))
   transition.setDurations(transitionDurations(motionSec ?? DEFAULT_MOTION_SEC))
@@ -538,7 +539,7 @@ onMounted(() => {
 
   if (washCanvas.value) {
     washPass = createWashPass(washCanvas.value)
-    washInput = { source: washCanvas.value }
+    washInput = { source: washCanvas.value, scale: look?.scale ?? 1 }
   }
   cover = createStageCoverSource()
   setArtwork(playback.nowPlaying?.artwork.large ?? null)
