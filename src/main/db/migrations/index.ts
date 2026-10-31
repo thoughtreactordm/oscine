@@ -27,6 +27,7 @@ import { trackOverridesAlbumArtist } from './025-track-overrides-album-artist'
 import { trackTagOverrides } from './026-track-tag-overrides'
 import { indexAlbumYearOrder } from './027-index-album-year-order'
 import { trackScanFacts } from './028-track-scan-facts'
+import { mcpViews } from './029-mcp-views'
 
 /**
  * Every migration, in order.
@@ -65,5 +66,6 @@ export const MIGRATIONS: readonly Migration[] = [
   trackOverridesAlbumArtist,
   trackTagOverrides,
   indexAlbumYearOrder,
-  trackScanFacts
+  trackScanFacts,
+  mcpViews
 ]
