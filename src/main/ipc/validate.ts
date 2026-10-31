@@ -9,6 +9,11 @@ import type { GetArtistLinksRequest } from '@shared/artistLinks'
 import type { GetArtistRelationsRequest } from '@shared/artistRelations'
 import type { GetArtistBiographyRequest } from '@shared/biography'
 import type { GetArtistImageRequest } from '@shared/artistImage'
+import {
+  MAX_CHANGESET_LIST,
+  type ListAgentChangesetsRequest,
+  type RevertAgentChangesetRequest
+} from '@shared/agentChangesets'
 import { OscineError } from '@shared/errors'
 import {
   MAX_FAVORITE_IDS_PAGE,
@@ -2124,4 +2129,20 @@ function assertRipTrack(value: unknown, index: number): RipTrackSelection {
     title: assertTagText(raw.title, `tracks[${index}].title`),
     artist: assertTagText(raw.artist, `tracks[${index}].artist`)
   }
+}
+
+/** `agentChangesets.list` — a bounded page of the most recent changesets (W24-6). */
+export function assertListAgentChangesetsRequest(value: unknown): ListAgentChangesetsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['limit'])
+  const limit = assertPositiveInt(raw.limit, 'limit')
+  if (limit > MAX_CHANGESET_LIST) invalid(`limit must be at most ${MAX_CHANGESET_LIST}.`)
+  return { limit }
+}
+
+/** `agentChangesets.revert` — one changeset by id, and nothing else (W24-6). */
+export function assertRevertAgentChangesetRequest(value: unknown): RevertAgentChangesetRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['changesetId'])
+  return { changesetId: assertPositiveInt(raw.changesetId, 'changesetId') }
 }

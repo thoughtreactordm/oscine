@@ -289,7 +289,10 @@ describe('agent access lifecycle', () => {
   it('starts a new session with the capabilities already applied', async () => {
     const port = await freePort()
     const { service, set } = build(port)
+    // All three: the changeset tools (W24-6) stay listed while a write capability is on.
     await set(MCP_CAPABILITY_KEYS.read, false)
+    await set(MCP_CAPABILITY_KEYS.organize, false)
+    await set(MCP_CAPABILITY_KEYS.stage, false)
     await set(MCP_ENABLED_KEY, true)
     const { client } = await connectClient(port, service.revealToken() as string)
     cleanup.push(() => client.close())

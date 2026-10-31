@@ -4,13 +4,15 @@ import {
   type RegisteredTool
 } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
-  AGENT_CAPABILITIES,
   AGENT_SERVER_DEFAULT_PORT,
   type AgentCapabilities,
   type AgentCapability
 } from '@shared/agentAccess'
 import { MCP_CAPABILITY_DEFAULTS } from '@shared/settings/mcp'
+import type { AgentJournal } from './journal/journal'
+import { createSessionJournal, type AgentSessionJournal } from './journal/session'
 import { registerCatalogTools, type CatalogReadDeps } from './tools/catalog'
+import { registerChangesetTools } from './tools/changesets'
 import { registerIssuesTool, type IssueReadDeps } from './tools/issues'
 import { registerLibraryOverview, type LibraryOverviewDeps } from './tools/libraryOverview'
 import { registerListeningTools, type ListeningReadDeps } from './tools/listening'
@@ -44,6 +46,24 @@ export interface AgentToolDeps {
   history: ListeningReadDeps['history']
   /** The query host (W24-5): agent SQL runs in its process, never on main's connection. */
   query: QueryLibraryDeps
+  /** The change journal (W24-6): every agent write is recorded in a changeset (D36.6). */
+  journal: AgentJournal
+}
+
+/** What one session's tools know about the session itself, beside the services. */
+export interface AgentSessionContext {
+  /** The session's changeset and the write wrapper every write tool goes through. */
+  journal: AgentSessionJournal
+  /** The operator's switches as they are now, not as they were when the session opened. */
+  capabilities: () => AgentCapabilities
+}
+
+/** How the lifecycle (`agentAccess.ts`) reaches into each session it opens. */
+export interface AgentServerAccess {
+  /** Live capability switches. Defaults to the snapshot the server was built with. */
+  capabilities?: () => AgentCapabilities
+  /** Marks a write in flight for the title-bar indicator (D36.10). */
+  beginWrite?: () => () => void
 }
 
 /**
@@ -56,8 +76,12 @@ export interface AgentToolDeps {
 type AgentSurface = RegisteredTool | RegisteredResource
 
 interface AgentToolGroup {
-  capability: AgentCapability
-  register(server: McpServer, deps: AgentToolDeps): AgentSurface[]
+  /**
+   * The capability that gates the group, or several: then the group is listed
+   * while any of them is on (the changeset tools serve both write capabilities).
+   */
+  capability: AgentCapability | readonly AgentCapability[]
+  register(server: McpServer, deps: AgentToolDeps, session: AgentSessionContext): AgentSurface[]
 }
 
 export const AGENT_TOOL_GROUPS: readonly AgentToolGroup[] = [
@@ -73,11 +97,33 @@ export const AGENT_TOOL_GROUPS: readonly AgentToolGroup[] = [
       registerIssuesTool(server, deps.library),
       ...registerQueryTools(server, deps.query)
     ]
+  },
+  {
+    capability: ['organize', 'stage'],
+    register: (server, deps, session) =>
+      registerChangesetTools(server, {
+        journal: deps.journal,
+        session: session.journal,
+        capabilities: session.capabilities
+      })
   }
 ]
 
-/** Each session server's tools by capability, so a switch can reach them. */
-const toolsByServer = new WeakMap<McpServer, Map<AgentCapability, AgentSurface[]>>()
+/** Whether a group with this gate is listed under these switches. */
+function groupEnabled(
+  gate: AgentCapability | readonly AgentCapability[],
+  capabilities: AgentCapabilities
+): boolean {
+  return typeof gate === 'string' ? capabilities[gate] : gate.some((key) => capabilities[key])
+}
+
+interface RegisteredGroup {
+  gate: AgentCapability | readonly AgentCapability[]
+  surfaces: AgentSurface[]
+}
+
+/** Each session server's tools by gate, so a switch can reach them. */
+const toolsByServer = new WeakMap<McpServer, RegisteredGroup[]>()
 
 /**
  * One fully registered server per session; see `server.ts` for why.
@@ -90,7 +136,8 @@ const toolsByServer = new WeakMap<McpServer, Map<AgentCapability, AgentSurface[]
 export function createAgentMcpServer(
   deps: AgentToolDeps,
   version: string,
-  capabilities: AgentCapabilities = MCP_CAPABILITY_DEFAULTS
+  capabilities: AgentCapabilities = MCP_CAPABILITY_DEFAULTS,
+  access: AgentServerAccess = {}
 ): McpServer {
   const server = new McpServer(
     { name: 'oscine', title: 'Oscine', version },
@@ -102,12 +149,21 @@ export function createAgentMcpServer(
         'a session.'
     }
   )
-  const groups = new Map<AgentCapability, AgentSurface[]>(
-    AGENT_CAPABILITIES.map((capability) => [capability, []])
-  )
-  for (const group of AGENT_TOOL_GROUPS) {
-    groups.get(group.capability)?.push(...group.register(server, deps))
+  const journal = createSessionJournal({
+    journal: deps.journal,
+    clientName: () => server.server.getClientVersion()?.name?.trim().slice(0, 80) || null,
+    beginWrite: access.beginWrite
+  })
+  // The session's implicit changeset ends with the session.
+  server.server.onclose = () => journal.end()
+  const session: AgentSessionContext = {
+    journal,
+    capabilities: access.capabilities ?? (() => capabilities)
   }
+  const groups: RegisteredGroup[] = AGENT_TOOL_GROUPS.map((group) => ({
+    gate: group.capability,
+    surfaces: group.register(server, deps, session)
+  }))
   toolsByServer.set(server, groups)
   // Before `connect`, so nothing is sent: there is no client to tell yet.
   applyAgentCapabilities(server, capabilities)
@@ -131,10 +187,11 @@ export function applyAgentCapabilities(
   if (!groups) return false
   let toolsChanged = false
   let resourcesChanged = false
-  for (const [capability, surfaces] of groups) {
+  for (const { gate, surfaces } of groups) {
+    const enabled = groupEnabled(gate, capabilities)
     for (const surface of surfaces) {
-      if (surface.enabled !== capabilities[capability]) {
-        surface.enabled = capabilities[capability]
+      if (surface.enabled !== enabled) {
+        surface.enabled = enabled
         if ('readCallback' in surface) resourcesChanged = true
         else toolsChanged = true
       }

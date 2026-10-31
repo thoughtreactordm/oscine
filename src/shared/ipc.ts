@@ -170,6 +170,12 @@ import type { TagFieldEditState, TagFieldKey, TagFieldPatch } from './tagFields'
 import type { ArtworkRef, CoverArtCandidate } from './artwork'
 import type { InstalledTheme, NoctaliaSetupResult, NoctaliaStatus, NoctaliaVersion } from './theme'
 import type { AgentAccessStatus } from './agentAccess'
+import type {
+  AgentChangesetSummary,
+  AgentRevertResult,
+  ListAgentChangesetsRequest,
+  RevertAgentChangesetRequest
+} from './agentChangesets'
 import type { LibraryChanged } from './libraryChanges'
 
 /**
@@ -1428,6 +1434,25 @@ export interface IpcContract {
   'agentAccess.revealToken': { request: null; response: string | null }
   /** Replace the token and end every open session (D36.1). */
   'agentAccess.regenerateToken': { request: null; response: AgentAccessStatus }
+
+  /**
+   * The agent change journal (W24-6, `oscine-mcp` → D36.6): recent changesets,
+   * newest first, with their change and reverted counts. Followed by
+   * `agentChangesets.changed`.
+   */
+  'agentChangesets.list': {
+    request: ListAgentChangesetsRequest
+    response: AgentChangesetSummary[]
+  }
+  /**
+   * Revert one changeset, conflict-aware: a change is restored only while it
+   * still holds the agent's value, so a later manual edit is skipped and
+   * reported rather than overwritten. Reverting twice restores nothing new.
+   */
+  'agentChangesets.revert': {
+    request: RevertAgentChangesetRequest
+    response: AgentRevertResult
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -1510,6 +1535,11 @@ export interface IpcEventContract {
    * Settings section and the title-bar indicator.
    */
   'agentAccess.changed': AgentAccessStatus
+  /**
+   * A changeset opened, recorded changes, ended or was reverted (W24-6). No
+   * payload: the Settings list refetches its page.
+   */
+  'agentChangesets.changed': null
   /**
    * Playlists, corrections or user tags changed under the renderer (**D36.9**,
    * W24-3). Sent by the write services themselves, once per committed call —
@@ -1695,7 +1725,9 @@ export const IPC_CHANNELS = [
   'agentAccess.status',
   'agentAccess.retry',
   'agentAccess.revealToken',
-  'agentAccess.regenerateToken'
+  'agentAccess.regenerateToken',
+  'agentChangesets.list',
+  'agentChangesets.revert'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [
@@ -1713,6 +1745,7 @@ export const IPC_EVENT_CHANNELS = [
   'update.changed',
   'theme.noctaliaChanged',
   'agentAccess.changed',
+  'agentChangesets.changed',
   'library.changed'
 ] as const satisfies readonly IpcEventChannel[]
 

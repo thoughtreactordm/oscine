@@ -104,8 +104,13 @@ describe('agent MCP server', () => {
     try {
       const { tools } = await client.listTools()
       expect(tools.map((tool) => tool.name)).toContain('library_overview')
-      // Every tool today is a read (W24-1, W24-4).
-      expect(tools.every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true)
+      // Every tool is a read (W24-1, W24-4) except the journal's own two (W24-6).
+      const writes = ['begin_changeset', 'revert_changeset']
+      expect(
+        tools
+          .filter((tool) => !writes.includes(tool.name))
+          .every((tool) => tool.annotations?.readOnlyHint === true)
+      ).toBe(true)
 
       const result = await client.callTool({ name: 'library_overview', arguments: {} })
       expect(result.isError).toBeFalsy()

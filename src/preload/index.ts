@@ -618,6 +618,14 @@ const api = {
     /** Returns an unsubscribe function. Call it on unmount. */
     onChanged: (listener: (status: AgentAccessStatus) => void) =>
       subscribe('agentAccess.changed', listener)
+  },
+  agentChangesets: {
+    /** Recent agent changesets, newest first (W24-6). */
+    list: (limit: number) => request('agentChangesets.list', { limit }),
+    /** Conflict-aware revert of one changeset. */
+    revert: (changesetId: number) => request('agentChangesets.revert', { changesetId }),
+    /** Returns an unsubscribe function. Call it on unmount. */
+    onChanged: (listener: () => void) => subscribe('agentChangesets.changed', () => listener())
   }
 } as const
 

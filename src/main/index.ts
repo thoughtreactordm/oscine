@@ -103,6 +103,8 @@ import {
   type SettingsChange
 } from '@shared/settings'
 import { createAgentAccessService, type AgentAccessService } from './mcp/agentAccess'
+import { createJournalEntities } from './mcp/journal/entities'
+import { createAgentJournal } from './mcp/journal/journal'
 import { createAgentTokenStore } from './mcp/tokenStore'
 import { utilityQueryProcess } from './mcp/query/electronProcess'
 import { createQueryHost } from './mcp/query/host'
@@ -340,6 +342,10 @@ let agentAccessService: AgentAccessService | null = null
 
 function broadcastAgentAccess(status: AgentAccessStatus): void {
   if (mainWindow) emit(mainWindow.webContents, 'agentAccess.changed', status)
+}
+
+function broadcastAgentChangesets(): void {
+  if (mainWindow) emit(mainWindow.webContents, 'agentChangesets.changed', null)
 }
 
 function broadcastLibraryChanged(event: LibraryChanged): void {
@@ -896,6 +902,24 @@ if (!app.requestSingleInstanceLock()) {
     // The token is sealed with `safeStorage` like D19's credentials, in a file
     // of its own, and is only touched once the operator has turned access on.
     const queryHost = createQueryHost({ spawn: utilityQueryProcess(filePath) })
+
+    // User tags (W15). Same connection, its own tables, no network: coining and
+    // applying a tag is a local write, and D7 keeps it there — v1 never touches
+    // the file's own genre frames. Rescan-safe by the W15-1 schema, so the store
+    // is just handed the connection and asked nothing more. Built here because
+    // the agent journal below restores user tags through it.
+    const tags = new TagStore(db, libraryChanges)
+
+    // The agent change journal (W24-6, D36.6): every agent write is recorded
+    // with its before and after, and restored only through the services a
+    // manual edit uses — so it needs them all, and the change notifier, to
+    // revert as one `library.changed`.
+    const agentJournal = createAgentJournal({
+      db,
+      entities: createJournalEntities({ db, playlists, library, tags }),
+      changes: libraryChanges,
+      onChanged: broadcastAgentChangesets
+    })
     const agentAccess = createAgentAccessService({
       settings,
       tokens: createAgentTokenStore({
@@ -906,7 +930,7 @@ if (!app.requestSingleInstanceLock()) {
       // `query` is the exception that proves it: agent SQL runs in its own
       // process on a confined read-only connection, never on `db` (D36.4, R19).
       // Nothing is spawned until an agent first queries.
-      tools: { library, playlists, stats, history, query: queryHost },
+      tools: { library, playlists, stats, history, query: queryHost, journal: agentJournal },
       version: app.getVersion(),
       onStatusChanged: broadcastAgentAccess
     })
@@ -932,12 +956,6 @@ if (!app.requestSingleInstanceLock()) {
       },
       onChanged: () => void scrobbleDrain.wake()
     })
-
-    // User tags (W15). Same connection, its own tables, no network: coining and
-    // applying a tag is a local write, and D7 keeps it there — v1 never touches
-    // the file's own genre frames. Rescan-safe by the W15-1 schema, so the store
-    // is just handed the connection and asked nothing more.
-    const tags = new TagStore(db, libraryChanges)
 
     // W15-4 — the tag suggestions D14's fifth source. It resolves the playing
     // track's artist MBID off the `artists` row, looks the artist's genres and
@@ -1163,7 +1181,8 @@ if (!app.requestSingleInstanceLock()) {
       // Discord activity and drives the client, in place of W20-1's no-op stub.
       presence,
       noctalia,
-      agentAccess
+      agentAccess,
+      agentJournal
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

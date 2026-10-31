@@ -486,6 +486,14 @@ export const agentAccess = {
     window.oscine.agentAccess.onChanged(listener)
 }
 
+/** The agent change journal (W24-6): recent changesets and their Revert. */
+export const agentChangesets = {
+  list: (limit: number) => unwrap(window.oscine.agentChangesets.list(limit)),
+  revert: (changesetId: number) => unwrap(window.oscine.agentChangesets.revert(changesetId)),
+  /** Returns an unsubscribe function. Call it on unmount. */
+  onChanged: (listener: () => void) => window.oscine.agentChangesets.onChanged(listener)
+}
+
 /**
  * **R5**: the artist tag resolved to an identity, and the operator's veto over it.
  *

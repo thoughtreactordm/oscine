@@ -49,8 +49,8 @@ export interface AgentAccessService {
   regenerateToken(): Promise<AgentAccessStatus>
   /**
    * Mark an agent write in flight, for the title-bar indicator (D36.10). Call
-   * the returned function when it ends; calling it twice is harmless. The
-   * write tools (W24-7, W24-8) wrap their bodies in this.
+   * the returned function when it ends; calling it twice is harmless. Every
+   * session's journal write wrapper (W24-6) holds it for each write.
    */
   beginWrite(): () => void
   /** Close for good — app quit. Later syncs do nothing. */
@@ -126,6 +126,18 @@ export function createAgentAccessService(options: AgentAccessOptions): AgentAcce
 
   const announce = (): void => publish(status())
 
+  function beginWrite(): () => void {
+    writesInFlight += 1
+    announce()
+    let done = false
+    return () => {
+      if (done) return
+      done = true
+      writesInFlight -= 1
+      announce()
+    }
+  }
+
   async function shutdown(): Promise<void> {
     const closing = http
     http = null
@@ -168,7 +180,8 @@ export function createAgentAccessService(options: AgentAccessOptions): AgentAcce
     const server = createHttp({
       port,
       token,
-      createServer: () => createAgentMcpServer(tools, version, capabilities()),
+      createServer: () =>
+        createAgentMcpServer(tools, version, capabilities(), { capabilities, beginWrite }),
       onSessionsChanged: announce,
       onError: report
     })
@@ -236,17 +249,7 @@ export function createAgentAccessService(options: AgentAccessOptions): AgentAcce
       return status()
     },
 
-    beginWrite() {
-      writesInFlight += 1
-      announce()
-      let done = false
-      return () => {
-        if (done) return
-        done = true
-        writesInFlight -= 1
-        announce()
-      }
-    },
+    beginWrite,
 
     async stop() {
       stopped = true

@@ -11,7 +11,11 @@ import { AgentReadStore } from '../../../src/main/library/agentReads'
 import { SqlitePlaylistService } from '../../../src/main/library/playlists/service'
 import { LibraryStore } from '../../../src/main/library/store'
 import { createAgentMcpServer, type AgentToolDeps } from '../../../src/main/mcp'
+import { createJournalEntities } from '../../../src/main/mcp/journal/entities'
+import { createAgentJournal, type AgentJournal } from '../../../src/main/mcp/journal/journal'
 import { createQueryHost, type QueryHost } from '../../../src/main/mcp/query/host'
+import { TagStore } from '../../../src/main/tags/store'
+import { NO_LIBRARY_CHANGES } from '../../../src/main/library/changes'
 import { SqliteStatsService } from '../../../src/main/stats/service'
 import { bundleQueryWorker, type QueryProcessHarness } from './queryProcess'
 
@@ -192,6 +196,7 @@ describe('W24-4 structured read tools', () => {
   let client: Client
   let harness: QueryProcessHarness
   let queryHost: QueryHost
+  let journal: AgentJournal
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'oscine-read-tools-'))
@@ -205,6 +210,24 @@ describe('W24-4 structured read tools', () => {
 
     const store = new LibraryStore(db)
     const reads = new AgentReadStore(db)
+    const noWrites = async (): Promise<never> => {
+      throw new Error('no correction writes in the read-tool suite')
+    }
+    journal = createAgentJournal({
+      db,
+      changes: NO_LIBRARY_CHANGES,
+      entities: createJournalEntities({
+        db,
+        playlists,
+        tags: new TagStore(db),
+        library: {
+          setOverrides: noWrites,
+          clearOverrides: noWrites,
+          setTagOverrides: noWrites,
+          revertTagOverrides: noWrites
+        }
+      })
+    })
     const deps: AgentToolDeps = {
       library: {
         overview: async () => store.libraryOverview(),
@@ -218,7 +241,8 @@ describe('W24-4 structured read tools', () => {
       playlists,
       stats: new SqliteStatsService({ db }),
       history: new SqlitePlayHistoryService({ db }),
-      query: queryHost
+      query: queryHost,
+      journal
     }
     server = createAgentMcpServer(deps, '0.0.0-test')
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
@@ -545,6 +569,17 @@ describe('W24-4 structured read tools', () => {
         { check: 'artistVariants' }
       ],
       describe_views: [{}],
+      begin_changeset: [{ description: 'Path check' }],
+      list_changesets: [{}],
+      revert_changeset: [
+        {
+          changesetId: journal.openChangeset({
+            clientName: null,
+            description: null,
+            origin: 'explicit'
+          })
+        }
+      ],
       query_library: [
         { sql: 'SELECT * FROM mcp_tracks', limit: 1000 },
         { sql: 'SELECT * FROM mcp_albums', limit: 1000 },

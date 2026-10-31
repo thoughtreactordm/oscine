@@ -25,6 +25,7 @@ import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
 import type { NoctaliaSync } from '../theme/noctalia'
 import type { AgentAccessService } from '../mcp/agentAccess'
+import { ChangesetNotFoundError, type AgentJournal } from '../mcp/journal/journal'
 import { CredentialSealingUnavailableError } from '../scrobble/credentials'
 import type { ThemeFileService } from '../theme/service'
 import type { StatsService } from '../stats/service'
@@ -114,7 +115,9 @@ import {
   assertRemoveTagRequest,
   assertRenameTagRequest,
   assertSuggestTagsRequest,
-  assertPresenceSignal
+  assertPresenceSignal,
+  assertListAgentChangesetsRequest,
+  assertRevertAgentChangesetRequest
 } from './validate'
 import { registerCdripHandlers } from './cdrip'
 
@@ -152,7 +155,8 @@ export function registerIpcHandlers(
   coverSearch: CoverSearchService,
   presence: PresenceSink,
   noctalia: NoctaliaSync,
-  agentAccess: AgentAccessService
+  agentAccess: AgentAccessService,
+  agentJournal: AgentJournal
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -883,6 +887,22 @@ export function registerIpcHandlers(
       if (error instanceof CredentialSealingUnavailableError) {
         throw new OscineError('io-error', error.message)
       }
+      throw error
+    }
+  })
+
+  // W24-6: the change journal. Revert is the operator's, so it is not
+  // capability-filtered: the switches limit what an agent may do, not what the
+  // operator may undo.
+  handle('agentChangesets.list', (request) =>
+    agentJournal.list(assertListAgentChangesetsRequest(request).limit)
+  )
+  handle('agentChangesets.revert', async (request) => {
+    const { changesetId } = assertRevertAgentChangesetRequest(request)
+    try {
+      return await agentJournal.revert(changesetId)
+    } catch (error) {
+      if (error instanceof ChangesetNotFoundError) throw new OscineError('not-found', error.message)
       throw error
     }
   })
