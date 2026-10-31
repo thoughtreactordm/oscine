@@ -217,6 +217,15 @@ export function isWritebackField(key: string): key is WritebackField {
 export const MAX_WRITEBACK_TRACKS = 50_000
 
 /**
+ * The five codecs D28 writes in v1; a file in any other format is refused with
+ * `unsupported-format`. Shared so the agent's `list_tag_fields` (W24-4) can say
+ * which formats a staged correction can reach without a copy of the list.
+ */
+export const WRITEBACK_CODECS = ['flac', 'mp3', 'vorbis', 'opus', 'aac'] as const
+
+export type WritebackCodec = (typeof WRITEBACK_CODECS)[number]
+
+/**
  * One track's approved fields to flush — the subset of {@link WRITEBACK_FIELDS}
  * the operator left checked after reviewing its diff.
  *

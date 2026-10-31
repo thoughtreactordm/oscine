@@ -13,6 +13,7 @@ import type {
   GenreValue,
   GroupedWritebackField,
   PendingWrite,
+  WritebackCodec,
   WritebackField
 } from '@shared/tagWriteback'
 import { applyTagFields } from './genericFields'
@@ -53,7 +54,7 @@ import { applyTagFields } from './genericFields'
  */
 
 /** The five codecs D28 writes in v1. Anything else is refused. */
-export type WritebackCodec = 'flac' | 'mp3' | 'vorbis' | 'opus' | 'aac'
+export type { WritebackCodec }
 
 /** The tag family a codec's container stores its tags in. */
 export type TagFamily = 'vorbis' | 'id3v2' | 'mp4'

@@ -82,6 +82,20 @@ import { ReplayGainJobService } from '../replaygain/jobService'
 import { ingestRippedTracks } from '../cdrip/ingest'
 import { toRelPath } from '../db/paths'
 import { NO_LIBRARY_CHANGES, type LibraryChangeNotifier } from './changes'
+import {
+  AgentReadStore,
+  type AgentAlbum,
+  type AgentAlbumQuery,
+  type AgentArtist,
+  type AgentArtistQuery,
+  type AgentTrack,
+  type AgentTrackField,
+  type AgentTrackQuery,
+  type IssueCheck,
+  type IssueGroups,
+  type IssueSummary,
+  type Page
+} from './agentReads'
 
 /**
  * The database-backed library.
@@ -198,6 +212,7 @@ function toLibraryRoot(row: RootRow, watchMode: LibraryWatchMode): LibraryRoot {
 
 export class SqliteLibraryService implements LibraryService {
   private readonly store: LibraryStore
+  private readonly agentReads: AgentReadStore
   private readonly tagOverrides: TagOverrideStore
   private readonly readMetadata: MetadataReader
   private readonly readFormatDetail: FormatDetailReader
@@ -231,6 +246,7 @@ export class SqliteLibraryService implements LibraryService {
 
   constructor(private readonly deps: SqliteLibraryDeps) {
     this.store = new LibraryStore(deps.db)
+    this.agentReads = new AgentReadStore(deps.db)
     this.tagOverrides = new TagOverrideStore(deps.db)
     this.discover = new DiscoverEngine(deps.db)
     this.changes = deps.changes ?? NO_LIBRARY_CHANGES
@@ -334,6 +350,33 @@ export class SqliteLibraryService implements LibraryService {
 
   async overview(): Promise<LibraryOverview> {
     return this.store.libraryOverview()
+  }
+
+  async findTracks(query: AgentTrackQuery): Promise<Page<AgentTrack>> {
+    return this.agentReads.findTracks(query)
+  }
+
+  async getAgentTracks(
+    ids: readonly number[],
+    fields: readonly AgentTrackField[]
+  ): Promise<AgentTrack[]> {
+    return this.agentReads.getTracks(ids, fields)
+  }
+
+  async findAlbums(query: AgentAlbumQuery): Promise<Page<AgentAlbum>> {
+    return this.agentReads.findAlbums(query)
+  }
+
+  async findArtists(query: AgentArtistQuery): Promise<Page<AgentArtist>> {
+    return this.agentReads.findArtists(query)
+  }
+
+  async issueSummary(): Promise<IssueSummary> {
+    return this.agentReads.issueSummary()
+  }
+
+  async findIssues<C extends IssueCheck>(check: C): Promise<IssueGroups[C][]> {
+    return this.agentReads.issues(check)
   }
 
   async scanRoot(rootId: number): Promise<ScanSummary> {
