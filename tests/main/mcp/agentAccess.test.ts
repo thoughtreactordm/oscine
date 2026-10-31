@@ -18,6 +18,7 @@ import {
   type AgentAccessService
 } from '../../../src/main/mcp/agentAccess'
 import type { AgentTokenStore } from '../../../src/main/mcp/tokenStore'
+import { overviewOnlyTools } from './fakeTools'
 
 /**
  * W24-2's lifecycle over real loopback sockets: toggling `mcp.enabled` starts
@@ -137,7 +138,7 @@ describe('agent access lifecycle', () => {
     const service: AgentAccessService = createAgentAccessService({
       settings,
       tokens,
-      tools: { library: { overview: async () => OVERVIEW } },
+      tools: overviewOnlyTools(OVERVIEW),
       version: '0.0.0-test',
       onStatusChanged: (status) => published.push(status),
       onError: () => {}

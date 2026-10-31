@@ -6,7 +6,13 @@ import {
   type AgentCapability
 } from '@shared/agentAccess'
 import { MCP_CAPABILITY_DEFAULTS } from '@shared/settings/mcp'
+import { registerCatalogTools, type CatalogReadDeps } from './tools/catalog'
+import { registerIssuesTool, type IssueReadDeps } from './tools/issues'
 import { registerLibraryOverview, type LibraryOverviewDeps } from './tools/libraryOverview'
+import { registerListeningTools, type ListeningReadDeps } from './tools/listening'
+import { registerPlaylistTools, type PlaylistReadDeps } from './tools/playlists'
+import { registerTagFieldsTool } from './tools/tagFields'
+import { registerTrackTools, type TrackReadDeps } from './tools/tracks'
 
 /**
  * Agent Access — **W24**, design authority `oscine-mcp` (D36).
@@ -22,8 +28,15 @@ import { registerLibraryOverview, type LibraryOverviewDeps } from './tools/libra
 /** Fixed default port (D36.1). Defined in shared so the setting can default to it. */
 export const MCP_DEFAULT_PORT = AGENT_SERVER_DEFAULT_PORT
 
+/**
+ * The services the tools call — the same ones IPC calls (D36.3), each narrowed
+ * to the methods a tool actually uses.
+ */
 export interface AgentToolDeps {
-  library: LibraryOverviewDeps
+  library: LibraryOverviewDeps & TrackReadDeps & CatalogReadDeps & IssueReadDeps
+  playlists: PlaylistReadDeps
+  stats: ListeningReadDeps['stats']
+  history: ListeningReadDeps['history']
 }
 
 /**
@@ -40,7 +53,15 @@ interface AgentToolGroup {
 export const AGENT_TOOL_GROUPS: readonly AgentToolGroup[] = [
   {
     capability: 'read',
-    register: (server, deps) => [registerLibraryOverview(server, deps.library)]
+    register: (server, deps) => [
+      registerLibraryOverview(server, deps.library),
+      ...registerTrackTools(server, deps.library),
+      ...registerCatalogTools(server, deps.library),
+      ...registerPlaylistTools(server, { playlists: deps.playlists, tracks: deps.library }),
+      ...registerListeningTools(server, { stats: deps.stats, history: deps.history }),
+      registerTagFieldsTool(server),
+      registerIssuesTool(server, deps.library)
+    ]
   }
 ]
 

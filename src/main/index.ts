@@ -853,23 +853,6 @@ if (!app.requestSingleInstanceLock()) {
       canComputeReplayGain: () => settings.get<boolean>(AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING.key)
     })
 
-    // Agent access (oscine-mcp → D36.1, W24-2). Off by default, and nothing
-    // listens while `mcp.enabled` is off: the first sync below is a no-op then.
-    // The token is sealed with `safeStorage` like D19's credentials, in a file
-    // of its own, and is only touched once the operator has turned access on.
-    const agentAccess = createAgentAccessService({
-      settings,
-      tokens: createAgentTokenStore({
-        sealer: safeStorage,
-        io: createCredentialFileIo(agentTokenPath())
-      }),
-      tools: { library },
-      version: app.getVersion(),
-      onStatusChanged: broadcastAgentAccess
-    })
-    agentAccessService = agentAccess
-    void agentAccess.sync()
-
     // Its own service on the same connection: playlists own two tables the
     // library layer never touches, and the library owns the rest.
     const playlists = new SqlitePlaylistService({
@@ -905,6 +888,24 @@ if (!app.requestSingleInstanceLock()) {
     // The statistics engine, and today the one thing in it that is not a query:
     // the rebuild of the two counter columns that cache the log.
     const stats = new SqliteStatsService({ db })
+
+    // Agent access (oscine-mcp → D36.1, W24-2). Off by default, and nothing
+    // listens while `mcp.enabled` is off: the first sync below is a no-op then.
+    // The token is sealed with `safeStorage` like D19's credentials, in a file
+    // of its own, and is only touched once the operator has turned access on.
+    const agentAccess = createAgentAccessService({
+      settings,
+      tokens: createAgentTokenStore({
+        sealer: safeStorage,
+        io: createCredentialFileIo(agentTokenPath())
+      }),
+      // The same services IPC calls (D36.3), which is why this waits for them.
+      tools: { library, playlists, stats, history },
+      version: app.getVersion(),
+      onStatusChanged: broadcastAgentAccess
+    })
+    agentAccessService = agentAccess
+    void agentAccess.sync()
 
     // Favorites (D18), and the loved push (W11-6). Same connection, one table,
     // and still no network of its own: hearting a track is complete before

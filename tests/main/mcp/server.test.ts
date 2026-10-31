@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { LibraryOverview } from '@shared/library'
 import { createAgentMcpServer } from '../../../src/main/mcp'
 import { createMcpHttpServer, type McpHttpServer } from '../../../src/main/mcp/server'
+import { overviewOnlyTools } from './fakeTools'
 
 /**
  * The spike end to end over a real socket — **W24-1**: the SDK's own client
@@ -49,8 +50,7 @@ describe('agent MCP server', () => {
     http = createMcpHttpServer({
       port: 0,
       token: TOKEN,
-      createServer: () =>
-        createAgentMcpServer({ library: { overview: async () => OVERVIEW } }, '0.0.0-test')
+      createServer: () => createAgentMcpServer(overviewOnlyTools(OVERVIEW), '0.0.0-test')
     })
     port = await http.start()
   })
@@ -103,8 +103,9 @@ describe('agent MCP server', () => {
     await client.connect(transport)
     try {
       const { tools } = await client.listTools()
-      expect(tools.map((tool) => tool.name)).toEqual(['library_overview'])
-      expect(tools[0].annotations?.readOnlyHint).toBe(true)
+      expect(tools.map((tool) => tool.name)).toContain('library_overview')
+      // Every tool today is a read (W24-1, W24-4).
+      expect(tools.every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true)
 
       const result = await client.callTool({ name: 'library_overview', arguments: {} })
       expect(result.isError).toBeFalsy()
