@@ -204,9 +204,13 @@ With the visualizer on, the stage changes in three ways, as `[[prospective-ideas
    wash itself, and the blurred cover `<img>` is dropped only once the canvas is showing an
    identical frame: the handoff in D35.12. No new z-index is introduced: the existing order
    (wash → body → transport at 10 → stage toggles at 20) holds as is.
-2. **The cover cluster moves to the upper-right corner.** The art drops from `--stage-art-max`
+2. **The cover cluster moves to the upper-left corner.** The art drops from `--stage-art-max`
    to a compact size and the caption sits beside it, both on a scrim panel (the token layer's
-   scrim / on-scrim pair). The move is a FLIP animation: measure both layouts, apply the
+   scrim / on-scrim pair). *Amended 2026-10-31 from upper-right:* with lyrics on, the record
+   already sits on the left and lyrics on the right, so a right-hand corner swapped the two
+   sides and read as jarring. The left corner keeps the record on its own side, and lyrics
+   keep their column on the right. The panels are frosted (a backdrop blur under a lightened
+   scrim) and feathered at every edge. The move is a FLIP animation: measure both layouts, apply the
    inverse `transform`, and animate `transform` and `opacity` only, on the compositor, timed
    with the emergence (D35.12). Layout properties are never animated per frame. The scrim is
    the legibility guarantee: text contrast is a property of the theme, never of whatever the
@@ -222,7 +226,8 @@ The visualizer toggle sits beside the lyrics toggle in the stage's top-right con
 with the same hover/focus fade and the same `LYRICS_MIN_STAGE_WIDTH`-style width gate.
 
 **Lyrics stay.** Turning the visualizer on never hides lyrics the operator asked for. With
-both on, the cover cluster goes to the corner as above, and `LyricsPane` keeps its column,
+both on, the cover cluster goes to the corner as above, and `LyricsPane` keeps its column on
+the right,
 sitting on its own darkened scrim panel (the same scrim pair as the cluster), so the lyric
 lines' contrast never depends on the effect either. The panel is part of the stage layout;
 `LyricsPane` itself is unchanged.

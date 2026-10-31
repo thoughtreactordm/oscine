@@ -1,7 +1,7 @@
 ---
 taskId: 01M69EYSQ430SQBYD9GP7TRQ2Z
 title: 'VisualizerStage host, stage layout and settings — ships with Bars'
-status: todo
+status: in-review
 priority: medium
 labels:
   - D35.1
@@ -16,9 +16,9 @@ dependsOn:
   - 01M69EXSYQDAX8PGMYF5P6TCRC
   - 01M69EY3K1GXF65DKYVS3ZJY7J
   - 01M69EYD5286ZNY5WBNJ19DCMD
-order: 3
+order: 0
 created: '2026-10-31T17:08:45.410Z'
-updated: '2026-10-31T17:37:34.589Z'
+updated: '2026-10-31T20:16:25.494Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.1, D35.4, D35.5 (settings, Zen override), D35.7.
 
@@ -32,7 +32,7 @@ The first shippable slice: a panel island that runs one 2D effect on the stage, 
 
 **Stage layout (`StageView.vue`, D35.4)**
 - The host mounts in the wash slot (the first child of the stage `<section>`, `absolute inset-0`). No new z-index.
-- The cover cluster moves to the upper-right corner on the scrim pair. It moves *without animation* here; the FLIP move is W23-5. Opaque scrim in High Contrast.
+- The cover cluster moves to the upper-left corner on the scrim pair (amended 2026-10-31 from upper-right; lyrics keep their right-hand column). It moves *without animation* here; the FLIP move is W23-5. Opaque scrim in High Contrast.
 - **Lyrics stay:** `LyricsPane` keeps its column on its own darkened scrim panel (settled 2026-10-31). The panel belongs to the stage layout; `LyricsPane` is unchanged.
 - The ribbon is suppressed while the visualizer shows, without writing `interface.nowPlayingWaveform`.
 - A visualizer toggle beside the lyrics toggle, with the same hover/focus fade and width gate.
