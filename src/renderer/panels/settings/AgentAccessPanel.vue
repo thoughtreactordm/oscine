@@ -10,6 +10,7 @@ import { MCP_ENABLED_KEY } from '@shared/settings'
 import { agentAccess } from '@renderer/ipc'
 import { useSettings } from '@renderer/settings'
 import { useAgentAccessStore } from '@renderer/stores/agentAccess'
+import AgentChangesets from './AgentChangesets.vue'
 
 /**
  * Settings → Agent access, the parts that are not stored values — **W24-2**,
@@ -18,7 +19,7 @@ import { useAgentAccessStore } from '@renderer/stores/agentAccess'
  * The toggle, port and capability switches are generated rows below this
  * block. Here: whether the server is actually listening (or why not), the
  * token with copy and regenerate, ready-to-paste client config, and who is
- * connected. W24-6 adds recent changesets with Revert.
+ * connected, and recent changesets with Revert (W24-6, `AgentChangesets`).
  *
  * The token is fetched only while this block is on screen and access is on,
  * held in a local ref, and masked until the operator asks to see it. Copying
@@ -305,5 +306,8 @@ function since(session: AgentSession): string {
         An agent is changing your library now.
       </p>
     </div>
+
+    <!-- What agents changed, with Revert (D36.6). -->
+    <AgentChangesets />
   </section>
 </template>
