@@ -20,7 +20,7 @@ export type Effect2DCore = (
 interface MutableStage2D {
   emergence: number
   intensity: number
-  wash: { source: Image2D; scale: number } | null
+  wash: { source: Image2D } | null
   cover: Cover2D<Image2D> | null
 }
 
@@ -37,7 +37,7 @@ export function create2D(
     if (target.surface !== '2d') throw new Error(`${label} draws on a 2D surface`)
     const inner = core(target.context, target.quality)
     /** Made the first time the host hands over a 2D wash, then updated in place. */
-    let wash: { source: Image2D; scale: number } | null = null
+    let wash: { source: Image2D } | null = null
     const stage2d: MutableStage2D = { emergence: 0, intensity: 1, wash: null, cover: null }
     const view: Stage2D<Image2D> = stage2d
     return {
@@ -50,9 +50,8 @@ export function create2D(
         if (input && !isTexture(input.source)) {
           if (wash) {
             wash.source = input.source
-            wash.scale = input.scale
           } else {
-            wash = { source: input.source, scale: input.scale }
+            wash = { source: input.source }
           }
           stage2d.wash = wash
         } else {

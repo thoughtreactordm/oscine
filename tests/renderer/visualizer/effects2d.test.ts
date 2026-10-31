@@ -7,20 +7,16 @@ import type {
   Quality2D
 } from '../../../src/renderer/visualizer/effects/draw2d'
 import { createHalo } from '../../../src/renderer/visualizer/effects/halo'
-import {
-  MAX_TILES,
-  createMosaic,
-  layoutMosaicTiles,
-  dominantBand,
-  mosaicGrid,
-  tileTransform,
-  waveReach
-} from '../../../src/renderer/visualizer/effects/mosaic'
-import { createTrace, triggerIndex } from '../../../src/renderer/visualizer/effects/trace'
+import { createGyre, ringLevel } from '../../../src/renderer/visualizer/effects/gyre'
+import { createSilk } from '../../../src/renderer/visualizer/effects/silk'
+import { createTrace } from '../../../src/renderer/visualizer/effects/trace'
+import { createUpdraft, flowVelocity } from '../../../src/renderer/visualizer/effects/updraft'
+import { createWhorl } from '../../../src/renderer/visualizer/effects/whorl'
+import { triggerIndex } from '../../../src/renderer/visualizer/effects/waveform'
 import { PALETTE_SLOT_COUNT, type Palette } from '../../../src/renderer/visualizer/palette'
 
 /**
- * W23-7: Halo, Trace and Mosaic against a recording stub context. The tests
+ * W23-7: the 2D effects against a recording stub context. The tests
  * compile without the DOM lib, so the cores are generic over a structural
  * context (`draw2d.ts`); this stub implements it and records what the effect
  * asked for.
@@ -39,7 +35,14 @@ function image(name: string, width: number, height: number): FakeImage {
 
 type Op =
   | { kind: 'drawImage'; image: FakeImage; args: number[]; alpha: number; op: string; m: number[] }
-  | { kind: 'fillRect' | 'stroke' | 'fill'; alpha: number; op: string; style: unknown; m: number[] }
+  | {
+      kind: 'fillRect' | 'stroke' | 'fill'
+      alpha: number
+      op: string
+      style: unknown
+      m: number[]
+      path: number[]
+    }
   | { kind: 'clearRect'; args: number[] }
 
 class RecordingContext implements Draw2D<FakeImage> {
@@ -94,17 +97,25 @@ class RecordingContext implements Draw2D<FakeImage> {
     this.check('fillRect', [x, y, w, h])
     this.paint('fillRect', this.fillStyle)
   }
-  beginPath(): void {}
+  /** The current path's coordinates, flattened, for comparing runs. */
+  path: number[] = []
+
+  beginPath(): void {
+    this.path = []
+  }
   closePath(): void {}
   moveTo(x: number, y: number): void {
     this.check('moveTo', [x, y])
+    this.path.push(x, y)
   }
   lineTo(x: number, y: number): void {
     this.check('lineTo', [x, y])
+    this.path.push(x, y)
   }
   arc(x: number, y: number, r: number, start: number, end: number): void {
     this.check('arc', [x, y, r, start, end])
     if (r < 0) this.nonFinite.push('arc:negative radius')
+    this.path.push(x, y, r, start, end)
   }
   stroke(): void {
     this.paint('stroke', this.strokeStyle)
@@ -131,7 +142,8 @@ class RecordingContext implements Draw2D<FakeImage> {
       alpha: this.globalAlpha,
       op: this.globalCompositeOperation,
       style,
-      m: this.matrix
+      m: this.matrix,
+      path: this.path.slice()
     })
   }
 }
@@ -230,8 +242,11 @@ type Core = (
 
 const CORES: readonly (readonly [string, Core])[] = [
   ['Halo', createHalo],
+  ['Gyre', createGyre],
   ['Trace', createTrace],
-  ['Mosaic', createMosaic]
+  ['Whorl', createWhorl],
+  ['Silk', createSilk],
+  ['Updraft', createUpdraft]
 ]
 const QUALITIES: readonly Quality2D[] = ['low', 'auto', 'high']
 /** 144 Hz, 60 Hz, a capped low-quality rate, and the 0.1 s clamp. */
@@ -311,7 +326,7 @@ describe('the 2D effects (W23-7)', () => {
     })
   }
 
-  for (const [name, core] of CORES.filter(([name]) => name !== 'Mosaic')) {
+  for (const [name, core] of CORES) {
     it(`${name} multiplies the flash guard's intensity into everything it draws`, () => {
       const stage = makeStage()
       stage.intensity = 0
@@ -345,211 +360,106 @@ describe('triggerIndex', () => {
   })
 })
 
-describe('Mosaic', () => {
-  it('lays out a gapless, non-overlapping grid at any size', () => {
-    for (const [width, height] of [
-      [97, 61],
-      [1280, 720],
-      [801, 1203],
-      [3, 2],
-      [1, 1]
-    ]) {
-      for (const quality of QUALITIES) {
-        const grid = mosaicGrid(width, height, quality)
-        expect(grid.cols * grid.rows).toBeLessThanOrEqual(MAX_TILES)
-        const rects = new Int32Array(MAX_TILES * 4)
-        const count = layoutMosaicTiles(width, height, grid.cols, grid.rows, rects)
-        expect(count).toBe(grid.cols * grid.rows)
-        const covered = new Uint8Array(width * height)
-        for (let tile = 0; tile < count; tile++) {
-          const [x, y, w, h] = rects.subarray(tile * 4, tile * 4 + 4)
-          for (let row = y; row < y + h; row++) {
-            for (let col = x; col < x + w; col++) covered[row * width + col]++
-          }
-        }
-        expect(covered.every((n) => n === 1)).toBe(true)
-      }
-    }
-  })
-
-  it('never exceeds the tile budget on an extreme aspect', () => {
-    const grid = mosaicGrid(10000, 100, 'high')
-    expect(grid.cols * grid.rows).toBeLessThanOrEqual(MAX_TILES)
-    expect(grid.rows).toBeGreaterThanOrEqual(1)
-  })
-
-  it('launches waves from the loudest band, reaching further the stronger the onset', () => {
-    expect(dominantBand([0.1, 0.7, 0.3])).toBe(1)
-    expect(dominantBand([0, 0, 0])).toBe(-1)
-    expect(waveReach(1, 20, 8)).toBeGreaterThan(20)
-    expect(waveReach(0.5, 20, 8)).toBeLessThan(waveReach(1, 20, 8))
-    expect(waveReach(0, 20, 8)).toBeGreaterThan(1)
-  })
-
-  it('places a flat tile by an exact translation', () => {
-    const out = new Float64Array(6)
-    tileTransform(out, 37, 81, 53, 47, 0, 0.6, 0.8)
-    expect(Array.from(out)).toEqual([1, 0, 0, 1, 37, 81])
-  })
-
-  it('shows a tile edge-on at a quarter turn, about its own centre', () => {
-    const out = new Float64Array(6)
-    tileTransform(out, 100, 200, 40, 30, Math.PI / 2, 1, 0)
-    const [a, b, c, d, e, f] = out
-    // Squeezed to nothing along its direction of travel, grown across it.
-    expect(a).toBeCloseTo(0)
-    expect(d).toBeGreaterThan(1)
-    expect(a * 20 + c * 15 + e).toBeCloseTo(120)
-    expect(b * 20 + d * 15 + f).toBeCloseTo(215)
-  })
-
-  it('lies flat again on its back at a half turn', () => {
-    const out = new Float64Array(6)
-    tileTransform(out, 10, 20, 40, 30, Math.PI, 0.6, 0.8)
-    const [a, b, c, d, e, f] = out
-    for (const [value, expected] of [
-      [a, 1],
-      [b, 0],
-      [c, 0],
-      [d, 1],
-      [e, 10],
-      [f, 20]
-    ]) {
-      expect(value).toBeCloseTo(expected, 9)
-    }
-  })
-
-  it('is exactly the wash at emergence 0, however loud', () => {
-    const ctx = new RecordingContext()
-    const mosaic = createMosaic(ctx, 'high')
-    mosaic.resize(1280, 720)
-    const frame = makeFrame()
-    const stage = makeStage()
-    stage.emergence = 0
-    let time = 0
-    for (let n = 0; n < 60; n++) {
-      time += 1 / 60
-      animate(frame, time, 1 / 60)
-      ctx.ops = []
-      mosaic.frame(frame, makePalette(), stage, 1 / 60)
-    }
-
-    const grid = mosaicGrid(1280, 720, 'high')
-    const draws = ctx.ops.filter((op) => op.kind === 'drawImage')
-    expect(ctx.ops.filter((op) => op.kind !== 'clearRect' && op.kind !== 'drawImage')).toEqual([])
-    expect(draws).toHaveLength(grid.cols * grid.rows)
-    const covered = new Uint8Array(1280 * 720)
-    for (const op of draws) {
-      expect(op.image).toBe(WASH)
-      expect(op.alpha).toBe(1)
-      expect(op.op).toBe('source-over')
-      const [sx, sy, sw, sh, dx, dy, dw, dh] = op.args
-      // A 1:1 copy of its own rectangle, translated there by an integer.
-      expect([dx, dy, dw, dh]).toEqual([0, 0, sw, sh])
-      expect(op.m).toEqual([1, 0, 0, 1, sx, sy])
-      expect(Number.isInteger(sx) && Number.isInteger(sy)).toBe(true)
-      for (let row = sy; row < sy + sh; row++)
-        covered.fill(1, row * 1280 + sx, row * 1280 + sx + sw)
-    }
-    expect(covered.every((n) => n === 1)).toBe(true)
-  })
-
-  it('holds still at full emergence when the flash guard is at zero', () => {
-    const stage = makeStage()
-    stage.intensity = 0
-    const ctx = run(createMosaic, 'auto', 120, stage)
-    for (const op of ctx.ops) {
-      if (op.kind === 'drawImage') {
-        expect(op.image).toBe(WASH)
-        expect(op.m.slice(0, 4)).toEqual([1, 0, 0, 1])
-      }
-      expect(op.kind === 'fillRect').toBe(false)
-    }
-  })
-
-  /** One onset at the first frame, then a steady, onset-free spectrum. */
-  function oneOnset(dt: number, seconds: number, quality: Quality2D = 'low'): RecordingContext {
-    const ctx = new RecordingContext()
-    const mosaic = createMosaic(ctx, quality)
-    mosaic.resize(1280, 720)
-    const frame = makeFrame()
-    frame.spectrum.fill(0.3)
-    frame.spectrum[20] = 0.9
-    frame.silent = false
-    const stage = makeStage()
-    const frames = Math.round(seconds / dt)
-    for (let n = 0; n < frames; n++) {
-      frame.onset = n === 0 ? 1 : 0
-      ctx.ops = []
-      mosaic.frame(frame, makePalette(), stage, dt)
-    }
-    return ctx
+/** Every stroke's path after `seconds` of a steady, onset-free frame at `dt`. */
+function steadyPaths(core: Core, dt: number, frames: number): number[][] {
+  const ctx = new RecordingContext()
+  const effect = core(ctx, 'auto')
+  effect.resize(1280, 720)
+  const frame = makeFrame()
+  for (let band = 0; band < ANALYSIS_BANDS; band++)
+    frame.spectrum[band] = 0.2 + (0.6 * (band % 3)) / 2
+  frame.bass = 0.7
+  frame.mid = 0.4
+  frame.treble = 0.2
+  frame.level = 0.5
+  frame.silent = false
+  for (let n = 0; n < frames; n++) {
+    ctx.ops = []
+    effect.frame(frame, makePalette(), makeStage(), dt)
   }
+  return ctx.ops.flatMap((op) => (op.kind === 'stroke' || op.kind === 'fill' ? [op.path] : []))
+}
 
-  function coverDraws(ctx: RecordingContext): number {
-    return ctx.ops.filter((op) => op.kind === 'drawImage' && op.image.name === 'a').length
+function expectSamePaths(slow: number[][], fast: number[][], tolerance: number): void {
+  expect(fast).toHaveLength(slow.length)
+  let worst = 0
+  for (let n = 0; n < slow.length; n++) {
+    expect(fast[n]).toHaveLength(slow[n].length)
+    for (let k = 0; k < slow[n].length; k++) {
+      worst = Math.max(worst, Math.abs(fast[n][k] - slow[n][k]))
+    }
   }
+  expect(worst).toBeLessThan(tolerance)
+}
 
-  it('turns tiles over to the sharp cover in a spreading wave', () => {
-    const early = coverDraws(oneOnset(1 / 60, 0.25))
-    const late = coverDraws(oneOnset(1 / 60, 1.4))
-    expect(early).toBeGreaterThan(0)
-    expect(late).toBeGreaterThan(early)
-    const mid = oneOnset(1 / 60, 0.2)
-    expect(mid.ops.some((op) => op.kind === 'drawImage' && op.m[0] !== 1)).toBe(true)
-    // Mid-turn tiles darken towards the theme background, a palette slot.
-    const shades = mid.ops.filter((op) => op.kind === 'fillRect')
-    expect(shades.length).toBeGreaterThan(0)
-    for (const op of shades) if (op.kind === 'fillRect') expect(op.op).toBe('source-atop')
+describe('Gyre', () => {
+  it('splits the bands into rings that cover every band once', () => {
+    const spectrum = new Float32Array(ANALYSIS_BANDS).fill(0.5)
+    for (const rings of [8, 12, 16]) {
+      for (let ring = 0; ring < rings; ring++)
+        expect(ringLevel(spectrum, ring, rings)).toBeCloseTo(0.5)
+    }
+    spectrum.fill(0)
+    spectrum[0] = 1
+    expect(ringLevel(spectrum, 0, 8)).toBeGreaterThan(0)
+    expect(ringLevel(spectrum, 7, 8)).toBe(0)
   })
 
-  it('settles back into the wash in a quiet passage', () => {
-    const ctx = oneOnset(1 / 60, 6)
-    expect(coverDraws(ctx)).toBe(0)
-    for (const op of ctx.ops) {
-      if (op.kind === 'drawImage') expect(op.m.slice(0, 4)).toEqual([1, 0, 0, 1])
+  it('turns the same whatever the frame rate', () => {
+    // 2.025 s at 40 and at 120 fps.
+    expectSamePaths(
+      steadyPaths(createGyre, 1 / 40, 81),
+      steadyPaths(createGyre, 1 / 120, 243),
+      1e-3
+    )
+  })
+})
+
+describe('Silk', () => {
+  it('lays its threads the same whatever the frame rate', () => {
+    // 2.025 s is a quarter of a 1/90 s step away from a boundary at either rate.
+    expectSamePaths(
+      steadyPaths(createSilk, 1 / 40, 81),
+      steadyPaths(createSilk, 1 / 120, 243),
+      1e-3
+    )
+  })
+})
+
+describe('Updraft', () => {
+  it('blows a divergence-free wind', () => {
+    const out = new Float64Array(2)
+    const h = 1e-4
+    for (const [x, y, t] of [
+      [0.1, 0.2, 0],
+      [-0.4, 0.3, 5],
+      [0.7, -0.6, 12.5]
+    ]) {
+      flowVelocity(x + h, y, t, out)
+      const right = out[0]
+      flowVelocity(x - h, y, t, out)
+      const left = out[0]
+      flowVelocity(x, y + h, t, out)
+      const up = out[1]
+      flowVelocity(x, y - h, t, out)
+      const down = out[1]
+      expect((right - left + up - down) / (2 * h)).toBeCloseTo(0, 6)
     }
   })
 
-  it('keeps a busy passage churning rather than flooding the board with the cover', () => {
-    const ctx = new RecordingContext()
-    const mosaic = createMosaic(ctx, 'auto')
-    mosaic.resize(1280, 720)
-    const frame = makeFrame()
-    const stage = makeStage()
-    const grid = mosaicGrid(1280, 720, 'auto')
-    let time = 0
-    let total = 0
-    let samples = 0
-    for (let n = 0; n < 900; n++) {
-      time += 1 / 60
-      animate(frame, time, 1 / 60)
-      ctx.ops = []
-      mosaic.frame(frame, makePalette(), stage, 1 / 60)
-      if (n >= 300) {
-        total += coverDraws(ctx)
-        samples++
+  it('keeps every mote on the stage, reborn when it drifts off', () => {
+    const ctx = run(createUpdraft, 'high', 1200, makeStage())
+    // After the mid-run resize the stage is 800×1200; motes may overshoot by the margin.
+    const strokes = ctx.ops.filter((op) => op.kind === 'stroke')
+    const last = strokes.slice(-32)
+    for (const op of last) {
+      if (op.kind !== 'stroke') continue
+      for (let k = 0; k < op.path.length; k += 2) {
+        expect(op.path[k]).toBeGreaterThan(-0.1 * 800)
+        expect(op.path[k]).toBeLessThan(800 + 0.1 * 800)
+        expect(op.path[k + 1]).toBeGreaterThan(-0.1 * 800)
+        expect(op.path[k + 1]).toBeLessThan(1200 + 0.1 * 800)
       }
-    }
-    // An onset every 1/8 s: on average some tiles, never all, show the cover.
-    const mean = total / samples
-    expect(mean).toBeGreaterThan(grid.cols * grid.rows * 0.1)
-    expect(mean).toBeLessThan(grid.cols * grid.rows * 0.9)
-  })
-
-  it('moves the same whatever the frame rate', () => {
-    const slow = oneOnset(1 / 30, 1.8)
-    const fast = oneOnset(1 / 240, 1.8)
-    const slowDraws = slow.ops.filter((op) => op.kind === 'drawImage')
-    const fastDraws = fast.ops.filter((op) => op.kind === 'drawImage')
-    expect(coverDraws(slow)).toBeGreaterThan(0)
-    expect(coverDraws(fast)).toBe(coverDraws(slow))
-    expect(fastDraws).toHaveLength(slowDraws.length)
-    for (let n = 0; n < slowDraws.length; n++) {
-      const a = slowDraws[n]
-      const b = fastDraws[n]
-      if (a.kind !== 'drawImage' || b.kind !== 'drawImage') continue
-      for (let index = 0; index < 6; index++) expect(b.m[index]).toBeCloseTo(a.m[index], 2)
     }
   })
 })
