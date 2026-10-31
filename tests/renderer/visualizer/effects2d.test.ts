@@ -11,9 +11,10 @@ import {
   MAX_TILES,
   createMosaic,
   layoutMosaicTiles,
-  mosaicBand,
+  dominantBand,
   mosaicGrid,
-  tileTransform
+  tileTransform,
+  waveReach
 } from '../../../src/renderer/visualizer/effects/mosaic'
 import { createTrace, triggerIndex } from '../../../src/renderer/visualizer/effects/trace'
 import { PALETTE_SLOT_COUNT, type Palette } from '../../../src/renderer/visualizer/palette'
@@ -377,33 +378,45 @@ describe('Mosaic', () => {
     expect(grid.rows).toBeGreaterThanOrEqual(1)
   })
 
-  it('reads bands left to right across the columns, within range', () => {
-    const cols = 20
-    for (let row = 0; row < 12; row++) {
-      let last = -1
-      for (let col = 0; col < cols; col++) {
-        const band = mosaicBand(col, row, cols)
-        expect(band).toBeGreaterThanOrEqual(0)
-        expect(band).toBeLessThan(ANALYSIS_BANDS)
-        expect(band).toBeGreaterThanOrEqual(last)
-        last = band
-      }
-    }
+  it('launches waves from the loudest band, reaching further the stronger the onset', () => {
+    expect(dominantBand([0.1, 0.7, 0.3])).toBe(1)
+    expect(dominantBand([0, 0, 0])).toBe(-1)
+    expect(waveReach(1, 20, 8)).toBeGreaterThan(20)
+    expect(waveReach(0.5, 20, 8)).toBeLessThan(waveReach(1, 20, 8))
+    expect(waveReach(0, 20, 8)).toBeGreaterThan(1)
   })
 
-  it('places an unlifted tile by an exact translation', () => {
+  it('places a flat tile by an exact translation', () => {
     const out = new Float64Array(6)
-    tileTransform(out, 37, 81, 53, 47, 0, 0.1, 0.6, 0.8, 12)
+    tileTransform(out, 37, 81, 53, 47, 0, 0.6, 0.8)
     expect(Array.from(out)).toEqual([1, 0, 0, 1, 37, 81])
   })
 
-  it('keeps a lifted tile centred on its own centre, raised', () => {
+  it('shows a tile edge-on at a quarter turn, about its own centre', () => {
     const out = new Float64Array(6)
-    tileTransform(out, 100, 200, 40, 30, 1, 0.14, 1, 0, 10)
+    tileTransform(out, 100, 200, 40, 30, Math.PI / 2, 1, 0)
     const [a, b, c, d, e, f] = out
-    // The tile's centre (20, 15) in its own space.
+    // Squeezed to nothing along its direction of travel, grown across it.
+    expect(a).toBeCloseTo(0)
+    expect(d).toBeGreaterThan(1)
     expect(a * 20 + c * 15 + e).toBeCloseTo(120)
-    expect(b * 20 + d * 15 + f).toBeCloseTo(215 - 10)
+    expect(b * 20 + d * 15 + f).toBeCloseTo(215)
+  })
+
+  it('lies flat again on its back at a half turn', () => {
+    const out = new Float64Array(6)
+    tileTransform(out, 10, 20, 40, 30, Math.PI, 0.6, 0.8)
+    const [a, b, c, d, e, f] = out
+    for (const [value, expected] of [
+      [a, 1],
+      [b, 0],
+      [c, 0],
+      [d, 1],
+      [e, 10],
+      [f, 20]
+    ]) {
+      expect(value).toBeCloseTo(expected, 9)
+    }
   })
 
   it('is exactly the wash at emergence 0, however loud', () => {
@@ -454,43 +467,89 @@ describe('Mosaic', () => {
     }
   })
 
-  it('lays the sharp cover over the wash and lifts tiles once emergent', () => {
+  /** One onset at the first frame, then a steady, onset-free spectrum. */
+  function oneOnset(dt: number, seconds: number, quality: Quality2D = 'low'): RecordingContext {
+    const ctx = new RecordingContext()
+    const mosaic = createMosaic(ctx, quality)
+    mosaic.resize(1280, 720)
+    const frame = makeFrame()
+    frame.spectrum.fill(0.3)
+    frame.spectrum[20] = 0.9
+    frame.silent = false
+    const stage = makeStage()
+    const frames = Math.round(seconds / dt)
+    for (let n = 0; n < frames; n++) {
+      frame.onset = n === 0 ? 1 : 0
+      ctx.ops = []
+      mosaic.frame(frame, makePalette(), stage, dt)
+    }
+    return ctx
+  }
+
+  function coverDraws(ctx: RecordingContext): number {
+    return ctx.ops.filter((op) => op.kind === 'drawImage' && op.image.name === 'a').length
+  }
+
+  it('turns tiles over to the sharp cover in a spreading wave', () => {
+    const early = coverDraws(oneOnset(1 / 60, 0.25))
+    const late = coverDraws(oneOnset(1 / 60, 1.4))
+    expect(early).toBeGreaterThan(0)
+    expect(late).toBeGreaterThan(early)
+    const mid = oneOnset(1 / 60, 0.2)
+    expect(mid.ops.some((op) => op.kind === 'drawImage' && op.m[0] !== 1)).toBe(true)
+    // Mid-turn tiles darken towards the theme background, a palette slot.
+    const shades = mid.ops.filter((op) => op.kind === 'fillRect')
+    expect(shades.length).toBeGreaterThan(0)
+    for (const op of shades) if (op.kind === 'fillRect') expect(op.op).toBe('source-atop')
+  })
+
+  it('settles back into the wash in a quiet passage', () => {
+    const ctx = oneOnset(1 / 60, 6)
+    expect(coverDraws(ctx)).toBe(0)
+    for (const op of ctx.ops) {
+      if (op.kind === 'drawImage') expect(op.m.slice(0, 4)).toEqual([1, 0, 0, 1])
+    }
+  })
+
+  it('keeps a busy passage churning rather than flooding the board with the cover', () => {
     const ctx = new RecordingContext()
     const mosaic = createMosaic(ctx, 'auto')
     mosaic.resize(1280, 720)
     const frame = makeFrame()
     const stage = makeStage()
-    for (let n = 0; n < 30; n++) {
-      animate(frame, n / 60, 1 / 60)
+    const grid = mosaicGrid(1280, 720, 'auto')
+    let time = 0
+    let total = 0
+    let samples = 0
+    for (let n = 0; n < 900; n++) {
+      time += 1 / 60
+      animate(frame, time, 1 / 60)
       ctx.ops = []
       mosaic.frame(frame, makePalette(), stage, 1 / 60)
+      if (n >= 300) {
+        total += coverDraws(ctx)
+        samples++
+      }
     }
-    const draws = ctx.ops.filter((op) => op.kind === 'drawImage')
-    expect(draws.some((op) => op.image.name === 'a')).toBe(true)
-    expect(draws.some((op) => op.m[0] !== 1 || op.m[1] !== 0)).toBe(true)
+    // An onset every 1/8 s: on average some tiles, never all, show the cover.
+    const mean = total / samples
+    expect(mean).toBeGreaterThan(grid.cols * grid.rows * 0.1)
+    expect(mean).toBeLessThan(grid.cols * grid.rows * 0.9)
   })
 
   it('moves the same whatever the frame rate', () => {
-    function settleAt(dt: number): number[] {
-      const ctx = new RecordingContext()
-      const mosaic = createMosaic(ctx, 'low')
-      mosaic.resize(1280, 720)
-      const frame = makeFrame()
-      frame.spectrum.fill(0.7)
-      frame.silent = false
-      const stage = makeStage()
-      stage.cover = null
-      const frames = Math.round(0.5 / dt)
-      for (let n = 0; n < frames; n++) {
-        ctx.ops = []
-        mosaic.frame(frame, makePalette(), stage, dt)
-      }
-      const first = ctx.ops.find((op) => op.kind === 'drawImage')
-      if (!first || first.kind !== 'drawImage') throw new Error('nothing drawn')
-      return first.m
+    const slow = oneOnset(1 / 30, 1.8)
+    const fast = oneOnset(1 / 240, 1.8)
+    const slowDraws = slow.ops.filter((op) => op.kind === 'drawImage')
+    const fastDraws = fast.ops.filter((op) => op.kind === 'drawImage')
+    expect(coverDraws(slow)).toBeGreaterThan(0)
+    expect(coverDraws(fast)).toBe(coverDraws(slow))
+    expect(fastDraws).toHaveLength(slowDraws.length)
+    for (let n = 0; n < slowDraws.length; n++) {
+      const a = slowDraws[n]
+      const b = fastDraws[n]
+      if (a.kind !== 'drawImage' || b.kind !== 'drawImage') continue
+      for (let index = 0; index < 6; index++) expect(b.m[index]).toBeCloseTo(a.m[index], 2)
     }
-    const slow = settleAt(1 / 30)
-    const fast = settleAt(1 / 240)
-    for (let index = 0; index < 6; index++) expect(fast[index]).toBeCloseTo(slow[index], 3)
   })
 })

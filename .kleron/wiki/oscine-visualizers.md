@@ -350,7 +350,7 @@ which no 2004 visualizer had. Working names follow the songbird motif and can ch
 | **Bars** | 2D | overlay | mirrored log-spectrum bars with falling peak caps, rising from a centre line | — |
 | **Halo** | 2D | overlay | a radial spectrum ringing a disc of the cover, pulsing on onsets | cover |
 | **Trace** | 2D | overlay | the waveform as a slow-drifting ribbon with fading afterimages | — |
-| **Mosaic** | 2D | grow | the cover cut into a grid of tiles, each driven by one spectrum band, that lift, tilt and settle; at rest the tiles close up into the wash | cover |
+| **Mosaic** | 2D | grow | the cover as a board of two-sided tiles, the wash on the front and the sharp cover on the back; each onset sends a wave from its dominant band's column that turns every tile it passes, and tiles drift home in quiet passages; at rest the tiles close up into the wash | cover |
 | **Drift** | WebGL2 | grow | a feedback field: each frame warps, zooms and rotates the last, bass drives zoom, the waveform is injected as a line. Seeded from the cover, so the image melts into the tunnel rather than one building out of black | cover |
 | **Plumage** | WebGL2 | grow | the cover as a texture, displaced and kaleidoscoped by band energies, chromatic split on onsets | cover |
 | **Rainfall** | WebGL2 | grow | a height-field ripple over the cover; each onset drops a ring, sized by its strength and placed by its dominant band | cover |
