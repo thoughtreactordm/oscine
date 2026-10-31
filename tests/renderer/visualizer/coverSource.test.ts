@@ -82,6 +82,24 @@ const C = artworkUrl('cccc', 'large')
 const NONE = artworkUrl(null, 'large')
 
 describe('createCoverSource', () => {
+  it('reports a decode in flight as pending until it lands or fails (the wash handoff waits on it)', async () => {
+    const h = harness()
+    expect(h.source.pending).toBe(false)
+    h.source.setArtwork(A)
+    expect(h.source.pending).toBe(true)
+    await h.decoded(A, 'A')
+    expect(h.source.pending).toBe(false)
+
+    h.source.setArtwork(B)
+    expect(h.source.pending).toBe(true)
+    await h.failed(B)
+    expect(h.source.pending).toBe(false)
+
+    // The placeholder is never decoded, so it is never pending.
+    h.source.setArtwork(NONE)
+    expect(h.source.pending).toBe(false)
+  })
+
   it('always hands out a cover: the stand-in until the first decode, then a fade into it', async () => {
     const h = harness()
     h.source.setArtwork(A)
