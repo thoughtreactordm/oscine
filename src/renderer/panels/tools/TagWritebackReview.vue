@@ -13,10 +13,12 @@ import { artworkUrl } from '@shared/ipc'
 import { visibleRange } from '@renderer/panels/listViewport'
 import TriCheck from '@renderer/panels/tools/TriCheck.vue'
 import {
+  agentBadgeTitle,
   fieldChanged,
   fieldLabel,
   fieldText,
   formatArtwork,
+  isAgentRow,
   reviewColumns,
   rowLabel,
   rowState,
@@ -34,6 +36,10 @@ import { useTagWritebackStore } from '@renderer/stores/tagWriteback'
  * The generic fields (W16-18) join as columns after the grouped ones, one per
  * registry field some track in the batch changes — the columns come from the
  * model, so a new registry entry needs no edit here.
+ *
+ * Rows whose standing correction an agent changeset left (W24-8, `oscine-mcp`
+ * → D36.6) carry an "Agent" badge, and a filter narrows the grid to them. The
+ * badge is resolved in main when the review loads; nothing here infers it.
  */
 const store = useTagWritebackStore()
 
@@ -82,7 +88,7 @@ const viewport = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
 const viewportPx = ref(0)
 
-const rows = computed(() => store.pendingWrites)
+const rows = computed(() => store.visibleWrites)
 const visible = computed(() =>
   visibleRange({
     total: rows.value.length,
@@ -183,7 +189,7 @@ const subtitle = computed(() => {
   }
   if (!store.hasChanges) return 'No unwritten changes'
   const s = store.summary
-  return `${s.tracks}/${rows.value.length} tracks, ${plural(s.fields, 'field')} selected`
+  return `${s.tracks}/${store.pendingWrites.length} tracks, ${plural(s.fields, 'field')} selected`
 })
 
 const applyLabel = computed(() => `Write ${plural(store.summary.tracks, 'track')}`)
@@ -226,7 +232,9 @@ function discard(): void {
       <div class="ml-auto flex items-center gap-2">
         <template v-if="store.status === 'reviewing' || store.status === 'done'">
           <template v-if="confirmingDiscard">
-            <span class="text-xs text-muted">Discard {{ plural(rows.length, 'edit') }}?</span>
+            <span class="text-xs text-muted">
+              Discard {{ plural(store.pendingWrites.length, 'edit') }}?
+            </span>
             <UButton
               size="xs"
               color="neutral"
@@ -244,6 +252,23 @@ function discard(): void {
             />
           </template>
           <template v-else>
+            <UFieldGroup v-if="store.agentCount > 0" size="xs">
+              <UButton
+                color="neutral"
+                :variant="store.provenanceFilter === 'all' ? 'soft' : 'ghost'"
+                label="All"
+                :aria-pressed="store.provenanceFilter === 'all'"
+                @click="store.provenanceFilter = 'all'"
+              />
+              <UButton
+                color="neutral"
+                :variant="store.provenanceFilter === 'agent' ? 'soft' : 'ghost'"
+                icon="i-tabler-robot"
+                :label="`Agent (${store.agentCount})`"
+                :aria-pressed="store.provenanceFilter === 'agent'"
+                @click="store.provenanceFilter = 'agent'"
+              />
+            </UFieldGroup>
             <UButton
               size="xs"
               color="error"
@@ -361,7 +386,21 @@ function discard(): void {
           </div>
 
           <div class="min-w-0 px-2">
-            <p class="truncate text-xs font-medium text-default">{{ rowLabel(pending).primary }}</p>
+            <div class="flex min-w-0 items-center gap-1.5">
+              <p class="truncate text-xs font-medium text-default">
+                {{ rowLabel(pending).primary }}
+              </p>
+              <UTooltip v-if="isAgentRow(pending)" :text="agentBadgeTitle(pending)">
+                <UBadge
+                  color="primary"
+                  variant="subtle"
+                  size="sm"
+                  icon="i-tabler-robot"
+                  label="Agent"
+                  class="shrink-0"
+                />
+              </UTooltip>
+            </div>
             <p class="truncate text-[11px] text-muted">{{ rowLabel(pending).secondary }}</p>
           </div>
 

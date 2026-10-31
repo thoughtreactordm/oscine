@@ -9,7 +9,10 @@ import type {
 import { ABSENT_ARTWORK } from '../../../../src/shared/artwork'
 import type { TagFieldDef } from '../../../../src/shared/tagFields'
 import {
+  agentBadgeTitle,
   buildSelections,
+  filterByProvenance,
+  isAgentRow,
   changedFields,
   fieldLabel,
   fieldText,
@@ -263,5 +266,34 @@ describe('generic fields (W16-18)', () => {
     expect(buildSelections([p], initialSelection([p], registry), registry)).toEqual([
       { trackId: 3, fields: [column] }
     ])
+  })
+})
+
+describe('agent provenance (W24-8)', () => {
+  const operator = pending(1, { albumArtist: changed('A', 'B') })
+  const agent: PendingWrite = {
+    ...pending(2, { albumArtist: changed('A', 'B'), year: changed(2019, 2020) }),
+    agent: { fields: ['albumArtist', 'conductor'], changesetIds: [4, 7] }
+  }
+  const emptied: PendingWrite = {
+    ...pending(3, { title: changed('x', 'y') }),
+    agent: { fields: [], changesetIds: [] }
+  }
+
+  it('marks only rows an agent staged a field on', () => {
+    expect([operator, agent, emptied].map(isAgentRow)).toEqual([false, true, false])
+  })
+
+  it('filters to agent rows in order, and "all" keeps every row', () => {
+    const rows = [operator, agent, emptied]
+    expect(filterByProvenance(rows, 'agent').map((row) => row.trackId)).toEqual([2])
+    expect(filterByProvenance(rows, 'all').map((row) => row.trackId)).toEqual([1, 2, 3])
+  })
+
+  it('names the fields and changesets in the badge tooltip', () => {
+    expect(agentBadgeTitle(agent)).toBe(
+      'Staged by an agent (changesets #4, #7): Album artist, Conductor'
+    )
+    expect(agentBadgeTitle(operator)).toBe('')
   })
 })
