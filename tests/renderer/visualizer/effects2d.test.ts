@@ -7,11 +7,16 @@ import type {
   Quality2D
 } from '../../../src/renderer/visualizer/effects/draw2d'
 import { createHalo } from '../../../src/renderer/visualizer/effects/halo'
-import { createTrace, triggerIndex } from '../../../src/renderer/visualizer/effects/trace'
+import { createGyre, ringLevel } from '../../../src/renderer/visualizer/effects/gyre'
+import { createSilk } from '../../../src/renderer/visualizer/effects/silk'
+import { createTrace } from '../../../src/renderer/visualizer/effects/trace'
+import { createUpdraft, flowVelocity } from '../../../src/renderer/visualizer/effects/updraft'
+import { createWhorl } from '../../../src/renderer/visualizer/effects/whorl'
+import { triggerIndex } from '../../../src/renderer/visualizer/effects/waveform'
 import { PALETTE_SLOT_COUNT, type Palette } from '../../../src/renderer/visualizer/palette'
 
 /**
- * W23-7: Halo and Trace against a recording stub context. The tests
+ * W23-7: the 2D effects against a recording stub context. The tests
  * compile without the DOM lib, so the cores are generic over a structural
  * context (`draw2d.ts`); this stub implements it and records what the effect
  * asked for.
@@ -30,7 +35,14 @@ function image(name: string, width: number, height: number): FakeImage {
 
 type Op =
   | { kind: 'drawImage'; image: FakeImage; args: number[]; alpha: number; op: string; m: number[] }
-  | { kind: 'fillRect' | 'stroke' | 'fill'; alpha: number; op: string; style: unknown; m: number[] }
+  | {
+      kind: 'fillRect' | 'stroke' | 'fill'
+      alpha: number
+      op: string
+      style: unknown
+      m: number[]
+      path: number[]
+    }
   | { kind: 'clearRect'; args: number[] }
 
 class RecordingContext implements Draw2D<FakeImage> {
@@ -85,17 +97,25 @@ class RecordingContext implements Draw2D<FakeImage> {
     this.check('fillRect', [x, y, w, h])
     this.paint('fillRect', this.fillStyle)
   }
-  beginPath(): void {}
+  /** The current path's coordinates, flattened, for comparing runs. */
+  path: number[] = []
+
+  beginPath(): void {
+    this.path = []
+  }
   closePath(): void {}
   moveTo(x: number, y: number): void {
     this.check('moveTo', [x, y])
+    this.path.push(x, y)
   }
   lineTo(x: number, y: number): void {
     this.check('lineTo', [x, y])
+    this.path.push(x, y)
   }
   arc(x: number, y: number, r: number, start: number, end: number): void {
     this.check('arc', [x, y, r, start, end])
     if (r < 0) this.nonFinite.push('arc:negative radius')
+    this.path.push(x, y, r, start, end)
   }
   stroke(): void {
     this.paint('stroke', this.strokeStyle)
@@ -122,7 +142,8 @@ class RecordingContext implements Draw2D<FakeImage> {
       alpha: this.globalAlpha,
       op: this.globalCompositeOperation,
       style,
-      m: this.matrix
+      m: this.matrix,
+      path: this.path.slice()
     })
   }
 }
@@ -221,7 +242,11 @@ type Core = (
 
 const CORES: readonly (readonly [string, Core])[] = [
   ['Halo', createHalo],
-  ['Trace', createTrace]
+  ['Gyre', createGyre],
+  ['Trace', createTrace],
+  ['Whorl', createWhorl],
+  ['Silk', createSilk],
+  ['Updraft', createUpdraft]
 ]
 const QUALITIES: readonly Quality2D[] = ['low', 'auto', 'high']
 /** 144 Hz, 60 Hz, a capped low-quality rate, and the 0.1 s clamp. */
@@ -332,5 +357,109 @@ describe('triggerIndex', () => {
     expect(triggerIndex([0.5, 0.4, 0.3, 0.2], 2)).toBe(0)
     // Only within the first part, so a full span is left to draw.
     expect(triggerIndex([0.1, 0.2, 0.3, -0.1, 0.1], 3)).toBe(0)
+  })
+})
+
+/** Every stroke's path after `seconds` of a steady, onset-free frame at `dt`. */
+function steadyPaths(core: Core, dt: number, frames: number): number[][] {
+  const ctx = new RecordingContext()
+  const effect = core(ctx, 'auto')
+  effect.resize(1280, 720)
+  const frame = makeFrame()
+  for (let band = 0; band < ANALYSIS_BANDS; band++)
+    frame.spectrum[band] = 0.2 + (0.6 * (band % 3)) / 2
+  frame.bass = 0.7
+  frame.mid = 0.4
+  frame.treble = 0.2
+  frame.level = 0.5
+  frame.silent = false
+  for (let n = 0; n < frames; n++) {
+    ctx.ops = []
+    effect.frame(frame, makePalette(), makeStage(), dt)
+  }
+  return ctx.ops.flatMap((op) => (op.kind === 'stroke' || op.kind === 'fill' ? [op.path] : []))
+}
+
+function expectSamePaths(slow: number[][], fast: number[][], tolerance: number): void {
+  expect(fast).toHaveLength(slow.length)
+  let worst = 0
+  for (let n = 0; n < slow.length; n++) {
+    expect(fast[n]).toHaveLength(slow[n].length)
+    for (let k = 0; k < slow[n].length; k++) {
+      worst = Math.max(worst, Math.abs(fast[n][k] - slow[n][k]))
+    }
+  }
+  expect(worst).toBeLessThan(tolerance)
+}
+
+describe('Gyre', () => {
+  it('splits the bands into rings that cover every band once', () => {
+    const spectrum = new Float32Array(ANALYSIS_BANDS).fill(0.5)
+    for (const rings of [8, 12, 16]) {
+      for (let ring = 0; ring < rings; ring++)
+        expect(ringLevel(spectrum, ring, rings)).toBeCloseTo(0.5)
+    }
+    spectrum.fill(0)
+    spectrum[0] = 1
+    expect(ringLevel(spectrum, 0, 8)).toBeGreaterThan(0)
+    expect(ringLevel(spectrum, 7, 8)).toBe(0)
+  })
+
+  it('turns the same whatever the frame rate', () => {
+    // 2.025 s at 40 and at 120 fps.
+    expectSamePaths(
+      steadyPaths(createGyre, 1 / 40, 81),
+      steadyPaths(createGyre, 1 / 120, 243),
+      1e-3
+    )
+  })
+})
+
+describe('Silk', () => {
+  it('lays its threads the same whatever the frame rate', () => {
+    // 2.025 s is a quarter of a 1/90 s step away from a boundary at either rate.
+    expectSamePaths(
+      steadyPaths(createSilk, 1 / 40, 81),
+      steadyPaths(createSilk, 1 / 120, 243),
+      1e-3
+    )
+  })
+})
+
+describe('Updraft', () => {
+  it('blows a divergence-free wind', () => {
+    const out = new Float64Array(2)
+    const h = 1e-4
+    for (const [x, y, t] of [
+      [0.1, 0.2, 0],
+      [-0.4, 0.3, 5],
+      [0.7, -0.6, 12.5]
+    ]) {
+      flowVelocity(x + h, y, t, out)
+      const right = out[0]
+      flowVelocity(x - h, y, t, out)
+      const left = out[0]
+      flowVelocity(x, y + h, t, out)
+      const up = out[1]
+      flowVelocity(x, y - h, t, out)
+      const down = out[1]
+      expect((right - left + up - down) / (2 * h)).toBeCloseTo(0, 6)
+    }
+  })
+
+  it('keeps every mote on the stage, reborn when it drifts off', () => {
+    const ctx = run(createUpdraft, 'high', 1200, makeStage())
+    // After the mid-run resize the stage is 800×1200; motes may overshoot by the margin.
+    const strokes = ctx.ops.filter((op) => op.kind === 'stroke')
+    const last = strokes.slice(-32)
+    for (const op of last) {
+      if (op.kind !== 'stroke') continue
+      for (let k = 0; k < op.path.length; k += 2) {
+        expect(op.path[k]).toBeGreaterThan(-0.1 * 800)
+        expect(op.path[k]).toBeLessThan(800 + 0.1 * 800)
+        expect(op.path[k + 1]).toBeGreaterThan(-0.1 * 800)
+        expect(op.path[k + 1]).toBeLessThan(1200 + 0.1 * 800)
+      }
+    }
   })
 })
