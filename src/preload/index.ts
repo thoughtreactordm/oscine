@@ -29,7 +29,9 @@ import type {
   ListPlaylistEntriesQuery,
   ListPlaylistEntryGroupsQuery,
   ListPlaylistEntryIdsQuery,
+  ClearPlaylistExclusionsRequest,
   MovePlaylistEntriesRequest,
+  PlaylistKind,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
 import type {
@@ -406,6 +408,15 @@ const api = {
     moveEntries: (payload: MovePlaylistEntriesRequest) => request('playlists.moveEntries', payload),
     removeEntries: (payload: RemovePlaylistEntriesRequest) =>
       request('playlists.removeEntries', payload),
+    /** Make smart / Make static (D36.8). */
+    setKind: (playlistId: number, kind: PlaylistKind) =>
+      request('playlists.setKind', { playlistId, kind }),
+    setBrief: (playlistId: number, brief: string | null) =>
+      request('playlists.setBrief', { playlistId, brief }),
+    listExclusions: (playlistId: number) => request('playlists.listExclusions', { playlistId }),
+    /** Omitting `trackIds` clears every exclusion. */
+    clearExclusions: (payload: ClearPlaylistExclusionsRequest) =>
+      request('playlists.clearExclusions', payload),
     /** Opens a native save dialog in main. Resolves `null` if cancelled. */
     exportM3u8: (payload: ExportPlaylistRequest) => request('playlists.exportM3u8', payload)
   },

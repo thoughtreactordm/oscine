@@ -103,8 +103,12 @@ import type {
   ListPlaylistEntryIdsResult,
   MovePlaylistEntriesRequest,
   Playlist,
+  PlaylistExclusion,
   PlaylistExportResult,
-  RemovePlaylistEntriesRequest
+  RemovePlaylistEntriesRequest,
+  ClearPlaylistExclusionsRequest,
+  SetPlaylistBriefRequest,
+  SetPlaylistKindRequest
 } from './playlists'
 import type {
   BrowsePodcastCategoryQuery,
@@ -981,6 +985,15 @@ export interface IpcContract {
   'playlists.moveEntries': { request: MovePlaylistEntriesRequest; response: Playlist }
   'playlists.removeEntries': { request: RemovePlaylistEntriesRequest; response: Playlist }
   /**
+   * Smart playlists (**D36.8**): Make smart / Make static, the operator's brief,
+   * and the exclusions an operator removal leaves behind. The agent's notes are
+   * read here (on `Playlist`) and written only by an agent's tool.
+   */
+  'playlists.setKind': { request: SetPlaylistKindRequest; response: Playlist }
+  'playlists.setBrief': { request: SetPlaylistBriefRequest; response: Playlist }
+  'playlists.listExclusions': { request: { playlistId: number }; response: PlaylistExclusion[] }
+  'playlists.clearExclusions': { request: ClearPlaylistExclusionsRequest; response: Playlist }
+  /**
    * D12's interop escape hatch: writes the playlist to a `.m3u8` the operator
    * names in a native save dialog. Resolves `null` when they cancel, following
    * `library.addRoot` — dismissing a dialog is an ordinary outcome and not an
@@ -1668,6 +1681,10 @@ export const IPC_CHANNELS = [
   'playlists.addTracks',
   'playlists.moveEntries',
   'playlists.removeEntries',
+  'playlists.setKind',
+  'playlists.setBrief',
+  'playlists.listExclusions',
+  'playlists.clearExclusions',
   'playlists.exportM3u8',
   'discover.shelves',
   'discover.saveShelf',

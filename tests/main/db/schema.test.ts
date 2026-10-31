@@ -82,7 +82,8 @@ describe('openDatabase', () => {
         'index-album-year-order',
         'track-scan-facts',
         'mcp-views',
-        'agent-journal'
+        'agent-journal',
+        'smart-playlists'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -143,7 +144,8 @@ describe('openDatabase', () => {
         'index-album-year-order',
         'track-scan-facts',
         'mcp-views',
-        'agent-journal'
+        'agent-journal',
+        'smart-playlists'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -193,7 +195,8 @@ describe('openDatabase', () => {
         'index-album-year-order',
         'track-scan-facts',
         'mcp-views',
-        'agent-journal'
+        'agent-journal',
+        'smart-playlists'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
@@ -808,7 +811,8 @@ describe('migration 023 rip sessions', () => {
         'index-album-year-order',
         'track-scan-facts',
         'mcp-views',
-        'agent-journal'
+        'agent-journal',
+        'smart-playlists'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -837,7 +841,8 @@ describe('migration 025 track_overrides.album_artist_name (W16-14)', () => {
         'index-album-year-order',
         'track-scan-facts',
         'mcp-views',
-        'agent-journal'
+        'agent-journal',
+        'smart-playlists'
       ])
       expect(
         db
@@ -869,7 +874,8 @@ describe('migration 026 track_tag_overrides (W16-15)', () => {
         'index-album-year-order',
         'track-scan-facts',
         'mcp-views',
-        'agent-journal'
+        'agent-journal',
+        'smart-playlists'
       ])
       expect(db.prepare('SELECT count(*) AS n FROM track_tag_overrides').get()).toEqual({ n: 0 })
       expect(
@@ -911,7 +917,8 @@ describe('migration 027 album year order', () => {
         'index-album-year-order',
         'track-scan-facts',
         'mcp-views',
-        'agent-journal'
+        'agent-journal',
+        'smart-playlists'
       ])
       expect(db.prepare('SELECT title, year FROM albums').all()).toEqual([
         { title: 'Kind of Blue', year: 1959 }
@@ -952,7 +959,8 @@ describe('migration 028 track scan facts', () => {
       expect(migration.applied.map((step) => step.name)).toEqual([
         'track-scan-facts',
         'mcp-views',
-        'agent-journal'
+        'agent-journal',
+        'smart-playlists'
       ])
       expect(db.prepare('SELECT tag_album_artist, tag_year FROM tracks').all()).toEqual([
         { tag_album_artist: null, tag_year: null }
@@ -979,6 +987,73 @@ describe('migration 030 agent journal (W24-6)', () => {
       ).run(cs.id)
       db.prepare('DELETE FROM agent_changesets WHERE id = ?').run(cs.id)
       expect(db.prepare('SELECT count(*) AS n FROM agent_changes').get()).toEqual({ n: 0 })
+    } finally {
+      db.close()
+    }
+  })
+})
+
+describe('migration 031 smart playlists (W24-9)', () => {
+  it('makes every existing playlist static and keeps its entries', () => {
+    const old = new Database(file)
+    migrate(old, MIGRATIONS.slice(0, 30))
+    const seeded = seedRootAndTrack(old)
+    const playlistId = Number(
+      old
+        .prepare(
+          "INSERT INTO playlists (name, position, created_at, updated_at) VALUES ('Mix', 0, 1, 1)"
+        )
+        .run().lastInsertRowid
+    )
+    old
+      .prepare('INSERT INTO playlist_entries (playlist_id, track_id, position) VALUES (?, ?, 1)')
+      .run(playlistId, seeded.trackId)
+    old.close()
+
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.applied.map((step) => step.name)).toEqual(['smart-playlists'])
+      expect(
+        db
+          .prepare(
+            'SELECT kind, brief, agent_notes AS notes, refreshed_at AS refreshed FROM playlists'
+          )
+          .get()
+      ).toEqual({ kind: 'static', brief: null, notes: null, refreshed: null })
+      expect(db.prepare('SELECT count(*) AS n FROM playlist_entries').get()).toEqual({ n: 1 })
+      expect(() => db.prepare("UPDATE playlists SET kind = 'rules'").run()).toThrow(/CHECK/)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('cascades exclusions from both the playlist and the track', () => {
+    const { db } = openDatabase(file)
+    try {
+      const { trackId } = seedRootAndTrack(db)
+      const insertPlaylist = db.prepare(
+        "INSERT INTO playlists (name, position, created_at, updated_at, kind) VALUES (?, 0, 1, 1, 'smart')"
+      )
+      const a = Number(insertPlaylist.run('A').lastInsertRowid)
+      const b = Number(insertPlaylist.run('B').lastInsertRowid)
+      const exclude = db.prepare(
+        "INSERT INTO playlist_exclusions (playlist_id, track_id, source, created_at) VALUES (?, ?, 'operator', 1)"
+      )
+      exclude.run(a, trackId)
+      exclude.run(b, trackId)
+      expect(() =>
+        db
+          .prepare(
+            "INSERT INTO playlist_exclusions (playlist_id, track_id, source, created_at) VALUES (?, ?, 'robot', 1)"
+          )
+          .run(a, trackId)
+      ).toThrow()
+      db.prepare('DELETE FROM playlists WHERE id = ?').run(a)
+      expect(db.prepare('SELECT playlist_id AS id FROM playlist_exclusions').all()).toEqual([
+        { id: b }
+      ])
+      db.prepare('DELETE FROM tracks WHERE id = ?').run(trackId)
+      expect(db.prepare('SELECT count(*) AS n FROM playlist_exclusions').get()).toEqual({ n: 0 })
     } finally {
       db.close()
     }

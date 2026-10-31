@@ -136,7 +136,11 @@ export const BUNDLE_TABLES: readonly BundleTable[] = [
   {
     name: 'playlists',
     side: 'carried',
-    why: 'D11 has carried playlists since it was written. A playlist is a set, and sets travel.',
+    why:
+      'D11 has carried playlists since it was written. A playlist is a set, and sets travel. ' +
+      'The whole row rides, W24-9’s smart-playlist columns included (`kind`, `brief`, ' +
+      '`agent_notes`, `refreshed_at`, D36.8): they are statements about the playlist, not about ' +
+      'this machine, and a smart playlist arriving static would lose the operator’s brief.',
     merge:
       'Merged or kept separate, per import, by the operator — D11 says a playlist is a set that ' +
       'can be either, which makes it a choice at the moment of import rather than a fixed rule.'
@@ -309,6 +313,17 @@ export const BUNDLE_TABLES: readonly BundleTable[] = [
     name: 'agent_changes',
     side: 'excluded',
     why: 'Rides with its parent changeset. Entity ids are local surrogates with no portable form.'
+  },
+  {
+    name: 'playlist_exclusions',
+    side: 'carried',
+    why:
+      'D36.8: the tracks the operator kept out of a smart playlist. They ride with the parent ' +
+      'playlist, tracks named by (root label, rel_path) like its entries; without them the ' +
+      'importer’s first refresh would bring back everything the operator removed.',
+    merge:
+      'Whatever the parent playlist’s merge choice was. Merged playlists take the union of both ' +
+      'sides’ exclusions — a track kept out on either machine stays out.'
   }
 ]
 

@@ -29,6 +29,64 @@ export interface Playlist {
   /** ISO 8601, like `LibraryRoot.addedAt`. */
   createdAt: string
   updatedAt: string
+  /** `'smart'` marks a playlist an agent may keep up to date on request (D36.8). */
+  kind: PlaylistKind
+  /** The operator's plain-language description of what belongs; null when unset. */
+  brief: string | null
+  /** The agent's scratch: what it queried and ruled out. Null until one writes it. */
+  agentNotes: string | null
+  /** ISO 8601: when an agent last added to it or updated its notes. */
+  refreshedAt: string | null
+  /** Tracks kept out of it by the operator or an agent (`playlist_exclusions`). */
+  exclusionCount: number
+}
+
+/**
+ * What kind of playlist a row is — **W24-9**, `oscine-mcp` → D36.8.
+ *
+ * `smart` is not a rule-evaluated playlist: it is an ordinary playlist flagged
+ * as one an agent may keep up to date when the operator asks. The app never
+ * refreshes one on its own (D36). An enum rather than a boolean, so a
+ * rule-evaluated kind can join later without another column.
+ */
+export const PLAYLIST_KINDS = ['static', 'smart'] as const
+
+export type PlaylistKind = (typeof PLAYLIST_KINDS)[number]
+
+/** Who kept a track out of a smart playlist. */
+export const PLAYLIST_EXCLUSION_SOURCES = ['operator', 'agent'] as const
+
+export type PlaylistExclusionSource = (typeof PLAYLIST_EXCLUSION_SOURCES)[number]
+
+/** One excluded track, with enough of the track to name it in the header. */
+export interface PlaylistExclusion {
+  trackId: number
+  title: string | null
+  artist: string | null
+  source: PlaylistExclusionSource
+  /** ISO 8601. */
+  createdAt: string
+}
+
+export const MAX_PLAYLIST_BRIEF_LENGTH = 2000
+
+export const MAX_PLAYLIST_AGENT_NOTES_LENGTH = 8000
+
+export interface SetPlaylistKindRequest {
+  playlistId: number
+  kind: PlaylistKind
+}
+
+export interface SetPlaylistBriefRequest {
+  playlistId: number
+  /** Null or empty clears it. */
+  brief: string | null
+}
+
+export interface ClearPlaylistExclusionsRequest {
+  playlistId: number
+  /** The tracks to let back in; omitted means every exclusion. */
+  trackIds?: number[]
 }
 
 /**
@@ -166,6 +224,11 @@ export interface MovePlaylistEntriesRequest {
   insertion: PlaylistInsertion
 }
 
+/**
+ * Removes entries. From a smart playlist (D36.8) the operator's removal also
+ * excludes each track left with no entry, so an agent's next refresh does not
+ * bring it back; adding it again by hand clears that.
+ */
 export interface RemovePlaylistEntriesRequest {
   playlistId: number
   entryIds: number[]

@@ -29,6 +29,7 @@ import { indexAlbumYearOrder } from './027-index-album-year-order'
 import { trackScanFacts } from './028-track-scan-facts'
 import { mcpViews } from './029-mcp-views'
 import { agentJournal } from './030-agent-journal'
+import { smartPlaylists } from './031-smart-playlists'
 
 /**
  * Every migration, in order.
@@ -69,5 +70,6 @@ export const MIGRATIONS: readonly Migration[] = [
   indexAlbumYearOrder,
   trackScanFacts,
   mcpViews,
-  agentJournal
+  agentJournal,
+  smartPlaylists
 ]

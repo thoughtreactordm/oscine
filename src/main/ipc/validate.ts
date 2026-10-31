@@ -152,11 +152,17 @@ import {
 } from '@shared/discover'
 import {
   MAX_PLAYLIST_BATCH,
+  MAX_PLAYLIST_BRIEF_LENGTH,
   MAX_PLAYLIST_ENTRY_ID_PAGE,
   MAX_PLAYLIST_ENTRY_PAGE,
   MAX_PLAYLIST_NAME_LENGTH,
+  PLAYLIST_KINDS,
   PLAYLIST_PATH_STYLES,
   type AddTracksToPlaylistRequest,
+  type ClearPlaylistExclusionsRequest,
+  type PlaylistKind,
+  type SetPlaylistBriefRequest,
+  type SetPlaylistKindRequest,
   type ExportPlaylistRequest,
   type ListPlaylistEntriesQuery,
   type ListPlaylistEntryGroupsQuery,
@@ -1500,6 +1506,42 @@ export function assertRemoveEntriesRequest(value: unknown): RemovePlaylistEntrie
     playlistId: assertPositiveInt(raw.playlistId, 'playlistId'),
     entryIds: assertPlaylistIdBatch(raw.entryIds, 'entryIds')
   }
+}
+
+export function assertSetPlaylistKindRequest(value: unknown): SetPlaylistKindRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['playlistId', 'kind'])
+  if (typeof raw.kind !== 'string' || !PLAYLIST_KINDS.includes(raw.kind as never)) {
+    invalid(`kind must be one of: ${PLAYLIST_KINDS.join(', ')}.`)
+  }
+  return {
+    playlistId: assertPositiveInt(raw.playlistId, 'playlistId'),
+    kind: raw.kind as PlaylistKind
+  }
+}
+
+export function assertSetPlaylistBriefRequest(value: unknown): SetPlaylistBriefRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['playlistId', 'brief'])
+  if (raw.brief !== null && typeof raw.brief !== 'string')
+    invalid('brief must be a string or null.')
+  if (typeof raw.brief === 'string' && [...raw.brief.trim()].length > MAX_PLAYLIST_BRIEF_LENGTH) {
+    invalid(`brief must not exceed ${MAX_PLAYLIST_BRIEF_LENGTH} characters.`)
+  }
+  return {
+    playlistId: assertPositiveInt(raw.playlistId, 'playlistId'),
+    brief: raw.brief
+  }
+}
+
+export function assertClearPlaylistExclusionsRequest(
+  value: unknown
+): ClearPlaylistExclusionsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['playlistId', 'trackIds'])
+  const playlistId = assertPositiveInt(raw.playlistId, 'playlistId')
+  if (raw.trackIds === undefined) return { playlistId }
+  return { playlistId, trackIds: assertPlaylistIdBatch(raw.trackIds, 'trackIds') }
 }
 
 export function assertExportPlaylistRequest(value: unknown): ExportPlaylistRequest {

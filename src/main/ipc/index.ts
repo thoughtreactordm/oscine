@@ -59,6 +59,9 @@ import {
   assertSetArtistMbidRequest,
   assertArtistFavoritesQuery,
   assertExportPlaylistRequest,
+  assertSetPlaylistKindRequest,
+  assertSetPlaylistBriefRequest,
+  assertClearPlaylistExclusionsRequest,
   assertFavoriteStateRequest,
   assertFeedUrl,
   assertBrowsePodcastCategoryQuery,
@@ -606,6 +609,25 @@ export function registerIpcHandlers(
 
   handle('playlists.removeEntries', (request) =>
     playlists.removeEntries(assertRemoveEntriesRequest(request))
+  )
+
+  handle('playlists.setKind', (request) => {
+    const { playlistId, kind } = assertSetPlaylistKindRequest(request)
+    return playlists.setKind(playlistId, kind)
+  })
+
+  handle('playlists.setBrief', (request) => {
+    const { playlistId, brief } = assertSetPlaylistBriefRequest(request)
+    return playlists.setBrief(playlistId, brief)
+  })
+
+  handle('playlists.listExclusions', (request) => {
+    const { playlistId } = assertRecord(request, 'request')
+    return playlists.listExclusions(assertPositiveInt(playlistId, 'playlistId'))
+  })
+
+  handle('playlists.clearExclusions', (request) =>
+    playlists.clearExclusions(assertClearPlaylistExclusionsRequest(request))
   )
 
   handle('playlists.exportM3u8', (request) =>

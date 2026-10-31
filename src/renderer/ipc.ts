@@ -37,7 +37,9 @@ import type {
   ListPlaylistEntriesQuery,
   ListPlaylistEntryGroupsQuery,
   ListPlaylistEntryIdsQuery,
+  ClearPlaylistExclusionsRequest,
   MovePlaylistEntriesRequest,
+  PlaylistKind,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
 import type {
@@ -336,6 +338,14 @@ export const playlists = {
     unwrap(window.oscine.playlists.moveEntries(payload)),
   removeEntries: (payload: RemovePlaylistEntriesRequest) =>
     unwrap(window.oscine.playlists.removeEntries(payload)),
+  setKind: (playlistId: number, kind: PlaylistKind) =>
+    unwrap(window.oscine.playlists.setKind(playlistId, kind)),
+  setBrief: (playlistId: number, brief: string | null) =>
+    unwrap(window.oscine.playlists.setBrief(playlistId, brief)),
+  listExclusions: (playlistId: number) =>
+    unwrap(window.oscine.playlists.listExclusions(playlistId)),
+  clearExclusions: (payload: ClearPlaylistExclusionsRequest) =>
+    unwrap(window.oscine.playlists.clearExclusions(payload)),
   /** Resolves `null` when the operator dismisses the save dialog. */
   exportM3u8: (payload: ExportPlaylistRequest) =>
     unwrap(window.oscine.playlists.exportM3u8(payload))
