@@ -128,7 +128,8 @@ export function gammaEncode(channel: number): number {
   return v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055
 }
 
-function gammaDecode(channel: number): number {
+/** Gamma-encoded sRGB to linear light, one channel, clamped to 0–1 first. */
+export function gammaDecode(channel: number): number {
   const v = clamp(channel, 0, 1)
   return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
 }
