@@ -51,8 +51,16 @@ describe('the credential stays in main', () => {
     // guarantee and `tsc` already enforces them, but a channel called
     // `scrobble.sessionKey` would be a decision someone made, and this is where
     // that decision gets argued with.
-    const suspicious = [...IPC_CHANNELS, ...IPC_EVENT_CHANNELS].filter((channel) =>
-      /session|secret|credential|token|password/i.test(channel)
+    //
+    // Argued with once, and let through by name: W24-2's agent token. Unlike a
+    // scrobbling secret it exists to be copied into an agent's config, so the
+    // operator has to see it (oscine-mcp → D36.1). It still never rides a
+    // broadcast — `agentAccess.status` and `agentAccess.changed` do not carry it
+    // — and is sent only when the Agent access section asks.
+    const deliberate = ['agentAccess.revealToken', 'agentAccess.regenerateToken']
+    const suspicious = [...IPC_CHANNELS, ...IPC_EVENT_CHANNELS].filter(
+      (channel) =>
+        /session|secret|credential|token|password/i.test(channel) && !deliberate.includes(channel)
     )
     expect(suspicious).toEqual([])
   })

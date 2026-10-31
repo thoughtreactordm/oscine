@@ -6,6 +6,7 @@ import RebuildCountersAction from '@renderer/panels/settings/RebuildCountersActi
 import RerunOnboardingAction from '@renderer/panels/settings/RerunOnboardingAction.vue'
 import ScrobblingAccounts from '@renderer/panels/settings/ScrobblingAccounts.vue'
 import AppUpdates from '@renderer/panels/settings/AppUpdates.vue'
+import AgentAccessPanel from '@renderer/panels/settings/AgentAccessPanel.vue'
 import AudioEqualizerNote from '@renderer/panels/settings/AudioEqualizerNote.vue'
 import ThemeActions from '@renderer/panels/settings/theme/ThemeActions.vue'
 import SettingRow from '@renderer/panels/settings/SettingRow.vue'
@@ -89,6 +90,15 @@ const showUpdates = computed(() => !catalog.value.spanning && section.value?.id 
  * went rather than a control that could not do it justice.
  */
 const showAudioNote = computed(() => !catalog.value.spanning && section.value?.id === 'audio')
+
+/**
+ * W24-2's agent access island: server status, the token, client config and the
+ * connected sessions, above the generated toggle, port and capability rows.
+ * Same guard as the others.
+ */
+const showAgentAccess = computed(
+  () => !catalog.value.spanning && section.value?.id === 'integrations'
+)
 
 /**
  * How tall whatever sits above the rows is, in pixels.
@@ -324,6 +334,9 @@ watch(
       </div>
       <div v-else-if="showAudioNote" ref="leading">
         <AudioEqualizerNote />
+      </div>
+      <div v-else-if="showAgentAccess" ref="leading">
+        <AgentAccessPanel />
       </div>
 
       <div
