@@ -60,12 +60,18 @@ function compileShader(
   return shader
 }
 
-/** Compile and link, surfacing the info log. Defaults to the full-screen vertex shader. */
+/**
+ * Compile and link, surfacing the info log. Defaults to the full-screen vertex
+ * shader. `feedbackVaryings` (W23-12) names the vertex outputs a transform
+ * feedback pass captures, interleaved into one buffer in the order given; they
+ * have to be declared before the link.
+ */
 export function compileProgram(
   gl: WebGL2RenderingContext,
   fragmentSource: string,
   label: string,
-  vertexSource: string = FULLSCREEN_VERTEX_SHADER
+  vertexSource: string = FULLSCREEN_VERTEX_SHADER,
+  feedbackVaryings?: readonly string[]
 ): WebGLProgram {
   const vertex = compileShader(gl, gl.VERTEX_SHADER, vertexSource, label)
   let fragment: WebGLShader
@@ -83,6 +89,9 @@ export function compileProgram(
   }
   gl.attachShader(program, vertex)
   gl.attachShader(program, fragment)
+  if (feedbackVaryings && feedbackVaryings.length > 0) {
+    gl.transformFeedbackVaryings(program, feedbackVaryings, gl.INTERLEAVED_ATTRIBS)
+  }
   gl.linkProgram(program)
   // Linked programs keep working once their shaders are flagged for deletion.
   gl.deleteShader(vertex)
