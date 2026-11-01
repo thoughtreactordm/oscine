@@ -379,6 +379,20 @@ read a shared **drive** (`effects/drive.ts`) that puts back the dynamics the nor
 frame removes: a beat `pulse`, a section `heat` (loudness, onset rate and a climbing level,
 followed over seconds) and a `brightness` (spectral centroid, a stand-in for pitch).
 
+**Rainfall and Groove as built (W23-11, 2026-11-01).** Rainfall's height field is not at the
+internal resolution, as the card first said. It runs on a fixed 256-row `RG16F` grid (columns by
+aspect) stepped at a fixed 150 Hz. An explicit wave equation is stable only under one cell per
+step, so at 1080 rows a ripple would cross the stage in tens of seconds, and its speed would change
+with the quality setting. On a fixed grid and clock the speed (~0.37 stage heights/s) and the
+damping (τ = 0.6 s, under 4 % left after 2 s) are the same on every machine and at every frame
+rate. The present pass refracts at the internal resolution. Drops are injected from the flash
+guard's onset envelope, rise by rise, so a ring arrives no faster than the guard allows. The
+surface needs `EXT_color_buffer_float`; without it Rainfall is unavailable, like a compile
+failure. Groove does not rotate the cover: a rotated cover cannot equal the wash at emergence 0
+without an unwind that reads as a spin-back. The cover stays put and is smeared along the arc
+behind each pixel. The smear is longest under a two-lobed light band, and the bass turns that
+band, so the streaks sweep round the way a record's sheen does.
+
 Effects that don't need the cover (`needs.cover` unset) don't get the texture, and with the
 default `washUnder` they still sit on the wash, so the cover's colour field shows through
 every overlay effect.

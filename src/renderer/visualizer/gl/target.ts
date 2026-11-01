@@ -9,7 +9,15 @@
  * The ping-pong pair is two of them: draw into `write` sampling `read`, then
  * `swap()`. Feedback effects use it frame to frame; the wash pass uses it for
  * the two halves of its separable blur.
+ *
+ * `'rg16f'` (W23-11) is for state that is not a colour: Rainfall's height
+ * field, which is signed and needs more than 8 bits. Rendering to it needs
+ * `EXT_color_buffer_float`; half-float filtering is core in WebGL2. Without
+ * the extension the target throws, which an effect's `create` turns into
+ * "unavailable" (D35.6), never into a broken stage.
  */
+
+export type RenderTargetFormat = 'rgba8' | 'rg16f'
 
 export interface RenderTarget {
   readonly texture: WebGLTexture
@@ -26,8 +34,12 @@ export interface RenderTarget {
 export function createRenderTarget(
   gl: WebGL2RenderingContext,
   width: number,
-  height: number
+  height: number,
+  format: RenderTargetFormat = 'rgba8'
 ): RenderTarget {
+  if (format === 'rg16f' && !gl.getExtension('EXT_color_buffer_float')) {
+    throw new Error('render target: rg16f needs EXT_color_buffer_float')
+  }
   const texture = gl.createTexture()
   const framebuffer = gl.createFramebuffer()
   if (!texture || !framebuffer) throw new Error('render target: the context is lost')
@@ -38,7 +50,11 @@ export function createRenderTarget(
     w = Math.max(1, Math.round(nextWidth))
     h = Math.max(1, Math.round(nextHeight))
     gl.bindTexture(gl.TEXTURE_2D, texture)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+    if (format === 'rg16f') {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG16F, w, h, 0, gl.RG, gl.HALF_FLOAT, null)
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+    }
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
@@ -46,10 +62,19 @@ export function createRenderTarget(
     gl.bindTexture(gl.TEXTURE_2D, null)
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
+    const complete =
+      format === 'rgba8' || gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    if (!complete) throw new Error(`render target: ${format} is not renderable here`)
   }
 
-  allocate(width, height)
+  try {
+    allocate(width, height)
+  } catch (error) {
+    gl.deleteFramebuffer(framebuffer)
+    gl.deleteTexture(texture)
+    throw error
+  }
 
   return {
     texture,
@@ -88,10 +113,17 @@ export interface PingPong {
 export function createPingPong(
   gl: WebGL2RenderingContext,
   width: number,
-  height: number
+  height: number,
+  format: RenderTargetFormat = 'rgba8'
 ): PingPong {
-  let read = createRenderTarget(gl, width, height)
-  let write = createRenderTarget(gl, width, height)
+  let read = createRenderTarget(gl, width, height, format)
+  let write: RenderTarget
+  try {
+    write = createRenderTarget(gl, width, height, format)
+  } catch (error) {
+    read.dispose()
+    throw error
+  }
   return {
     get read() {
       return read
