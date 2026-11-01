@@ -8,6 +8,7 @@ import { createTrace } from './effects/trace'
 import { createUpdraft } from './effects/updraft'
 import { createWhorl } from './effects/whorl'
 import { DRIFT } from './effects/drift'
+import { PLUMAGE } from './effects/plumage'
 import { GL_WASH_TEST } from './effects/glWashTest'
 import { availableOf } from './glSession'
 
@@ -84,6 +85,7 @@ export const VISUALIZER_EFFECTS: readonly VisualizerEffect[] = [
   SILK,
   UPDRAFT,
   DRIFT,
+  PLUMAGE,
   // W23-8's tier check, dev builds only (`effects/glWashTest.ts`).
   ...(import.meta.env.DEV && import.meta.env.VITE_VISUALIZER_GL_TEST === '1' ? [GL_WASH_TEST] : [])
 ]

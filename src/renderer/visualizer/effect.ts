@@ -2,6 +2,7 @@ import type { VisualizerQuality } from '@shared/settings'
 import type { AnalysisFrame } from './analysisFrame'
 import type { StageCoverInput } from './coverDecode'
 import type { Palette } from './palette'
+import type { WashLook } from './wash'
 
 /**
  * The contract between the stage host and an effect — **D35.1**.
@@ -35,6 +36,13 @@ export type VisualizerSurface = '2d' | 'webgl2'
  */
 export interface WashInput {
   readonly source: CanvasImageSource | WebGLTexture
+  /**
+   * The look the wash was drawn with (W23-10), for a `grow` effect that draws
+   * the cover itself and must match it: Plumage saturates its cover layer with
+   * the wash's matrix and starts from its opacity and scale. Null until the
+   * host has read the stage's properties.
+   */
+  readonly look: WashLook | null
 }
 
 export interface StageInputs {

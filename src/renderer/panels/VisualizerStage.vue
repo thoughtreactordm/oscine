@@ -414,7 +414,12 @@ function attachGl(element: HTMLCanvasElement): WebGL2RenderingContext | null {
   glCanvas = element
   glCovers = covers
   glWash = wash
-  glWashInput = { source: wash.texture }
+  glWashInput = {
+    source: wash.texture,
+    get look() {
+      return look
+    }
+  }
   glLuma = createLumaReadback(context)
   if (look) wash.setLook(look)
   element.addEventListener('webglcontextlost', onContextLost)
@@ -713,7 +718,12 @@ onMounted(() => {
 
   if (washCanvas.value) {
     washPass = createWashPass(washCanvas.value)
-    washInput = { source: washCanvas.value }
+    washInput = {
+      source: washCanvas.value,
+      get look() {
+        return look
+      }
+    }
   }
   cover = createStageCoverSource((slot) => glCovers?.release(slot))
   setArtwork(playback.nowPlaying?.artwork.large ?? null)
