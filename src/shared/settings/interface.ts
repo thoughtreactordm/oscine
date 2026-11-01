@@ -40,11 +40,14 @@
  */
 
 import {
+  acceptValue,
   booleanValue,
   defineSetting,
   enumValue,
+  rejectValue,
   stringValue,
-  type SettingDescriptor
+  type SettingDescriptor,
+  type SettingValidator
 } from './kernel'
 
 export type AlbumArtSize = 'small' | 'medium' | 'large'
@@ -114,6 +117,51 @@ export const VISUALIZER_IN_ZEN_KEY = 'interface.visualizerInZen'
 export const VISUALIZER_EFFECT_KEY = 'interface.visualizerEffect'
 export const VISUALIZER_CYCLE_KEY = 'interface.visualizerCycle'
 export const VISUALIZER_QUALITY_KEY = 'interface.visualizerQuality'
+export const VISUALIZER_PARAMS_KEY = 'interface.visualizerParams'
+
+/**
+ * Each effect's knob values, by effect id and then knob id — only the knobs the
+ * operator has moved; an absent one is at its default. The ranges belong to
+ * the renderer's effect registry, which `src/shared` cannot see, so this layer
+ * checks shape and finiteness and the renderer clamps into range on read. An
+ * id the registry does not know is kept, like `interface.visualizerEffect`, so
+ * a branch with fewer effects does not destroy the tuning.
+ */
+export type VisualizerParamValues = Readonly<Record<string, Readonly<Record<string, number>>>>
+
+const MAX_PARAM_ID = 64
+const MAX_PARAM_EFFECTS = 64
+const MAX_PARAMS_PER_EFFECT = 32
+
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+}
+
+/**
+ * Repairs rather than rejects below the top level: a malformed entry is
+ * dropped and the rest kept, so one bad knob does not reset every effect.
+ */
+export function parseVisualizerParams(raw: unknown): VisualizerParamValues | null {
+  if (!isRecord(raw)) return null
+  const out: Record<string, Record<string, number>> = {}
+  for (const [effectId, knobs] of Object.entries(raw).slice(0, MAX_PARAM_EFFECTS)) {
+    if (effectId.length === 0 || effectId.length > MAX_PARAM_ID || !isRecord(knobs)) continue
+    const kept: Record<string, number> = {}
+    for (const [knobId, value] of Object.entries(knobs).slice(0, MAX_PARAMS_PER_EFFECT)) {
+      if (knobId.length === 0 || knobId.length > MAX_PARAM_ID) continue
+      if (typeof value === 'number' && Number.isFinite(value)) kept[knobId] = value
+    }
+    if (Object.keys(kept).length > 0) out[effectId] = kept
+  }
+  return out
+}
+
+function visualizerParamsValue(): SettingValidator<VisualizerParamValues> {
+  return (raw) => {
+    const parsed = parseVisualizerParams(raw)
+    return parsed ? acceptValue(parsed) : rejectValue('expected a record of effect knob values')
+  }
+}
 
 /**
  * The stage visualizer's default effect — the first entry of the renderer's
@@ -422,6 +470,22 @@ export const INTERFACE_SETTINGS: readonly SettingDescriptor[] = [
     category: 'interface',
     label: 'Visualizer effect',
     help: 'Which effect the Now Playing visualizer shows.'
+  }),
+
+  /*
+   * Internal: the knobs are edited on the stage (the effect switcher's tuning
+   * popover), not from a settings row. Portable, so a tuned look rides D11's
+   * export bundle like the effect choice does.
+   */
+  defineSetting<VisualizerParamValues>({
+    key: VISUALIZER_PARAMS_KEY,
+    scope: 'durable',
+    default: {},
+    validate: visualizerParamsValue(),
+    internal: true,
+    category: 'interface',
+    label: 'Visualizer effect tuning',
+    help: 'Each visualizer effect’s knob values, where they differ from its defaults.'
   }),
 
   defineSetting<VisualizerCycle>({

@@ -61,7 +61,9 @@ export {
   VISUALIZER_EFFECT_KEY,
   VISUALIZER_CYCLE_KEY,
   VISUALIZER_QUALITY_KEY,
-  DEFAULT_VISUALIZER_EFFECT
+  VISUALIZER_PARAMS_KEY,
+  DEFAULT_VISUALIZER_EFFECT,
+  parseVisualizerParams
 } from './settings/interface'
 export type {
   AlbumArtSize,
@@ -74,6 +76,7 @@ export type {
   TrackActivation,
   TrackDensity,
   VisualizerCycle,
+  VisualizerParamValues,
   VisualizerQuality
 } from './settings/interface'
 export {

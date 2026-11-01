@@ -1,5 +1,6 @@
 import type { AnalysisFrame } from '../analysisFrame'
 import { MAX_RISE_PER_FRAME, MIN_ATTACK_SEC, ONSET_RELEASE_SEC } from '../flashGuard'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import type { Drive } from './drive'
 import { follow } from './draw2d'
 
@@ -129,7 +130,18 @@ function segmentsFor(level: number): number {
   return SEGMENTS_MIN + (SEGMENTS_MAX - SEGMENTS_MIN) * clamp01(level)
 }
 
-export function createPlumageModel(): PlumageModel {
+/** Scales the ripple, flow speed, kaleidoscope, spin and colour split. */
+export const PLUMAGE_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('ripple', 'Ripple', 'How far the picture ripples.', { min: 0, max: 3 }),
+  multiplierParam('speed', 'Flow speed', 'How fast the ripples move.', { min: 0, max: 3 }),
+  multiplierParam('fold', 'Kaleidoscope', 'How much the picture folds.', { min: 0, max: 1.5 }),
+  multiplierParam('spin', 'Spin', 'How fast the kaleidoscope turns.', { min: 0, max: 3 }),
+  multiplierParam('split', 'Colour split', 'How far the colours split.', { min: 0, max: 3 })
+]
+
+export function createPlumageModel(
+  knobs: EffectParams = resolveParams(PLUMAGE_KNOBS, undefined)
+): PlumageModel {
   const params: PlumageParams = {
     detail: 0,
     opacity: 0,
@@ -181,12 +193,16 @@ export function createPlumageModel(): PlumageModel {
       params.lodBias = LOD_GROW * (1 - e)
 
       params.displaceLow =
-        e * (DISPLACE_IDLE + DISPLACE_LOW * low + DISPLACE_LOW_PULSE * drive.pulse)
-      params.displaceMid = e * DISPLACE_MID * mid
-      params.displaceHigh = e * DISPLACE_HIGH * high
+        e *
+        (DISPLACE_IDLE * knobs.ripple +
+          DISPLACE_LOW * knobs.ripple * low +
+          DISPLACE_LOW_PULSE * knobs.ripple * drive.pulse)
+      params.displaceMid = e * DISPLACE_MID * knobs.ripple * mid
+      params.displaceHigh = e * DISPLACE_HIGH * knobs.ripple * high
       const speed = 1 + SPEED_HEAT * drive.heat
-      params.lowPhase = (params.lowPhase + dt * LOW_SPEED * speed) % 256
-      params.highPhase = (params.highPhase + dt * HIGH_SPEED * speed * (1 + high)) % 256
+      params.lowPhase = (params.lowPhase + dt * LOW_SPEED * knobs.speed * speed) % 256
+      params.highPhase =
+        (params.highPhase + dt * HIGH_SPEED * knobs.speed * speed * (1 + high)) % 256
 
       // The count: held until the slow level moves well past it, then eased.
       if (params.segmentBlend < 1) {
@@ -200,10 +216,12 @@ export function createPlumageModel(): PlumageModel {
           if (params.segmentsB !== params.segmentsA) params.segmentBlend = 0
         }
       }
-      params.kaleido = e * clamp01(KALEIDO_BASE + KALEIDO_LEVEL * level)
+      // A mix share, so the fold stays within 0..1.
+      params.kaleido = e * clamp01(KALEIDO_BASE * knobs.fold + KALEIDO_LEVEL * knobs.fold * level)
 
       const direction = Math.cos((time * TAU) / ROTATION_PERIOD_SEC)
-      params.rotation += dt * (ROTATION_BASE + ROTATION_LEVEL * level) * direction
+      params.rotation +=
+        dt * (ROTATION_BASE * knobs.spin + ROTATION_LEVEL * knobs.spin * level) * direction
       params.rotation = ((params.rotation % TAU) + TAU) % TAU
 
       // The split's envelope. The guard has already shaped the onset (D35.8);
@@ -215,7 +233,7 @@ export function createPlumageModel(): PlumageModel {
       } else {
         envelope += (target - envelope) * follow(dt, ONSET_RELEASE_SEC)
       }
-      params.split = SPLIT_MAX * envelope * e * guard
+      params.split = SPLIT_MAX * knobs.split * envelope * e * guard
 
       params.present = guard
       return params

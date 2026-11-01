@@ -1,4 +1,5 @@
 import type { AnalysisFrame } from '../analysisFrame'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import { follow } from './draw2d'
 
 /**
@@ -83,7 +84,22 @@ function clamp01(value: number): number {
   return value < 0 ? 0 : value > 1 ? 1 : value
 }
 
-export function createGrooveModel(): GrooveModel {
+/** Knobs scale the smear length, the light band's spin and its sheen. */
+export const GROOVE_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('smear', 'Smear', 'How far the cover is smeared around the centre.', {
+    min: 0,
+    max: 2
+  }),
+  multiplierParam('spin', 'Spin', 'How fast the light band turns.', { min: 0, max: 3 }),
+  multiplierParam('sheen', 'Sheen', 'How bright the light along that band is.', {
+    min: 0,
+    max: 2.5
+  })
+]
+
+export function createGrooveModel(
+  knobs: EffectParams = resolveParams(GROOVE_KNOBS, undefined)
+): GrooveModel {
   const params: GrooveParams = {
     detail: 0,
     opacity: 0,
@@ -117,10 +133,10 @@ export function createGrooveModel(): GrooveModel {
       params.detail = e
       params.opacity = clamp01(washOpacity) + (GROOVE_OPACITY - clamp01(washOpacity)) * e
       params.lodBias = LOD_GROW * (1 - e)
-      params.smear = e * (SMEAR_IDLE + SMEAR_LEVEL * l)
-      params.omega = OMEGA_BASE + OMEGA_BASS * clamp01(bass)
+      params.smear = e * (SMEAR_IDLE * knobs.smear + SMEAR_LEVEL * knobs.smear * l)
+      params.omega = OMEGA_BASE * knobs.spin + OMEGA_BASS * knobs.spin * clamp01(bass)
       params.phase = (((params.phase - dt * params.omega) % TAU) + TAU) % TAU
-      params.sheen = e * SHEEN_MAX * (SHEEN_REST + (1 - SHEEN_REST) * l)
+      params.sheen = e * SHEEN_MAX * knobs.sheen * (SHEEN_REST + (1 - SHEEN_REST) * l)
       params.present = clamp01(intensity)
       return params
     }

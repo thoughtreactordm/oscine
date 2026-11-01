@@ -3,7 +3,13 @@ import type { EffectInstance, EffectTarget, VisualizerEffect } from '../effect'
 import { compileProgram, createFullscreenTriangle, uniformLocations } from '../gl/program'
 import { createPingPong, type PingPong } from '../gl/target'
 import { createDrive } from './drive'
-import { createDriftModel, RING_COVER_SHARE, RING_WIDTH, RING_WIDTH_MIN_PX } from './driftModel'
+import {
+  createDriftModel,
+  DRIFT_KNOBS,
+  RING_COVER_SHARE,
+  RING_WIDTH,
+  RING_WIDTH_MIN_PX
+} from './driftModel'
 import { createWaveformReader } from './waveform'
 
 /**
@@ -197,7 +203,7 @@ function create(target: EffectTarget): EffectInstance {
   const u = uniformLocations(gl, update, UPDATE_UNIFORMS)
   const p = uniformLocations(gl, present, ['u_field', 'u_wash', 'u_present'])
   const triangle = createFullscreenTriangle(gl)
-  const model = createDriftModel()
+  const model = createDriftModel(target.params)
   const drive = createDrive()
   const reader = createWaveformReader(WAVE_POINTS)
   const coverUv = new Float32Array(4)
@@ -238,10 +244,42 @@ function create(target: EffectTarget): EffectInstance {
     resize(nextWidth, nextHeight) {
       width = Math.max(1, Math.round(nextWidth))
       height = Math.max(1, Math.round(nextHeight))
-      if (field) field.resize(width, height)
-      else field = createPingPong(gl, width, height)
-      // The contents are undefined after a reallocation: start again from the wash.
-      model.reseed()
+      if (!field) {
+        field = createPingPong(gl, width, height)
+        // A new field has no history: start from the wash.
+        model.reseed()
+        return
+      }
+      const from = field.read
+      if (from.width === width && from.height === height) return
+      // Carry the field across the reallocation rather than reseeding: a reseed
+      // snaps the picture back to the plain wash, which is a visible pop at the
+      // end of every window or Tunedeck resize. The free target is reallocated
+      // at the new size and the old field is stretched into it (same RGBA8
+      // format, so a LINEAR blit is allowed); the stretch is one frame's worth
+      // of distortion that the feedback loop smooths away.
+      const fromWidth = from.width
+      const fromHeight = from.height
+      field.write.resize(width, height)
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, from.framebuffer)
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, field.write.framebuffer)
+      gl.blitFramebuffer(
+        0,
+        0,
+        fromWidth,
+        fromHeight,
+        0,
+        0,
+        width,
+        height,
+        gl.COLOR_BUFFER_BIT,
+        gl.LINEAR
+      )
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null)
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null)
+      field.swap()
+      // The other half is written before it is next read.
+      field.write.resize(width, height)
     },
 
     frame(audio, palette, stage, dtSec) {
@@ -339,5 +377,6 @@ export const DRIFT: VisualizerEffect = {
   surface: 'webgl2',
   needs: { cover: true },
   emergence: 'grow',
+  params: DRIFT_KNOBS,
   create
 }

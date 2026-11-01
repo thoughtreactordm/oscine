@@ -4,7 +4,7 @@ import { compileProgram, createFullscreenTriangle, uniformLocations } from '../g
 import { createPingPong, type PingPong } from '../gl/target'
 import { PaletteSlot, type Palette } from '../palette'
 import { COVER_LAYER_GLSL, COVER_LAYER_UNIFORMS, createCoverLayer } from './coverLayer'
-import { createRainfallModel, simSize, WAVE_C2 } from './rainfallModel'
+import { createRainfallModel, RAINFALL_KNOBS, simSize, WAVE_C2 } from './rainfallModel'
 
 /**
  * **Rainfall**: a height-field ripple over the cover (W23-11, D35.9, D35.11,
@@ -145,7 +145,8 @@ function create(target: EffectTarget): EffectInstance {
   const s = uniformLocations(gl, step, STEP_UNIFORMS)
   const u = uniformLocations(gl, present, PRESENT_UNIFORMS)
   const triangle = createFullscreenTriangle(gl)
-  const model = createRainfallModel()
+  // Seed stays the factory default so drop placement does not change; knobs are live.
+  const model = createRainfallModel(0x0eca1, target.params)
   const layer = createCoverLayer(gl, u, {
     wash: UNIT_WASH,
     cover: UNIT_COVER,
@@ -274,5 +275,6 @@ export const RAINFALL: VisualizerEffect = {
   surface: 'webgl2',
   needs: { cover: true },
   emergence: 'grow',
+  params: RAINFALL_KNOBS,
   create
 }

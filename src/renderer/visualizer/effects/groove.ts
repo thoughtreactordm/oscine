@@ -3,7 +3,7 @@ import type { EffectInstance, EffectTarget, VisualizerEffect } from '../effect'
 import { compileProgram, createFullscreenTriangle, uniformLocations } from '../gl/program'
 import { PaletteSlot, type Palette } from '../palette'
 import { COVER_LAYER_GLSL, COVER_LAYER_UNIFORMS, createCoverLayer } from './coverLayer'
-import { createGrooveModel, SMEAR_FLOOR } from './grooveModel'
+import { createGrooveModel, GROOVE_KNOBS, SMEAR_FLOOR } from './grooveModel'
 
 /**
  * **Groove**: a radial slit-scan of the cover (W23-11, D35.9, D35.11, D35.12),
@@ -113,7 +113,7 @@ function create(target: EffectTarget): EffectInstance {
   const program = compileProgram(gl, SHADER, 'Groove')
   const u = uniformLocations(gl, program, UNIFORMS)
   const triangle = createFullscreenTriangle(gl)
-  const model = createGrooveModel()
+  const model = createGrooveModel(target.params)
   const layer = createCoverLayer(gl, u, {
     wash: UNIT_WASH,
     cover: UNIT_COVER,
@@ -187,5 +187,6 @@ export const GROOVE: VisualizerEffect = {
   surface: 'webgl2',
   needs: { cover: true },
   emergence: 'grow',
+  params: GROOVE_KNOBS,
   create
 }

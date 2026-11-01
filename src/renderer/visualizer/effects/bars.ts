@@ -2,6 +2,7 @@ import { DEFAULT_VISUALIZER_EFFECT } from '@shared/settings'
 import { ANALYSIS_BANDS, type AnalysisFrame } from '../analysisFrame'
 import type { EffectInstance, EffectTarget, StageInputs, VisualizerEffect } from '../effect'
 import { PaletteSlot, type Palette } from '../palette'
+import { multiplierParam, type EffectParamSpec } from '../params'
 
 /**
  * **Bars** — the first effect and the default (W23-4, D35.9).
@@ -36,9 +37,18 @@ const LINE_ALPHA = 0.25
 /** Bands under this draw nothing, so silence is a bare centre line rather than a stubble of pixels. */
 const DRAW_FLOOR = 0.004
 
+/** Scales bar height, cap fall, cap hold, and the reflection. */
+export const BARS_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('height', 'Height', 'How tall the bars grow.', { min: 0.25, max: 1.15 }),
+  multiplierParam('fall', 'Cap fall speed', 'How fast the peak caps drop.', { min: 0.25, max: 3 }),
+  multiplierParam('hold', 'Cap hold', 'How long a cap rests before it falls.', { min: 0, max: 3 }),
+  multiplierParam('reflection', 'Reflection', 'How strong the reflection is.', { min: 0, max: 2.5 })
+]
+
 function createBars(target: EffectTarget): EffectInstance {
   if (target.surface !== '2d') throw new Error('Bars draws on a 2D surface')
   const ctx = target.context
+  const knobs = target.params
   const peaks = new Float32Array(ANALYSIS_BANDS)
   const holds = new Float32Array(ANALYSIS_BANDS)
   const speeds = new Float32Array(ANALYSIS_BANDS)
@@ -50,12 +60,12 @@ function createBars(target: EffectTarget): EffectInstance {
       const value = spectrum[band]
       if (value >= peaks[band]) {
         peaks[band] = value
-        holds[band] = PEAK_HOLD_SEC
+        holds[band] = PEAK_HOLD_SEC * knobs.hold
         speeds[band] = 0
       } else if (holds[band] > 0) {
         holds[band] -= dtSec
       } else {
-        speeds[band] += PEAK_GRAVITY * dtSec
+        speeds[band] += PEAK_GRAVITY * knobs.fall * dtSec
         const fallen = peaks[band] - speeds[band] * dtSec
         peaks[band] = fallen > value ? fallen : value
       }
@@ -75,7 +85,8 @@ function createBars(target: EffectTarget): EffectInstance {
 
       const intensity = stage.intensity
       const centreY = Math.round(height / 2)
-      const reach = (height / 2) * HEADROOM
+      // The height knob cannot push a bar past the half-height.
+      const reach = (height / 2) * Math.min(1, HEADROOM * knobs.height)
       const slot = width / ANALYSIS_BANDS
       const barWidth = Math.max(1, Math.floor(slot * (1 - GAP_FRACTION)))
       const inset = Math.floor((slot - barWidth) / 2)
@@ -96,7 +107,7 @@ function createBars(target: EffectTarget): EffectInstance {
         const barHeight = Math.max(1, Math.round(value * reach))
         ctx.fillRect(Math.round(band * slot) + inset, centreY - barHeight, barWidth, barHeight)
       }
-      ctx.globalAlpha = BAR_ALPHA * REFLECTION_ALPHA * intensity
+      ctx.globalAlpha = Math.min(1, BAR_ALPHA * REFLECTION_ALPHA * knobs.reflection) * intensity
       for (let band = 0; band < ANALYSIS_BANDS; band++) {
         const value = audio.spectrum[band]
         if (value < DRAW_FLOOR) continue
@@ -113,7 +124,7 @@ function createBars(target: EffectTarget): EffectInstance {
         const y = centreY - Math.round(peak * reach) - capGap - capHeight
         ctx.fillRect(Math.round(band * slot) + inset, y, barWidth, capHeight)
       }
-      ctx.globalAlpha = CAP_ALPHA * REFLECTION_ALPHA * intensity
+      ctx.globalAlpha = Math.min(1, CAP_ALPHA * REFLECTION_ALPHA * knobs.reflection) * intensity
       for (let band = 0; band < ANALYSIS_BANDS; band++) {
         const peak = peaks[band]
         if (peak < DRAW_FLOOR) continue
@@ -135,5 +146,6 @@ export const BARS: VisualizerEffect = {
   label: 'Bars',
   surface: '2d',
   emergence: 'overlay',
+  params: BARS_KNOBS,
   create: createBars
 }

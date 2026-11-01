@@ -1,5 +1,6 @@
 import type { AnalysisFrame } from '../analysisFrame'
 import { PaletteSlot, type Palette, type PaletteSlotId } from '../palette'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
 import { createDrive, spectralCentroid } from './drive'
 
@@ -76,9 +77,23 @@ const TAU = Math.PI * 2
 /** Tail length in points, by quality: 2, 3 and 4 seconds. */
 const TAIL_BY_QUALITY: Readonly<Record<Quality2D, number>> = { low: 180, auto: 270, high: 360 }
 
+/** Knobs scale pen speed, figure size, spin, and how hard a beat plucks. */
+export const SILK_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('speed', 'Pen speed', 'How fast the pens swing.', { min: 0.25, max: 3 }),
+  multiplierParam('size', 'Size', 'How large the figure is.', { min: 0.5, max: 1.6 }),
+  multiplierParam('spin', 'Spin', 'How fast the figure turns.', { min: 0, max: 4 }),
+  multiplierParam(
+    'pluck',
+    'Beat pluck',
+    'How hard a beat plucks the pens and thickens the threads.',
+    { min: 0, max: 2 }
+  )
+]
+
 export function createSilk<I>(
   ctx: Draw2D<I>,
-  quality: Quality2D
+  quality: Quality2D,
+  knobs: EffectParams = resolveParams(SILK_KNOBS, undefined)
 ): Effect2DInstance<I, AnalysisFrame, Palette> {
   const tail = TAIL_BY_QUALITY[quality]
   /** x, y per point, per thread, in figure units (±1 before the radius). */
@@ -115,11 +130,12 @@ export function createSilk<I>(
     breath += (targetLevel - breath) * energyStep
     brightness += (targetBrightness - brightness) * energyStep
     pluck -= pluck * pluckStep
-    const size = 1 + breath * LEVEL_BREATH + pluck * PLUCK
+    const size = 1 + breath * LEVEL_BREATH + pluck * PLUCK * knobs.pluck
     for (let thread = 0; thread < THREADS; thread++) {
       const rates = RATES[thread]
       const rate =
         SPEED *
+        knobs.speed *
         (1 + energies[thread] * ENERGY_RATE) *
         (PITCH_RATE_FLOOR + brightness * PITCH_RATE) *
         STEP_SEC
@@ -160,7 +176,7 @@ export function createSilk<I>(
       const pulse = drive.pulse
       const heat = drive.heat
       if (audio.onset > pluck) pluck = audio.onset
-      turn = (turn + TURN_SPEED * (1 + heat * HEAT_TURN) * dtSec) % TAU
+      turn = (turn + TURN_SPEED * knobs.spin * (1 + heat * HEAT_TURN) * dtSec) % TAU
       carry += dtSec > 0 ? dtSec : 0
       while (carry >= STEP_SEC) {
         carry -= STEP_SEC
@@ -170,13 +186,13 @@ export function createSilk<I>(
 
       const intensity = stage.intensity
       const short = width < height ? width : height
-      const scale = short * RADIUS * (1 + heat * HEAT_SCALE)
+      const scale = short * RADIUS * (1 + heat * HEAT_SCALE) * knobs.size
       const cx = width / 2
       const cy = height / 2
       ctx.globalCompositeOperation = 'source-over'
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
-      ctx.lineWidth = Math.max(1, short * 0.0022 * (1 + pulse * PULSE_WIDTH))
+      ctx.lineWidth = Math.max(1, short * 0.0022 * (1 + pulse * PULSE_WIDTH * knobs.pluck))
 
       for (let thread = 0; thread < THREADS; thread++) {
         // Each thread sits a third of a turn round from the last.
@@ -213,7 +229,7 @@ export function createSilk<I>(
         ctx.arc(
           cx + x * a - y * b,
           cy + x * b + y * a,
-          Math.max(1, short * 0.004 * (1 + pulse * PULSE_HEAD)),
+          Math.max(1, short * 0.004 * (1 + pulse * PULSE_HEAD * knobs.pluck)),
           0,
           TAU
         )

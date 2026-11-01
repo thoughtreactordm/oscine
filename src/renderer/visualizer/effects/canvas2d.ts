@@ -2,6 +2,7 @@ import type { VisualizerQuality } from '@shared/settings'
 import type { AnalysisFrame } from '../analysisFrame'
 import type { EffectInstance, EffectTarget, StageInputs } from '../effect'
 import type { Palette } from '../palette'
+import type { EffectParams } from '../params'
 import type { Cover2D, Draw2D, Effect2DInstance, Stage2D } from './draw2d'
 
 /**
@@ -12,9 +13,15 @@ import type { Cover2D, Draw2D, Effect2DInstance, Stage2D } from './draw2d'
 
 type Image2D = CanvasImageSource
 
+/**
+ * `params` is the host's live knob object (`../params.ts`): the core keeps the
+ * reference and reads it every frame. Cores default it to their untuned values,
+ * so the tests can build one without it.
+ */
 export type Effect2DCore = (
   ctx: Draw2D<Image2D>,
-  quality: VisualizerQuality
+  quality: VisualizerQuality,
+  params: EffectParams
 ) => Effect2DInstance<Image2D, AnalysisFrame, Palette>
 
 interface MutableStage2D {
@@ -35,7 +42,7 @@ export function create2D(
 ): (target: EffectTarget) => EffectInstance {
   return (target) => {
     if (target.surface !== '2d') throw new Error(`${label} draws on a 2D surface`)
-    const inner = core(target.context, target.quality)
+    const inner = core(target.context, target.quality, target.params)
     /** Made the first time the host hands over a 2D wash, then updated in place. */
     let wash: { source: Image2D } | null = null
     const stage2d: MutableStage2D = { emergence: 0, intensity: 1, wash: null, cover: null }

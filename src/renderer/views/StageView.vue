@@ -9,10 +9,16 @@ import { useSettings } from '@renderer/settings'
 import { currentTheme, onThemeChange } from '@renderer/theme'
 import { useVisualizerStore } from '@renderer/stores/visualizer'
 import { resolveEffect } from '@renderer/visualizer/gate'
+import { formatParam, type EffectParamSpec } from '@renderer/visualizer/params'
 import { availableEffects } from '@renderer/visualizer/registry'
 import { DEFAULT_MOTION_SEC } from '@renderer/visualizer/stageTransition'
 import { MOTION_DURATION_PROPERTY, parseCssDurationSec } from '@renderer/visualizer/wash'
-import { NOW_PLAYING_LYRICS_KEY, VISUALIZER_EFFECT_KEY } from '@shared/settings'
+import {
+  NOW_PLAYING_LYRICS_KEY,
+  VISUALIZER_EFFECT_KEY,
+  VISUALIZER_PARAMS_KEY,
+  type VisualizerParamValues
+} from '@shared/settings'
 import LyricsPane from '@renderer/panels/LyricsPane.vue'
 import QuickMenu from '@renderer/panels/QuickMenu.vue'
 import NowPlayingActions from '@renderer/panels/transport/NowPlayingActions.vue'
@@ -163,34 +169,101 @@ watch(
 )
 
 /**
- * The switch caption (D35.5): the effect's label, briefly, on the scrim, so
- * stepping through effects is navigable without opening anything. It follows
- * the *resolved* effect, so a stored id that resolves to the same effect shows
- * nothing, and it only fires while the visualizer is showing — turning it on is
- * not a switch.
+ * The effect switcher (D35.5): previous, a dropdown of the available effects,
+ * next — top centre, on a scrim pill. It is the pointer's surface for what the
+ * shortcuts and the palette already do, through the same store verbs.
+ *
+ * It reveals while the pointer is over the top of the stage (a band measured
+ * off the section, so nothing is laid over the stage to catch it), while it has
+ * keyboard focus, while its menu is open — the menu is portalled, so reaching
+ * it leaves the band — and briefly after a switch, so stepping by keyboard or
+ * the track-change cycle still shows where it landed. It follows the *resolved*
+ * effect, so a stored id that resolves to the same effect is not a switch, and
+ * it only exists while the visualizer is showing.
  */
-const SWITCH_CAPTION_MS = 1600
+const EFFECT_BAR_ZONE_PX = 96
+const EFFECT_BAR_FLASH_MS = 1600
+const effects = computed(() => availableEffects())
 const shownEffect = computed(() =>
-  resolveEffect(availableEffects(), settings.get<string>(VISUALIZER_EFFECT_KEY))
+  resolveEffect(effects.value, settings.get<string>(VISUALIZER_EFFECT_KEY))
 )
-const switchCaption = ref<string | null>(null)
-let switchCaptionTimer: ReturnType<typeof setTimeout> | null = null
+const effectItems = computed(() =>
+  effects.value.map((effect) => ({ label: effect.label, value: effect.id }))
+)
+const pointerNearTop = ref(false)
+const effectMenuOpen = ref(false)
+const tuningOpen = ref(false)
+const effectBarFlash = ref(false)
+/** The switched-to label, for the status region; screen readers hear the switch. */
+const switchAnnouncement = ref('')
+let effectBarFlashTimer: ReturnType<typeof setTimeout> | null = null
+
+const effectBarRevealed = computed(
+  () => pointerNearTop.value || effectMenuOpen.value || tuningOpen.value || effectBarFlash.value
+)
+
+/**
+ * The tuning popover: the shown effect's knobs (`visualizer/params.ts`), saved
+ * per effect in `interface.visualizerParams`. The host watches that setting and
+ * writes the change into the running effect, so a slider moves the picture on
+ * the next frame. An effect with no knobs leaves the button disabled rather
+ * than gone, so the group does not change width as effects step past.
+ */
+const tuningSpecs = computed<readonly EffectParamSpec[]>(() => shownEffect.value?.params ?? [])
+const tuningValues = computed(() => {
+  // Read the setting here so the sliders follow a write from anywhere.
+  settings.get<VisualizerParamValues>(VISUALIZER_PARAMS_KEY)
+  const effect = shownEffect.value
+  return effect ? visualizer.paramValues(effect.id, tuningSpecs.value) : {}
+})
+const tuningIsDefault = computed(() =>
+  tuningSpecs.value.every((spec) => tuningValues.value[spec.id] === spec.default)
+)
+const tuningLabel = computed(() =>
+  tuningSpecs.value.length > 0 ? 'Tune this effect' : 'This effect has nothing to tune'
+)
+function onTuneParam(spec: EffectParamSpec, value: number | number[] | undefined): void {
+  const effect = shownEffect.value
+  const next = Array.isArray(value) ? value[0] : value
+  if (effect && typeof next === 'number') visualizer.setParam(effect.id, spec, next)
+}
+function resetTuning(): void {
+  const effect = shownEffect.value
+  if (effect) visualizer.resetParams(effect.id)
+}
+
+function onStagePointerMove(event: PointerEvent): void {
+  const section = sectionRef.value
+  if (!section) return
+  pointerNearTop.value = event.clientY - section.getBoundingClientRect().top < EFFECT_BAR_ZONE_PX
+}
+function onStagePointerLeave(): void {
+  pointerNearTop.value = false
+}
+function onPickEffect(value: unknown): void {
+  if (typeof value === 'string') visualizer.select(value)
+}
+
+function clearEffectBarFlash(): void {
+  if (effectBarFlashTimer !== null) clearTimeout(effectBarFlashTimer)
+  effectBarFlashTimer = null
+  effectBarFlash.value = false
+}
 watch(shownEffect, (next, previous) => {
   if (!next || next === previous || !showVisualizer.value) return
-  switchCaption.value = next.label
-  if (switchCaptionTimer !== null) clearTimeout(switchCaptionTimer)
-  switchCaptionTimer = setTimeout(() => {
-    switchCaption.value = null
-    switchCaptionTimer = null
-  }, SWITCH_CAPTION_MS)
+  switchAnnouncement.value = next.label
+  clearEffectBarFlash()
+  effectBarFlash.value = true
+  effectBarFlashTimer = setTimeout(clearEffectBarFlash, EFFECT_BAR_FLASH_MS)
 })
 watch(showVisualizer, (showing) => {
-  if (!showing) switchCaption.value = null
+  if (showing) return
+  clearEffectBarFlash()
+  effectMenuOpen.value = false
+  tuningOpen.value = false
+  switchAnnouncement.value = ''
 })
-onBeforeUnmount(() => {
-  if (switchCaptionTimer !== null) clearTimeout(switchCaptionTimer)
-  switchCaptionTimer = null
-})
+onBeforeUnmount(clearEffectBarFlash)
 
 /**
  * Every transition passes through the wash (W23-5, D35.12). Wanted
@@ -353,6 +426,7 @@ const compactTransport = computed(() =>
   transportIsCompact(transportWidth.value, TRANSPORT_STAGE_COMPACT_BELOW)
 )
 
+
 /**
  * The bottom padding the content reserves so it centres in the space *above* the
  * floating transport instead of behind it. The transport is absolutely
@@ -393,6 +467,8 @@ const byline = computed(() => {
       'stage-scrim-opaque': highContrast
     }"
     aria-label="Now playing"
+    @pointermove="onStagePointerMove"
+    @pointerleave="onStagePointerLeave"
   >
     <!--
       The art again, blown out and blurred, as the backdrop. It is the one
@@ -431,17 +507,95 @@ const byline = computed(() => {
     />
 
     <!--
-      The switch caption (D35.5): the new effect's label on a small scrim pill,
-      fading out on its own. A status region, so stepping by keyboard is
-      announced as well as seen.
+      The effect switcher (D35.5): previous / effect dropdown / next, revealed
+      over the top of the stage. The status region beside it announces a switch
+      however it was made.
     -->
-    <div class="stage-switch-caption-slot" role="status" aria-live="polite">
-      <Transition name="stage-switch-caption">
-        <span v-if="switchCaption" :key="switchCaption" class="stage-switch-caption">
-          {{ switchCaption }}
-        </span>
-      </Transition>
+    <div
+      v-if="showVisualizer"
+      class="absolute top-3 left-1/2 z-20 -translate-x-1/2 transition-opacity duration-200 focus-within:pointer-events-auto focus-within:opacity-100 motion-reduce:transition-none"
+      :class="effectBarRevealed ? 'opacity-100' : 'pointer-events-none opacity-0'"
+    >
+      <UFieldGroup size="sm">
+        <UTooltip text="Previous visualizer">
+          <UButton
+            icon="i-tabler-chevron-left"
+            color="neutral"
+            variant="subtle"
+            aria-label="Previous visualizer"
+            @click="visualizer.previous()"
+          />
+        </UTooltip>
+        <USelect
+          v-model:open="effectMenuOpen"
+          :model-value="shownEffect?.id"
+          value-key="value"
+          :items="effectItems"
+          color="neutral"
+          variant="subtle"
+          :ui="{ base: 'w-36 justify-center' }"
+          aria-label="Visualizer effect"
+          @update:model-value="onPickEffect($event)"
+        />
+        <UTooltip text="Next visualizer">
+          <UButton
+            icon="i-tabler-chevron-right"
+            color="neutral"
+            variant="subtle"
+            aria-label="Next visualizer"
+            @click="visualizer.next()"
+          />
+        </UTooltip>
+        <UPopover v-model:open="tuningOpen" :content="{ align: 'center', sideOffset: 8 }">
+          <UTooltip :text="tuningLabel" :disabled="tuningOpen">
+            <UButton
+              icon="i-tabler-adjustments-horizontal"
+              color="neutral"
+              variant="subtle"
+              :disabled="tuningSpecs.length === 0"
+              :aria-label="tuningLabel"
+            />
+          </UTooltip>
+          <template #content>
+            <div class="flex w-72 flex-col gap-4 p-4">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-highlighted">
+                  {{ shownEffect?.label }}
+                </span>
+                <UButton
+                  label="Reset"
+                  icon="i-tabler-restore"
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  :disabled="tuningIsDefault"
+                  @click="resetTuning"
+                />
+              </div>
+              <div v-for="spec in tuningSpecs" :key="spec.id" class="flex flex-col gap-1.5">
+                <div class="flex items-baseline justify-between gap-2 text-xs">
+                  <span class="text-default">{{ spec.label }}</span>
+                  <span class="text-muted tabular-nums">
+                    {{ formatParam(spec, tuningValues[spec.id] ?? spec.default) }}
+                  </span>
+                </div>
+                <USlider
+                  :model-value="tuningValues[spec.id] ?? spec.default"
+                  :min="spec.min"
+                  :max="spec.max"
+                  :step="spec.step"
+                  size="sm"
+                  :aria-label="spec.label"
+                  @update:model-value="onTuneParam(spec, $event)"
+                />
+                <p v-if="spec.help" class="text-xs text-dimmed">{{ spec.help }}</p>
+              </div>
+            </div>
+          </template>
+        </UPopover>
+      </UFieldGroup>
     </div>
+    <span class="sr-only" role="status" aria-live="polite">{{ switchAnnouncement }}</span>
 
     <!--
       Exit affordance — the one always-reachable way out when Zen has hidden the
@@ -1023,46 +1177,6 @@ section:hover .stage-lyrics-toggle,
   .stage-lyrics-toggle {
     transition-duration: 0ms;
   }
-}
-
-/*
- * The visualizer switch caption (W23-6, D35.5): top centre, clear of the
- * top-right controls, on a small frosted scrim pill. Never takes the pointer.
- */
-.stage-switch-caption-slot {
-  position: absolute;
-  top: 0.75rem;
-  inset-inline: 0;
-  z-index: 20;
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.stage-switch-caption {
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  line-height: 1rem;
-  color: var(--oscine-on-scrim);
-  background: color-mix(in oklab, var(--oscine-scrim) 65%, transparent);
-  backdrop-filter: blur(calc(var(--oscine-cover-blur) * 0.5));
-}
-
-.stage-scrim-opaque .stage-switch-caption {
-  color: var(--ui-text-highlighted);
-  background: var(--ui-bg-elevated);
-  backdrop-filter: none;
-}
-
-.stage-switch-caption-enter-active,
-.stage-switch-caption-leave-active {
-  transition: opacity calc(var(--oscine-motion-duration) * 2) ease;
-}
-
-.stage-switch-caption-enter-from,
-.stage-switch-caption-leave-to {
-  opacity: 0;
 }
 
 /*

@@ -2,6 +2,7 @@ import type { VisualizerQuality } from '@shared/settings'
 import type { AnalysisFrame } from './analysisFrame'
 import type { StageCoverInput } from './coverDecode'
 import type { Palette } from './palette'
+import type { EffectParamSpec, EffectParams } from './params'
 import type { WashLook } from './wash'
 
 /**
@@ -66,17 +67,24 @@ export interface StageInputs {
  * compositor scales up to the box) and leaves blending off before every
  * `frame`; an effect sets whatever else it needs. Its `resize` gets that
  * internal size, not the box's.
+ *
+ * `params` holds the effect's knob values (`params.ts`), one per declared
+ * `params` spec. The host writes changes into this same object, so an effect
+ * keeps the reference and reads it every frame; it never copies a knob out at
+ * create time.
  */
 export type EffectTarget =
   | {
       readonly surface: '2d'
       readonly context: CanvasRenderingContext2D
       readonly quality: VisualizerQuality
+      readonly params: EffectParams
     }
   | {
       readonly surface: 'webgl2'
       readonly context: WebGL2RenderingContext
       readonly quality: VisualizerQuality
+      readonly params: EffectParams
     }
 
 export interface EffectInstance {
@@ -100,5 +108,7 @@ export interface VisualizerEffect {
    * the effect at full emergence.
    */
   readonly washUnder?: number
+  /** The knobs the stage's tuning popover offers, in display order. None: no popover. */
+  readonly params?: readonly EffectParamSpec[]
   create(target: EffectTarget): EffectInstance
 }

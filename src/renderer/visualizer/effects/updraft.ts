@@ -1,5 +1,6 @@
 import type { AnalysisFrame } from '../analysisFrame'
 import { PaletteSlot, type Palette } from '../palette'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
 import { createDrive } from './drive'
 
@@ -58,6 +59,22 @@ const HIGHLIGHT_EVERY = 3
 
 const MOTES_BY_QUALITY: Readonly<Record<Quality2D, number>> = { low: 140, auto: 220, high: 320 }
 
+/** Scales mote speed, the swirl, the beat's burst, and trail brightness. */
+export const UPDRAFT_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('speed', 'Mote speed', 'How fast the motes drift.', { min: 0.25, max: 3 }),
+  multiplierParam('swirl', 'Swirl', 'How strongly the motes curl and spin.', { min: 0, max: 3 }),
+  multiplierParam(
+    'burst',
+    'Beat burst',
+    'How hard a beat throws the motes out and flares their trails.',
+    { min: 0, max: 2 }
+  ),
+  multiplierParam('trail', 'Trail brightness', 'How bright the smoke trails are.', {
+    min: 0.25,
+    max: 1.75
+  })
+]
+
 /**
  * The air's velocity at `(x, y)` and time `t`: the curl `(∂ψ/∂y, −∂ψ/∂x)` of
  * `ψ = sin(1.9x + .21t)·cos(1.6y − .17t) + .6·sin(2.7y + 1.3x + .13t + 1)`,
@@ -74,7 +91,8 @@ export function flowVelocity(x: number, y: number, t: number, out: Float64Array)
 
 export function createUpdraft<I>(
   ctx: Draw2D<I>,
-  quality: Quality2D
+  quality: Quality2D,
+  knobs: EffectParams = resolveParams(UPDRAFT_KNOBS, undefined)
 ): Effect2DInstance<I, AnalysisFrame, Palette> {
   const motes = MOTES_BY_QUALITY[quality]
   const posX = new Float32Array(motes)
@@ -120,18 +138,20 @@ export function createUpdraft<I>(
   for (let mote = 0; mote < motes; mote++) rebirth(mote)
 
   function advance(dtSec: number): void {
-    const speed = (BASE_SPEED + level * LEVEL_SPEED) * (1 + heat * HEAT_SPEED)
+    const speed =
+      (BASE_SPEED * knobs.speed + level * LEVEL_SPEED * knobs.speed) * (1 + heat * HEAT_SPEED)
     for (let mote = 0; mote < motes; mote++) {
       const x = posX[mote]
       const y = posY[mote]
       flowVelocity(x, y, time, velocity)
-      let vx = velocity[0] * speed
-      let vy = velocity[1] * speed - rise
+      // flowVelocity bakes in FLOW_SPEED; the swirl knob scales that field here.
+      let vx = velocity[0] * knobs.swirl * speed
+      let vy = velocity[1] * knobs.swirl * speed - rise
       const r = Math.sqrt(x * x + y * y)
       if (r > 1e-4) {
         // Tangential round the centre (bass), radial out from it (onsets).
-        const swirl = (VORTEX * bass) / (r + VORTEX_CORE)
-        const push = PUFF * pulse
+        const swirl = (VORTEX * knobs.swirl * bass) / (r + VORTEX_CORE)
+        const push = PUFF * knobs.burst * pulse
         vx += (-y / r) * swirl + (x / r) * push
         vy += (x / r) * swirl + (y / r) * push
       }
@@ -218,13 +238,16 @@ export function createUpdraft<I>(
       ctx.globalCompositeOperation = 'source-over'
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
-      ctx.lineWidth = Math.max(1, unit * 0.0025 * (1 + pulse * PULSE_WIDTH))
-      const glow = Math.min(1.6, 1 + heat * HEAT_ALPHA + pulse * PULSE_ALPHA)
+      ctx.lineWidth = Math.max(1, unit * 0.0025 * (1 + pulse * PULSE_WIDTH * knobs.burst))
+      const glow = Math.min(
+        1.6,
+        1 + heat * HEAT_ALPHA * knobs.trail + pulse * PULSE_ALPHA * knobs.burst
+      )
 
       for (let age = 0; age < TRAIL; age++) {
         const strength = (age + 1) / TRAIL
         ctx.globalAlpha =
-          Math.min(1, strength * Math.sqrt(strength) * TRAIL_ALPHA * glow) * intensity
+          Math.min(1, strength * Math.sqrt(strength) * TRAIL_ALPHA * knobs.trail * glow) * intensity
         ctx.strokeStyle = palette.css[PaletteSlot.accent]
         segments(age, false, cx, cy, unit)
         ctx.stroke()

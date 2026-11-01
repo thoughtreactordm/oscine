@@ -1,5 +1,6 @@
 import { ANALYSIS_BANDS, type AnalysisFrame } from '../analysisFrame'
 import { PaletteSlot, type Palette } from '../palette'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
 import { createDrive } from './drive'
 
@@ -73,6 +74,17 @@ const RAMP = [
   PaletteSlot.primary600
 ] as const
 
+/** Scales ring spin, arc length, line weight, and the beat's kick. */
+export const GYRE_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('spin', 'Spin', 'How fast the rings turn.', { min: 0, max: 3 }),
+  multiplierParam('arc', 'Arc length', "How long each ring's arcs are.", { min: 0.25, max: 2 }),
+  multiplierParam('weight', 'Line weight', 'How thick the ring lines are.', { min: 0.25, max: 2 }),
+  multiplierParam('kick', 'Beat kick', 'How hard a beat spins, spreads, and thickens the rings.', {
+    min: 0,
+    max: 2
+  })
+]
+
 /** The mean of ring `ring`'s contiguous band group out of `rings`. */
 export function ringLevel(spectrum: ArrayLike<number>, ring: number, rings: number): number {
   const from = Math.floor((ring * ANALYSIS_BANDS) / rings)
@@ -84,7 +96,8 @@ export function ringLevel(spectrum: ArrayLike<number>, ring: number, rings: numb
 
 export function createGyre<I>(
   ctx: Draw2D<I>,
-  quality: Quality2D
+  quality: Quality2D,
+  knobs: EffectParams = resolveParams(GYRE_KNOBS, undefined)
 ): Effect2DInstance<I, AnalysisFrame, Palette> {
   const rings = RINGS_BY_QUALITY[quality]
   const tails = TAILS_BY_QUALITY[quality]
@@ -131,14 +144,16 @@ export function createGyre<I>(
       const recentFollow = follow(dtSec, RECENT_TAU_SEC)
       for (let ring = 0; ring < rings; ring++) {
         const level = ringLevel(audio.spectrum, ring, rings)
-        const length = MIN_ARC + level * MAX_ARC
+        const length = MIN_ARC * knobs.arc + level * MAX_ARC * knobs.arc
         recent[ring] += (level - recent[ring]) * recentFollow
         const flare = (level - recent[ring]) * FLARE_GAIN
         flares[ring] = flare < 0 ? 0 : flare > 1 ? 1 : flare
         lengths[ring] += (length - lengths[ring]) * (length > lengths[ring] ? attack : release)
         const direction = ring % 2 === 0 ? 1 : -1
         speeds[ring] =
-          direction * (BASE_SPEED + ring * SPEED_STEP) * (1 + level * LEVEL_BOOST + pulse * KICK)
+          direction *
+          (BASE_SPEED * knobs.spin + ring * SPEED_STEP * knobs.spin) *
+          (1 + level * LEVEL_BOOST + pulse * KICK * knobs.kick)
         angles[ring] = (angles[ring] + speeds[ring] * dtSec) % (Math.PI * 2)
       }
       if (width <= 0 || height <= 0) return
@@ -156,11 +171,18 @@ export function createGyre<I>(
       for (let ring = 0; ring < rings; ring++) {
         const out = (ring + 1) / rings
         const r =
-          (inner + (ring + 0.5) * gap) * (1 + (pulse * PULSE_SPREAD + heat * HEAT_SPREAD) * out)
+          (inner + (ring + 0.5) * gap) *
+          (1 + (pulse * PULSE_SPREAD * knobs.kick + heat * HEAT_SPREAD) * out)
         const flare = flares[ring]
-        const width0 = Math.max(1, gap * STROKE * (1 + pulse * PULSE_WIDTH + flare * FLARE_WIDTH))
+        // Base stroke stays within the ring gap; the beat still thickens it.
+        const stroke = Math.min(1, STROKE * knobs.weight)
+        const width0 = Math.max(
+          1,
+          gap * stroke * (1 + pulse * PULSE_WIDTH * knobs.kick + flare * FLARE_WIDTH)
+        )
         const lag = speeds[ring] * TAIL_LAG_SEC * (1 + heat * HEAT_TAIL)
-        const length = lengths[ring] * (1 + heat * HEAT_ARC)
+        // Kept under a full turn so the arc cannot close into a circle.
+        const length = Math.min(lengths[ring] * (1 + heat * HEAT_ARC), Math.PI * 2 - 1e-4)
         const glow = Math.min(1 / HEAD_ALPHA, 1 + flare * FLARE_ALPHA)
         ctx.strokeStyle = palette.css[colours[ring]]
         // Tails, furthest back first, so the head lies on top.

@@ -3,7 +3,12 @@ import type { StageCoverSlot } from '../coverDecode'
 import type { EffectInstance, EffectTarget, VisualizerEffect } from '../effect'
 import { compileProgram, uniformLocations } from '../gl/program'
 import { PaletteSlot, type Palette } from '../palette'
-import { createMurmurationModel, MAX_PARTICLES, particleCount } from './murmurationModel'
+import {
+  createMurmurationModel,
+  MAX_PARTICLES,
+  MURMURATION_KNOBS,
+  particleCount
+} from './murmurationModel'
 
 /**
  * **Murmuration**: a flock of a few thousand particles in the cover's colours,
@@ -365,7 +370,8 @@ function create(target: EffectTarget): EffectInstance {
   }
   const u = uniformLocations(gl, update, UPDATE_UNIFORMS)
   const r = uniformLocations(gl, render, RENDER_UNIFORMS)
-  const model = createMurmurationModel()
+  // Seed stays the factory default so scatter sides do not change; knobs are live.
+  const model = createMurmurationModel(0x5ca77e4, target.params)
 
   // Two particle buffers, zeroed: a zero lifespan means every particle is born
   // on the first update, coloured from whatever cover is up then.
@@ -510,9 +516,9 @@ function create(target: EffectTarget): EffectInstance {
       if (params.present > 0) {
         gl.useProgram(render)
         gl.uniform1f(r.u_aspect, aspect)
-        gl.uniform1f(r.u_halfWidth, HALF_WIDTH)
+        gl.uniform1f(r.u_halfWidth, HALF_WIDTH * target.params.width)
         gl.uniform1f(r.u_minHalfWidth, MIN_HALF_WIDTH_PX / height)
-        gl.uniform1f(r.u_stretch, STRETCH)
+        gl.uniform1f(r.u_stretch, STRETCH * target.params.streak)
         gl.uniform1f(r.u_alpha, ALPHA * params.present)
         gl.enable(gl.BLEND)
         gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
@@ -545,5 +551,6 @@ export const MURMURATION: VisualizerEffect = {
   needs: { cover: true },
   emergence: 'overlay',
   washUnder: 1,
+  params: MURMURATION_KNOBS,
   create
 }

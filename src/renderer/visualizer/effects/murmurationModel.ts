@@ -1,4 +1,5 @@
 import type { AnalysisFrame } from '../analysisFrame'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import { follow } from './draw2d'
 import { dominantBand } from './rainfallModel'
 
@@ -130,17 +131,42 @@ export function particleCount(width: number, height: number): number {
  * incommensurate sines, so the path never visibly repeats. The ellipse always
  * fits inside the stage's height. Writes into `out`.
  */
-export function flockShape(t: number, aspect: number, out: FlockShape): FlockShape {
+export function flockShape(
+  t: number,
+  aspect: number,
+  out: FlockShape,
+  size = 1,
+  wander = 1
+): FlockShape {
   const a = aspect > 0 && Number.isFinite(aspect) ? aspect : 1
   const breathe = Math.sin(t * 0.083 + 1.1)
-  out.radiusX = FLOCK_RADIUS * (1 + FLOCK_STRETCH * breathe)
-  out.radiusY = FLOCK_RADIUS * (1 - FLOCK_STRETCH * breathe)
+  out.radiusX = FLOCK_RADIUS * size * (1 + FLOCK_STRETCH * breathe)
+  out.radiusY = FLOCK_RADIUS * size * (1 - FLOCK_STRETCH * breathe)
   out.angle = 0.6 * Math.sin(t * 0.047) + 0.25 * Math.sin(t * 0.119 + 2)
-  const roomX = Math.max(0, a / 2 - FLOCK_RADIUS * (1 + FLOCK_STRETCH))
-  const roomY = Math.max(0, 0.5 - FLOCK_RADIUS * (1 + FLOCK_STRETCH))
-  out.x = roomX * FLOCK_WANDER_X * 2 * (0.7 * Math.sin(t * 0.061) + 0.3 * Math.sin(t * 0.137 + 0.5))
-  out.y = roomY * FLOCK_WANDER_Y * 2 * (0.7 * Math.sin(t * 0.073 + 2.3) + 0.3 * Math.sin(t * 0.17))
+  const reach = FLOCK_RADIUS * size * (1 + FLOCK_STRETCH)
+  const roomX = Math.max(0, a / 2 - reach)
+  const roomY = Math.max(0, 0.5 - reach)
+  const x =
+    roomX *
+    FLOCK_WANDER_X *
+    wander *
+    2 *
+    (0.7 * Math.sin(t * 0.061) + 0.3 * Math.sin(t * 0.137 + 0.5))
+  const y =
+    roomY *
+    FLOCK_WANDER_Y *
+    wander *
+    2 *
+    (0.7 * Math.sin(t * 0.073 + 2.3) + 0.3 * Math.sin(t * 0.17))
   // The sums above reach ±1 at most, so the centre stays within the room.
+  // A higher wander is held to that room, or the ellipse would leave the stage.
+  out.x = x > roomX ? roomX : x < -roomX ? -roomX : x
+  out.y = y > roomY ? roomY : y < -roomY ? -roomY : y
+  // The long axis is how far a rotated ellipse reaches. Untuned it fits the
+  // stage height; a larger size is held to the gap left around the centre.
+  const limitY = 0.5 - Math.abs(out.y)
+  if (out.radiusX > limitY) out.radiusX = limitY
+  if (out.radiusY > limitY) out.radiusY = limitY
   return out
 }
 
@@ -155,7 +181,22 @@ export function scatterAngle(band: number, bands: number, side: 1 | -1): number 
   return side === 1 ? right : Math.PI - right
 }
 
-export function createMurmurationModel(seed = 0x5ca77e4): MurmurationModel {
+/** Knobs scale the flock's speed, size and wander, and each streak's length and width. */
+export const MURMURATION_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('speed', 'Flock speed', 'How fast the flock flies.', { min: 0.25, max: 2.5 }),
+  multiplierParam('size', 'Flock size', 'How large the flock is.', { min: 0.5, max: 1.6 }),
+  multiplierParam('wander', 'Wander', 'How far the flock drifts across the stage.', {
+    min: 0,
+    max: 2
+  }),
+  multiplierParam('streak', 'Streak length', 'How long each streak is.', { min: 0, max: 2.5 }),
+  multiplierParam('width', 'Streak width', 'How wide each streak is.', { min: 0.5, max: 3 })
+]
+
+export function createMurmurationModel(
+  seed = 0x5ca77e4,
+  knobs: EffectParams = resolveParams(MURMURATION_KNOBS, undefined)
+): MurmurationModel {
   const params: MurmurationParams = {
     x: 0,
     y: 0,
@@ -189,9 +230,10 @@ export function createMurmurationModel(seed = 0x5ca77e4): MurmurationModel {
       }
 
       bass += (clamp01(audio.bass) - bass) * follow(dt, SPEED_TAU_SEC)
-      params.speed = SPEED_MIN + (SPEED_MAX - SPEED_MIN) * bass
+      params.speed =
+        SPEED_MIN * knobs.speed + (SPEED_MAX * knobs.speed - SPEED_MIN * knobs.speed) * bass
       params.time += dt * (CLOCK_MIN + (CLOCK_MAX - CLOCK_MIN) * bass)
-      flockShape(params.time, aspect, params)
+      flockShape(params.time, aspect, params, knobs.size, knobs.wander)
 
       const onset = clamp01(audio.onset)
       const rise = onset - lastOnset

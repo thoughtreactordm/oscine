@@ -1,5 +1,6 @@
 import type { AnalysisFrame } from '../analysisFrame'
 import { PaletteSlot, type Palette } from '../palette'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
 import { createDrive } from './drive'
 import { createWaveformReader } from './waveform'
@@ -70,9 +71,29 @@ const TAU = Math.PI * 2
 
 const POINTS_BY_QUALITY: Readonly<Record<Quality2D, number>> = { low: 72, auto: 128, high: 192 }
 
+/** Knobs scale the ring's size, spin, tunnel speed, trail life, and line weight. */
+export const WHORL_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('size', 'Size', 'How large the ring and its swing are.', { min: 0.5, max: 1.75 }),
+  multiplierParam('spin', 'Spin', 'How fast the ring spins.', { min: 0, max: 3 }),
+  multiplierParam('tunnel', 'Tunnel speed', 'How fast past rings rush outward and twist.', {
+    min: 0,
+    max: 3
+  }),
+  // Max 1.25: a full-heat trail then lasts exactly as long as the ring buffer holds.
+  multiplierParam('trail', 'Trail length', 'How long past rings stay visible.', {
+    min: 0.25,
+    max: 1.25
+  }),
+  multiplierParam('weight', 'Line weight', 'How thick the ring and its tunnel are.', {
+    min: 0.25,
+    max: 3
+  })
+]
+
 export function createWhorl<I>(
   ctx: Draw2D<I>,
-  quality: Quality2D
+  quality: Quality2D,
+  knobs: EffectParams = resolveParams(WHORL_KNOBS, undefined)
 ): Effect2DInstance<I, AnalysisFrame, Palette> {
   const points = POINTS_BY_QUALITY[quality]
   const reader = createWaveformReader(points)
@@ -99,7 +120,7 @@ export function createWhorl<I>(
   let head = 0
   let sinceSnapshot = 0
   let spin = 0
-  let spinSpeed = SPIN
+  let spinSpeed = SPIN * knobs.spin
 
   /** Trace one closed ring; the caller strokes it. */
   function ring(
@@ -138,14 +159,20 @@ export function createWhorl<I>(
       const heat = drive.heat
       reader.read(audio.waveform, dt)
 
-      const target = SPIN + audio.bass * BASS_SPIN + heat * HEAT_SPIN
+      const target = (SPIN + audio.bass * BASS_SPIN + heat * HEAT_SPIN) * knobs.spin
       spinSpeed += (target - spinSpeed) * follow(dt, SPIN_TAU_SEC)
       spin = (spin + spinSpeed * dt) % TAU
 
       // The tunnel moves as one, by the drive as it is now.
-      const grow = Math.exp((GROW + heat * GROW_HEAT + pulse * GROW_PULSE) * dt)
-      const twist = (TWIST + heat * TWIST_HEAT + (drive.brightness - 0.5) * TWIST_BRIGHTNESS) * dt
-      const fade = dt / (MIN_LIFE_SEC + heat * heat * (MAX_LIFE_SEC - MIN_LIFE_SEC))
+      const grow = Math.exp(
+        (GROW * knobs.tunnel + heat * GROW_HEAT * knobs.tunnel + pulse * GROW_PULSE) * dt
+      )
+      const twist =
+        (TWIST * knobs.tunnel +
+          heat * TWIST_HEAT * knobs.tunnel +
+          (drive.brightness - 0.5) * TWIST_BRIGHTNESS) *
+        dt
+      const fade = dt / ((MIN_LIFE_SEC + heat * heat * (MAX_LIFE_SEC - MIN_LIFE_SEC)) * knobs.trail)
       for (let slot = 0; slot < CAPACITY; slot++) {
         if (lives[slot] <= 0) continue
         scales[slot] *= grow
@@ -154,8 +181,9 @@ export function createWhorl<I>(
       }
 
       const short = width < height ? width : height
-      const radius = short * RADIUS * (1 + pulse * PULSE_SWELL + heat * HEAT_SWELL)
-      const swing = short * SWING * (0.35 + audio.level * LEVEL_SWING + pulse * PULSE_SWING)
+      const radius = short * RADIUS * (1 + pulse * PULSE_SWELL + heat * HEAT_SWELL) * knobs.size
+      const swing =
+        short * SWING * (0.35 + audio.level * LEVEL_SWING + pulse * PULSE_SWING) * knobs.size
       sinceSnapshot += dt
       if (sinceSnapshot >= SNAPSHOT_SEC) {
         sinceSnapshot %= SNAPSHOT_SEC
@@ -175,7 +203,7 @@ export function createWhorl<I>(
       const cy = height / 2
       /** A ring whose inner edge is past the corners is off the stage. */
       const reach = Math.sqrt(cx * cx + cy * cy)
-      const baseWidth = Math.max(1, short * BAND_WIDTH * 0.4)
+      const baseWidth = Math.max(1, short * BAND_WIDTH * 0.4 * knobs.weight)
       ctx.globalCompositeOperation = 'source-over'
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
@@ -204,7 +232,10 @@ export function createWhorl<I>(
       // The ring now.
       ctx.strokeStyle = palette.css[PaletteSlot.accent]
       ctx.globalAlpha = BAND_ALPHA * intensity
-      ctx.lineWidth = Math.max(1, short * (BAND_WIDTH + (audio.level + pulse) * BAND_LEVEL_WIDTH))
+      ctx.lineWidth = Math.max(
+        1,
+        short * (BAND_WIDTH + (audio.level + pulse) * BAND_LEVEL_WIDTH) * knobs.weight
+      )
       ring(live, 0, cx, cy, radius, swing, spin)
       ctx.stroke()
       ctx.globalAlpha = CORE_ALPHA * intensity

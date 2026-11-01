@@ -1,6 +1,7 @@
 import { gammaEncode } from '@shared/theme'
 import type { AnalysisFrame } from '../analysisFrame'
 import { PaletteSlot, type Palette } from '../palette'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import type { Drive } from './drive'
 import { follow } from './draw2d'
 
@@ -143,7 +144,18 @@ function encodeSlot(palette: Palette, slot: number, out: Float32Array): void {
   }
 }
 
-export function createDriftModel(): DriftModel {
+/** Scales zoom, spin, turbulence, field persistence and the waveform ring. */
+export const DRIFT_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('zoom', 'Zoom', 'How fast the field rushes outward.', { min: 0, max: 3 }),
+  multiplierParam('spin', 'Spin', 'How fast the field turns and twists.', { min: 0, max: 3 }),
+  multiplierParam('turbulence', 'Turbulence', 'How much the field churns.', { min: 0, max: 3 }),
+  multiplierParam('persistence', 'Persistence', 'How long colours linger.', { min: 0.5, max: 2 }),
+  multiplierParam('ring', 'Waveform ring', 'How strongly the ring shows.', { min: 0, max: 2 })
+]
+
+export function createDriftModel(
+  knobs: EffectParams = resolveParams(DRIFT_KNOBS, undefined)
+): DriftModel {
   const params: DriftParams = {
     keep: 0,
     decay: 0,
@@ -189,17 +201,25 @@ export function createDriftModel(): DriftModel {
       }
       reseedPending = false
 
-      params.decay = 1 - Math.exp(-dt * DECAY_RATE * e)
+      // Divided so a higher knob slows the fade and the field lingers.
+      params.decay = 1 - Math.exp(-dt * (DECAY_RATE / knobs.persistence) * e)
 
       const zoomRate =
-        ZOOM_BASE + ZOOM_BASS * audio.bass + ZOOM_PULSE * drive.pulse + ZOOM_HEAT * drive.heat
+        ZOOM_BASE * knobs.zoom +
+        ZOOM_BASS * knobs.zoom * audio.bass +
+        ZOOM_PULSE * knobs.zoom * drive.pulse +
+        ZOOM_HEAT * knobs.zoom * drive.heat
       params.zoom = Math.exp(dt * e * zoomRate)
 
       const direction = Math.cos((time * 2 * Math.PI) / SPIN_PERIOD_SEC)
-      params.spin = dt * e * (SPIN_BASE + SPIN_MID * audio.mid) * direction
-      params.twist = dt * e * TWIST_MID * audio.mid * direction
+      params.spin =
+        dt * e * (SPIN_BASE * knobs.spin + SPIN_MID * knobs.spin * audio.mid) * direction
+      params.twist = dt * e * TWIST_MID * knobs.spin * audio.mid * direction
 
-      params.turbulence = dt * e * (TURBULENCE_BASE + TURBULENCE_TREBLE * audio.treble)
+      params.turbulence =
+        dt *
+        e *
+        (TURBULENCE_BASE * knobs.turbulence + TURBULENCE_TREBLE * knobs.turbulence * audio.treble)
       params.turbulencePhase += dt * TURBULENCE_SPEED * (1 + 2 * audio.treble)
       // Keep the phase small so float32 in the shader never loses its fraction.
       if (params.turbulencePhase > 1000) params.turbulencePhase -= 1000
@@ -209,7 +229,10 @@ export function createDriftModel(): DriftModel {
         RING_RADIUS + RING_RADIUS_HEAT * drive.heat + RING_RADIUS_PULSE * drive.pulse
       params.ringAmplitude = RING_AMPLITUDE + RING_AMPLITUDE_HEAT * drive.heat
       params.ringAlpha = clamp01(
-        e * guard * ringGain * (RING_ALPHA + RING_ALPHA_PULSE * drive.pulse)
+        e *
+          guard *
+          ringGain *
+          (RING_ALPHA * knobs.ring + RING_ALPHA_PULSE * knobs.ring * drive.pulse)
       )
 
       params.present = guard

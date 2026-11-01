@@ -1,12 +1,12 @@
 import type { VisualizerEffect } from './effect'
 import { BARS } from './effects/bars'
 import { create2D } from './effects/canvas2d'
-import { createGyre } from './effects/gyre'
-import { createHalo } from './effects/halo'
-import { createSilk } from './effects/silk'
-import { createTrace } from './effects/trace'
-import { createUpdraft } from './effects/updraft'
-import { createWhorl } from './effects/whorl'
+import { createGyre, GYRE_KNOBS } from './effects/gyre'
+import { createHalo, HALO_KNOBS } from './effects/halo'
+import { createSilk, SILK_KNOBS } from './effects/silk'
+import { createTrace, TRACE_KNOBS } from './effects/trace'
+import { createUpdraft, UPDRAFT_KNOBS } from './effects/updraft'
+import { createWhorl, WHORL_KNOBS } from './effects/whorl'
 import { DRIFT } from './effects/drift'
 import { PLUMAGE } from './effects/plumage'
 import { RAINFALL } from './effects/rainfall'
@@ -22,6 +22,7 @@ const HALO: VisualizerEffect = {
   surface: '2d',
   needs: { cover: true },
   emergence: 'overlay',
+  params: HALO_KNOBS,
   create: create2D(createHalo, 'Halo')
 }
 
@@ -31,6 +32,7 @@ const TRACE: VisualizerEffect = {
   label: 'Trace',
   surface: '2d',
   emergence: 'overlay',
+  params: TRACE_KNOBS,
   create: create2D(createTrace, 'Trace')
 }
 
@@ -40,6 +42,7 @@ const WHORL: VisualizerEffect = {
   label: 'Whorl',
   surface: '2d',
   emergence: 'overlay',
+  params: WHORL_KNOBS,
   create: create2D(createWhorl, 'Whorl')
 }
 
@@ -49,6 +52,7 @@ const SILK: VisualizerEffect = {
   label: 'Silk',
   surface: '2d',
   emergence: 'overlay',
+  params: SILK_KNOBS,
   create: create2D(createSilk, 'Silk')
 }
 
@@ -58,6 +62,7 @@ const UPDRAFT: VisualizerEffect = {
   label: 'Updraft',
   surface: '2d',
   emergence: 'overlay',
+  params: UPDRAFT_KNOBS,
   create: create2D(createUpdraft, 'Updraft')
 }
 
@@ -67,6 +72,7 @@ const GYRE: VisualizerEffect = {
   label: 'Gyre',
   surface: '2d',
   emergence: 'overlay',
+  params: GYRE_KNOBS,
   create: create2D(createGyre, 'Gyre')
 }
 

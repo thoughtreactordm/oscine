@@ -3,6 +3,12 @@ import { computed, shallowRef } from 'vue'
 import { useSettings } from '@renderer/settings'
 import { useZenStore } from '@renderer/stores/zen'
 import { visualizerToggle, visualizerWanted } from '@renderer/visualizer/gate'
+import {
+  resolveParams,
+  withParam,
+  withoutParams,
+  type EffectParamSpec
+} from '@renderer/visualizer/params'
 import { availableEffects } from '@renderer/visualizer/registry'
 import { cycleEffect, stepEffect } from '@renderer/visualizer/selection'
 import {
@@ -10,7 +16,9 @@ import {
   VISUALIZER_CYCLE_KEY,
   VISUALIZER_EFFECT_KEY,
   VISUALIZER_IN_ZEN_KEY,
-  type VisualizerCycle
+  VISUALIZER_PARAMS_KEY,
+  type VisualizerCycle,
+  type VisualizerParamValues
 } from '@shared/settings'
 
 /**
@@ -80,6 +88,33 @@ export const useVisualizerStore = defineStore('visualizer', () => {
     write(cycleEffect(availableEffects(), storedId(), mode)?.id)
   }
 
+  function storedParams(): VisualizerParamValues {
+    return settings.get<VisualizerParamValues>(VISUALIZER_PARAMS_KEY)
+  }
+
+  /** An effect's knob values as the host will apply them: defaults, then clamped stored values. */
+  function paramValues(
+    effectId: string,
+    specs: readonly EffectParamSpec[]
+  ): Record<string, number> {
+    return resolveParams(specs, storedParams()[effectId])
+  }
+
+  /** Set one knob. The host watches the setting, so the effect sees it next frame. */
+  function setParam(effectId: string, spec: EffectParamSpec, value: number): void {
+    void settings.set<VisualizerParamValues>(
+      VISUALIZER_PARAMS_KEY,
+      withParam(storedParams(), effectId, spec, value)
+    )
+  }
+
+  /** Put one effect back at its untuned look. */
+  function resetParams(effectId: string): void {
+    const current = storedParams()
+    const next = withoutParams(current, effectId)
+    if (next !== current) void settings.set<VisualizerParamValues>(VISUALIZER_PARAMS_KEY, next)
+  }
+
   return {
     stage,
     wanted,
@@ -87,6 +122,9 @@ export const useVisualizerStore = defineStore('visualizer', () => {
     next: () => step(1),
     previous: () => step(-1),
     select,
-    cycle
+    cycle,
+    paramValues,
+    setParam,
+    resetParams
   }
 })

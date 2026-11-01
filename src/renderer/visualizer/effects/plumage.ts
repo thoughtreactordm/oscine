@@ -4,7 +4,7 @@ import type { EffectInstance, EffectTarget, VisualizerEffect } from '../effect'
 import { compileProgram, createFullscreenTriangle, uniformLocations } from '../gl/program'
 import { saturateMatrix } from '../wash'
 import { createDrive } from './drive'
-import { createPlumageModel, detailLodFloor } from './plumageModel'
+import { createPlumageModel, detailLodFloor, PLUMAGE_KNOBS } from './plumageModel'
 
 /**
  * **Plumage**: the stage's own cover starts to move (W23-10, D35.9, D35.11,
@@ -228,7 +228,7 @@ function create(target: EffectTarget): EffectInstance {
   const program = compileProgram(gl, SHADER, 'Plumage')
   const u = uniformLocations(gl, program, UNIFORMS)
   const triangle = createFullscreenTriangle(gl)
-  const model = createPlumageModel()
+  const model = createPlumageModel(target.params)
   const drive = createDrive()
   const coverUv = new Float32Array(4)
   const previousUv = new Float32Array(4)
@@ -346,5 +346,6 @@ export const PLUMAGE: VisualizerEffect = {
   surface: 'webgl2',
   needs: { cover: true },
   emergence: 'grow',
+  params: PLUMAGE_KNOBS,
   create
 }

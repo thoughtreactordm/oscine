@@ -1,4 +1,5 @@
 import type { AnalysisFrame } from '../analysisFrame'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import { follow } from './draw2d'
 
 /**
@@ -193,7 +194,18 @@ export function bandHeight(band: number, bands: number): number {
   return DROP_V_LOW + (DROP_V_HIGH - DROP_V_LOW) * clamp01(t)
 }
 
-export function createRainfallModel(seed = 0x0eca1): RainfallModel {
+/** Scales drop strength, drop size, refraction and crest highlights. */
+export const RAINFALL_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('drops', 'Drop strength', 'How hard each onset hits.', { min: 0.25, max: 2 }),
+  multiplierParam('size', 'Drop size', 'How wide each drop spreads.', { min: 0.5, max: 2 }),
+  multiplierParam('refraction', 'Refraction', 'How far the picture bends.', { min: 0, max: 3 }),
+  multiplierParam('highlight', 'Highlights', 'How bright the crests get.', { min: 0, max: 2 })
+]
+
+export function createRainfallModel(
+  seed = 0x0eca1,
+  knobs: EffectParams = resolveParams(RAINFALL_KNOBS, undefined)
+): RainfallModel {
   const params: RainfallParams = {
     detail: 0,
     opacity: 0,
@@ -255,8 +267,8 @@ export function createRainfallModel(seed = 0x0eca1): RainfallModel {
           pending = 0
           rising = true
         }
-        pending += rise * DROP_AMPLITUDE * e
-        drop.sigma = DROP_SIGMA_MIN + (DROP_SIGMA_MAX - DROP_SIGMA_MIN) * onset
+        pending += rise * DROP_AMPLITUDE * knobs.drops * e
+        drop.sigma = (DROP_SIGMA_MIN + (DROP_SIGMA_MAX - DROP_SIGMA_MIN) * onset) * knobs.size
       } else {
         rising = false
       }
@@ -267,9 +279,9 @@ export function createRainfallModel(seed = 0x0eca1): RainfallModel {
       params.detail = e
       params.opacity = clamp01(washOpacity) + (RAINFALL_OPACITY - clamp01(washOpacity)) * e
       params.lodBias = LOD_GROW * (1 - e)
-      params.refract = REFRACT * e
-      params.highlight = HIGHLIGHT_GAIN * (0.6 + 0.4 * clamp01(level)) * e
-      params.highlightMax = HIGHLIGHT_MAX * e
+      params.refract = REFRACT * knobs.refraction * e
+      params.highlight = HIGHLIGHT_GAIN * knobs.highlight * (0.6 + 0.4 * clamp01(level)) * e
+      params.highlightMax = HIGHLIGHT_MAX * knobs.highlight * e
       params.present = guard
       return params
     },

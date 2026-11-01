@@ -6,7 +6,9 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import { hasArtwork } from '@shared/ipc'
 import {
   VISUALIZER_EFFECT_KEY,
+  VISUALIZER_PARAMS_KEY,
   VISUALIZER_QUALITY_KEY,
+  type VisualizerParamValues,
   type VisualizerQuality
 } from '@shared/settings'
 import {
@@ -41,6 +43,7 @@ import {
   internalSize,
   LOW_FRAME_MS
 } from '@renderer/visualizer/qualityBudget'
+import { resolveParams, writeParams } from '@renderer/visualizer/params'
 import { availableEffects } from '@renderer/visualizer/registry'
 import {
   createStageTransition,
@@ -163,6 +166,7 @@ const washCanvas = ref<HTMLCanvasElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 
 const quality = computed(() => settings.get<VisualizerQuality>(VISUALIZER_QUALITY_KEY))
+const storedParams = computed(() => settings.get<VisualizerParamValues>(VISUALIZER_PARAMS_KEY))
 /**
  * The stored id resolved against what can run. An unknown id falls back to the
  * first available effect here, at runtime; the setting itself is left alone.
@@ -205,6 +209,12 @@ let effectOpacity = 0
 
 let instance: EffectInstance | null = null
 let instanceEffect: VisualizerEffect | null = null
+/**
+ * The live knob values the instance holds (`params.ts`). One object per
+ * instance, filled before `create` and written in place on every change after,
+ * so the effect reads the new value on its next frame.
+ */
+let instanceParams: Record<string, number> = {}
 /** A `grow` effect has drawn (and so carries the wash); until then the wash canvas does. */
 let growDrawn = false
 let cover: CoverSource<StageCoverSlot> | null = null
@@ -242,6 +252,19 @@ let raf: number | null = null
 let lastNow = 0
 let frameCount = 0
 let observer: ResizeObserver | null = null
+/**
+ * A live resize (dragging the window or the Tunedeck edge) is held off until the
+ * box has been still this long. Resizing a canvas's backing store clears it, and
+ * the observer runs after the frame has drawn but before it is painted — so
+ * resizing there paints a blank stage on every step of the drag, which is the
+ * flashing. Meanwhile the canvases keep their last picture and CSS stretches it
+ * to the box (they are `size-full`); a blurred wash and a moving effect hide a
+ * brief stretch far better than a strobe.
+ */
+const RESIZE_SETTLE_MS = 120
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
+/** The settled size is applied at the top of the next frame, which then draws into it. */
+let resizePending = false
 let releaseTheme: (() => void) | null = null
 let motionQuery: MediaQueryList | null = null
 
@@ -363,6 +386,16 @@ function setArtwork(url: string | null): void {
   if (placeholderActive && url) loadPlaceholder(url)
 }
 
+function onObservedResize(): void {
+  if (resizeTimer !== null) clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(() => {
+    resizeTimer = null
+    resizePending = true
+    // Inside a frame, not here: the clear and the redraw must share one paint.
+    wake()
+  }, RESIZE_SETTLE_MS)
+}
+
 function measure(): void {
   const element = washCanvas.value
   if (!element) return
@@ -472,6 +505,7 @@ function disposeInstance(): void {
   instance?.dispose()
   instance = null
   instanceEffect = null
+  instanceParams = {}
   growDrawn = false
 }
 
@@ -485,16 +519,18 @@ function createInstance(): void {
   const next = shown.value
   if (!element || !next) return
 
+  const params = resolveParams(next.params ?? [], storedParams.value[next.id])
+  instanceParams = params
   if (next.surface === '2d') {
     const context = element.getContext('2d')
     if (!context) return
-    instance = next.create({ surface: '2d', context, quality: quality.value })
+    instance = next.create({ surface: '2d', context, quality: quality.value, params })
     stage.wash = washInput
   } else {
     const context = attachGl(element)
     if (!context) return
     try {
-      instance = next.create({ surface: 'webgl2', context, quality: quality.value })
+      instance = next.create({ surface: 'webgl2', context, quality: quality.value, params })
     } catch (error) {
       // Unavailable for the session; `effect` re-resolves and the switch to a
       // 2D effect runs from the wash, where the stage already is.
@@ -601,6 +637,10 @@ function tick(now: number): void {
   const dt = elapsedSec > MAX_FRAME_DT_SEC ? MAX_FRAME_DT_SEC : elapsedSec
   lastNow = now
   if (styleDirty) readStyle()
+  if (resizePending) {
+    resizePending = false
+    measure()
+  }
 
   const colours = palette.update(dt)
   const covers = cover ? cover.frame(colours, dt) : null
@@ -739,7 +779,7 @@ onMounted(() => {
   setEffectOpacity(0)
   createInstance()
   if (washCanvas.value) {
-    observer = new ResizeObserver(() => measure())
+    observer = new ResizeObserver(onObservedResize)
     observer.observe(washCanvas.value)
   }
   measure()
@@ -758,7 +798,15 @@ watch(
 
 watch(quality, (next) => {
   governor.setQuality(next)
-  measure()
+  resizePending = true
+  wake()
+})
+
+/** A knob moved: into the instance's own object, seen on its next frame. */
+watch(storedParams, (stored) => {
+  const current = instanceEffect
+  if (!current) return
+  writeParams(instanceParams, current.params ?? [], stored[current.id])
   wake()
 })
 
@@ -801,6 +849,8 @@ onBeforeUnmount(() => {
   placeholderBitmap = null
   observer?.disconnect()
   observer = null
+  if (resizeTimer !== null) clearTimeout(resizeTimer)
+  resizeTimer = null
   releaseTheme?.()
   releaseTheme = null
   motionQuery?.removeEventListener('change', onMotionChange)

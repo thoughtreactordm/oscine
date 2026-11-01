@@ -1,6 +1,7 @@
 import { ANALYSIS_BANDS, type AnalysisFrame } from '../analysisFrame'
 import type { CoverBitmap } from '../cover'
 import { PaletteSlot, type Palette } from '../palette'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import {
   createCoverFit,
   fitCover,
@@ -84,9 +85,26 @@ const RINGS = 4
 /** Bands under this draw no spoke. */
 const DRAW_FLOOR = 0.004
 
+/** Knobs scale the disc, the spokes' reach, the spin, and the beat's punch. */
+export const HALO_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('size', 'Disc size', 'How large the cover disc is.', { min: 0.5, max: 1.75 }),
+  multiplierParam('reach', 'Spoke reach', 'How far the spokes extend from the disc.', {
+    min: 0.25,
+    max: 2
+  }),
+  multiplierParam('spin', 'Spin', 'How fast the ring turns.', { min: 0, max: 4 }),
+  multiplierParam(
+    'punch',
+    'Beat punch',
+    'How hard a beat swells the disc, thickens the spokes, and sends the onset rings outward.',
+    { min: 0, max: 2 }
+  )
+]
+
 export function createHalo<I>(
   ctx: Draw2D<I>,
-  quality: Quality2D
+  quality: Quality2D,
+  knobs: EffectParams = resolveParams(HALO_KNOBS, undefined)
 ): Effect2DInstance<I, AnalysisFrame, Palette> {
   const cos = new Float32Array(SPOKES)
   const sin = new Float32Array(SPOKES)
@@ -166,7 +184,7 @@ export function createHalo<I>(
       drive.update(audio, dtSec)
       const pulse = drive.pulse
       const heat = drive.heat
-      turn = (turn + TURN_SPEED * (1 + heat * HEAT_TURN) * dtSec) % TAU
+      turn = (turn + TURN_SPEED * knobs.spin * (1 + heat * HEAT_TURN) * dtSec) % TAU
       const release = follow(dtSec, ECHO_RELEASE_SEC)
       for (let band = 0; band < ANALYSIS_BANDS; band++) {
         const value = audio.spectrum[band]
@@ -193,8 +211,8 @@ export function createHalo<I>(
       const short = width < height ? width : height
       const cx = width / 2
       const cy = height / 2
-      const swell = 1 + audio.bass * BASS_SWELL + pulse * ONSET_SWELL
-      const r = short * DISC_RADIUS * swell
+      const swell = 1 + audio.bass * BASS_SWELL + pulse * ONSET_SWELL * knobs.punch
+      const r = short * DISC_RADIUS * swell * knobs.size
 
       if (stage.cover) drawDisc(stage.cover, cx, cy, r, DISC_ALPHA * intensity)
 
@@ -214,7 +232,11 @@ export function createHalo<I>(
       const reach =
         short *
         SPOKE_REACH *
-        (REACH_FLOOR + audio.level * LEVEL_REACH + pulse * PULSE_REACH + heat * HEAT_REACH)
+        knobs.reach *
+        (REACH_FLOOR +
+          audio.level * LEVEL_REACH +
+          pulse * PULSE_REACH * knobs.punch +
+          heat * HEAT_REACH)
       const turnCos = Math.cos(turn)
       const turnSin = Math.sin(turn)
 
@@ -238,7 +260,12 @@ export function createHalo<I>(
       // The spokes: one path, one stroke.
       ctx.globalAlpha = SPOKE_ALPHA * intensity
       ctx.strokeStyle = palette.css[PaletteSlot.accent]
-      ctx.lineWidth = Math.max(1, ((TAU * inner) / SPOKES) * SPOKE_FILL * (1 + pulse * PULSE_WIDTH))
+      // The slot is the gap a spoke sits in; a hard beat must not paint past it.
+      const slot = (TAU * inner) / SPOKES
+      ctx.lineWidth = Math.max(
+        1,
+        Math.min(slot, slot * SPOKE_FILL * (1 + pulse * PULSE_WIDTH * knobs.punch))
+      )
       ctx.beginPath()
       for (let spoke = 0; spoke < SPOKES; spoke++) {
         const value = audio.spectrum[bandOf[spoke]]
@@ -261,7 +288,7 @@ export function createHalo<I>(
         ctx.globalAlpha = alpha
         ctx.lineWidth = Math.max(1, short * 0.006 * ringStrengths[n] * (1 - progress))
         ctx.beginPath()
-        ctx.arc(cx, cy, r + progress * short * RING_TRAVEL, 0, TAU)
+        ctx.arc(cx, cy, r + progress * short * RING_TRAVEL * knobs.punch, 0, TAU)
         ctx.stroke()
       }
 

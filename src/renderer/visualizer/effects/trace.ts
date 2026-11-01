@@ -1,5 +1,6 @@
 import type { AnalysisFrame } from '../analysisFrame'
 import { PaletteSlot, type Palette } from '../palette'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import { type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
 import { createDrive } from './drive'
 import { createWaveformReader } from './waveform'
@@ -71,9 +72,28 @@ const CORE_ALPHA = 0.95
 
 const POINTS_BY_QUALITY: Readonly<Record<Quality2D, number>> = { low: 96, auto: 160, high: 240 }
 
+/** Knobs scale the ribbon's amplitude, afterimage life, drift, and line weight. */
+export const TRACE_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('amplitude', 'Amplitude', 'How tall the ribbon is.', { min: 0.25, max: 2 }),
+  // Max 1.25: a full-heat trail then lasts exactly as long as the snapshot ring holds.
+  multiplierParam('trail', 'Trail length', 'How long the fading afterimages last.', {
+    min: 0.25,
+    max: 1.25
+  }),
+  multiplierParam('drift', 'Drift speed', 'How fast the afterimages rise, scroll, and spread.', {
+    min: 0,
+    max: 3
+  }),
+  multiplierParam('weight', 'Line weight', 'How thick the ribbon and its afterimages are.', {
+    min: 0.25,
+    max: 3
+  })
+]
+
 export function createTrace<I>(
   ctx: Draw2D<I>,
-  quality: Quality2D
+  quality: Quality2D,
+  knobs: EffectParams = resolveParams(TRACE_KNOBS, undefined)
 ): Effect2DInstance<I, AnalysisFrame, Palette> {
   const points = POINTS_BY_QUALITY[quality]
   const reader = createWaveformReader(points)
@@ -134,10 +154,10 @@ export function createTrace<I>(
 
       // The afterimages move as one, by the drive as it is now.
       const pace = 1 + heat * HEAT_RATE
-      const rise = (RISE * pace + pulse * PULSE_RISE) * dt
-      const scroll = SCROLL * pace * dt
-      const widen = Math.exp((WIDEN * pace + pulse * PULSE_WIDEN) * dt)
-      const fade = dt / (MIN_LIFE_SEC + heat * heat * (MAX_LIFE_SEC - MIN_LIFE_SEC))
+      const rise = (RISE * knobs.drift * pace + pulse * PULSE_RISE) * dt
+      const scroll = SCROLL * knobs.drift * pace * dt
+      const widen = Math.exp((WIDEN * knobs.drift * pace + pulse * PULSE_WIDEN) * dt)
+      const fade = dt / ((MIN_LIFE_SEC + heat * heat * (MAX_LIFE_SEC - MIN_LIFE_SEC)) * knobs.trail)
       for (let slot = 0; slot < CAPACITY; slot++) {
         if (lives[slot] <= 0) continue
         rises[slot] += rise
@@ -149,7 +169,10 @@ export function createTrace<I>(
       // Positions are kept as fractions of the stage, so a resize keeps the history.
       const centre = 0.5 + Math.sin(swayPhase) * SWAY + (0.5 - drive.brightness) * PITCH_LIFT
       const tilt = Math.sin(tiltPhase) * TILT
-      const amplitude = AMPLITUDE * (0.35 + audio.level * LEVEL_AMPLITUDE + pulse * PULSE_AMPLITUDE)
+      const amplitude =
+        AMPLITUDE *
+        (0.35 + audio.level * LEVEL_AMPLITUDE + pulse * PULSE_AMPLITUDE) *
+        knobs.amplitude
       sinceSnapshot += dt
       if (sinceSnapshot >= SNAPSHOT_SEC) {
         sinceSnapshot %= SNAPSHOT_SEC
@@ -172,7 +195,7 @@ export function createTrace<I>(
       ctx.lineJoin = 'round'
 
       // Afterimages, oldest first so the newest lie on top.
-      ctx.lineWidth = Math.max(1, short * BAND_WIDTH * 0.5)
+      ctx.lineWidth = Math.max(1, short * BAND_WIDTH * 0.5 * knobs.weight)
       for (let n = 0; n < CAPACITY; n++) {
         const slot = (head + n) % CAPACITY
         if (lives[slot] <= 0) continue
@@ -199,7 +222,10 @@ export function createTrace<I>(
       // The ribbon now: a band, then its core.
       ctx.strokeStyle = palette.css[PaletteSlot.accent]
       ctx.globalAlpha = BAND_ALPHA * intensity
-      ctx.lineWidth = Math.max(1, short * (BAND_WIDTH + (audio.level + pulse) * BAND_LEVEL_WIDTH))
+      ctx.lineWidth = Math.max(
+        1,
+        short * (BAND_WIDTH + (audio.level + pulse) * BAND_LEVEL_WIDTH) * knobs.weight
+      )
       path(live, 0, centre * height, tilt * height, amplitude * height, 0)
       ctx.stroke()
       ctx.globalAlpha = CORE_ALPHA * intensity
