@@ -49,6 +49,12 @@ export interface StreamingPlatform {
    * silence, which is the honest answer.
    */
   readWaveform?(into: WaveformBuffer): boolean
+  /**
+   * The stereo tap's pair (W23-13), optional for the reason `readWaveform` is.
+   * A platform without them reads as silence on the stereo tap too.
+   */
+  subscribeStereoWaveform?(): () => void
+  readStereoWaveform?(left: WaveformBuffer, right: WaveformBuffer): boolean
   dispose(): void
 }
 
@@ -133,6 +139,17 @@ export class StreamingAudioEngine implements AudioPath {
     // a buffer of zeros it would have to recognise as "nothing" anyway.
     if (this.#disposed || this.#status !== 'playing') return false
     return this.#platform.readWaveform?.(into) ?? false
+  }
+
+  subscribeStereoWaveform(): () => void {
+    if (this.#disposed) return () => {}
+    return this.#platform.subscribeStereoWaveform?.() ?? (() => {})
+  }
+
+  readStereoWaveform(left: WaveformBuffer, right: WaveformBuffer): boolean {
+    // Gated exactly as `readWaveform` is.
+    if (this.#disposed || this.#status !== 'playing') return false
+    return this.#platform.readStereoWaveform?.(left, right) ?? false
   }
 
   on<K extends keyof AudioEngineEventMap>(

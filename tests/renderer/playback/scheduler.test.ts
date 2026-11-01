@@ -220,6 +220,28 @@ class FakeEngine implements AudioEngine {
     return true
   }
 
+  /** Left/right levels for the stereo tap, or null for nothing audible. */
+  stereoLevels: [number, number] | null = null
+  /** Open stereo subscriptions on this engine. */
+  stereoHolds = 0
+
+  subscribeStereoWaveform(): () => void {
+    this.stereoHolds += 1
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.stereoHolds -= 1
+    }
+  }
+
+  readStereoWaveform(left: Float32Array, right: Float32Array): boolean {
+    if (this.stereoLevels === null) return false
+    left.fill(this.stereoLevels[0])
+    right.fill(this.stereoLevels[1])
+    return true
+  }
+
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void
@@ -296,6 +318,44 @@ describe('PlaybackScheduler', () => {
 
     h.engines[0].waveformLevel = null
     expect(h.scheduler.readWaveform(into)).toBe(false)
+  })
+
+  it('reads the stereo tap from the active slot alone', async () => {
+    const h = harness()
+    await h.scheduler.start(h.order, 1, track(1))
+    await settle()
+    h.engines[0].stereoLevels = [0.1, 0.2]
+    h.engines[1].stereoLevels = [0.8, 0.9]
+    const left = new Float32Array(8)
+    const right = new Float32Array(8)
+
+    expect(h.scheduler.readStereoWaveform(left, right)).toBe(true)
+    expect([left[0], right[0]]).toEqual([expect.closeTo(0.1), expect.closeTo(0.2)])
+  })
+
+  it('holds the stereo tap on both slots, and on the fresh pair after stop', async () => {
+    const h = harness()
+    // Subscribed before any slot exists: the slots join as they are built.
+    const release = h.scheduler.subscribeStereoWaveform()
+    await h.scheduler.start(h.order, 1, track(1))
+    await settle()
+    expect(h.engines.map((engine) => engine.stereoHolds)).toEqual([1, 1])
+
+    h.scheduler.stop()
+    expect(h.engines.map((engine) => engine.stereoHolds)).toEqual([0, 0])
+    // `stop` disposes both slots; the next start builds a fresh pair.
+    for (let i = 0; i < 2; i++) {
+      const fresh = new FakeEngine()
+      fresh.timeline = h.engines[0].timeline
+      h.engines.push(fresh)
+    }
+    await h.scheduler.start(h.order, 1, track(1))
+    await settle()
+    expect(h.engines.slice(2).map((engine) => engine.stereoHolds)).toEqual([1, 1])
+
+    release()
+    release()
+    expect(h.engines.map((engine) => engine.stereoHolds)).toEqual([0, 0, 0, 0])
   })
 
   it('reports no waveform before anything has started', () => {

@@ -122,6 +122,8 @@ interface Slot {
   position: SlotPosition | null
   load: Promise<void> | null
   unsubscribes: Array<() => void>
+  /** This slot's hold on its engine's stereo tap, while anyone is subscribed. */
+  stereoRelease: (() => void) | null
 }
 
 /**
@@ -184,6 +186,11 @@ export class PlaybackScheduler {
   #prefetchToken = 0
   #volume = 1
   #disposed = false
+  /**
+   * Live stereo subscriptions. Every slot's engine holds its tap iff non-zero,
+   * including the fresh pair a play after `stop()` builds.
+   */
+  #stereoSubscribers = 0
 
   constructor(deps: PlaybackSchedulerDeps) {
     this.#createEngine = deps.createEngine
@@ -261,6 +268,35 @@ export class PlaybackScheduler {
    */
   readWaveform(into: WaveformBuffer): boolean {
     return this.#active?.engine.readWaveform(into) ?? false
+  }
+
+  /**
+   * Hold the stereo tap open on both slots' engines (W23-13).
+   *
+   * Both, because a boundary promotes the prepared slot to audible without
+   * asking anyone: a tap held only on the active engine would go dark at every
+   * gapless join until somebody resubscribed.
+   */
+  subscribeStereoWaveform(): () => void {
+    if (this.#disposed) return () => {}
+    this.#stereoSubscribers += 1
+    if (this.#stereoSubscribers === 1) {
+      for (const slot of this.#slots) this.#holdStereo(slot)
+    }
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.#stereoSubscribers -= 1
+      if (this.#stereoSubscribers === 0) {
+        for (const slot of this.#slots) this.#releaseStereo(slot)
+      }
+    }
+  }
+
+  /** The audible slot's left/right tap. False with no engine, as `readWaveform` is. */
+  readStereoWaveform(left: WaveformBuffer, right: WaveformBuffer): boolean {
+    return this.#active?.engine.readStereoWaveform?.(left, right) ?? false
   }
 
   on<K extends keyof PlaybackSchedulerEventMap>(
@@ -831,7 +867,8 @@ export class PlaybackScheduler {
         track: null,
         position: null,
         load: null,
-        unsubscribes: []
+        unsubscribes: [],
+        stereoRelease: null
       }
       slot.engine.setVolume(this.#volume)
       slot.engine.setNormalizationPolicy(this.#normalizationPolicy)
@@ -850,8 +887,19 @@ export class PlaybackScheduler {
           if (this.#active === slot) this.#events.emit('error', error)
         })
       ]
+      if (this.#stereoSubscribers > 0) this.#holdStereo(slot)
       this.#slots.push(slot)
     }
+  }
+
+  #holdStereo(slot: Slot): void {
+    if (slot.stereoRelease) return
+    slot.stereoRelease = slot.engine.subscribeStereoWaveform?.() ?? null
+  }
+
+  #releaseStereo(slot: Slot): void {
+    slot.stereoRelease?.()
+    slot.stereoRelease = null
   }
 
   #spareSlot(): Slot {
@@ -864,6 +912,7 @@ export class PlaybackScheduler {
   #destroySlots(): void {
     for (const slot of this.#slots) {
       for (const unsubscribe of slot.unsubscribes) unsubscribe()
+      this.#releaseStereo(slot)
       slot.engine.dispose()
     }
     this.#slots = []

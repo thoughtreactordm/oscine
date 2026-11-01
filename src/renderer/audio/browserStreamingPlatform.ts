@@ -1,5 +1,6 @@
 import { WAVEFORM_SAMPLE_COUNT } from './AudioEngine'
 import type { DecodedAudioContextLease } from './decodedAudioContext'
+import { StereoTap } from './stereoTap'
 import type { StreamingMedia, StreamingPlatform } from './StreamingAudioEngine'
 
 const VOLUME_RAMP_SEC = 0.015
@@ -8,7 +9,8 @@ const NORMALIZATION_RAMP_SEC = 0.05
 /**
  * Builds the real media graph:
  * `<audio>` → normalization → master volume → lease destination,
- * with a waveform analyser hung off normalization as a sink.
+ * with a waveform analyser hung off normalization as a sink, and the stereo tap's
+ * splitter hung off the same node while a stereo consumer is subscribed.
  *
  * The context is leased from the same pool the decoded slots use, never built
  * here. Every `AudioContext` opens its own output stream, and the OS mixer lists
@@ -39,6 +41,10 @@ export function createBrowserStreamingPlatform(
   // Ahead of master volume, matching the decoded path so the visualization does
   // not change shape when R1 sends a long track down this one.
   normalizationGain.connect(analyser)
+  // The stereo tap at the same point, for the same reason. Nothing is built
+  // until the first subscription: this only records where to hang it.
+  const stereo = new StereoTap(context)
+  stereo.setSource(normalizationGain)
 
   const media: StreamingMedia = {
     get currentTime() {
@@ -103,10 +109,13 @@ export function createBrowserStreamingPlatform(
       analyser.getFloatTimeDomainData(into)
       return true
     },
+    subscribeStereoWaveform: () => stereo.subscribe(),
+    readStereoWaveform: (left, right) => stereo.read(left, right),
     dispose() {
       element.pause()
       element.removeAttribute('src')
       element.load()
+      stereo.dispose()
       source.disconnect()
       normalizationGain.disconnect()
       masterGain.disconnect()

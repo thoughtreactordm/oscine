@@ -264,6 +264,34 @@ export interface AudioEngine {
    */
   readWaveform(into: WaveformBuffer): boolean
 
+  /**
+   * Hold the stereo tap open, and return its release.
+   *
+   * The stereo tap costs a channel splitter and two analysers per path, so an
+   * engine builds them only while somebody is subscribed and removes them when
+   * the last release lands (D35.10). The release is idempotent. Subscribing is
+   * not a promise that anything will be read — `readStereoWaveform` still
+   * answers false while nothing is audible.
+   *
+   * Optional, as `readStereoWaveform` is: they come as a pair or not at all.
+   */
+  subscribeStereoWaveform?(): () => void
+
+  /**
+   * `readWaveform`, but with the left and right channels kept apart (W23-13).
+   *
+   * Every rule `readWaveform` states holds here: both buffers hold
+   * `WAVEFORM_SAMPLE_COUNT` floats in −1..1, the tap sits after normalization
+   * and the transition fade but before master volume, and false means nothing
+   * is audible *or* nobody is subscribed — either way both buffers are left
+   * untouched. A mono source lands identically in both.
+   *
+   * Optional so that an engine without a stereo tap degrades instead of failing
+   * to typecheck: a caller that finds it absent treats stereo as unavailable,
+   * and the effects that need it are not offered.
+   */
+  readStereoWaveform?(left: WaveformBuffer, right: WaveformBuffer): boolean
+
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void

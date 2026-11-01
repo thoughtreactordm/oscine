@@ -21,6 +21,7 @@ import {
   type NormalizationDecision
 } from './normalization'
 import { clamp, pausedAt, positionAt, type PlaybackClock } from './playbackClock'
+import { StereoTap } from './stereoTap'
 
 /**
  * D2's pipeline: fetch the whole track, `decodeAudioData` it, play the
@@ -55,6 +56,8 @@ export class DecodedAudioEngine implements DecodedAudioPath {
   readonly #contextLease: DecodedAudioContextLease<AudioContext>
   readonly #gain: GainNode
   readonly #analyser: AnalyserNode
+  /** Left/right tap, nodes built only while subscribed. Per-engine, as `#analyser` is. */
+  readonly #stereo: StereoTap
   readonly #events = new Emitter<AudioEngineEventMap>()
   readonly #decodedBuffers: DecodedBufferLedger
 
@@ -99,6 +102,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     // from becoming a second route to the destination.
     this.#analyser = this.#context.createAnalyser()
     this.#analyser.fftSize = WAVEFORM_SAMPLE_COUNT
+    this.#stereo = new StereoTap(this.#context)
     this.#armGestureResume()
   }
 
@@ -237,6 +241,9 @@ export class DecodedAudioEngine implements DecodedAudioPath {
       this.#source = null
       this.#transitionGain = null
       this.#normalizationGain = null
+      // The retiring gain keeps its splitter edge until `release` disconnects it
+      // wholesale; the tap just stops naming it.
+      this.#stereo.setSource(null)
       this.#scheduledStartTimeSec = null
       this.#fadeOutScheduled = false
       this.#clock = pausedAt(0)
@@ -450,6 +457,18 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     return true
   }
 
+  subscribeStereoWaveform(): () => void {
+    if (this.#disposed) return () => {}
+    return this.#stereo.subscribe()
+  }
+
+  readStereoWaveform(left: WaveformBuffer, right: WaveformBuffer): boolean {
+    // The same liveness test as `readWaveform`. A mono buffer is copied across
+    // rather than read twice: the splitter's up-mix would give the same answer.
+    if (this.#disposed || !this.#source) return false
+    return this.#stereo.read(left, right, this.#buffer?.numberOfChannels === 1)
+  }
+
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true
@@ -466,6 +485,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     this.#releaseGestureHooks = null
     this.#gain.disconnect()
     this.#analyser.disconnect()
+    this.#stereo.dispose()
     this.#events.clear()
     this.#contextLease.release()
   }
@@ -501,6 +521,9 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     // Tap ahead of `#gain`, so the visible shape carries normalization and the
     // crossfade envelope but not the volume slider — see `readWaveform`.
     transitionGain.connect(this.#analyser)
+    // The same tap point, split. Connects only if a stereo consumer is
+    // subscribed; otherwise it is recorded for the first subscription to wire.
+    this.#stereo.setSource(transitionGain)
     if (fadeInDurationSec > 0) {
       transitionGain.gain.setValueCurveAtTime(EQUAL_POWER_FADE_IN, startAtSec, fadeInDurationSec)
     }
@@ -547,6 +570,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     this.#source = null
     this.#transitionGain = null
     this.#normalizationGain = null
+    this.#stereo.setSource(null)
     this.#scheduledStartTimeSec = null
     this.#fadeOutScheduled = false
   }
@@ -561,6 +585,7 @@ export class DecodedAudioEngine implements DecodedAudioPath {
     this.#source = null
     this.#transitionGain = null
     this.#normalizationGain = null
+    this.#stereo.setSource(null)
     this.#scheduledStartTimeSec = null
     this.#fadeOutScheduled = false
     this.#clock = pausedAt(this.duration)

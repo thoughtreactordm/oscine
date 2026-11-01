@@ -41,6 +41,8 @@ export interface AudioPath {
   cancelScheduledStart(): void
   cancelScheduledFade(): void
   readWaveform(into: WaveformBuffer): boolean
+  subscribeStereoWaveform?(): () => void
+  readStereoWaveform?(left: WaveformBuffer, right: WaveformBuffer): boolean
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void
