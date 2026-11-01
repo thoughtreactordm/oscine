@@ -426,6 +426,36 @@ const compactTransport = computed(() =>
   transportIsCompact(transportWidth.value, TRANSPORT_STAGE_COMPACT_BELOW)
 )
 
+/**
+ * Zen's transport steps back when the pointer leaves the window — the operator
+ * has moved to another screen and the stage is left to be watched. It returns
+ * the moment the pointer comes back, and stays while anything in it holds
+ * keyboard focus, so a keyboard operator never loses it (`:focus-visible` in the
+ * style). Leaving the window is read off the document: a `pointerout` with no
+ * `relatedTarget` is the pointer crossing out of the viewport, not between
+ * elements. Assumed inside until told otherwise — Zen is entered by a click or a
+ * chord made in this window. Only in Zen; the merged Now Playing view keeps its
+ * transport, since the rest of the frame is still there around it.
+ *
+ * Only the opacity moves; the content's bottom reserve stays, so the record does
+ * not re-centre each time the pointer crosses the edge.
+ */
+const pointerInWindow = ref(true)
+function onDocumentPointerOut(event: PointerEvent): void {
+  if (event.relatedTarget === null) pointerInWindow.value = false
+}
+function onDocumentPointerOver(): void {
+  pointerInWindow.value = true
+}
+onMounted(() => {
+  document.addEventListener('pointerout', onDocumentPointerOut)
+  document.addEventListener('pointerover', onDocumentPointerOver)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerout', onDocumentPointerOut)
+  document.removeEventListener('pointerover', onDocumentPointerOver)
+})
+const transportAway = computed(() => zen.active && !pointerInWindow.value)
 
 /**
  * The bottom padding the content reserves so it centres in the space *above* the
@@ -758,6 +788,7 @@ const byline = computed(() => {
       v-if="stageOwnsTransport"
       ref="stageTransportRef"
       class="stage-transport"
+      :class="{ 'stage-transport-away': transportAway }"
       aria-label="Now playing controls"
     >
       <SeekBar />
@@ -1125,6 +1156,13 @@ section {
     color-mix(in oklab, var(--ui-bg) 88%, transparent),
     transparent
   );
+  transition: opacity var(--oscine-motion-duration) ease;
+}
+
+/* Zen, pointer out of the window: the whole transport fades, scrim and all. */
+.stage-transport-away:not(:has(:focus-visible)) {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /*
@@ -1174,7 +1212,8 @@ section:hover .stage-lyrics-toggle,
 
 @media (prefers-reduced-motion: reduce) {
   .stage-exit,
-  .stage-lyrics-toggle {
+  .stage-lyrics-toggle,
+  .stage-transport {
     transition-duration: 0ms;
   }
 }
