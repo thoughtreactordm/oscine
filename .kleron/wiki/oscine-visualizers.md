@@ -393,6 +393,22 @@ without an unwind that reads as a spin-back. The cover stays put and is smeared 
 behind each pixel. The smear is longest under a two-lobed light band, and the bass turns that
 band, so the streaks sweep round the way a record's sheen does.
 
+**Murmuration as built (W23-12, 2026-11-01).** The particle state is in transform feedback, not a
+state-texture ping-pong. Two interleaved vertex buffers take turns, and an update vertex shader
+runs under `RASTERIZER_DISCARD`. That needs no float-renderable extension, so Murmuration runs
+wherever the WebGL2 tier does, unlike Rainfall. A particle takes its colour from a ~48-texel mip
+of the cover at its birthplace, falling back to the swatches only until the texture is up. That
+colour is fixed for the particle's 3–9 s life, so a new track's colours spread through the flock
+over about nine seconds rather than snapping. The flock is a cloud held around a slowly
+wandering ellipse: a soft pull towards its centre everywhere, a stiffer one outside, and a
+divergence-free curl-noise flow inside. A pull only at the boundary piled the particles into a
+ring. Particles are born mostly inside the ellipse, and 10 % anywhere on the stage, so the colours
+under the flock dominate while the rest of the cover still gets in. Onsets push outward from a
+band-placed point and slacken the boundary. Every push is an acceleration, so an onset moves the
+flock and never changes its brightness. The particle count follows the internal target's pixels
+(2400 per megapixel, clamped to 2000–8192), not the quality setting read once at creation, so it
+follows a tier change and `auto`'s backoff without recreating the effect.
+
 Effects that don't need the cover (`needs.cover` unset) don't get the texture, and with the
 default `washUnder` they still sit on the wash, so the cover's colour field shows through
 every overlay effect.
@@ -467,8 +483,9 @@ interface CoverSlot {
   running, and cycling doesn't skip effects track by track. Effects don't branch on
   `synthetic`; it exists for the wash (D35.12) and for diagnostics.
 - **Swatches are the multi-hue palette.** Sixteen colours from a 4×4 downsample, computed once
-  per cover by a pure function (unit-tested like `pickAccentSeed`). Murmuration colours its
-  particles this way, and WebGL effects can equally sample a small mip. This replaces the
+  per cover by a pure function (unit-tested like `pickAccentSeed`). WebGL effects can equally
+  sample a small mip; Murmuration does, keeping the swatches as its fallback until the texture
+  is up (W23-12). This replaces the
   "multi-hue palette from art" item that was deferred.
 
 ## D35.12 — The visualizer grows out of the wash and settles back into it
