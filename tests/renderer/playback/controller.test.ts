@@ -175,6 +175,23 @@ class FakeEngine implements AudioEngine {
     return false
   }
 
+  /** Open stereo-tap subscriptions on this engine. */
+  stereoHolds = 0
+
+  subscribeStereoWaveform(): () => void {
+    this.stereoHolds += 1
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.stereoHolds -= 1
+    }
+  }
+
+  readStereoWaveform(): boolean {
+    return false
+  }
+
   on<K extends keyof AudioEngineEventMap>(
     type: K,
     listener: (payload: AudioEngineEventMap[K]) => void
@@ -627,6 +644,29 @@ describe('createPlaybackController', () => {
       })
 
       expect(h.engines.every((engine) => engine.normalizationPolicy.mode === 'album')).toBe(true)
+    })
+
+    it('carries a stereo subscription taken before the first play onto the engines', async () => {
+      const left = new Float32Array(8)
+      const right = new Float32Array(8)
+      const first = h.controller.subscribeStereoWaveform()
+      const second = h.controller.subscribeStereoWaveform()
+      expect(h.controller.readStereoWaveform(left, right)).toBe(false)
+
+      await h.controller.playFromList({
+        sort: 'artist',
+        direction: 'asc',
+        index: 0,
+        track: track(0)
+      })
+      await settle()
+      expect(h.engines.map((engine) => engine.stereoHolds)).toEqual([1, 1])
+
+      first()
+      first()
+      expect(h.engines.map((engine) => engine.stereoHolds)).toEqual([1, 1])
+      second()
+      expect(h.engines.map((engine) => engine.stereoHolds)).toEqual([0, 0])
     })
   })
 

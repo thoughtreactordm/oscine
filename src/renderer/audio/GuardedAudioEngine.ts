@@ -69,6 +69,10 @@ export class GuardedAudioEngine implements AudioEngine {
   #audioSource: TrackAudioSource | null = null
   #generation = 0
   #disposed = false
+  /** Live stereo subscriptions on this engine. Paths hold the tap iff non-zero. */
+  #stereoSubscribers = 0
+  /** One release per path currently holding its stereo tap open. */
+  readonly #stereoReleases = new Map<AudioPath, () => void>()
 
   constructor(deps: GuardedAudioEngineDeps) {
     this.#decoded = deps.decoded
@@ -183,6 +187,40 @@ export class GuardedAudioEngine implements AudioEngine {
    */
   readWaveform(into: WaveformBuffer): boolean {
     return this.#active?.readWaveform(into) ?? false
+  }
+
+  /**
+   * Hold the stereo tap open on every path this engine owns.
+   *
+   * Both paths, not just the active one: which path a track takes is decided
+   * at admission, and a scope that went dark for the first frames of a track
+   * while a tap was built on the path it landed on would be a scope that
+   * flickers at boundaries. Each path still builds nothing until this arrives,
+   * and the streaming path is not created for it — it joins when R1 first
+   * creates it.
+   */
+  subscribeStereoWaveform(): () => void {
+    if (this.#disposed) return () => {}
+    this.#stereoSubscribers += 1
+    if (this.#stereoSubscribers === 1) {
+      this.#holdStereo(this.#decoded)
+      if (this.#streaming) this.#holdStereo(this.#streaming)
+    }
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.#stereoSubscribers -= 1
+      if (this.#stereoSubscribers === 0) this.#releaseStereo()
+    }
+  }
+
+  /**
+   * Read the left/right tap of whichever path won admission — never a sum, for
+   * the reason `readWaveform` gives.
+   */
+  readStereoWaveform(left: WaveformBuffer, right: WaveformBuffer): boolean {
+    return this.#active?.readStereoWaveform?.(left, right) ?? false
   }
 
   on<K extends keyof AudioEngineEventMap>(
@@ -302,6 +340,8 @@ export class GuardedAudioEngine implements AudioEngine {
     this.#active = null
     for (const unsubscribe of this.#unsubscribes) unsubscribe()
     this.#unsubscribes.length = 0
+    this.#stereoSubscribers = 0
+    this.#releaseStereo()
     this.#decoded.dispose()
     this.#streaming?.dispose()
     this.#events.clear()
@@ -318,7 +358,18 @@ export class GuardedAudioEngine implements AudioEngine {
     streaming.setNormalizationPolicy(this.#normalizationPolicy)
     this.#streaming = streaming
     this.#watch(streaming)
+    if (this.#stereoSubscribers > 0) this.#holdStereo(streaming)
     return streaming
+  }
+
+  #holdStereo(path: AudioPath): void {
+    if (this.#stereoReleases.has(path) || !path.subscribeStereoWaveform) return
+    this.#stereoReleases.set(path, path.subscribeStereoWaveform())
+  }
+
+  #releaseStereo(): void {
+    for (const release of this.#stereoReleases.values()) release()
+    this.#stereoReleases.clear()
   }
 
   #watch(path: AudioPath): void {

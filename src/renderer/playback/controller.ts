@@ -509,6 +509,13 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
    */
   let scheduler: PlaybackScheduler | null = null
   let unsubscribes: Array<() => void> = []
+  /**
+   * Stereo-tap consumers (W23-13). Counted here because a scope can open before
+   * the first play builds a scheduler; the scheduler is handed one hold while
+   * the count is non-zero, whenever it comes into being.
+   */
+  let stereoSubscribers = 0
+  let releaseSchedulerStereo: (() => void) | null = null
   let order: PlayOrder | null = null
 
   /**
@@ -657,6 +664,7 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     // stored value is the slider's perceptual position; the engine wants the
     // tapered amplitude.
     created.setVolume(perceptualVolumeToAmplitude(volume.value))
+    if (stereoSubscribers > 0) releaseSchedulerStereo = created.subscribeStereoWaveform()
     scheduler = created
     return created
   }
@@ -1659,6 +1667,9 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
     stopEqualizerWatch()
     for (const off of unsubscribes) off()
     unsubscribes = []
+    releaseSchedulerStereo?.()
+    releaseSchedulerStereo = null
+    stereoSubscribers = 0
     scheduler?.dispose()
     scheduler = null
     // Strands anything still in flight so it cannot resurrect a disposed engine.
@@ -1788,6 +1799,33 @@ export function createPlaybackController(deps: PlaybackControllerDeps) {
      * device is not opened until the first play.
      */
     readWaveform: (into: WaveformBuffer): boolean => scheduler?.readWaveform(into) ?? false,
+    /**
+     * Hold the stereo tap open (W23-13, D35.10); returns an idempotent release.
+     * The splitter and analysers exist only between the first subscription and
+     * the last release, so a stereo effect subscribes while it is showing.
+     */
+    subscribeStereoWaveform: (): (() => void) => {
+      stereoSubscribers += 1
+      if (stereoSubscribers === 1 && scheduler) {
+        releaseSchedulerStereo = scheduler.subscribeStereoWaveform()
+      }
+      let released = false
+      return () => {
+        if (released || stereoSubscribers === 0) return
+        released = true
+        stereoSubscribers -= 1
+        if (stereoSubscribers === 0) {
+          releaseSchedulerStereo?.()
+          releaseSchedulerStereo = null
+        }
+      }
+    },
+    /**
+     * Left and right time-domain samples of the audible track, for the X/Y
+     * scope. `readWaveform`'s rules, and false until something is subscribed.
+     */
+    readStereoWaveform: (left: WaveformBuffer, right: WaveformBuffer): boolean =>
+      scheduler?.readStereoWaveform(left, right) ?? false,
     /**
      * Departs the in-flight listen without stopping playback — the quit path.
      *

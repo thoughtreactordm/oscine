@@ -46,6 +46,10 @@ class FakePath implements AudioPath {
   cancelScheduledCount = 0
   /** What this path claims to be sounding, for the waveform tap. */
   waveformLevel: number | null = null
+  /** Left/right levels for the stereo tap, or null for nothing audible. */
+  stereoLevels: [number, number] | null = null
+  /** Open stereo subscriptions this path is holding. */
+  stereoHolds = 0
 
   readonly listeners = new Map<string, Set<(payload: never) => void>>()
   readonly pending: Array<{ source: TrackAudioSource; resolve: () => void }> = []
@@ -131,6 +135,23 @@ class FakePath implements AudioPath {
   readWaveform(into: Float32Array): boolean {
     if (this.waveformLevel === null) return false
     into.fill(this.waveformLevel)
+    return true
+  }
+
+  subscribeStereoWaveform(): () => void {
+    this.stereoHolds += 1
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.stereoHolds -= 1
+    }
+  }
+
+  readStereoWaveform(left: Float32Array, right: Float32Array): boolean {
+    if (this.stereoLevels === null) return false
+    left.fill(this.stereoLevels[0])
+    right.fill(this.stereoLevels[1])
     return true
   }
 
@@ -389,6 +410,71 @@ describe('GuardedAudioEngine', () => {
     // A path with no signal reports so rather than leaving stale samples.
     h.streaming.waveformLevel = null
     expect(h.engine.readWaveform(into)).toBe(false)
+  })
+
+  it('reads the stereo tap from whichever path won admission, never a sum', async () => {
+    const h = harness(
+      new Map([
+        [1, track(1)],
+        [2, track(2, { durationSec: 20 * 60 })]
+      ])
+    )
+    h.decoded.stereoLevels = [0.1, 0.2]
+    h.streaming.stereoLevels = [0.7, 0.8]
+    const left = new Float32Array(WAVEFORM_SAMPLE_COUNT).fill(9)
+    const right = new Float32Array(WAVEFORM_SAMPLE_COUNT).fill(9)
+
+    // Nothing admitted: false, and both buffers untouched.
+    expect(h.engine.readStereoWaveform(left, right)).toBe(false)
+    expect(left[0]).toBe(9)
+    expect(right[0]).toBe(9)
+
+    await h.engine.load(1)
+    expect(h.engine.readStereoWaveform(left, right)).toBe(true)
+    expect([left[0], right[0]]).toEqual([expect.closeTo(0.1), expect.closeTo(0.2)])
+
+    await h.engine.load(2)
+    expect(h.engine.readStereoWaveform(left, right)).toBe(true)
+    expect([left[0], right[0]]).toEqual([expect.closeTo(0.7), expect.closeTo(0.8)])
+
+    h.streaming.stereoLevels = null
+    left.fill(9)
+    right.fill(9)
+    expect(h.engine.readStereoWaveform(left, right)).toBe(false)
+    expect(left[0]).toBe(9)
+    expect(right[0]).toBe(9)
+  })
+
+  it('holds the stereo tap on every path it owns, only while subscribed', async () => {
+    const h = harness(new Map([[2, track(2, { durationSec: 20 * 60 })]]))
+
+    const first = h.engine.subscribeStereoWaveform()
+    const second = h.engine.subscribeStereoWaveform()
+    // One hold per path however many consumers there are.
+    expect(h.decoded.stereoHolds).toBe(1)
+    // The streaming path is not created for the tap...
+    expect(h.streaming.stereoHolds).toBe(0)
+
+    // ...but joins it the moment R1 creates it.
+    await h.engine.load(2)
+    expect(h.streaming.stereoHolds).toBe(1)
+
+    first()
+    first()
+    expect(h.decoded.stereoHolds).toBe(1)
+    second()
+    expect(h.decoded.stereoHolds).toBe(0)
+    expect(h.streaming.stereoHolds).toBe(0)
+
+    // A fresh subscription re-holds both, the streaming path now included.
+    const third = h.engine.subscribeStereoWaveform()
+    expect(h.decoded.stereoHolds).toBe(1)
+    expect(h.streaming.stereoHolds).toBe(1)
+    h.engine.dispose()
+    expect(h.decoded.stereoHolds).toBe(0)
+    expect(h.streaming.stereoHolds).toBe(0)
+    third()
+    expect(h.decoded.stereoHolds).toBe(0)
   })
 
   it('does not ask either path to load until metadata resolution completes', async () => {
