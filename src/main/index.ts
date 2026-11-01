@@ -13,7 +13,8 @@ import {
   libraryDatabasePath,
   podcastsDirectoryPath,
   scrobbleCredentialsPath,
-  themesDirectoryPath
+  themesDirectoryPath,
+  agentTokenPath
 } from './db/location'
 import { SqlitePlayHistoryService } from './history/service'
 import { SqliteListenService } from './listens/service'
@@ -84,6 +85,9 @@ import type { EpisodeDownloadProgress } from '@shared/podcasts'
 import type { ScrobbleTarget } from '@shared/scrobble'
 import { detectUpdateChannel, updateChannelCanSelfUpdate, type UpdateStatus } from '@shared/update'
 import type { NoctaliaStatus } from '@shared/theme'
+import type { AgentAccessStatus } from '@shared/agentAccess'
+import type { LibraryChanged } from '@shared/libraryChanges'
+import { createLibraryChangeNotifier } from './library/changes'
 import {
   AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING,
   DISCORD_DISPLAY,
@@ -98,7 +102,16 @@ import {
   type DiscordWhenPaused,
   type SettingsChange
 } from '@shared/settings'
-import { devAgentServerConfig, startAgentServer } from './mcp'
+import { createAgentAccessService, type AgentAccessService } from './mcp/agentAccess'
+import { resolveBridgeLaunch } from './mcp/bridgeLaunch'
+import { createJournalEntities } from './mcp/journal/entities'
+import { createAgentJournal } from './mcp/journal/journal'
+import { createOrganizeReads } from './mcp/organize/reads'
+import { createAgentProvenance } from './mcp/journal/provenance'
+import { createStageReads } from './mcp/stage/reads'
+import { createAgentTokenStore } from './mcp/tokenStore'
+import { utilityQueryProcess } from './mcp/query/electronProcess'
+import { createQueryHost } from './mcp/query/host'
 
 const isDev = !app.isPackaged
 const rendererDir = join(__dirname, '../renderer')
@@ -325,6 +338,24 @@ let presenceService: PresenceService | null = null
  */
 let noctaliaSync: NoctaliaSync | null = null
 
+/**
+ * And agent access (W24-2): `mcp.*` writes start, stop and re-gate the server
+ * live, and the settings service that reports them is constructed first.
+ */
+let agentAccessService: AgentAccessService | null = null
+
+function broadcastAgentAccess(status: AgentAccessStatus): void {
+  if (mainWindow) emit(mainWindow.webContents, 'agentAccess.changed', status)
+}
+
+function broadcastAgentChangesets(): void {
+  if (mainWindow) emit(mainWindow.webContents, 'agentChangesets.changed', null)
+}
+
+function broadcastLibraryChanged(event: LibraryChanged): void {
+  if (mainWindow) emit(mainWindow.webContents, 'library.changed', event)
+}
+
 function broadcastScrobbleStatus(): void {
   if (!mainWindow || !scrobbleStatus) return
   emit(mainWindow.webContents, 'scrobble.statusChanged', [...scrobbleStatus.status().targets])
@@ -542,6 +573,9 @@ if (!app.requestSingleInstanceLock()) {
         // waiting for the next track (W20-4). Harmless until W20-3 registers the
         // descriptors — no `discord.*` change can fire before then.
         presenceService?.onSettingsChanged(changes)
+        // `mcp.enabled`/`mcp.port` start or stop the listener; a capability
+        // switch re-gates every open session's tools (W24-2).
+        agentAccessService?.onSettingsChanged(changes)
       }
     })
 
@@ -799,8 +833,14 @@ if (!app.requestSingleInstanceLock()) {
     // cache, on its own 'lyrics' scope. One more D14 source, no new HTTP stack.
     const lyricsNetwork = createLyricsNetworkService({ client: net.client, cache })
 
+    // D36.9 — one notifier for every write service that can change what the
+    // renderer is showing: playlists, both correction layers and user tags.
+    // Each committed service call becomes one `library.changed`, whoever made it.
+    const libraryChanges = createLibraryChangeNotifier({ emit: broadcastLibraryChanged })
+
     const library = new SqliteLibraryService({
       db,
+      changes: libraryChanges,
       lyricsNetwork,
       artworkCacheDir: artworkCachePath(),
       artworkOriginalsDir: artworkOriginalsPath(),
@@ -825,18 +865,13 @@ if (!app.requestSingleInstanceLock()) {
       canComputeReplayGain: () => settings.get<boolean>(AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING.key)
     })
 
-    // W24-1: the agent server spike (oscine-mcp → D36.1). Dev builds only, and
-    // only with OSCINE_MCP_DEV=1 — its token is a fixed dev constant, so a
-    // packaged build must never listen with it. W24-2 replaces the flag with
-    // `mcp.enabled` and a generated token.
-    const agentConfig = isDev ? devAgentServerConfig(process.env) : null
-    const agentServer = agentConfig
-      ? startAgentServer(agentConfig, { library }, app.getVersion())
-      : null
-
     // Its own service on the same connection: playlists own two tables the
     // library layer never touches, and the library owns the rest.
-    const playlists = new SqlitePlaylistService({ db, pickExportFile: pickPlaylistExportFile })
+    const playlists = new SqlitePlaylistService({
+      db,
+      pickExportFile: pickPlaylistExportFile,
+      changes: libraryChanges
+    })
 
     // And the same again for the trail, which owns one table and reads the
     // library's tracks only through the shared projection.
@@ -866,6 +901,84 @@ if (!app.requestSingleInstanceLock()) {
     // the rebuild of the two counter columns that cache the log.
     const stats = new SqliteStatsService({ db })
 
+    // Agent access (oscine-mcp → D36.1, W24-2). Off by default, and nothing
+    // listens while `mcp.enabled` is off: the first sync below is a no-op then.
+    // The token is sealed with `safeStorage` like D19's credentials, in a file
+    // of its own, and is only touched once the operator has turned access on.
+    const queryHost = createQueryHost({ spawn: utilityQueryProcess(filePath) })
+
+    // User tags (W15). Same connection, its own tables, no network: coining and
+    // applying a tag is a local write, and D7 keeps it there — v1 never touches
+    // the file's own genre frames. Rescan-safe by the W15-1 schema, so the store
+    // is just handed the connection and asked nothing more. Built here because
+    // the agent journal below restores user tags through it.
+    const tags = new TagStore(db, libraryChanges)
+
+    // The agent change journal (W24-6, D36.6): every agent write is recorded
+    // with its before and after, and restored only through the services a
+    // manual edit uses — so it needs them all, and the change notifier, to
+    // revert as one `library.changed`.
+    // W16-6 — the staged tag write-back review's main half. It flushes the
+    // correction layers `tags` and the override rows own back into the actual
+    // file tags through the atomic engine (W16-2/W16-4), reading each file fresh
+    // so the diff and the write both reconcile out-of-band edits rather than
+    // clobber them (R7). The renderer scopes a review to a track set and never
+    // sees a path.
+    const tagWriteback = new TagWritebackService({
+      differ: new TagWritebackDiffer(db),
+      resolvePath: trackPathResolver(db),
+      // The review's default is every unwritten correction (W16-6), and a flush
+      // retires the overrides it lands so the track leaves the list.
+      pendingTrackIds: () => library.pendingWritebackTrackIds(),
+      retire: (trackId, fields) => library.retireWrittenOverrides(trackId, fields),
+      // W16-11: the cover is resolved from the override store at apply time,
+      // never from bytes the review held (R7, same discipline as the text fields).
+      resolveArtwork: (trackId) => library.artworkWriteIntent(trackId),
+      // The per-file retires above each announce; one event for the whole flush.
+      batch: (fn) => libraryChanges.batch(fn),
+      // W24-8: rows whose correction an agent changeset left are badged in the
+      // review — a join against the journal at load time (D36.6). Late-bound:
+      // the journal's entities are built below, from services built above.
+      provenance: (trackIds) => agentProvenance.forTracks(trackIds)
+    })
+
+    const journalEntities = createJournalEntities({ db, playlists, library, tags })
+    const agentProvenance = createAgentProvenance({ db, entities: journalEntities })
+    const agentJournal = createAgentJournal({
+      db,
+      entities: journalEntities,
+      changes: libraryChanges,
+      onChanged: broadcastAgentChangesets
+    })
+    const agentAccess = createAgentAccessService({
+      settings,
+      tokens: createAgentTokenStore({
+        sealer: safeStorage,
+        io: createCredentialFileIo(agentTokenPath())
+      }),
+      // The same services IPC calls (D36.3), which is why this waits for them.
+      // `query` is the exception that proves it: agent SQL runs in its own
+      // process on a confined read-only connection, never on `db` (D36.4, R19).
+      // Nothing is spawned until an agent first queries.
+      tools: {
+        library,
+        playlists,
+        stats,
+        history,
+        query: queryHost,
+        journal: agentJournal,
+        // Organize (W24-7): the same playlist service and tag store IPC uses.
+        organize: { playlists, tags, reads: createOrganizeReads(db) },
+        // Stage corrections (W24-8): the override services IPC calls, and the
+        // review's preview — never its apply (D36.5).
+        stage: { library, writeback: tagWriteback, reads: createStageReads(db) }
+      },
+      version: app.getVersion(),
+      onStatusChanged: broadcastAgentAccess
+    })
+    agentAccessService = agentAccess
+    void agentAccess.sync()
+
     // Favorites (D18), and the loved push (W11-6). Same connection, one table,
     // and still no network of its own: hearting a track is complete before
     // anything is pushed anywhere. The push is the listen commit's arrangement
@@ -886,12 +999,6 @@ if (!app.requestSingleInstanceLock()) {
       onChanged: () => void scrobbleDrain.wake()
     })
 
-    // User tags (W15). Same connection, its own tables, no network: coining and
-    // applying a tag is a local write, and D7 keeps it there — v1 never touches
-    // the file's own genre frames. Rescan-safe by the W15-1 schema, so the store
-    // is just handed the connection and asked nothing more.
-    const tags = new TagStore(db)
-
     // W15-4 — the tag suggestions D14's fifth source. It resolves the playing
     // track's artist MBID off the `artists` row, looks the artist's genres and
     // tags up through the same gate `relations` and `links` use, and dedups the
@@ -899,24 +1006,6 @@ if (!app.requestSingleInstanceLock()) {
     // offered when it is neither on the file nor already the operator's, and the
     // whole networked half is silent when consent is off.
     const tagSuggestions = createTagSuggestionService({ db, client: net.client, cache, tags })
-
-    // W16-6 — the staged tag write-back review's main half. It flushes the
-    // correction layers `tags` and the override rows own back into the actual
-    // file tags through the atomic engine (W16-2/W16-4), reading each file fresh
-    // so the diff and the write both reconcile out-of-band edits rather than
-    // clobber them (R7). The renderer scopes a review to a track set and never
-    // sees a path.
-    const tagWriteback = new TagWritebackService({
-      differ: new TagWritebackDiffer(db),
-      resolvePath: trackPathResolver(db),
-      // The review's default is every unwritten correction (W16-6), and a flush
-      // retires the overrides it lands so the track leaves the list.
-      pendingTrackIds: () => library.pendingWritebackTrackIds(),
-      retire: (trackId, fields) => library.retireWrittenOverrides(trackId, fields),
-      // W16-11: the cover is resolved from the override store at apply time,
-      // never from bytes the review held (R7, same discipline as the text fields).
-      resolveArtwork: (trackId) => library.artworkWriteIntent(trackId)
-    })
 
     // W6-6 — manual in-app updates. The driver is loaded only for the two
     // installs that actually self-update (NSIS, AppImage). A `.deb` never sees
@@ -1044,7 +1133,8 @@ if (!app.requestSingleInstanceLock()) {
       presence.stop()
       noctalia.stop()
       // No agent call may start against a database that is about to close.
-      void agentServer?.close()
+      void agentAccess.stop()
+      queryHost.close()
 
       // First of the awaited steps, because it is the only one that needs the
       // renderer alive and
@@ -1112,7 +1202,26 @@ if (!app.requestSingleInstanceLock()) {
       // W20-4: presence's main-side sink — the service that maps the signal to a
       // Discord activity and drives the client, in place of W20-1's no-op stub.
       presence,
-      noctalia
+      noctalia,
+      agentAccess,
+      agentJournal,
+      // W24-10: resolved on request, so an AppImage's stable copy of the bridge
+      // is refreshed the first time Settings asks after an update.
+      () => {
+        try {
+          return resolveBridgeLaunch({
+            isPackaged: app.isPackaged,
+            execPath: process.execPath,
+            resourcesPath: process.resourcesPath,
+            appRoot: app.getAppPath(),
+            appImage: process.env.APPIMAGE,
+            stableDir: join(app.getPath('userData'), 'mcp')
+          })
+        } catch (error) {
+          console.error('[mcp] could not place the stdio bridge:', error)
+          return null
+        }
+      }
     )
 
     // On app start, per W11-2: a queue that filled up while the machine was

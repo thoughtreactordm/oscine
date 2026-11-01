@@ -1,4 +1,6 @@
 import { OscineError, type IpcResult } from '@shared/errors'
+import type { AgentAccessStatus } from '@shared/agentAccess'
+import type { LibraryChanged } from '@shared/libraryChanges'
 import type {
   ListFacetIdsQuery,
   ListFacetsQuery,
@@ -35,7 +37,9 @@ import type {
   ListPlaylistEntriesQuery,
   ListPlaylistEntryGroupsQuery,
   ListPlaylistEntryIdsQuery,
+  ClearPlaylistExclusionsRequest,
   MovePlaylistEntriesRequest,
+  PlaylistKind,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
 import type {
@@ -118,7 +122,9 @@ export const library = {
     window.oscine.library.onScanProgress(listener),
   onNotice: (listener: (notice: LibraryNotice) => void) => window.oscine.library.onNotice(listener),
   onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
-    window.oscine.library.onReplayGainProgress(listener)
+    window.oscine.library.onReplayGainProgress(listener),
+  onChanged: (listener: (event: LibraryChanged) => void) =>
+    window.oscine.library.onChanged(listener)
 }
 
 /**
@@ -332,6 +338,14 @@ export const playlists = {
     unwrap(window.oscine.playlists.moveEntries(payload)),
   removeEntries: (payload: RemovePlaylistEntriesRequest) =>
     unwrap(window.oscine.playlists.removeEntries(payload)),
+  setKind: (playlistId: number, kind: PlaylistKind) =>
+    unwrap(window.oscine.playlists.setKind(playlistId, kind)),
+  setBrief: (playlistId: number, brief: string | null) =>
+    unwrap(window.oscine.playlists.setBrief(playlistId, brief)),
+  listExclusions: (playlistId: number) =>
+    unwrap(window.oscine.playlists.listExclusions(playlistId)),
+  clearExclusions: (payload: ClearPlaylistExclusionsRequest) =>
+    unwrap(window.oscine.playlists.clearExclusions(payload)),
   /** Resolves `null` when the operator dismisses the save dialog. */
   exportM3u8: (payload: ExportPlaylistRequest) =>
     unwrap(window.oscine.playlists.exportM3u8(payload))
@@ -465,6 +479,31 @@ export const scrobble = {
   /** Returns an unsubscribe function. Call it on unmount. */
   onStatusChanged: (listener: (targets: ScrobbleTargetStatus[]) => void) =>
     window.oscine.scrobble.onStatusChanged(listener)
+}
+
+/**
+ * Agent access — the local MCP server's status, its token on request, and the
+ * two operator actions on it (W24-2). The switches themselves are ordinary
+ * settings writes.
+ */
+export const agentAccess = {
+  status: () => unwrap(window.oscine.agentAccess.status()),
+  retry: () => unwrap(window.oscine.agentAccess.retry()),
+  revealToken: () => unwrap(window.oscine.agentAccess.revealToken()),
+  regenerateToken: () => unwrap(window.oscine.agentAccess.regenerateToken()),
+  /** How Claude Desktop starts the stdio bridge (W24-10). */
+  bridgeLaunch: () => unwrap(window.oscine.agentAccess.bridgeLaunch()),
+  /** Returns an unsubscribe function. Call it on unmount. */
+  onChanged: (listener: (status: AgentAccessStatus) => void) =>
+    window.oscine.agentAccess.onChanged(listener)
+}
+
+/** The agent change journal (W24-6): recent changesets and their Revert. */
+export const agentChangesets = {
+  list: (limit: number) => unwrap(window.oscine.agentChangesets.list(limit)),
+  revert: (changesetId: number) => unwrap(window.oscine.agentChangesets.revert(changesetId)),
+  /** Returns an unsubscribe function. Call it on unmount. */
+  onChanged: (listener: () => void) => window.oscine.agentChangesets.onChanged(listener)
 }
 
 /**

@@ -16,6 +16,7 @@ import { AUDIO_SETTINGS } from './settings/audio'
 import { DISCORD_SETTINGS } from './settings/discord'
 import { INTERFACE_SETTINGS } from './settings/interface'
 import { LIBRARY_SETTINGS } from './settings/library'
+import { MCP_SETTINGS } from './settings/mcp'
 import { NETWORK_SETTINGS } from './settings/network'
 import { SCROBBLING_SETTINGS } from './settings/scrobbling'
 import { THEME_SETTINGS } from './settings/theme'
@@ -130,6 +131,13 @@ export {
 } from './settings/discord'
 export type { DiscordDisplay, DiscordSettings, DiscordWhenPaused } from './settings/discord'
 export {
+  MCP_CAPABILITY_DEFAULTS,
+  MCP_CAPABILITY_KEYS,
+  MCP_ENABLED_KEY,
+  MCP_PORT_KEY,
+  MCP_SETTINGS
+} from './settings/mcp'
+export {
   LASTFM_API_KEY,
   LASTFM_API_SECRET,
   LASTFM_APP_KEY_HELP,
@@ -165,6 +173,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = Object.freeze([
   ...NETWORK_SETTINGS,
   ...SCROBBLING_SETTINGS,
   ...DISCORD_SETTINGS,
+  ...MCP_SETTINGS,
   ...VIEW_SETTINGS
 ])
 

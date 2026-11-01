@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { LIBRARY_COVERAGE_FIELDS, type LibraryOverview } from '@shared/library'
 
@@ -35,8 +35,11 @@ export const libraryOverviewOutput = z.object({
  * `structuredContent` for clients that read it and as JSON text for those that
  * do not.
  */
-export function registerLibraryOverview(server: McpServer, deps: LibraryOverviewDeps): void {
-  server.registerTool(
+export function registerLibraryOverview(
+  server: McpServer,
+  deps: LibraryOverviewDeps
+): RegisteredTool {
+  return server.registerTool(
     'library_overview',
     {
       title: 'Library overview',

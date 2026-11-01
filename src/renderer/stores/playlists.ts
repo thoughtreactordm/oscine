@@ -6,8 +6,10 @@ import { usePlaybackStore } from '@renderer/stores/playback'
 import type { TabSession, TabStop } from '@shared/settings'
 import type {
   Playlist,
+  PlaylistExclusion,
   PlaylistExportResult,
   PlaylistInsertion,
+  PlaylistKind,
   PlaylistPathStyle
 } from '@shared/playlists'
 
@@ -131,6 +133,23 @@ export const usePlaylistsStore = defineStore('playlists', () => {
    */
   const entriesEdited = ref<{ playlistId: number; seq: number } | null>(null)
 
+  /** Set when `refreshAfterChange` lands while a read is already in flight. */
+  let refreshAgain = false
+
+  /**
+   * `refresh` for a write made elsewhere — a `library.changed` (D36.9).
+   *
+   * Unlike the mount-time call this cannot be dropped by the in-flight guard: a
+   * read already under way may predate the write, so it is read once more after.
+   */
+  async function refreshAfterChange(): Promise<void> {
+    if (loading.value) {
+      refreshAgain = true
+      return
+    }
+    await refresh()
+  }
+
   function noteEntriesChanged(playlistId: number): void {
     entriesEdited.value = { playlistId, seq: (entriesEdited.value?.seq ?? 0) + 1 }
   }
@@ -149,6 +168,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   async function refresh(): Promise<void> {
     if (loading.value) return
     loading.value = true
+    refreshAgain = false
     try {
       list.value = await playlists.list()
       // A persisted id whose playlist no longer exists cannot stay — it may have
@@ -168,6 +188,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     } finally {
       loading.value = false
     }
+    if (refreshAgain) await refresh()
   }
 
   /**
@@ -345,6 +366,53 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     }
   }
 
+  /**
+   * Make smart / Make static (D36.8). Nothing runs: a smart playlist is one the
+   * operator's agent may keep up to date when asked, and the app never does.
+   */
+  async function setKind(playlistId: number, kind: PlaylistKind): Promise<void> {
+    try {
+      await playlists.setKind(playlistId, kind)
+      await refresh()
+    } catch (cause) {
+      report(cause, 'That playlist could not be changed.')
+    }
+  }
+
+  /** The operator's brief for a smart playlist. Blank clears it. */
+  async function setBrief(playlistId: number, brief: string | null): Promise<boolean> {
+    try {
+      await playlists.setBrief(playlistId, brief)
+      await refresh()
+      return true
+    } catch (cause) {
+      report(cause, 'That brief could not be saved.')
+      return false
+    }
+  }
+
+  /** The tracks kept out of a smart playlist, or `null` when the read failed. */
+  async function listExclusions(playlistId: number): Promise<PlaylistExclusion[] | null> {
+    try {
+      return await playlists.listExclusions(playlistId)
+    } catch (cause) {
+      report(cause, 'Could not read the excluded tracks.')
+      return null
+    }
+  }
+
+  /** Lets excluded tracks back in; omit `trackIds` for all of them. */
+  async function clearExclusions(playlistId: number, trackIds?: readonly number[]): Promise<void> {
+    try {
+      await playlists.clearExclusions(
+        trackIds === undefined ? { playlistId } : { playlistId, trackIds: [...trackIds] }
+      )
+      await refresh()
+    } catch (cause) {
+      report(cause, 'Those exclusions could not be cleared.')
+    }
+  }
+
   async function reorder(playlistId: number, toIndex: number): Promise<void> {
     try {
       // Returns the whole list rather than the moved playlist, so the rail
@@ -396,7 +464,12 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     entriesEdited,
     noteEntriesChanged,
     reorder,
+    setKind,
+    setBrief,
+    listExclusions,
+    clearExclusions,
     exportM3u8,
+    refreshAfterChange,
     viewCreated
   }
 })

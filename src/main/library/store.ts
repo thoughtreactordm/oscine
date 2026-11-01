@@ -26,6 +26,7 @@ import type {
   TrackSortColumn
 } from '@shared/library'
 import type { AlbumCard } from '@shared/albums'
+import { LIBRARY_COVERAGE_FIELDS } from '@shared/library'
 import { normalizeLabel, splitGenres } from '@shared/genre'
 import { artworkUrl } from '@shared/ipc'
 import type { OverrideEditState, OverrideField, OverridePatch } from '@shared/overrides'
@@ -33,6 +34,7 @@ import { isEditableTagField, TAG_FIELDS } from '@shared/tagFields'
 import type { GroupedWritebackField } from '@shared/tagWriteback'
 import type { FavoriteBias, RelatedAlbum } from '@shared/related'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
+import { PRESENCE_SQL } from './agentReads'
 import type { TrackTags } from './metadata'
 import { buildOverrideEditState, type OverrideEditRow } from './overrides/editState'
 import { redundantOverrideColumns, type TrackOverrideRow } from './writeback/diff'
@@ -707,12 +709,12 @@ function prepareStatements(db: Database.Database) {
         root_id, rel_path, mtime, size, duration_ms, codec, sample_rate, channels,
         bit_depth, title, artist_id, album_id, track_no, disc_no, genre,
         rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, rg_source,
-        indexed_at
+        indexed_at, tag_album_artist, tag_year
       ) VALUES (
         @rootId, @relPath, @mtime, @size, @durationMs, @codec, @sampleRate, @channels,
         @bitDepth, @title, @artistId, @albumId, @trackNo, @discNo, @genre,
         @rgTrackGain, @rgTrackPeak, @rgAlbumGain, @rgAlbumPeak, @rgSource,
-        @indexedAt
+        @indexedAt, @tagAlbumArtist, @tagYear
       )
       -- D25: indexed_at is the arrival clock. It is set on INSERT and deliberately
       -- absent from this UPDATE set — a rescan is not an arrival, so an existing
@@ -724,6 +726,7 @@ function prepareStatements(db: Database.Database) {
         title = excluded.title, artist_id = excluded.artist_id,
         album_id = excluded.album_id, track_no = excluded.track_no,
         disc_no = excluded.disc_no, genre = excluded.genre,
+        tag_album_artist = excluded.tag_album_artist, tag_year = excluded.tag_year,
         rg_track_gain = CASE
           WHEN excluded.rg_source IS NULL AND tracks.rg_source = 'computed'
             THEN tracks.rg_track_gain
@@ -1190,24 +1193,13 @@ export class LibraryStore {
          GROUP BY r.id ORDER BY r.id`
       )
       .all() as LibraryOverview['roots']
+    // One definition of "has a value" per field, shared with `find_tracks`'s
+    // present/missing filter (W24-4), so a count and the tracks it counts agree.
     const coverage = this.db
       .prepare(
-        `SELECT
-           COALESCE(SUM(NULLIF(TRIM(t.title), '') IS NOT NULL), 0)                  AS title,
-           COALESCE(SUM(t.artist_id IS NOT NULL), 0)                                AS artist,
-           COALESCE(SUM(t.album_id IS NOT NULL), 0)                                 AS album,
-           COALESCE(SUM(NULLIF(TRIM(COALESCE(o.album_artist_name, aa.name)), '') IS NOT NULL), 0)
-                                                                                    AS albumArtist,
-           COALESCE(SUM(t.track_no IS NOT NULL), 0)                                 AS trackNo,
-           COALESCE(SUM(t.disc_no IS NOT NULL), 0)                                  AS discNo,
-           COALESCE(SUM(al.year IS NOT NULL), 0)                                    AS year,
-           COALESCE(SUM(NULLIF(TRIM(COALESCE(o.genre, t.genre)), '') IS NOT NULL), 0) AS genre,
-           COALESCE(SUM((CASE WHEN awo.track_id IS NOT NULL THEN awo.image_hash
-                              ELSE al.artwork_hash END) IS NOT NULL), 0)            AS artwork,
-           COALESCE(SUM(t.rg_track_gain IS NOT NULL), 0)                            AS replayGainTrack,
-           COALESCE(SUM(t.rg_album_gain IS NOT NULL), 0)                            AS replayGainAlbum,
-           COALESCE(SUM(EXISTS (SELECT 1 FROM track_tags tt WHERE tt.track_id = t.id)), 0)
-                                                                                    AS userTags
+        `SELECT ${LIBRARY_COVERAGE_FIELDS.map(
+          (field) => `COALESCE(SUM(${PRESENCE_SQL[field]}), 0) AS ${field}`
+        ).join(',\n                ')}
          FROM tracks t
          LEFT JOIN albums  al ON al.id = t.album_id
          LEFT JOIN artists aa ON aa.id = al.album_artist_id
@@ -1410,7 +1402,12 @@ export class LibraryStore {
       rgSource: gain === null ? null : 'tag',
       // D25: the arrival stamp. Ignored by the upsert's UPDATE set on a rescan,
       // so it only ever takes effect on the row's first insert.
-      indexedAt
+      indexedAt,
+      // Migration 028's scan facts, for `find_issues` (W24-4): whether the file
+      // itself named an album artist (the grouping above falls back to the
+      // performer, which hides it), and the file's own year (albums keep one).
+      tagAlbumArtist: tags.albumArtist === null ? 0 : 1,
+      tagYear: tags.year
     }) as { id: number }
 
     // Migration 013's `track_genres` is derived, and this is where it is

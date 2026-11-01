@@ -9,6 +9,11 @@ import type { GetArtistLinksRequest } from '@shared/artistLinks'
 import type { GetArtistRelationsRequest } from '@shared/artistRelations'
 import type { GetArtistBiographyRequest } from '@shared/biography'
 import type { GetArtistImageRequest } from '@shared/artistImage'
+import {
+  MAX_CHANGESET_LIST,
+  type ListAgentChangesetsRequest,
+  type RevertAgentChangesetRequest
+} from '@shared/agentChangesets'
 import { OscineError } from '@shared/errors'
 import {
   MAX_FAVORITE_IDS_PAGE,
@@ -147,11 +152,17 @@ import {
 } from '@shared/discover'
 import {
   MAX_PLAYLIST_BATCH,
+  MAX_PLAYLIST_BRIEF_LENGTH,
   MAX_PLAYLIST_ENTRY_ID_PAGE,
   MAX_PLAYLIST_ENTRY_PAGE,
   MAX_PLAYLIST_NAME_LENGTH,
+  PLAYLIST_KINDS,
   PLAYLIST_PATH_STYLES,
   type AddTracksToPlaylistRequest,
+  type ClearPlaylistExclusionsRequest,
+  type PlaylistKind,
+  type SetPlaylistBriefRequest,
+  type SetPlaylistKindRequest,
   type ExportPlaylistRequest,
   type ListPlaylistEntriesQuery,
   type ListPlaylistEntryGroupsQuery,
@@ -1497,6 +1508,42 @@ export function assertRemoveEntriesRequest(value: unknown): RemovePlaylistEntrie
   }
 }
 
+export function assertSetPlaylistKindRequest(value: unknown): SetPlaylistKindRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['playlistId', 'kind'])
+  if (typeof raw.kind !== 'string' || !PLAYLIST_KINDS.includes(raw.kind as never)) {
+    invalid(`kind must be one of: ${PLAYLIST_KINDS.join(', ')}.`)
+  }
+  return {
+    playlistId: assertPositiveInt(raw.playlistId, 'playlistId'),
+    kind: raw.kind as PlaylistKind
+  }
+}
+
+export function assertSetPlaylistBriefRequest(value: unknown): SetPlaylistBriefRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['playlistId', 'brief'])
+  if (raw.brief !== null && typeof raw.brief !== 'string')
+    invalid('brief must be a string or null.')
+  if (typeof raw.brief === 'string' && [...raw.brief.trim()].length > MAX_PLAYLIST_BRIEF_LENGTH) {
+    invalid(`brief must not exceed ${MAX_PLAYLIST_BRIEF_LENGTH} characters.`)
+  }
+  return {
+    playlistId: assertPositiveInt(raw.playlistId, 'playlistId'),
+    brief: raw.brief
+  }
+}
+
+export function assertClearPlaylistExclusionsRequest(
+  value: unknown
+): ClearPlaylistExclusionsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['playlistId', 'trackIds'])
+  const playlistId = assertPositiveInt(raw.playlistId, 'playlistId')
+  if (raw.trackIds === undefined) return { playlistId }
+  return { playlistId, trackIds: assertPlaylistIdBatch(raw.trackIds, 'trackIds') }
+}
+
 export function assertExportPlaylistRequest(value: unknown): ExportPlaylistRequest {
   const raw = assertRecord(value, 'request')
   assertOnlyKeys(raw, ['playlistId', 'pathStyle'])
@@ -2124,4 +2171,20 @@ function assertRipTrack(value: unknown, index: number): RipTrackSelection {
     title: assertTagText(raw.title, `tracks[${index}].title`),
     artist: assertTagText(raw.artist, `tracks[${index}].artist`)
   }
+}
+
+/** `agentChangesets.list` — a bounded page of the most recent changesets (W24-6). */
+export function assertListAgentChangesetsRequest(value: unknown): ListAgentChangesetsRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['limit'])
+  const limit = assertPositiveInt(raw.limit, 'limit')
+  if (limit > MAX_CHANGESET_LIST) invalid(`limit must be at most ${MAX_CHANGESET_LIST}.`)
+  return { limit }
+}
+
+/** `agentChangesets.revert` — one changeset by id, and nothing else (W24-6). */
+export function assertRevertAgentChangesetRequest(value: unknown): RevertAgentChangesetRequest {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['changesetId'])
+  return { changesetId: assertPositiveInt(raw.changesetId, 'changesetId') }
 }

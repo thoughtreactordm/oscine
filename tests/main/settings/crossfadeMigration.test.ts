@@ -127,7 +127,18 @@ describe('folding per-playlist crossfade into the cascade', () => {
       .map((column) => column.name)
 
     expect(columns).not.toContain('crossfade_ms')
-    expect(columns).toEqual(['id', 'name', 'position', 'created_at', 'updated_at'])
+    // Plus W24-9's smart-playlist columns (migration 031), none of them a setting.
+    expect(columns).toEqual([
+      'id',
+      'name',
+      'position',
+      'created_at',
+      'updated_at',
+      'kind',
+      'brief',
+      'agent_notes',
+      'refreshed_at'
+    ])
   })
 
   it('keeps the playlists themselves intact', () => {

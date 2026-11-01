@@ -81,6 +81,21 @@ import type { ReplayGainAnalyzer } from '../replaygain/analyzer'
 import { ReplayGainJobService } from '../replaygain/jobService'
 import { ingestRippedTracks } from '../cdrip/ingest'
 import { toRelPath } from '../db/paths'
+import { NO_LIBRARY_CHANGES, type LibraryChangeNotifier } from './changes'
+import {
+  AgentReadStore,
+  type AgentAlbum,
+  type AgentAlbumQuery,
+  type AgentArtist,
+  type AgentArtistQuery,
+  type AgentTrack,
+  type AgentTrackField,
+  type AgentTrackQuery,
+  type IssueCheck,
+  type IssueGroups,
+  type IssueSummary,
+  type Page
+} from './agentReads'
 
 /**
  * The database-backed library.
@@ -165,6 +180,11 @@ export interface SqliteLibraryDeps {
    * tests want.
    */
   canComputeReplayGain?: () => boolean
+  /**
+   * Announces each committed correction write as `library.changed` (D36.9).
+   * Silent when omitted, which is what most tests want.
+   */
+  changes?: LibraryChangeNotifier
 }
 
 function conflictMessage(conflict: RootConflict): string {
@@ -192,6 +212,7 @@ function toLibraryRoot(row: RootRow, watchMode: LibraryWatchMode): LibraryRoot {
 
 export class SqliteLibraryService implements LibraryService {
   private readonly store: LibraryStore
+  private readonly agentReads: AgentReadStore
   private readonly tagOverrides: TagOverrideStore
   private readonly readMetadata: MetadataReader
   private readonly readFormatDetail: FormatDetailReader
@@ -204,6 +225,7 @@ export class SqliteLibraryService implements LibraryService {
   private readonly artwork: ArtworkCacheService | null
   private readonly originals: ArtworkOriginalsStore | null
   private readonly discover: DiscoverEngine
+  private readonly changes: LibraryChangeNotifier
   private readonly watchModes = new Map<number, LibraryWatchMode>()
   private readonly degradedRoots = new Set<number>()
   private readonly watchQueues = new Map<number, Promise<void>>()
@@ -224,8 +246,10 @@ export class SqliteLibraryService implements LibraryService {
 
   constructor(private readonly deps: SqliteLibraryDeps) {
     this.store = new LibraryStore(deps.db)
+    this.agentReads = new AgentReadStore(deps.db)
     this.tagOverrides = new TagOverrideStore(deps.db)
     this.discover = new DiscoverEngine(deps.db)
+    this.changes = deps.changes ?? NO_LIBRARY_CHANGES
     this.readMetadata = deps.readMetadata ?? readTrackTags
     this.readFormatDetail = deps.readFormatDetail ?? readTrackFormatDetail
     this.readTagFields = deps.readTagFields ?? readTagFields
@@ -328,6 +352,33 @@ export class SqliteLibraryService implements LibraryService {
     return this.store.libraryOverview()
   }
 
+  async findTracks(query: AgentTrackQuery): Promise<Page<AgentTrack>> {
+    return this.agentReads.findTracks(query)
+  }
+
+  async getAgentTracks(
+    ids: readonly number[],
+    fields: readonly AgentTrackField[]
+  ): Promise<AgentTrack[]> {
+    return this.agentReads.getTracks(ids, fields)
+  }
+
+  async findAlbums(query: AgentAlbumQuery): Promise<Page<AgentAlbum>> {
+    return this.agentReads.findAlbums(query)
+  }
+
+  async findArtists(query: AgentArtistQuery): Promise<Page<AgentArtist>> {
+    return this.agentReads.findArtists(query)
+  }
+
+  async issueSummary(): Promise<IssueSummary> {
+    return this.agentReads.issueSummary()
+  }
+
+  async findIssues<C extends IssueCheck>(check: C): Promise<IssueGroups[C][]> {
+    return this.agentReads.issues(check)
+  }
+
   async scanRoot(rootId: number): Promise<ScanSummary> {
     return this.startScan(rootId)
   }
@@ -400,6 +451,7 @@ export class SqliteLibraryService implements LibraryService {
     patch: OverridePatch
   }): Promise<void> {
     this.store.setOverrides(request.trackIds, request.patch, Date.now())
+    if (Object.keys(request.patch).length > 0) this.changes.notify({ overrides: request.trackIds })
   }
 
   async clearOverrides(request: {
@@ -419,6 +471,7 @@ export class SqliteLibraryService implements LibraryService {
       }
     }
     this.store.revertOverrides(entries, request.fields, Date.now())
+    this.changes.notify({ overrides: entries.map((entry) => entry.trackId) })
   }
 
   async pendingWritebackTrackIds(): Promise<number[]> {
@@ -426,15 +479,20 @@ export class SqliteLibraryService implements LibraryService {
   }
 
   async discardAllOverrides(): Promise<void> {
-    // Generic corrections are rows and nothing else — no file read to revert them.
-    this.tagOverrides.revertAll()
-    const trackIds = this.store.pendingWritebackTrackIds()
-    if (trackIds.length === 0) return
-    // Reverting every field of every edited track re-reads each file and restores
-    // it — a deliberate, bounded cost for a deliberate destructive action.
-    await this.clearOverrides({ trackIds, fields: OVERRIDE_FIELDS })
-    this.store.removeArtworkOverrides(trackIds)
-    await this.gcArtworkOriginals()
+    // One announcement for the whole discard, however many steps it takes.
+    await this.changes.batch(async () => {
+      // Generic corrections are rows and nothing else — no file read to revert them.
+      this.tagOverrides.revertAll()
+      this.changes.notify({ tagOverrides: 'all' })
+      const trackIds = this.store.pendingWritebackTrackIds()
+      if (trackIds.length === 0) return
+      // Reverting every field of every edited track re-reads each file and restores
+      // it — a deliberate, bounded cost for a deliberate destructive action.
+      await this.clearOverrides({ trackIds, fields: OVERRIDE_FIELDS })
+      this.store.removeArtworkOverrides(trackIds)
+      this.changes.notify({ overrides: trackIds })
+      await this.gcArtworkOriginals()
+    })
   }
 
   async setTagOverrides(request: {
@@ -442,6 +500,9 @@ export class SqliteLibraryService implements LibraryService {
     patch: TagFieldPatch
   }): Promise<void> {
     this.tagOverrides.set(request.trackIds, request.patch, Date.now())
+    if (Object.keys(request.patch).length > 0) {
+      this.changes.notify({ tagOverrides: request.trackIds })
+    }
   }
 
   async revertTagOverrides(request: {
@@ -449,6 +510,7 @@ export class SqliteLibraryService implements LibraryService {
     fields: readonly TagFieldKey[]
   }): Promise<void> {
     this.tagOverrides.revert(request.trackIds, request.fields)
+    if (request.fields.length > 0) this.changes.notify({ tagOverrides: request.trackIds })
   }
 
   async getTagFieldEditState(trackIds: readonly number[]): Promise<TagFieldEditState> {
@@ -476,6 +538,10 @@ export class SqliteLibraryService implements LibraryService {
     const generic = fields.filter((field): field is TagFieldKey => !isGroupedWritebackField(field))
     this.store.retireWrittenOverrides(trackId, grouped, Date.now())
     this.tagOverrides.revert([trackId], generic)
+    this.changes.notify({
+      ...(grouped.length > 0 ? { overrides: [trackId] } : {}),
+      ...(generic.length > 0 ? { tagOverrides: [trackId] } : {})
+    })
     if (fields.includes('artwork')) await this.gcArtworkOriginals()
   }
 
@@ -513,7 +579,9 @@ export class SqliteLibraryService implements LibraryService {
       // detail is dropped here and the operator gets a safe, generic message.
       throw new OscineError('io-error', 'That image could not be read.')
     }
-    return artwork.setCover(trackIds, bytes)
+    const ref = await artwork.setCover(trackIds, bytes)
+    this.changes.notify({ overrides: trackIds })
+    return ref
   }
 
   async setArtworkFromBytes(
@@ -524,15 +592,19 @@ export class SqliteLibraryService implements LibraryService {
     // one-way drag/drop/paste payload matches the bridge surface.
     _mime: string
   ): Promise<ArtworkRef> {
-    return this.requireArtwork().setCover(trackIds, bytes)
+    const ref = await this.requireArtwork().setCover(trackIds, bytes)
+    this.changes.notify({ overrides: trackIds })
+    return ref
   }
 
   async clearArtwork(trackIds: readonly number[]): Promise<void> {
     await this.requireArtwork().clearCover(trackIds)
+    this.changes.notify({ overrides: trackIds })
   }
 
   async revertArtwork(trackIds: readonly number[]): Promise<void> {
     await this.requireArtwork().revertCover(trackIds)
+    this.changes.notify({ overrides: trackIds })
   }
 
   /** The artwork service, or a typed failure on a library wired without one. */

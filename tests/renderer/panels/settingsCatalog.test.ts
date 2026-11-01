@@ -159,7 +159,9 @@ describe('generated from descriptors', () => {
     const categories = catalog.sections.map((section) => section.id)
 
     expect(categories.indexOf('audio')).toBeLessThan(categories.indexOf('library'))
-    expect(categories[categories.length - 1]).toBe('network')
+    // Agent access (W24-2) sorts after Network; About holds no stored keys.
+    expect(categories.indexOf('network')).toBe(categories.length - 2)
+    expect(categories[categories.length - 1]).toBe('integrations')
 
     const network = buildSettingsCatalog(FIXTURE, {
       category: 'network',

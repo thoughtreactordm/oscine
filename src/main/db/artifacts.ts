@@ -120,6 +120,24 @@ export const SCROBBLE_CREDENTIALS_ARTIFACT: UserDataArtifact = {
 }
 
 /**
+ * The agent server's bearer token (W24-2, `oscine-mcp` → D36.1), sealed with
+ * `safeStorage` the way D19's credentials are.
+ *
+ * `derived` for the scrobbling file's strong reason: it is what puts the name
+ * into `EXPORT_EXCLUDED_ARTIFACTS`, and a token that admits an agent to this
+ * library must never leave the machine. Losing it costs one regenerate and a
+ * re-paste of the client config.
+ */
+export const AGENT_TOKEN_ARTIFACT: UserDataArtifact = {
+  name: 'agent-token.json',
+  kind: 'derived',
+  why:
+    'The bearer token local AI agents present to Oscine’s agent server (D36.1), sealed with ' +
+    'Electron’s safeStorage. Regenerated from Settings, never exported, and useless on any ' +
+    'machine but the one that wrote it.'
+}
+
+/**
  * The `.osctheme` files the operator dropped in or exported into, which the
  * Theme picker lists by name.
  *
@@ -150,6 +168,7 @@ export const USER_DATA_ARTIFACTS: readonly UserDataArtifact[] = [
   ARTWORK_ORIGINALS_ARTIFACT,
   PODCASTS_ARTIFACT,
   SCROBBLE_CREDENTIALS_ARTIFACT,
+  AGENT_TOKEN_ARTIFACT,
   THEMES_ARTIFACT
 ]
 

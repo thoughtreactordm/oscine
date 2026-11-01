@@ -140,6 +140,25 @@ export interface PendingWrite {
   readonly fields: TagFieldDiffs
   /** True when at least one field's `changed` is set. */
   readonly hasChanges: boolean
+  /**
+   * Which of this track's standing corrections an agent made — **W24-8**,
+   * `oscine-mcp` → D36.6. Absent when none did. Resolved when the review
+   * loads, by a join against the agent journal, not stored on the overrides.
+   */
+  readonly agent?: AgentProvenance
+}
+
+/**
+ * The agent provenance of one track's corrections — **W24-8**.
+ *
+ * A field counts when its correction is still exactly what an agent changeset
+ * left: an operator edit made after it, or a revert, takes the field out.
+ */
+export interface AgentProvenance {
+  /** The writable fields whose current correction an agent made. */
+  readonly fields: readonly WritebackField[]
+  /** The changesets those corrections came from, ascending. */
+  readonly changesetIds: readonly number[]
 }
 
 /**
@@ -215,6 +234,15 @@ export function isWritebackField(key: string): key is WritebackField {
  * reads a single request can trigger. A caller with more chunks against it.
  */
 export const MAX_WRITEBACK_TRACKS = 50_000
+
+/**
+ * The five codecs D28 writes in v1; a file in any other format is refused with
+ * `unsupported-format`. Shared so the agent's `list_tag_fields` (W24-4) can say
+ * which formats a staged correction can reach without a copy of the list.
+ */
+export const WRITEBACK_CODECS = ['flac', 'mp3', 'vorbis', 'opus', 'aac'] as const
+
+export type WritebackCodec = (typeof WRITEBACK_CODECS)[number]
 
 /**
  * One track's approved fields to flush — the subset of {@link WRITEBACK_FIELDS}

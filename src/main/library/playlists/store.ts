@@ -10,7 +10,10 @@ import type {
   ListPlaylistEntryIdsResult,
   Playlist,
   PlaylistEntry,
-  PlaylistInsertion
+  PlaylistExclusion,
+  PlaylistExclusionSource,
+  PlaylistInsertion,
+  PlaylistKind
 } from '@shared/playlists'
 import { toAbsPath } from '../../db/paths'
 import {
@@ -42,6 +45,19 @@ export interface PlaylistRow {
   trackCount: number
   createdAt: number
   updatedAt: number
+  kind: PlaylistKind
+  brief: string | null
+  agentNotes: string | null
+  refreshedAt: number | null
+  exclusionCount: number
+}
+
+interface ExclusionRow {
+  trackId: number
+  title: string | null
+  artist: string | null
+  source: PlaylistExclusionSource
+  createdAt: number
 }
 
 interface EntryRow extends TrackRow {
@@ -78,7 +94,12 @@ export const PLAYLIST_PROJECTION = `
   p.name         AS name,
   p.created_at   AS createdAt,
   p.updated_at   AS updatedAt,
-  (SELECT count(*) FROM playlist_entries e WHERE e.playlist_id = p.id) AS trackCount
+  p.kind         AS kind,
+  p.brief        AS brief,
+  p.agent_notes  AS agentNotes,
+  p.refreshed_at AS refreshedAt,
+  (SELECT count(*) FROM playlist_entries e WHERE e.playlist_id = p.id) AS trackCount,
+  (SELECT count(*) FROM playlist_exclusions x WHERE x.playlist_id = p.id) AS exclusionCount
 `
 
 function prepareStatements(db: Database.Database) {
@@ -289,6 +310,54 @@ function prepareStatements(db: Database.Database) {
       )
       WHERE playlist_id = @playlistId
     `),
+    setKind: db.prepare('UPDATE playlists SET kind = ?, updated_at = ? WHERE id = ?'),
+    setBrief: db.prepare('UPDATE playlists SET brief = ?, updated_at = ? WHERE id = ?'),
+    setAgentNotes: db.prepare(
+      'UPDATE playlists SET agent_notes = ?, refreshed_at = ?, updated_at = ? WHERE id = ?'
+    ),
+    stampRefreshed: db.prepare('UPDATE playlists SET refreshed_at = ? WHERE id = ?'),
+    listExclusions: db.prepare(`
+      SELECT x.track_id   AS trackId,
+             COALESCE(o.title, t.title)            AS title,
+             COALESCE(o.artist_name, ar.name)      AS artist,
+             x.source     AS source,
+             x.created_at AS createdAt
+      FROM playlist_exclusions x
+      JOIN tracks t ON t.id = x.track_id
+      LEFT JOIN artists ar ON ar.id = t.artist_id
+      LEFT JOIN track_overrides o ON o.track_id = t.id
+      WHERE x.playlist_id = ?
+      ORDER BY x.created_at DESC, x.track_id ASC
+    `),
+    excludedAmong: db.prepare(`
+      SELECT track_id AS id FROM playlist_exclusions
+      WHERE playlist_id = @playlistId
+        AND track_id IN (SELECT value FROM json_each(@ids))
+    `),
+    addExclusions: db.prepare(`
+      INSERT OR IGNORE INTO playlist_exclusions (playlist_id, track_id, source, created_at)
+      SELECT @playlistId, t.id, @source, @now
+      FROM tracks t
+      WHERE t.id IN (SELECT value FROM json_each(@ids))
+    `),
+    clearExclusions: db.prepare(`
+      DELETE FROM playlist_exclusions
+      WHERE playlist_id = @playlistId
+        AND track_id IN (SELECT value FROM json_each(@ids))
+    `),
+    clearAllExclusions: db.prepare('DELETE FROM playlist_exclusions WHERE playlist_id = ?'),
+    entryTracks: db.prepare(`
+      SELECT DISTINCT track_id AS id
+      FROM playlist_entries
+      WHERE playlist_id = @playlistId
+        AND id IN (SELECT value FROM json_each(@ids))
+    `),
+    tracksStillListed: db.prepare(`
+      SELECT DISTINCT track_id AS id
+      FROM playlist_entries
+      WHERE playlist_id = @playlistId
+        AND track_id IN (SELECT value FROM json_each(@ids))
+    `),
     orderedEntryIds: db.prepare(`
       SELECT id
       FROM playlist_entries
@@ -305,9 +374,32 @@ export function toPlaylist(row: PlaylistRow): Playlist {
     name: row.name,
     trackCount: row.trackCount,
     createdAt: new Date(row.createdAt).toISOString(),
-    updatedAt: new Date(row.updatedAt).toISOString()
+    updatedAt: new Date(row.updatedAt).toISOString(),
+    kind: row.kind,
+    brief: row.brief,
+    agentNotes: row.agentNotes,
+    refreshedAt: row.refreshedAt === null ? null : new Date(row.refreshedAt).toISOString(),
+    exclusionCount: row.exclusionCount
   }
 }
+
+/**
+ * What an entry edit does to a playlist's exclusions (D36.8).
+ *
+ * The store applies the rule; the service decides which applies, because only
+ * the service knows who is editing.
+ */
+export interface ExclusionEffect {
+  /** On add: drop exclusions for the added tracks (the operator adding back by hand). */
+  clearOnAdd?: boolean
+  /** On add: leave excluded tracks out, and say which (an agent's add). */
+  skipExcluded?: boolean
+  /** On remove: exclude each removed track left with no entry, with this source. */
+  excludeOnRemove?: PlaylistExclusionSource | null
+}
+
+const idSet = (rows: unknown[]): Set<number> =>
+  new Set((rows as Array<{ id: number }>).map((row) => row.id))
 
 function notFound(): never {
   throw new OscineError('not-found', 'That playlist no longer exists.')
@@ -479,14 +571,23 @@ export class PlaylistStore {
     playlistId: number,
     trackIds: readonly number[],
     insertion: PlaylistInsertion,
-    now: number
+    now: number,
+    effect: ExclusionEffect = {}
   ): Playlist {
     const playlist = this.require(playlistId)
     if (trackIds.length === 0) return playlist
 
     const write = this.db.transaction(() => {
-      const positions = this.allocate(playlistId, insertion, trackIds.length, [])
-      const rows = trackIds.map((trackId, index) => [trackId, positions[index]])
+      let adding = trackIds
+      if (effect.skipExcluded) {
+        const excluded = this.excludedAmong(playlistId, trackIds)
+        adding = trackIds.filter((id) => !excluded.has(id))
+      } else if (effect.clearOnAdd) {
+        this.statements.clearExclusions.run({ playlistId, ids: JSON.stringify([...trackIds]) })
+      }
+      if (adding.length === 0) return
+      const positions = this.allocate(playlistId, insertion, adding.length, [])
+      const rows = adding.map((trackId, index) => [trackId, positions[index]])
       this.statements.insertEntries.run({ playlistId, rows: JSON.stringify(rows) })
       this.statements.touch.run(now, playlistId)
     })
@@ -536,16 +637,109 @@ export class PlaylistStore {
     return this.require(playlistId)
   }
 
-  removeEntries(playlistId: number, entryIds: readonly number[], now: number): Playlist {
+  /**
+   * Removes entries; with `excludeOnRemove`, also excludes each removed track
+   * that no entry of the playlist still names.
+   *
+   * "Left with no entry" because D12 makes a track legal twice: removing one of
+   * two copies is tidying, not a statement that the track does not belong.
+   */
+  removeEntries(
+    playlistId: number,
+    entryIds: readonly number[],
+    now: number,
+    effect: ExclusionEffect = {}
+  ): Playlist {
     const playlist = this.require(playlistId)
     if (entryIds.length === 0) return playlist
 
     const write = this.db.transaction(() => {
-      this.statements.removeEntries.run({ playlistId, ids: JSON.stringify([...entryIds]) })
+      const ids = JSON.stringify([...entryIds])
+      const source = effect.excludeOnRemove ?? null
+      const removedTracks =
+        source === null ? [] : [...idSet(this.statements.entryTracks.all({ playlistId, ids }))]
+      this.statements.removeEntries.run({ playlistId, ids })
+      if (source !== null && removedTracks.length > 0) {
+        const still = idSet(
+          this.statements.tracksStillListed.all({
+            playlistId,
+            ids: JSON.stringify(removedTracks)
+          })
+        )
+        const gone = removedTracks.filter((id) => !still.has(id))
+        if (gone.length > 0) this.addExclusions(playlistId, gone, source, now)
+      }
       this.statements.touch.run(now, playlistId)
     })
     write()
     return this.require(playlistId)
+  }
+
+  setKind(playlistId: number, kind: PlaylistKind, now: number): Playlist {
+    if (this.statements.setKind.run(kind, now, playlistId).changes === 0) notFound()
+    return this.require(playlistId)
+  }
+
+  setBrief(playlistId: number, brief: string | null, now: number): Playlist {
+    if (this.statements.setBrief.run(brief, now, playlistId).changes === 0) notFound()
+    return this.require(playlistId)
+  }
+
+  /** Notes are a refresh's summary, so writing them stamps `refreshed_at`. */
+  setAgentNotes(playlistId: number, notes: string | null, now: number): Playlist {
+    if (this.statements.setAgentNotes.run(notes, now, now, playlistId).changes === 0) notFound()
+    return this.require(playlistId)
+  }
+
+  stampRefreshed(playlistId: number, now: number): void {
+    this.statements.stampRefreshed.run(now, playlistId)
+  }
+
+  listExclusions(playlistId: number): PlaylistExclusion[] {
+    this.require(playlistId)
+    return (this.statements.listExclusions.all(playlistId) as ExclusionRow[]).map((row) => ({
+      trackId: row.trackId,
+      title: row.title,
+      artist: row.artist,
+      source: row.source,
+      createdAt: new Date(row.createdAt).toISOString()
+    }))
+  }
+
+  /** Which of these tracks the playlist excludes. */
+  excludedAmong(playlistId: number, trackIds: readonly number[]): Set<number> {
+    return idSet(
+      this.statements.excludedAmong.all({
+        playlistId,
+        ids: JSON.stringify([...new Set(trackIds)])
+      })
+    )
+  }
+
+  /** Excludes tracks; unknown track ids and ones already excluded are ignored. */
+  addExclusions(
+    playlistId: number,
+    trackIds: readonly number[],
+    source: PlaylistExclusionSource,
+    now: number
+  ): void {
+    this.require(playlistId)
+    this.statements.addExclusions.run({
+      playlistId,
+      ids: JSON.stringify([...new Set(trackIds)]),
+      source,
+      now
+    })
+  }
+
+  /** Lets tracks back in; `null` clears every exclusion. Returns how many went. */
+  clearExclusions(playlistId: number, trackIds: readonly number[] | null): number {
+    this.require(playlistId)
+    if (trackIds === null) return this.statements.clearAllExclusions.run(playlistId).changes
+    return this.statements.clearExclusions.run({
+      playlistId,
+      ids: JSON.stringify([...new Set(trackIds)])
+    }).changes
   }
 
   private countEntries(playlistId: number): number {

@@ -4,6 +4,7 @@ import { basename } from 'node:path'
 import { OscineError } from '@shared/errors'
 import type {
   AddTracksToPlaylistRequest,
+  ClearPlaylistExclusionsRequest,
   ExportPlaylistRequest,
   ListPlaylistEntriesQuery,
   ListPlaylistEntriesResult,
@@ -13,11 +14,36 @@ import type {
   ListPlaylistEntryIdsResult,
   MovePlaylistEntriesRequest,
   Playlist,
+  PlaylistExclusion,
+  PlaylistExclusionSource,
   PlaylistExportResult,
+  PlaylistKind,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
+import { NO_LIBRARY_CHANGES, type LibraryChangeNotifier } from '../changes'
 import { renderM3u8, suggestedFileName, withM3u8Extension, type M3uTrack } from './m3u8'
-import { PlaylistStore } from './store'
+import { PlaylistStore, type ExclusionEffect } from './store'
+
+/**
+ * Who is editing a playlist's entries, which is what decides its exclusions
+ * (D36.8). The default is the operator, so every caller that does not say —
+ * the IPC handlers, Discover's save — gets the operator's rules.
+ *
+ * - `operator`: removing a track from a smart playlist excludes it (once no
+ *   entry still names it); adding a track by hand clears its exclusion.
+ * - `agent`: an add to a smart playlist skips excluded tracks and stamps
+ *   `refreshed_at`; a removal excludes only when asked (`exclude`).
+ * - `restore`: the journal putting entries back as they were. Exclusions are
+ *   their own journaled field, so a restore never touches them — otherwise
+ *   reverting an agent's add to a smart playlist would exclude what it took out.
+ */
+export type PlaylistEditActor = 'operator' | 'agent' | 'restore'
+
+export interface PlaylistEditOptions {
+  actor?: PlaylistEditActor
+  /** An agent's removal from a smart playlist: keep the removed tracks out. */
+  exclude?: boolean
+}
 
 /**
  * Everything the IPC layer needs from playlists, and nothing more.
@@ -37,9 +63,26 @@ export interface PlaylistService {
   listEntries(query: ListPlaylistEntriesQuery): Promise<ListPlaylistEntriesResult>
   listEntryIds(query: ListPlaylistEntryIdsQuery): Promise<ListPlaylistEntryIdsResult>
   listEntryGroups(query: ListPlaylistEntryGroupsQuery): Promise<ListPlaylistEntryGroupsResult>
-  addTracks(request: AddTracksToPlaylistRequest): Promise<Playlist>
+  addTracks(request: AddTracksToPlaylistRequest, options?: PlaylistEditOptions): Promise<Playlist>
   moveEntries(request: MovePlaylistEntriesRequest): Promise<Playlist>
-  removeEntries(request: RemovePlaylistEntriesRequest): Promise<Playlist>
+  removeEntries(
+    request: RemovePlaylistEntriesRequest,
+    options?: PlaylistEditOptions
+  ): Promise<Playlist>
+  /** Make smart / Make static (D36.8). The brief, notes and exclusions are kept either way. */
+  setKind(playlistId: number, kind: PlaylistKind): Promise<Playlist>
+  /** The operator's brief; null or blank clears it. */
+  setBrief(playlistId: number, brief: string | null): Promise<Playlist>
+  /** The agent's notes; stamps `refreshed_at`. */
+  setAgentNotes(playlistId: number, notes: string | null): Promise<Playlist>
+  listExclusions(playlistId: number): Promise<PlaylistExclusion[]>
+  /** Excludes tracks directly — the journal restoring a reverted clear. */
+  addExclusions(
+    playlistId: number,
+    trackIds: readonly number[],
+    source: PlaylistExclusionSource
+  ): Promise<Playlist>
+  clearExclusions(request: ClearPlaylistExclusionsRequest): Promise<Playlist>
   /** Resolves `null` when the operator dismisses the save dialog. */
   exportM3u8(request: ExportPlaylistRequest): Promise<PlaylistExportResult | null>
 }
@@ -58,17 +101,21 @@ export interface SqlitePlaylistDeps {
   pickExportFile: (suggestedName: string) => Promise<string | null>
   /** Injectable so a test can assert on `updatedAt` without racing the clock. */
   now?: () => number
+  /** Announces each committed write as `library.changed` (D36.9). Silent when omitted. */
+  changes?: LibraryChangeNotifier
 }
 
 export class SqlitePlaylistService implements PlaylistService {
   private readonly store: PlaylistStore
   private readonly now: () => number
   private readonly pickExportFile: SqlitePlaylistDeps['pickExportFile']
+  private readonly changes: LibraryChangeNotifier
 
   constructor(deps: SqlitePlaylistDeps) {
     this.store = new PlaylistStore(deps.db)
     this.now = deps.now ?? (() => Date.now())
     this.pickExportFile = deps.pickExportFile
+    this.changes = deps.changes ?? NO_LIBRARY_CHANGES
   }
 
   async list(): Promise<Playlist[]> {
@@ -76,19 +123,27 @@ export class SqlitePlaylistService implements PlaylistService {
   }
 
   async create(name: string): Promise<Playlist> {
-    return this.store.create(name, this.now())
+    const playlist = this.store.create(name, this.now())
+    this.changes.notify({ playlists: [playlist.id] })
+    return playlist
   }
 
   async rename(playlistId: number, name: string): Promise<Playlist> {
-    return this.store.rename(playlistId, name, this.now())
+    const playlist = this.store.rename(playlistId, name, this.now())
+    this.changes.notify({ playlists: [playlistId] })
+    return playlist
   }
 
   async delete(playlistId: number): Promise<void> {
     this.store.delete(playlistId)
+    this.changes.notify({ playlists: [playlistId], playlistEntries: [playlistId] })
   }
 
   async reorder(playlistId: number, toIndex: number): Promise<Playlist[]> {
-    return this.store.reorder(playlistId, toIndex, this.now())
+    const list = this.store.reorder(playlistId, toIndex, this.now())
+    // Every position after the moved row shifted, so the whole rail order is news.
+    this.changes.notify({ playlists: 'all' })
+    return list
   }
 
   async listEntries(query: ListPlaylistEntriesQuery): Promise<ListPlaylistEntriesResult> {
@@ -105,21 +160,113 @@ export class SqlitePlaylistService implements PlaylistService {
     return this.store.listEntryGroups(query)
   }
 
-  async addTracks(request: AddTracksToPlaylistRequest): Promise<Playlist> {
-    return this.store.addTracks(request.playlistId, request.trackIds, request.insertion, this.now())
+  async addTracks(
+    request: AddTracksToPlaylistRequest,
+    options: PlaylistEditOptions = {}
+  ): Promise<Playlist> {
+    const actor = options.actor ?? 'operator'
+    const smart = this.isSmart(request.playlistId)
+    const effect: ExclusionEffect =
+      actor === 'operator'
+        ? { clearOnAdd: true }
+        : actor === 'agent' && smart
+          ? { skipExcluded: true }
+          : {}
+    const now = this.now()
+    let playlist = this.store.addTracks(
+      request.playlistId,
+      request.trackIds,
+      request.insertion,
+      now,
+      effect
+    )
+    if (actor === 'agent' && smart) {
+      this.store.stampRefreshed(request.playlistId, now)
+      playlist = this.store.get(request.playlistId) ?? playlist
+    }
+    this.notifyEntries(request.playlistId)
+    return playlist
   }
 
   async moveEntries(request: MovePlaylistEntriesRequest): Promise<Playlist> {
-    return this.store.moveEntries(
+    const playlist = this.store.moveEntries(
       request.playlistId,
       request.entryIds,
       request.insertion,
       this.now()
     )
+    this.notifyEntries(request.playlistId)
+    return playlist
   }
 
-  async removeEntries(request: RemovePlaylistEntriesRequest): Promise<Playlist> {
-    return this.store.removeEntries(request.playlistId, request.entryIds, this.now())
+  async removeEntries(
+    request: RemovePlaylistEntriesRequest,
+    options: PlaylistEditOptions = {}
+  ): Promise<Playlist> {
+    const actor = options.actor ?? 'operator'
+    const smart = this.isSmart(request.playlistId)
+    const excludeOnRemove: PlaylistExclusionSource | null = !smart
+      ? null
+      : actor === 'operator'
+        ? 'operator'
+        : actor === 'agent' && options.exclude === true
+          ? 'agent'
+          : null
+    const playlist = this.store.removeEntries(request.playlistId, request.entryIds, this.now(), {
+      excludeOnRemove
+    })
+    this.notifyEntries(request.playlistId)
+    return playlist
+  }
+
+  async setKind(playlistId: number, kind: PlaylistKind): Promise<Playlist> {
+    const playlist = this.store.setKind(playlistId, kind, this.now())
+    this.changes.notify({ playlists: [playlistId] })
+    return playlist
+  }
+
+  async setBrief(playlistId: number, brief: string | null): Promise<Playlist> {
+    const playlist = this.store.setBrief(playlistId, blankToNull(brief), this.now())
+    this.changes.notify({ playlists: [playlistId] })
+    return playlist
+  }
+
+  async setAgentNotes(playlistId: number, notes: string | null): Promise<Playlist> {
+    const playlist = this.store.setAgentNotes(playlistId, blankToNull(notes), this.now())
+    this.changes.notify({ playlists: [playlistId] })
+    return playlist
+  }
+
+  async listExclusions(playlistId: number): Promise<PlaylistExclusion[]> {
+    return this.store.listExclusions(playlistId)
+  }
+
+  async addExclusions(
+    playlistId: number,
+    trackIds: readonly number[],
+    source: PlaylistExclusionSource
+  ): Promise<Playlist> {
+    this.store.addExclusions(playlistId, trackIds, source, this.now())
+    this.changes.notify({ playlists: [playlistId] })
+    return this.store.get(playlistId) ?? notFound()
+  }
+
+  async clearExclusions(request: ClearPlaylistExclusionsRequest): Promise<Playlist> {
+    this.store.clearExclusions(request.playlistId, request.trackIds ?? null)
+    this.changes.notify({ playlists: [request.playlistId] })
+    return this.store.get(request.playlistId) ?? notFound()
+  }
+
+  private isSmart(playlistId: number): boolean {
+    return this.store.get(playlistId)?.kind === 'smart'
+  }
+
+  /**
+   * One event for an entry edit however many rows it moved. The playlist row is
+   * named too: its count and `updatedAt` moved with the entries.
+   */
+  private notifyEntries(playlistId: number): void {
+    this.changes.notify({ playlists: [playlistId], playlistEntries: [playlistId] })
   }
 
   /**
@@ -168,4 +315,13 @@ export class SqlitePlaylistService implements PlaylistService {
       skippedCount: snapshot.entries.length - tracks.length
     }
   }
+}
+
+function blankToNull(text: string | null): string | null {
+  const trimmed = text?.trim() ?? ''
+  return trimmed.length === 0 ? null : trimmed
+}
+
+function notFound(): never {
+  throw new OscineError('not-found', 'That playlist no longer exists.')
 }

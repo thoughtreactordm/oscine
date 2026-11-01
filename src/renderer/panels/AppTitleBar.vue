@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { appInfo, windowControls } from '@renderer/ipc'
 import IndexingIndicator from '@renderer/panels/IndexingIndicator.vue'
+import AgentAccessIndicator from '@renderer/panels/AgentAccessIndicator.vue'
 import AppLogo from '@renderer/shell/AppLogo.vue'
 import { SHORTCUTS, type ShortcutCategory } from '@renderer/shell/globalShortcuts'
 import { shellTabs } from '@renderer/shell/routes'
@@ -524,6 +525,12 @@ async function toggleMaximize(): Promise<void> {
       after the modal or sidebar that started it is gone.
     -->
     <IndexingIndicator />
+
+    <!--
+      Lit while an AI agent is connected, and busy while one is writing (W24-2,
+      D36.10). Mounts nothing otherwise; clicking opens Settings → Agent access.
+    -->
+    <AgentAccessIndicator />
 
     <div class="app-no-drag flex h-full shrink-0 items-center" aria-label="Window controls">
       <!--

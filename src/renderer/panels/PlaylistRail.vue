@@ -6,6 +6,7 @@ import { visibleRange } from '@renderer/panels/listViewport'
 import { createPlaylistRail, PLAYLIST_NAME_MAX_LENGTH } from '@renderer/panels/playlistRail'
 import type { DropSide } from '@renderer/panels/playlistReorder'
 import { DISCOVER_TAB, FAVORITES_TAB } from '@renderer/panels/playlistTabs'
+import { SMART_PLAYLIST_ICON, SMART_PLAYLIST_LABEL } from '@renderer/panels/smartPlaylist'
 import { useSettings } from '@renderer/settings'
 import { useFavoritesListStore } from '@renderer/stores/favoritesList'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -221,6 +222,19 @@ function menu(playlist: Playlist): ContextMenuItem[] {
       icon: 'i-tabler-cursor-text',
       onSelect: () => model.beginRename(playlist.id)
     },
+    // W24-9 (D36.8): a flag, not a feature. Smart means "kept up to date by
+    // your agent" when the operator asks one; nothing here runs anything.
+    playlist.kind === 'smart'
+      ? {
+          label: 'Make static',
+          icon: 'i-tabler-playlist',
+          onSelect: () => void playlists.setKind(playlist.id, 'static')
+        }
+      : {
+          label: 'Make smart',
+          icon: SMART_PLAYLIST_ICON,
+          onSelect: () => void playlists.setKind(playlist.id, 'smart')
+        },
     { type: 'separator' },
     // W19-6: assign an EQ preset to this playlist — it applies while a track from
     // the playlist plays.
@@ -431,6 +445,16 @@ onMounted(() => {
                 {{ row.playlist.name }}
               </span>
               <span v-if="row.isPlaying" class="sr-only">(playing)</span>
+              <UIcon
+                v-if="row.playlist.kind === 'smart'"
+                :name="SMART_PLAYLIST_ICON"
+                class="size-3.5 shrink-0 text-primary"
+                :title="SMART_PLAYLIST_LABEL"
+                aria-hidden="true"
+              />
+              <span v-if="row.playlist.kind === 'smart'" class="sr-only">
+                ({{ SMART_PLAYLIST_LABEL }})
+              </span>
               <span class="shrink-0 text-xs tabular-nums text-dimmed">
                 {{ row.playlist.trackCount.toLocaleString() }}
               </span>

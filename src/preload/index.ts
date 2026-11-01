@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { IpcResult } from '@shared/errors'
+import type { AgentAccessStatus } from '@shared/agentAccess'
+import type { LibraryChanged } from '@shared/libraryChanges'
 import type {
   IpcChannel,
   IpcEventChannel,
@@ -27,7 +29,9 @@ import type {
   ListPlaylistEntriesQuery,
   ListPlaylistEntryGroupsQuery,
   ListPlaylistEntryIdsQuery,
+  ClearPlaylistExclusionsRequest,
   MovePlaylistEntriesRequest,
+  PlaylistKind,
   RemovePlaylistEntriesRequest
 } from '@shared/playlists'
 import type {
@@ -189,7 +193,9 @@ const api = {
       subscribe('library.scanProgress', listener),
     onNotice: (listener: (notice: LibraryNotice) => void) => subscribe('library.notice', listener),
     onReplayGainProgress: (listener: (progress: ReplayGainJobProgress) => void) =>
-      subscribe('library.replayGainProgress', listener)
+      subscribe('library.replayGainProgress', listener),
+    /** Playlists, corrections or user tags changed under the renderer (D36.9). */
+    onChanged: (listener: (event: LibraryChanged) => void) => subscribe('library.changed', listener)
   },
   /**
    * Track-metadata editing — **W16 (editor)**. Records corrections in
@@ -402,6 +408,15 @@ const api = {
     moveEntries: (payload: MovePlaylistEntriesRequest) => request('playlists.moveEntries', payload),
     removeEntries: (payload: RemovePlaylistEntriesRequest) =>
       request('playlists.removeEntries', payload),
+    /** Make smart / Make static (D36.8). */
+    setKind: (playlistId: number, kind: PlaylistKind) =>
+      request('playlists.setKind', { playlistId, kind }),
+    setBrief: (playlistId: number, brief: string | null) =>
+      request('playlists.setBrief', { playlistId, brief }),
+    listExclusions: (playlistId: number) => request('playlists.listExclusions', { playlistId }),
+    /** Omitting `trackIds` clears every exclusion. */
+    clearExclusions: (payload: ClearPlaylistExclusionsRequest) =>
+      request('playlists.clearExclusions', payload),
     /** Opens a native save dialog in main. Resolves `null` if cancelled. */
     exportM3u8: (payload: ExportPlaylistRequest) => request('playlists.exportM3u8', payload)
   },
@@ -603,6 +618,27 @@ const api = {
      * of third-party content.
      */
     links: (artistId: number) => request('artist.links', { artistId })
+  },
+  agentAccess: {
+    /** Local MCP server status (W24-2). Never carries the token. */
+    status: () => request('agentAccess.status', null),
+    retry: () => request('agentAccess.retry', null),
+    /** The bearer token, on explicit request only. */
+    revealToken: () => request('agentAccess.revealToken', null),
+    regenerateToken: () => request('agentAccess.regenerateToken', null),
+    /** How Claude Desktop starts the stdio bridge (W24-10). */
+    bridgeLaunch: () => request('agentAccess.bridgeLaunch', null),
+    /** Returns an unsubscribe function. Call it on unmount. */
+    onChanged: (listener: (status: AgentAccessStatus) => void) =>
+      subscribe('agentAccess.changed', listener)
+  },
+  agentChangesets: {
+    /** Recent agent changesets, newest first (W24-6). */
+    list: (limit: number) => request('agentChangesets.list', { limit }),
+    /** Conflict-aware revert of one changeset. */
+    revert: (changesetId: number) => request('agentChangesets.revert', { changesetId }),
+    /** Returns an unsubscribe function. Call it on unmount. */
+    onChanged: (listener: () => void) => subscribe('agentChangesets.changed', () => listener())
   }
 } as const
 

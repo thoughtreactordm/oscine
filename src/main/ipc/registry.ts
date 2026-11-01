@@ -8,6 +8,7 @@ import {
   type IpcRequest,
   type IpcResponse
 } from '@shared/ipc'
+import { withChangeOrigin } from '../library/changes'
 
 export type IpcHandler<C extends IpcChannel> = (
   request: IpcRequest<C>,
@@ -79,7 +80,12 @@ export function handle<C extends IpcChannel>(channel: C, handler: IpcHandler<C>)
       return { ok: false, error: { code: 'invalid-request', message: 'Request rejected.' } }
     }
     try {
-      return { ok: true, value: await handler(request as IpcRequest<C>, event) }
+      // Stamped so a `library.changed` this call causes says the renderer made
+      // it — the window already applied the result and must not reload it.
+      const value = await withChangeOrigin('renderer', () =>
+        handler(request as IpcRequest<C>, event)
+      )
+      return { ok: true, value }
     } catch (err) {
       return { ok: false, error: toSafeError(channel, err) }
     }

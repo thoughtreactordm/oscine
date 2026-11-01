@@ -74,7 +74,9 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           artworkWorker: resolve(__dirname, 'src/main/library/artworkWorker.ts'),
-          replayGainWorker: resolve(__dirname, 'src/main/replaygain/worker.ts')
+          replayGainWorker: resolve(__dirname, 'src/main/replaygain/worker.ts'),
+          // W24-5: agent SQL, in a utility process the deadline can kill (D36.4.2).
+          mcpQueryWorker: resolve(__dirname, 'src/main/mcp/query/worker.ts')
         }
       }
     }

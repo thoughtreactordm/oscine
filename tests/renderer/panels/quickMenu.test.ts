@@ -18,7 +18,18 @@ import {
  */
 
 function playlist(id: number, name: string): Playlist {
-  return { id, name, trackCount: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01' }
+  return {
+    id,
+    name,
+    trackCount: 1,
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+    kind: 'static',
+    brief: null,
+    agentNotes: null,
+    refreshedAt: null,
+    exclusionCount: 0
+  }
 }
 
 function album(albumId: number, title: string): AlbumCard {

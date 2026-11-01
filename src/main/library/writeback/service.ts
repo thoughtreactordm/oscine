@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3'
 import { OscineError } from '@shared/errors'
 import {
   isGroupedWritebackField,
+  type AgentProvenance,
   type PendingWrite,
   type WritebackField,
   type WritebackOutcome,
@@ -78,6 +79,17 @@ export interface TagWritebackServiceDeps {
    * deselected cover is left on the file even when an override stands.
    */
   readonly resolveArtwork?: (trackId: number) => Promise<ArtworkWriteIntent>
+  /**
+   * Holds the `library.changed` announcements the per-file {@link retire} calls
+   * make and sends them as one when the flush settles (D36.9) — a thousand-file
+   * apply is one event, not a thousand. Defaults to running the flush as is.
+   */
+  readonly batch?: <T>(fn: () => Promise<T>) => Promise<T>
+  /**
+   * Which loaded rows' corrections an agent made (W24-8, D36.6), joined from
+   * the agent journal as the review loads. Absent, no row carries `agent`.
+   */
+  readonly provenance?: (trackIds: readonly number[]) => ReadonlyMap<number, AgentProvenance>
   /** Clock for progress throttling. Defaults to `Date.now`. */
   readonly now?: () => number
   /** Minimum gap between progress emissions, in ms. Defaults to 50. */
@@ -121,6 +133,10 @@ export class TagWritebackService {
   private readonly resolveArtwork?: (trackId: number) => Promise<ArtworkWriteIntent>
   private readonly now: () => number
   private readonly throttleMs: number
+  private readonly batch: <T>(fn: () => Promise<T>) => Promise<T>
+  private readonly provenance?: (
+    trackIds: readonly number[]
+  ) => ReadonlyMap<number, AgentProvenance>
 
   /** Set for the lifetime of one flush; its `aborted` flag is what cancel flips. */
   private inFlight: { aborted: boolean } | null = null
@@ -135,6 +151,8 @@ export class TagWritebackService {
     this.resolveArtwork = deps.resolveArtwork
     this.now = deps.now ?? Date.now
     this.throttleMs = deps.throttleMs ?? PROGRESS_THROTTLE_MS
+    this.batch = deps.batch ?? ((fn) => fn())
+    this.provenance = deps.provenance
   }
 
   /**
@@ -168,7 +186,12 @@ export class TagWritebackService {
       }
       if (pending !== null && pending.hasChanges) out.push(pending)
     }
-    return out
+    if (this.provenance === undefined || out.length === 0) return out
+    const agent = this.provenance(out.map((pending) => pending.trackId))
+    return out.map((pending) => {
+      const found = agent.get(pending.trackId)
+      return found === undefined ? pending : { ...pending, agent: found }
+    })
   }
 
   /**
@@ -205,19 +228,21 @@ export class TagWritebackService {
     }
 
     try {
-      for (const selection of selections) {
-        if (token.aborted) break
-        const outcome = await this.flushOne(selection)
-        outcomes.push(outcome)
-        if (outcome.status === 'written') written += 1
-        else if (outcome.status === 'skipped') skipped += 1
-        else failed += 1
-        // Written or skipped means the file now holds the selected fields, so
-        // their overrides have done their job and are retired — the track leaves
-        // the pending list and loses its "modified" mark. A failure keeps them.
-        if (outcome.status !== 'failed') await this.retire(selection.trackId, selection.fields)
-        emitProgress(false)
-      }
+      await this.batch(async () => {
+        for (const selection of selections) {
+          if (token.aborted) break
+          const outcome = await this.flushOne(selection)
+          outcomes.push(outcome)
+          if (outcome.status === 'written') written += 1
+          else if (outcome.status === 'skipped') skipped += 1
+          else failed += 1
+          // Written or skipped means the file now holds the selected fields, so
+          // their overrides have done their job and are retired — the track leaves
+          // the pending list and loses its "modified" mark. A failure keeps them.
+          if (outcome.status !== 'failed') await this.retire(selection.trackId, selection.fields)
+          emitProgress(false)
+        }
+      })
     } finally {
       this.inFlight = null
     }

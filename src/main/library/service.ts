@@ -31,6 +31,19 @@ import type { OverrideEditState, OverrideField, OverridePatch } from '@shared/ov
 import type { TagFieldEditState, TagFieldKey, TagFieldPatch } from '@shared/tagFields'
 import type { WritebackField } from '@shared/tagWriteback'
 import type { ArtworkRef } from '@shared/artwork'
+import type {
+  AgentAlbum,
+  AgentAlbumQuery,
+  AgentArtist,
+  AgentArtistQuery,
+  AgentTrack,
+  AgentTrackField,
+  AgentTrackQuery,
+  IssueCheck,
+  IssueGroups,
+  IssueSummary,
+  Page
+} from './agentReads'
 
 /**
  * Everything the IPC layer needs from the library, and nothing more.
@@ -49,6 +62,17 @@ export interface LibraryService {
    * the result is safe to hand across D36.3's no-absolute-path boundary.
    */
   overview(): Promise<LibraryOverview>
+  /**
+   * The agent's structured reads — **W24-4** (D36.4). Effective values, a
+   * caller-chosen field list, roots by name and paths relative to them. Like
+   * `overview`, read by `src/main/mcp/` and not by IPC.
+   */
+  findTracks(query: AgentTrackQuery): Promise<Page<AgentTrack>>
+  getAgentTracks(ids: readonly number[], fields: readonly AgentTrackField[]): Promise<AgentTrack[]>
+  findAlbums(query: AgentAlbumQuery): Promise<Page<AgentAlbum>>
+  findArtists(query: AgentArtistQuery): Promise<Page<AgentArtist>>
+  issueSummary(): Promise<IssueSummary>
+  findIssues<C extends IssueCheck>(check: C): Promise<IssueGroups[C][]>
   scanRoot(rootId: number): Promise<ScanSummary>
   /**
    * Forgets a library folder and returns the roots that are left.
