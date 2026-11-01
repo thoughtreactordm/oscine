@@ -1,7 +1,7 @@
 ---
 taskId: 01M69F0QS2ANXPMR8WZ028R0JR
 title: Rainfall and Groove — ripple and radial slit-scan over the cover
-status: todo
+status: in-review
 priority: low
 labels:
   - D35.9
@@ -14,9 +14,9 @@ workstream: W23
 workstreamId: W23-11
 dependsOn:
   - 01M69F029JAQXSKKGVNRDTMQ7C
-order: 10
+order: 2
 created: '2026-10-31T17:09:48.961Z'
-updated: '2026-10-31T17:37:34.993Z'
+updated: '2026-11-01T04:53:02.635Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.9, D35.11, D35.12.
 

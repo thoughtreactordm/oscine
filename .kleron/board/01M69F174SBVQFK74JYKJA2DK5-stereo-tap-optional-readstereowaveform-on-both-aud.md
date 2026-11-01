@@ -1,7 +1,7 @@
 ---
 taskId: 01M69F174SBVQFK74JYKJA2DK5
 title: Stereo tap — optional readStereoWaveform on both audio paths
-status: todo
+status: in-review
 priority: low
 labels:
   - D35.10
@@ -10,9 +10,9 @@ labels:
   - engine-contract
 workstream: W23
 workstreamId: W23-13
-order: 12
+order: 4
 created: '2026-10-31T17:10:04.696Z'
-updated: '2026-10-31T17:37:35.138Z'
+updated: '2026-11-01T05:32:06.828Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.10. Read the `AudioEngine.ts` file header first: this card changes the engine contract.
 

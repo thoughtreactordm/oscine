@@ -1,7 +1,7 @@
 ---
 taskId: 01M69F0Y0KZRQX19954Y9V72F7
 title: Murmuration — instanced particles coloured from the cover
-status: todo
+status: in-review
 priority: low
 labels:
   - D35.9
@@ -13,9 +13,9 @@ workstream: W23
 workstreamId: W23-12
 dependsOn:
   - 01M69F029JAQXSKKGVNRDTMQ7C
-order: 11
+order: 3
 created: '2026-10-31T17:09:55.346Z'
-updated: '2026-10-31T17:37:35.074Z'
+updated: '2026-11-01T05:20:11.543Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.9, D35.11 (swatches / texture sampling).
 

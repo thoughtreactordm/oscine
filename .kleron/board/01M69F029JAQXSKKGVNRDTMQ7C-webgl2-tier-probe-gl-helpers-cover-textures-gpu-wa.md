@@ -3,7 +3,7 @@ taskId: 01M69F029JAQXSKKGVNRDTMQ7C
 title: >-
   WebGL2 tier — probe, gl helpers, cover textures, GPU wash, context loss,
   budget
-status: todo
+status: in-review
 priority: medium
 labels:
   - D35.6
@@ -16,9 +16,9 @@ workstream: W23
 workstreamId: W23-8
 dependsOn:
   - 01M69EZ4X26HYEWBC126G2R70S
-order: 7
+order: 0
 created: '2026-10-31T17:09:26.960Z'
-updated: '2026-10-31T17:37:34.820Z'
+updated: '2026-11-01T04:06:06.582Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.6, plus the GPU halves of D35.11 and D35.12, and R16.
 

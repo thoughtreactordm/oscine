@@ -1,7 +1,7 @@
 ---
 taskId: 01M69F0HM0HP1DMKGV4VJNZPXE
 title: Plumage — cover-art displacement and kaleidoscope
-status: todo
+status: in-review
 priority: medium
 labels:
   - D35.9
@@ -14,9 +14,9 @@ workstream: W23
 workstreamId: W23-10
 dependsOn:
   - 01M69F029JAQXSKKGVNRDTMQ7C
-order: 9
+order: 1
 created: '2026-10-31T17:09:42.655Z'
-updated: '2026-10-31T17:37:34.941Z'
+updated: '2026-11-01T04:38:29.851Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.9, D35.11, D35.12.
 
