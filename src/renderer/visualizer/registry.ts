@@ -7,6 +7,8 @@ import { createSilk } from './effects/silk'
 import { createTrace } from './effects/trace'
 import { createUpdraft } from './effects/updraft'
 import { createWhorl } from './effects/whorl'
+import { GL_WASH_TEST } from './effects/glWashTest'
+import { availableOf } from './glSession'
 
 /** W23-7: a radial spectrum ringing a disc of the cover. */
 const HALO: VisualizerEffect = {
@@ -79,14 +81,19 @@ export const VISUALIZER_EFFECTS: readonly VisualizerEffect[] = [
   TRACE,
   WHORL,
   SILK,
-  UPDRAFT
+  UPDRAFT,
+  // W23-8's tier check, dev builds only (`effects/glWashTest.ts`).
+  ...(import.meta.env.DEV && import.meta.env.VITE_VISUALIZER_GL_TEST === '1' ? [GL_WASH_TEST] : [])
 ]
 
 /**
- * The effects that can run this session. Everything until the WebGL2 tier
- * (D35.6) lands; then a failed capability probe or shader removes entries here,
- * and next/previous, the cycle and the palette all read this, not the array.
+ * The effects that can run this session (D35.6): the registry less what the
+ * WebGL2 tier has ruled out — every WebGL effect when the capability probe
+ * fails, the context is lost (until restored) or has been lost twice, and any
+ * one effect whose shaders failed. Next/previous, the cycle and the palette all
+ * read this, not the array, and reading it in a `computed` tracks the tier.
+ * The probe runs on the first ask, and only if a WebGL effect is registered.
  */
 export function availableEffects(): readonly VisualizerEffect[] {
-  return VISUALIZER_EFFECTS
+  return availableOf(VISUALIZER_EFFECTS)
 }

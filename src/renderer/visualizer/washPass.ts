@@ -47,6 +47,11 @@ export interface WashPass {
   ): void
   /** True once something drawable has been composed for the current state. */
   readonly drawn: boolean
+  /**
+   * Forget everything drawn, so the next compose redraws: a GPU reset can blank
+   * an accelerated 2D canvas along with a lost WebGL context.
+   */
+  invalidate(): void
   /** Drop the cached small canvases (on dispose). */
   dispose(): void
 }
@@ -196,6 +201,12 @@ export function createWashPass(canvas: HTMLCanvasElement): WashPass {
       context.globalCompositeOperation = 'source-over'
       context.globalAlpha = 1
       drawn = drewPrevious || drewCurrent || current === null
+    },
+
+    invalidate() {
+      version++
+      lastVersion = -1
+      drawn = false
     },
 
     dispose() {

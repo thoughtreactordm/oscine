@@ -19,7 +19,7 @@ const SWATCH_SAMPLE_EDGE = 64
 
 /**
  * `fetch` → blob → `createImageBitmap`, as `readAccentSeed` does: off the main
- * thread, no new IPC, and the bitmap is untainted so W23-8 may upload it. The
+ * thread, no new IPC, and the bitmap is untainted so the WebGL tier may upload it. The
  * bitmap is kept at the size the library serves (the 640-px tier); only the
  * swatch sample is scaled.
  */
@@ -81,10 +81,20 @@ function createStandInPainter(): (
   }
 }
 
-/** The stage's cover source, wired to the real decoder. */
-export function createStageCoverSource(): CoverSource<StageCoverSlot> {
+/**
+ * The stage's cover source, wired to the real decoder. `onRelease` hears every
+ * slot just before its bitmap closes, so the WebGL tier deletes the slot's
+ * texture with it (D35.11).
+ */
+export function createStageCoverSource(
+  onRelease?: (slot: StageCoverSlot) => void
+): CoverSource<StageCoverSlot> {
   return createCoverSource<StageCoverSlot>({
     decode: decodeCover,
-    standIn: createStandInPainter()
+    standIn: createStandInPainter(),
+    release(slot) {
+      onRelease?.(slot)
+      slot.bitmap.close()
+    }
   })
 }

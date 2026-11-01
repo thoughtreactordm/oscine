@@ -114,6 +114,12 @@ export interface StageTransition {
   readonly atRest: boolean
   /** The effect changed: settle to the wash, swap there, grow back. */
   requestSwitch(): void
+  /**
+   * The canvas lost what it showed (a WebGL context loss, D35.6): the CSS wash
+   * is already back, instantly, so start over from it — handoff and emergence
+   * at 0, as if just enabled. A pending switch is kept.
+   */
+  restart(): void
   setDurations(durations: TransitionDurations): void
   /** Advance one rendered frame. */
   update(inputs: TransitionInputs, dtSec: number): void
@@ -166,6 +172,18 @@ export function createStageTransition({
 
     requestSwitch(): void {
       switchPending = true
+      state.atRest = false
+    },
+
+    restart(): void {
+      progress = 0
+      pausedSec = 0
+      readyLastUpdate = false
+      state.emergence = 0
+      state.handoff = 0
+      state.cssWashHidden = false
+      state.swapDue = false
+      state.retired = false
       state.atRest = false
     },
 

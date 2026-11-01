@@ -212,6 +212,8 @@ onBeforeUnmount(() => {
 const bodyRef = ref<HTMLElement | null>(null)
 const hostMounted = ref(false)
 const canvasOwnsWash = ref(false)
+/** The last hand-back was a context loss: no fade on the `<img>` this time. */
+const washInstant = ref(false)
 const layoutOn = ref(false)
 let painted = false
 let layoutGeneration = 0
@@ -288,7 +290,10 @@ watch(reducedMotion, (reduced) => {
   canvasOwnsWash.value = false
 })
 
-function onHostWash(hidden: boolean): void {
+function onHostWash(hidden: boolean, instant: boolean): void {
+  // A lost WebGL context has already blanked the canvas: the `<img>` comes back
+  // at once rather than over its fade (D35.6, D35.12).
+  washInstant.value = !hidden && instant
   canvasOwnsWash.value = hidden
 }
 
@@ -408,7 +413,7 @@ const byline = computed(() => {
         alt=""
         aria-hidden="true"
         class="stage-wash-img pointer-events-none absolute inset-0 size-full object-cover"
-        :class="{ 'stage-wash-handed-off': canvasOwnsWash }"
+        :class="{ 'stage-wash-handed-off': canvasOwnsWash, 'stage-wash-instant': washInstant }"
         draggable="false"
       />
     </Transition>
@@ -1084,6 +1089,10 @@ section:hover .stage-lyrics-toggle,
 
 .stage-wash-handed-off {
   opacity: 0;
+}
+
+.stage-wash-instant {
+  transition: none;
 }
 
 .stage-ribbon-enter-active,

@@ -167,6 +167,78 @@ export function handoffOpacity(handoff: number, washOpacity: number): number {
 }
 
 /**
+ * The most one-sided taps the GPU wash's separable Gaussian takes: the centre
+ * plus 12 bilinear pairs, i.e. 25 taps a pass, which covers a ±3σ kernel at the
+ * ⅛-size target's σ = {@link WASH_TARGET_SIGMA} = 8 texels (W23-8, D35.12).
+ */
+export const GAUSSIAN_MAX_TAPS = 13
+
+/**
+ * A one-dimensional Gaussian of standard deviation `sigma` texels as
+ * linear-sampling taps — the trick that reads two adjacent texels with one
+ * bilinear fetch placed between them at their weighted centre. Tap 0 is the
+ * centre (offset 0); taps 1.. are applied at ±offset. The weights sum to 1 over
+ * the centre plus both sides. The kernel runs to ±3σ, truncated (and still
+ * normalised) once it would need more than {@link GAUSSIAN_MAX_TAPS} taps.
+ *
+ * Writes into `offsets` and `weights` (each at least `GAUSSIAN_MAX_TAPS` long,
+ * the shader's uniform arrays) and returns how many taps are used; unused
+ * entries are zeroed.
+ */
+export function gaussianTapsInto(
+  sigma: number,
+  offsets: Float32Array | number[],
+  weights: Float32Array | number[]
+): number {
+  for (let index = 0; index < GAUSSIAN_MAX_TAPS; index++) {
+    offsets[index] = 0
+    weights[index] = 0
+  }
+  if (!(sigma > 0.05)) {
+    weights[0] = 1
+    return 1
+  }
+  const radius = Math.min(Math.ceil(sigma * 3), (GAUSSIAN_MAX_TAPS - 1) * 2)
+  const twoSigmaSq = 2 * sigma * sigma
+  const discrete = (index: number): number => Math.exp(-(index * index) / twoSigmaSq)
+  let total = discrete(0)
+  for (let index = 1; index <= radius; index++) total += 2 * discrete(index)
+
+  weights[0] = discrete(0) / total
+  let taps = 1
+  for (let index = 1; index <= radius; index += 2) {
+    const a = discrete(index)
+    const b = index + 1 <= radius ? discrete(index + 1) : 0
+    const weight = a + b
+    offsets[taps] = (index * a + (index + 1) * b) / weight
+    weights[taps] = weight / total
+    taps++
+  }
+  return taps
+}
+
+/**
+ * The Filter Effects spec's `saturate(s)` matrix (the `feColorMatrix` type
+ * `saturate`), row-major, applied to straight-alpha RGB. Both the CSS wash and
+ * the 2D pass use it through `filter`; the GPU pass uploads it with
+ * `transpose: true`.
+ */
+export function saturateMatrix(amount: number): number[] {
+  const s = amount
+  return [
+    0.213 + 0.787 * s,
+    0.715 - 0.715 * s,
+    0.072 - 0.072 * s,
+    0.213 - 0.213 * s,
+    0.715 + 0.285 * s,
+    0.072 - 0.072 * s,
+    0.213 - 0.213 * s,
+    0.715 - 0.715 * s,
+    0.072 + 0.928 * s
+  ]
+}
+
+/**
  * How much of the wash stays under an `overlay` effect at the given emergence
  * (D35.12): all of it at the wash, `washUnder` of it at full emergence.
  */
