@@ -224,6 +224,16 @@ export default tseslint.config(
   },
 
   {
+    // W24-10: the stdio bridge ships as plain CommonJS so the packaged app's
+    // binary can run it under ELECTRON_RUN_AS_NODE straight from resources/.
+    // stdout is its JSON-RPC channel, which is why it writes there directly.
+    name: 'oscine/stdio-bridge',
+    files: ['resources/**/*.cjs'],
+    languageOptions: { globals: globals.node, sourceType: 'commonjs' },
+    rules: { '@typescript-eslint/no-require-imports': 'off' }
+  },
+
+  {
     name: 'oscine/native-loader',
     files: ['native/**/*.cjs'],
     languageOptions: { globals: globals.node },

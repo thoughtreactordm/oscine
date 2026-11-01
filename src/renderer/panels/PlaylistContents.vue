@@ -6,6 +6,7 @@ import GroupChooser from '@renderer/panels/GroupChooser.vue'
 import { createPlaylistContents } from '@renderer/panels/playlistContents'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
+import SmartPlaylistHeader from '@renderer/panels/SmartPlaylistHeader.vue'
 import TrackList from '@renderer/panels/TrackList.vue'
 import { activeRowDrag, beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
 import { trackMenuItems } from '@renderer/panels/trackMenu'
@@ -497,6 +498,12 @@ const removalOpen = computed({
           @toggle="playlistStars.toggle(playlists.viewed.id)"
         />
       </UTooltip>
+
+      <!-- W24-9 (D36.8): the brief, the agent's notes and the tracks kept out. -->
+      <SmartPlaylistHeader
+        v-if="!favoritesViewed && playlists.viewed !== null && playlists.viewed.kind === 'smart'"
+        :playlist="playlists.viewed"
+      />
 
       <span
         v-if="source.selectionCount > 0"

@@ -215,7 +215,12 @@ describe('favorites.listPlaylists', () => {
       name: 'Second',
       trackCount: 2,
       createdAt: '1970-01-01T00:00:00.000Z',
-      updatedAt: '1970-01-01T00:00:00.000Z'
+      updatedAt: '1970-01-01T00:00:00.000Z',
+      kind: 'static',
+      brief: null,
+      agentNotes: null,
+      refreshedAt: null,
+      exclusionCount: 0
     })
   })
 

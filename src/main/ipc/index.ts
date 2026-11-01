@@ -24,6 +24,10 @@ import type { SearchService } from '../search/service'
 import type { PodcastService } from '../podcasts/service'
 import type { SettingsService } from '../settings/service'
 import type { NoctaliaSync } from '../theme/noctalia'
+import type { AgentAccessService } from '../mcp/agentAccess'
+import type { AgentBridgeLaunch } from '@shared/agentAccess'
+import { ChangesetNotFoundError, type AgentJournal } from '../mcp/journal/journal'
+import { CredentialSealingUnavailableError } from '../scrobble/credentials'
 import type { ThemeFileService } from '../theme/service'
 import type { StatsService } from '../stats/service'
 import type { TagStore } from '../tags/store'
@@ -56,6 +60,9 @@ import {
   assertSetArtistMbidRequest,
   assertArtistFavoritesQuery,
   assertExportPlaylistRequest,
+  assertSetPlaylistKindRequest,
+  assertSetPlaylistBriefRequest,
+  assertClearPlaylistExclusionsRequest,
   assertFavoriteStateRequest,
   assertFeedUrl,
   assertBrowsePodcastCategoryQuery,
@@ -112,7 +119,9 @@ import {
   assertRemoveTagRequest,
   assertRenameTagRequest,
   assertSuggestTagsRequest,
-  assertPresenceSignal
+  assertPresenceSignal,
+  assertListAgentChangesetsRequest,
+  assertRevertAgentChangesetRequest
 } from './validate'
 import { registerCdripHandlers } from './cdrip'
 
@@ -149,7 +158,10 @@ export function registerIpcHandlers(
   pickRipDestination: () => Promise<string | null>,
   coverSearch: CoverSearchService,
   presence: PresenceSink,
-  noctalia: NoctaliaSync
+  noctalia: NoctaliaSync,
+  agentAccess: AgentAccessService,
+  agentJournal: AgentJournal,
+  agentBridgeLaunch: () => AgentBridgeLaunch | null
 ): void {
   handle('window.minimize', (_request, event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -601,6 +613,25 @@ export function registerIpcHandlers(
     playlists.removeEntries(assertRemoveEntriesRequest(request))
   )
 
+  handle('playlists.setKind', (request) => {
+    const { playlistId, kind } = assertSetPlaylistKindRequest(request)
+    return playlists.setKind(playlistId, kind)
+  })
+
+  handle('playlists.setBrief', (request) => {
+    const { playlistId, brief } = assertSetPlaylistBriefRequest(request)
+    return playlists.setBrief(playlistId, brief)
+  })
+
+  handle('playlists.listExclusions', (request) => {
+    const { playlistId } = assertRecord(request, 'request')
+    return playlists.listExclusions(assertPositiveInt(playlistId, 'playlistId'))
+  })
+
+  handle('playlists.clearExclusions', (request) =>
+    playlists.clearExclusions(assertClearPlaylistExclusionsRequest(request))
+  )
+
   handle('playlists.exportM3u8', (request) =>
     playlists.exportM3u8(assertExportPlaylistRequest(request))
   )
@@ -866,6 +897,41 @@ export function registerIpcHandlers(
     rip,
     pickDestination: pickRipDestination,
     listRoots: () => library.listRoots()
+  })
+
+  // W24-2: agent access. The switches are settings writes; these are the parts
+  // that are not stored values — status, the token, and the two actions on them.
+  handle('agentAccess.status', () => agentAccess.status())
+  handle('agentAccess.retry', () => agentAccess.sync())
+  handle('agentAccess.revealToken', () => agentAccess.revealToken())
+  // W24-10: where the stdio bridge is, for the Claude Desktop snippet. Not a
+  // secret, and not gated on access being on — the token is what is.
+  handle('agentAccess.bridgeLaunch', () => agentBridgeLaunch())
+  handle('agentAccess.regenerateToken', async () => {
+    try {
+      return await agentAccess.regenerateToken()
+    } catch (error) {
+      if (error instanceof CredentialSealingUnavailableError) {
+        throw new OscineError('io-error', error.message)
+      }
+      throw error
+    }
+  })
+
+  // W24-6: the change journal. Revert is the operator's, so it is not
+  // capability-filtered: the switches limit what an agent may do, not what the
+  // operator may undo.
+  handle('agentChangesets.list', (request) =>
+    agentJournal.list(assertListAgentChangesetsRequest(request).limit)
+  )
+  handle('agentChangesets.revert', async (request) => {
+    const { changesetId } = assertRevertAgentChangesetRequest(request)
+    try {
+      return await agentJournal.revert(changesetId)
+    } catch (error) {
+      if (error instanceof ChangesetNotFoundError) throw new OscineError('not-found', error.message)
+      throw error
+    }
   })
 
   assertEveryChannelHandled()

@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useLyricsStore } from '@renderer/stores/lyrics'
 import { useZenStore } from '@renderer/stores/zen'
 import { useElementSize } from '@renderer/shell/useElementSize'
 import { useStageTransport } from '@renderer/shell/useStageTransport'
 import { useSettings } from '@renderer/settings'
-import { NOW_PLAYING_LYRICS_KEY } from '@shared/settings'
+import { currentTheme, onThemeChange } from '@renderer/theme'
+import { visualizerToggle, visualizerWanted } from '@renderer/visualizer/gate'
+import { DEFAULT_MOTION_SEC } from '@renderer/visualizer/stageTransition'
+import { MOTION_DURATION_PROPERTY, parseCssDurationSec } from '@renderer/visualizer/wash'
+import {
+  NOW_PLAYING_LYRICS_KEY,
+  NOW_PLAYING_VISUALIZER_KEY,
+  VISUALIZER_IN_ZEN_KEY
+} from '@shared/settings'
 import LyricsPane from '@renderer/panels/LyricsPane.vue'
 import QuickMenu from '@renderer/panels/QuickMenu.vue'
 import NowPlayingActions from '@renderer/panels/transport/NowPlayingActions.vue'
@@ -14,6 +22,7 @@ import PlaybackModeButtons from '@renderer/panels/transport/PlaybackModeButtons.
 import SeekBar from '@renderer/panels/transport/SeekBar.vue'
 import TransportButtons from '@renderer/panels/transport/TransportButtons.vue'
 import TransportOverflow from '@renderer/panels/transport/TransportOverflow.vue'
+import VisualizerStage from '@renderer/panels/VisualizerStage.vue'
 import {
   TRANSPORT_STAGE_COMPACT_BELOW,
   transportIsCompact
@@ -61,6 +70,177 @@ const showLyricsToggle = computed(
 )
 function toggleLyrics(): void {
   void settings.set<boolean>(NOW_PLAYING_LYRICS_KEY, !lyricsEnabled.value)
+}
+
+/**
+ * The stage visualizer, W23 (D35.4, D35.5, D35.7). Wanted is the stage toggle
+ * with Zen's override applied (`visualizer/gate.ts`): with
+ * `interface.visualizerInZen` on Zen shows it regardless, and a toggle pressed
+ * inside Zen is a session override on the Zen store — Zen never writes
+ * `interface.nowPlayingVisualizer`. It shows only with a track, under the same
+ * width gate as lyrics, and never under reduced motion: a static visualizer is
+ * just a background image, and the wash already is one. The toggle stays visible
+ * then, disabled, and says why.
+ */
+const visualizerInputs = computed(() => ({
+  stageSetting: settings.get<boolean>(NOW_PLAYING_VISUALIZER_KEY),
+  inZenSetting: settings.get<boolean>(VISUALIZER_IN_ZEN_KEY),
+  zenActive: zen.active,
+  zenOverride: zen.visualizerOverride
+}))
+const visualizerOn = computed(() => visualizerWanted(visualizerInputs.value))
+
+const reducedMotion = ref(false)
+let motionQuery: MediaQueryList | null = null
+function onMotionChange(event: MediaQueryListEvent): void {
+  reducedMotion.value = event.matches
+}
+
+/** High Contrast makes the scrim opaque: legibility there is not negotiable. */
+const highContrast = ref(currentTheme().themeId === 'high-contrast')
+let releaseTheme: (() => void) | null = null
+
+onMounted(() => {
+  // Anything decided before this frame is painted starts in place, unanimated.
+  requestAnimationFrame(() => {
+    painted = true
+  })
+  motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+  reducedMotion.value = motionQuery.matches
+  motionQuery.addEventListener('change', onMotionChange)
+  releaseTheme = onThemeChange((state) => {
+    highContrast.value = state.themeId === 'high-contrast'
+  })
+})
+onBeforeUnmount(() => {
+  layoutGeneration++
+  layoutFade?.cancel()
+  layoutFade = null
+  motionQuery?.removeEventListener('change', onMotionChange)
+  motionQuery = null
+  releaseTheme?.()
+  releaseTheme = null
+})
+
+/** Same gate as the lyrics toggle: a track, and room. */
+const showVisualizerToggle = showLyricsToggle
+const showVisualizer = computed(
+  () => visualizerOn.value && !reducedMotion.value && showVisualizerToggle.value
+)
+const visualizerLabel = computed(() => {
+  if (reducedMotion.value) return 'Visualizer is off while the system asks for reduced motion'
+  return visualizerOn.value ? 'Hide visualizer' : 'Show visualizer'
+})
+function toggleVisualizer(): void {
+  const action = visualizerToggle(visualizerInputs.value)
+  if (action.kind === 'session') zen.visualizerOverride = action.value
+  else void settings.set<boolean>(NOW_PLAYING_VISUALIZER_KEY, action.value)
+}
+
+/**
+ * Every transition passes through the wash (W23-5, D35.12). Wanted
+ * (`showVisualizer`) is only the start of it; three pieces of state follow it:
+ *
+ * - `hostMounted` — the host stays mounted after it stops being wanted, while
+ *   the effect settles back into the wash and hands it back, and unmounts only
+ *   when it says it has retired. The ribbon fades back in then.
+ * - `canvasOwnsWash` — mirrored from the host. True fades the `<img>` out
+ *   (opacity only, one motion duration, linear) while the host's canvas fades
+ *   the identical wash in at the matching rate; false is the reverse.
+ * - `layoutOn` — the visualizer layout (cluster in the corner, panels on their
+ *   scrims). It changes by a plain fade-through of the stage body: out, switch
+ *   while nothing shows, back in — one motion duration each way. Nothing moves
+ *   across the stage. Before the first paint it simply starts in place.
+ *
+ * Reduced motion skips all of it: the visualizer is off there (D35.7), at once.
+ */
+const bodyRef = ref<HTMLElement | null>(null)
+const hostMounted = ref(false)
+const canvasOwnsWash = ref(false)
+const layoutOn = ref(false)
+let painted = false
+let layoutGeneration = 0
+let layoutFade: Animation | null = null
+
+function motionMs(): number {
+  const section = sectionRef.value
+  const motion = section
+    ? parseCssDurationSec(getComputedStyle(section).getPropertyValue(MOTION_DURATION_PROPERTY))
+    : null
+  return (motion ?? DEFAULT_MOTION_SEC) * 1000
+}
+
+function fadeBodyIn(body: HTMLElement, from: number, ms: number): void {
+  layoutFade = body.animate([{ opacity: from }, { opacity: 1 }], {
+    duration: ms * (1 - from),
+    easing: 'ease-out'
+  })
+}
+
+/**
+ * Fade the body out, switch the layout while it is invisible, fade it back in.
+ * A change mid-fade picks up from the opacity on screen; turning back before
+ * the switch just fades back in.
+ */
+async function changeLayout(next: boolean): Promise<void> {
+  const generation = ++layoutGeneration
+  const body = bodyRef.value
+  const ms = motionMs()
+  if (!body || !painted || reducedMotion.value || ms <= 0) {
+    layoutFade?.cancel()
+    layoutFade = null
+    layoutOn.value = next
+    return
+  }
+  const shown = Number.parseFloat(getComputedStyle(body).opacity)
+  const from = Number.isFinite(shown) ? shown : 1
+  layoutFade?.cancel()
+  if (layoutOn.value === next) {
+    fadeBodyIn(body, from, ms)
+    return
+  }
+  const out = body.animate([{ opacity: from }, { opacity: 0 }], {
+    duration: ms * from,
+    easing: 'ease-in',
+    fill: 'forwards'
+  })
+  layoutFade = out
+  try {
+    await out.finished
+  } catch {
+    return // cancelled by a newer change, which owns the body now
+  }
+  if (generation !== layoutGeneration) return
+  layoutOn.value = next
+  await nextTick()
+  if (generation !== layoutGeneration) return
+  fadeBodyIn(body, 0, ms)
+  out.cancel()
+}
+
+watch(
+  showVisualizer,
+  (on) => {
+    if (on) hostMounted.value = true
+    void changeLayout(on)
+  },
+  { immediate: true }
+)
+
+watch(reducedMotion, (reduced) => {
+  if (!reduced) return
+  hostMounted.value = false
+  canvasOwnsWash.value = false
+})
+
+function onHostWash(hidden: boolean): void {
+  canvasOwnsWash.value = hidden
+}
+
+function onHostRetired(): void {
+  if (showVisualizer.value) return
+  hostMounted.value = false
+  canvasOwnsWash.value = false
 }
 
 /**
@@ -147,7 +327,11 @@ const byline = computed(() => {
   <section
     ref="sectionRef"
     class="relative flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden bg-default"
-    :class="{ 'stage-immersive': stageOwnsTransport }"
+    :class="{
+      'stage-immersive': stageOwnsTransport,
+      'stage-visualizer': layoutOn,
+      'stage-scrim-opaque': highContrast
+    }"
     aria-label="Now playing"
   >
     <!--
@@ -158,6 +342,8 @@ const byline = computed(() => {
       transport bar and the focused song-list headers use, so authoring them in
       the token editor moves this wash in lockstep with every other cover
       backdrop rather than leaving the largest one behind — see `.stage-wash-img`.
+      While the visualizer has the stage its canvas draws this same wash, and
+      this one is faded out under it (D35.12) — opacity only, never its filter.
     -->
     <Transition name="stage-wash">
       <img
@@ -167,9 +353,22 @@ const byline = computed(() => {
         alt=""
         aria-hidden="true"
         class="stage-wash-img pointer-events-none absolute inset-0 size-full object-cover"
+        :class="{ 'stage-wash-handed-off': canvasOwnsWash }"
         draggable="false"
       />
     </Transition>
+
+    <!--
+      The visualizer, in the wash slot (D35.4): over the wash, behind the body,
+      no z-index of its own. It draws the wash itself, takes it over from the
+      `<img>` above and hands it back before it unmounts (D35.12).
+    -->
+    <VisualizerStage
+      v-if="hostMounted"
+      :active="showVisualizer"
+      @wash="onHostWash"
+      @retired="onHostRetired"
+    />
 
     <!--
       Exit affordance — the one always-reachable way out when Zen has hidden the
@@ -201,6 +400,25 @@ const byline = computed(() => {
       :class="{ 'stage-lyrics-toggle-shifted': zen.active }"
     >
       <span v-if="lyricsSource" class="text-xs text-dimmed">{{ lyricsSource }}</span>
+      <!--
+        The visualizer toggle rides in the same group, so it shares the reveal and
+        the width gate. Disabled, not hidden, under reduced motion — the tooltip
+        says why — so the control does not vanish and leave the operator guessing.
+      -->
+      <UTooltip v-if="showVisualizerToggle" :text="visualizerLabel">
+        <!-- A disabled button takes no pointer events; the span keeps the tooltip reachable. -->
+        <span class="inline-flex">
+          <UButton
+            :icon="visualizerOn && !reducedMotion ? 'i-tabler-chart-bar' : 'i-tabler-chart-bar-off'"
+            color="neutral"
+            variant="ghost"
+            :disabled="reducedMotion"
+            :aria-label="visualizerLabel"
+            :aria-pressed="visualizerOn && !reducedMotion"
+            @click="toggleVisualizer"
+          />
+        </span>
+      </UTooltip>
       <UTooltip :text="lyricsEnabled ? 'Hide lyrics' : 'Show lyrics'">
         <UButton
           :icon="lyricsEnabled ? 'i-tabler-microphone-2' : 'i-tabler-microphone-2-off'"
@@ -214,6 +432,7 @@ const byline = computed(() => {
     </div>
 
     <div
+      ref="bodyRef"
       class="stage-body relative flex h-full min-h-0 w-full flex-col p-4 sm:p-8"
       :class="{ 'stage-has-lyrics': showLyrics }"
       :style="{ paddingBottom: contentBottomReserve }"
@@ -286,9 +505,18 @@ const byline = computed(() => {
     <!--
       Last child, so it stacks over the wash and the record without needing a
       z-index of its own. It only exists on this route: the loop is bounded by
-      the component's lifetime, and leaving the tab is what stops it.
+      the component's lifetime, and leaving the tab is what stops it. Suppressed
+      while the visualizer is mounted (D35.4) — two visualizers at the foot of
+      one stage is noise — without touching `interface.nowPlayingWaveform`, so
+      the operator's ribbon comes back once the visualizer has settled away. It
+      fades rather than cutting; the wrapper is the stage's own box, so the
+      ribbon positions against it exactly as it did against the section.
     -->
-    <WaveformRibbon />
+    <Transition name="stage-ribbon">
+      <div v-if="!hostMounted" class="pointer-events-none absolute inset-0">
+        <WaveformRibbon />
+      </div>
+    </Transition>
 
     <!--
       The Zen transport. The bar the frame dropped, rebuilt from the same shared
@@ -346,6 +574,20 @@ const byline = computed(() => {
  */
 section {
   --stage-art-max: clamp(10rem, min(58vmin, calc(100dvh - 26rem)), 40rem);
+}
+
+/*
+ * The wash's look, in one place (D35.12): `.stage-wash-img` draws with these and
+ * the visualizer host reads them to draw the identical wash on its canvas, so a
+ * token-editor change moves both together. They are registered (the unscoped
+ * block at the end) so their computed values are a resolved length and numbers,
+ * not the `calc(…)` text an unregistered property would hand the host.
+ */
+section {
+  --stage-wash-blur: calc(var(--oscine-cover-blur) * 1.6);
+  --stage-wash-saturate: 2.2;
+  --stage-wash-opacity: calc(var(--oscine-cover-bleed) * 1.1);
+  --stage-wash-scale: 1.25;
 }
 
 /*
@@ -432,6 +674,195 @@ section {
   min-width: 0;
   min-height: 0;
   max-width: 44rem;
+}
+
+/*
+ * Visualizer mode (D35.4). The effect takes the wash, so the record gives up the
+ * centre: the cover cluster drops to a compact size in the upper-left corner,
+ * with the caption beside it. Left, not right (settled 2026-10-31, amending
+ * D35.4's upper-right): the record already sits on the left whenever lyrics are
+ * on, so the corner keeps it on its own side of the stage and lyrics keep their
+ * column on the right — the visualizer reshapes the stage without swapping it. Both sit on the scrim pair —
+ * the legibility guarantee: text contrast is a property of the theme, never of
+ * whatever the effect drew underneath. The text tokens are re-pointed at the
+ * on-scrim colour for the panel's subtree, so the caption (and LyricsPane,
+ * unchanged) keep their own classes and still read on the scrim. In the High
+ * Contrast theme the panel is opaque (below).
+ *
+ * The switch is a fade-through of the stage body (W23-5, `changeLayout`): out,
+ * switch while nothing shows, back in. Nothing moves across the stage, and no
+ * layout property is ever animated.
+ */
+section {
+  /*
+   * The card sizes to its caption, up to this. Alone on the stage it may run
+   * most of the width, stopping short of the top-right toggles; beside lyrics it
+   * takes half and the lyrics column the rest (below).
+   */
+  --stage-cluster-width: min(90rem, calc(100% - 10rem));
+}
+
+.stage-visualizer .stage-content,
+.stage-visualizer .stage-lyrics {
+  border-radius: 0.875rem;
+}
+
+/*
+ * The scrim is frosted glass, not a flat slab: a `::before` layer behind each
+ * panel blurs whatever the effect drew under it, carries the scrim, and is
+ * feathered out at the top and bottom so the panel dissolves into the stage the
+ * way the transport scrim does, and softened at the sides to match, so no edge
+ * reads as a hard cut beside the feathered ones. Only the layer is masked — the
+ * art and the text on top stay crisp (LyricsPane already fades its own lines at its edges). The
+ * blur follows the cover-blur token so it moves with the rest of the cover
+ * backdrops. `isolation` keeps the `z-index: -1` layer inside the panel.
+ */
+.stage-visualizer:not(.stage-scrim-opaque) .stage-content,
+.stage-visualizer:not(.stage-scrim-opaque) .stage-lyrics {
+  isolation: isolate;
+  --stage-panel-feather: 2.5rem;
+  --stage-panel-feather-x: 2rem;
+  /* The card's right edge tapers longer and softer than its left; lyrics reset it below. */
+  --stage-panel-feather-right: 9rem;
+  --stage-panel-hint-right: 0.7;
+  --ui-text: var(--oscine-on-scrim);
+  --ui-text-toned: color-mix(in oklab, var(--oscine-on-scrim) 85%, transparent);
+  --ui-text-highlighted: var(--oscine-on-scrim);
+  --ui-text-muted: color-mix(in oklab, var(--oscine-on-scrim) 72%, transparent);
+  --ui-text-dimmed: color-mix(in oklab, var(--oscine-on-scrim) 55%, transparent);
+}
+
+/* The cluster is already `absolute`; the lyrics column needs a box for the layer. */
+.stage-visualizer:not(.stage-scrim-opaque) .stage-lyrics {
+  position: relative;
+  --stage-panel-feather: 7rem;
+  --stage-panel-feather-x: 3rem;
+  --stage-panel-feather-right: var(--stage-panel-feather-x);
+  --stage-panel-hint-right: 0.6;
+}
+
+.stage-visualizer:not(.stage-scrim-opaque) .stage-content::before,
+.stage-visualizer:not(.stage-scrim-opaque) .stage-lyrics::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  /*
+   * Lighter than the bare scrim token: the blur under it does part of the work
+   * of keeping the text off the effect, so the tint can let more colour through.
+   */
+  background: color-mix(in oklab, var(--oscine-scrim) 65%, transparent);
+  backdrop-filter: blur(calc(var(--oscine-cover-blur) * 0.5));
+  /*
+   * Feathered on all four sides: the two ramps intersect, so the corners fall off
+   * in both. The side ramps carry a colour hint that moves their midpoint in
+   * towards the content, so the layer eases off early and then trails a long,
+   * faint tail out to the rim rather than falling off in a straight line. The
+   * further in the hint (`--stage-panel-hint-right`, as a share of the ramp from
+   * the rim), the softer the edge.
+   */
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent 0,
+      black var(--stage-panel-feather),
+      black calc(100% - var(--stage-panel-feather)),
+      transparent 100%
+    ),
+    linear-gradient(
+      to right,
+      transparent 0,
+      calc(var(--stage-panel-feather-x) * 0.6),
+      black var(--stage-panel-feather-x),
+      black calc(100% - var(--stage-panel-feather-right)),
+      calc(100% - var(--stage-panel-feather-right) * var(--stage-panel-hint-right)),
+      transparent 100%
+    );
+  mask-composite: intersect;
+}
+
+/*
+ * High Contrast: the panel is opaque — the theme's own elevated surface with its
+ * own text tokens, whose pairs that theme is checked against strictly — so
+ * nothing the effect draws can show through at all.
+ */
+.stage-scrim-opaque.stage-visualizer .stage-content,
+.stage-scrim-opaque.stage-visualizer .stage-lyrics {
+  background: var(--ui-bg-elevated);
+  border: 1px solid var(--ui-border);
+}
+
+.stage-visualizer .stage-content {
+  position: absolute;
+  /* On the body's own padding line, so the cluster's top aligns with the lyrics column's. */
+  top: 2rem;
+  left: 2rem;
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2.5rem;
+  border-radius: 1.75rem;
+  width: auto;
+  max-width: var(--stage-cluster-width);
+  /*
+   * Clear of the feathered edges, so the art and caption sit on the solid middle.
+   * The right side runs long, so the caption breathes out into the longer taper.
+   */
+  padding: 2.5rem 12rem 2.5rem 3rem;
+}
+
+.stage-visualizer .stage-art {
+  flex-shrink: 0;
+  /*
+   * 9rem on a roomy stage, shrinking with the window so a narrow one (the
+   * 720px floor, Tunedeck open) still leaves the caption a readable width.
+   */
+  width: clamp(5rem, 11vw, 9rem);
+  border-radius: 1rem;
+  box-shadow: none;
+}
+
+.stage-visualizer .stage-caption {
+  /*
+   * Sized from its text, not from zero: the card is shrink-to-fit, so a zero
+   * basis would let it settle narrower than the caption and truncate a title
+   * that had room to show.
+   */
+  flex: 0 1 auto;
+  min-width: 0;
+  width: auto;
+  align-items: flex-start;
+  gap: 0;
+  text-align: left;
+}
+
+.stage-visualizer .stage-caption h2 {
+  font-size: 2rem;
+  line-height: 1.2;
+}
+
+.stage-visualizer .stage-caption p {
+  font-size: 1.625rem;
+}
+
+/*
+ * Lyrics stay (settled 2026-10-31). With both on, the cluster is in the left
+ * corner and the lyrics keep their column on the right — where they sit without
+ * the visualizer — on a scrim panel of their own. The left padding reserves the
+ * cluster's width so the two panels never overlap.
+ */
+.stage-visualizer .stage-has-lyrics {
+  --stage-cluster-width: min(60rem, 50%);
+  justify-content: flex-end;
+  padding-left: calc(var(--stage-cluster-width) + 4rem);
+}
+
+.stage-visualizer .stage-lyrics {
+  /* The sides clear the side feather so lines are never read through the fade. */
+  padding: 1rem 3rem;
 }
 
 /*
@@ -527,12 +958,34 @@ section:hover .stage-lyrics-toggle,
  * song-list header (`FocusedBackdrop.vue`'s `saturate`). The multipliers hold
  * the resting look this used to hardcode — a `blur-3xl` (64px) off the 40px
  * default blur, and `opacity-20` off the ~0.18 default bleed, the same 1.1 the
- * focused header uses — while now tracking whatever the token editor sets.
+ * focused header uses — while now tracking whatever the token editor sets. The
+ * multipliers live in the `--stage-wash-*` properties on the section, which the
+ * visualizer host reads too.
+ *
+ * The opacity transition is the handoff (D35.12): one motion duration, linear,
+ * because the host fades its canvas wash in against exactly that ramp. Only the
+ * opacity ever moves; the filter is never animated. A cover change still uses
+ * the `stage-wash` transition below, whose rules come later and take over.
  */
 .stage-wash-img {
-  filter: blur(calc(var(--oscine-cover-blur) * 1.6)) saturate(2.2);
-  opacity: calc(var(--oscine-cover-bleed) * 1.1);
-  transform: scale(1.25);
+  filter: blur(var(--stage-wash-blur)) saturate(var(--stage-wash-saturate));
+  opacity: var(--stage-wash-opacity);
+  transform: scale(var(--stage-wash-scale));
+  transition: opacity var(--oscine-motion-duration) linear;
+}
+
+.stage-wash-handed-off {
+  opacity: 0;
+}
+
+.stage-ribbon-enter-active,
+.stage-ribbon-leave-active {
+  transition: opacity calc(var(--oscine-motion-duration) * 2) ease;
+}
+
+.stage-ribbon-enter-from,
+.stage-ribbon-leave-to {
+  opacity: 0;
 }
 
 .stage-art-enter-active,
@@ -562,5 +1015,35 @@ section:hover .stage-lyrics-toggle,
   .stage-wash-leave-active {
     transition-duration: 120ms;
   }
+}
+</style>
+
+<style>
+/*
+ * Registered so their computed values resolve (W23-5, D35.12). Global by
+ * nature — `@property` has no scope — and named for the stage alone.
+ */
+@property --stage-wash-blur {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --stage-wash-saturate {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+@property --stage-wash-opacity {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+@property --stage-wash-scale {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
 }
 </style>

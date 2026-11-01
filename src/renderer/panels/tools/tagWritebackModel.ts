@@ -315,3 +315,35 @@ export function fieldText(
       }
   }
 }
+
+/**
+ * The review's provenance filter — **W24-8**, `oscine-mcp` → D36.6: every row,
+ * or only the rows whose standing correction an agent changeset left.
+ */
+export type ProvenanceFilter = 'all' | 'agent'
+
+/** Whether an agent made any of this row's current corrections. */
+export function isAgentRow(pending: PendingWrite): boolean {
+  return (pending.agent?.fields.length ?? 0) > 0
+}
+
+/** The rows the filter shows, in the review's order. */
+export function filterByProvenance(
+  pendings: readonly PendingWrite[],
+  filter: ProvenanceFilter
+): PendingWrite[] {
+  return filter === 'all' ? [...pendings] : pendings.filter(isAgentRow)
+}
+
+/**
+ * The agent badge's tooltip: which fields an agent staged, and from which
+ * changesets — the ids Settings → Agent access lists and reverts by.
+ */
+export function agentBadgeTitle(pending: PendingWrite): string {
+  const agent = pending.agent
+  if (agent === undefined || agent.fields.length === 0) return ''
+  const fields = agent.fields.map((field) => fieldLabel(field)).join(', ')
+  const ids = agent.changesetIds.map((id) => `#${id}`).join(', ')
+  const noun = agent.changesetIds.length === 1 ? 'changeset' : 'changesets'
+  return `Staged by an agent (${noun} ${ids}): ${fields}`
+}

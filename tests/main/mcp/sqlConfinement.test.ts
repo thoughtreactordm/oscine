@@ -34,10 +34,12 @@ describe('query_library confinement', () => {
     db.prepare(
       "INSERT INTO tracks (root_id, rel_path, mtime, size, title) VALUES (?, 'a.flac', 1, 1, 'A')"
     ).run(root)
-    // W24-5's migration adds the real views; two stand-ins prove the rule.
+    // Two narrow stand-ins beside W24-5's real views (029), which are proven in
+    // queryLibrary.test.ts. The allowlist is the union of everything any mcp_*
+    // view reads, so the refusals below use columns none of them touch.
     db.exec(`
-      CREATE VIEW mcp_tracks AS SELECT id, title, root_id FROM tracks;
-      CREATE VIEW mcp_roots AS SELECT id, label AS name FROM roots;
+      CREATE VIEW mcp_stub_tracks AS SELECT id, title, root_id FROM tracks;
+      CREATE VIEW mcp_stub_roots AS SELECT id, label AS name FROM roots;
       CREATE VIEW leaky AS SELECT key, value FROM settings;
     `)
     confined = openConfinedConnection(path)
@@ -52,39 +54,40 @@ describe('query_library confinement', () => {
   const run = (sql: string): unknown[] => confined!.prepare(sql).all()
 
   it('reads through mcp_* views, joins and recursive CTEs included', () => {
-    expect(run('SELECT title FROM mcp_tracks')).toEqual([{ title: 'A' }])
+    expect(run('SELECT title FROM mcp_stub_tracks')).toEqual([{ title: 'A' }])
     expect(
-      run('SELECT t.title, r.name FROM mcp_tracks t JOIN mcp_roots r ON r.id = t.root_id')
+      run('SELECT t.title, r.name FROM mcp_stub_tracks t JOIN mcp_stub_roots r ON r.id = t.root_id')
     ).toEqual([{ title: 'A', name: 'Music' }])
     expect(
       run(
         'WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 3) SELECT COUNT(*) AS c FROM n'
       )
     ).toEqual([{ c: 3 }])
-    expect(run('SELECT COUNT(*) AS c FROM mcp_tracks')).toEqual([{ c: 1 }])
+    expect(run('SELECT COUNT(*) AS c FROM mcp_stub_tracks')).toEqual([{ c: 1 }])
   })
 
   it('sees rows the main connection writes after it opened (WAL)', () => {
     opened.db.prepare("UPDATE tracks SET title = 'A2'").run()
-    expect(run('SELECT title FROM mcp_tracks')).toEqual([{ title: 'A2' }])
+    expect(run('SELECT title FROM mcp_stub_tracks')).toEqual([{ title: 'A2' }])
     opened.db.prepare("UPDATE tracks SET title = 'A'").run()
   })
 
   it.each([
     ['settings directly', 'SELECT * FROM settings'],
-    ['a base column no view reads', 'SELECT rel_path FROM tracks'],
+    // `mtime` is a column no view reads, stand-in or real (029).
+    ['a base column no view reads', 'SELECT mtime FROM tracks'],
     ['every column of a base table', 'SELECT * FROM tracks'],
     [
       'a hidden column through a CTE named like a real view',
-      'WITH mcp_tracks AS (SELECT rel_path FROM tracks) SELECT * FROM mcp_tracks'
+      'WITH mcp_stub_tracks AS (SELECT mtime FROM tracks) SELECT * FROM mcp_stub_tracks'
     ],
     [
       'a root path through a CTE',
-      'WITH mcp_roots AS (SELECT path FROM roots) SELECT * FROM mcp_roots'
+      'WITH mcp_stub_roots AS (SELECT path FROM roots) SELECT * FROM mcp_stub_roots'
     ],
     [
       'settings in a subquery under an allowed view',
-      "SELECT title FROM mcp_tracks WHERE (SELECT value FROM settings LIMIT 1) LIKE '%s%'"
+      "SELECT title FROM mcp_stub_tracks WHERE (SELECT value FROM settings LIMIT 1) LIKE '%s%'"
     ],
     [
       'settings in a CTE named like a view',

@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
+import { AGENT_SERVER_HOST, AGENT_SERVER_PATH, type AgentSession } from '@shared/agentAccess'
 import { checkMcpRequest } from './requestGuard'
 
 /**
@@ -20,8 +21,8 @@ import { checkMcpRequest } from './requestGuard'
  * are kept here so W24-2 can end them all when the operator turns access off
  * or regenerates the token, and so D36.10 has something to list.
  */
-export const MCP_HOST = '127.0.0.1'
-export const MCP_PATH = '/mcp'
+export const MCP_HOST = AGENT_SERVER_HOST
+export const MCP_PATH = AGENT_SERVER_PATH
 
 /** Bounds a request body before it is parsed; tool inputs are small (D36.3). */
 export const MCP_MAX_BODY_BYTES = 1024 * 1024
@@ -36,6 +37,9 @@ export interface McpHttpServerOptions {
   /** Builds a fresh, fully registered server for each new session. */
   createServer: () => McpServer
   onError?: (error: unknown) => void
+  /** A session opened, finished initializing (its client name is now known), or ended. */
+  onSessionsChanged?: () => void
+  now?: () => number
 }
 
 export interface McpHttpServer {
@@ -44,11 +48,21 @@ export interface McpHttpServer {
   /** Ends every session and stops listening. Idempotent. */
   close(): Promise<void>
   sessionCount(): number
+  /** The open sessions with their client names, oldest first (D36.10). */
+  sessions(): AgentSession[]
+  /** Every open session's server — how a capability change reaches them (D36.7). */
+  servers(): McpServer[]
+  /**
+   * Swap the token and end every open session, keeping the listener. A
+   * regenerated token must lock out whoever held the old one at once (D36.1).
+   */
+  replaceToken(token: string): Promise<void>
 }
 
 interface Session {
   transport: StreamableHTTPServerTransport
   server: McpServer
+  connectedAt: number
 }
 
 export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServer {
@@ -56,9 +70,19 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   let http: Server | null = null
   let boundPort = 0
   const report = options.onError ?? ((error: unknown) => console.error('[mcp]', error))
+  const changed = options.onSessionsChanged ?? (() => {})
+  const now = options.now ?? Date.now
+  let token = options.token
+
+  async function endSessions(): Promise<void> {
+    const open = [...sessions.values()]
+    sessions.clear()
+    if (open.length > 0) changed()
+    await Promise.allSettled(open.map((session) => session.server.close()))
+  }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const refusal = checkMcpRequest(req.headers, { port: boundPort, token: options.token })
+    const refusal = checkMcpRequest(req.headers, { port: boundPort, token })
     if (refusal) {
       const headers: Record<string, string> = { 'content-type': 'application/json' }
       if (refusal.status === 401) headers['www-authenticate'] = 'Bearer'
@@ -104,11 +128,21 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
         sessions.set(id, session)
+        changed()
       }
     })
-    const session: Session = { transport, server }
+    const session: Session = { transport, server, connectedAt: now() }
     transport.onclose = () => {
-      if (transport.sessionId !== undefined) sessions.delete(transport.sessionId)
+      const id = transport.sessionId
+      if (id !== undefined && sessions.get(id) === session) {
+        sessions.delete(id)
+        changed()
+      }
+    }
+    // `clientInfo` is read from `initialize`, which the session id is minted
+    // during; `initialized` is the first moment the name is certainly there.
+    server.server.oninitialized = () => {
+      if (transport.sessionId !== undefined && sessions.has(transport.sessionId)) changed()
     }
     // `connect` only wires callbacks and starts a no-op transport; it settles
     // before the request that opened the session is handed over.
@@ -141,9 +175,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     async close() {
       const server = http
       http = null
-      const open = [...sessions.values()]
-      sessions.clear()
-      await Promise.allSettled(open.map((session) => session.server.close()))
+      await endSessions()
       if (!server) return
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
@@ -152,8 +184,36 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
       })
     },
 
-    sessionCount: () => sessions.size
+    sessionCount: () => sessions.size,
+
+    sessions: () =>
+      [...sessions.entries()]
+        .map(([id, session]): AgentSession => {
+          const client = session.server.server.getClientVersion()
+          return {
+            id,
+            clientName: clip(client?.name),
+            clientVersion: clip(client?.version),
+            connectedAt: session.connectedAt
+          }
+        })
+        .sort((a, b) => a.connectedAt - b.connectedAt),
+
+    servers: () => [...sessions.values()].map((session) => session.server),
+
+    async replaceToken(next) {
+      token = next
+      await endSessions()
+    }
   }
+}
+
+/** A client names itself; the UI draws that name, so it is bounded first. */
+const CLIENT_LABEL_MAX = 80
+
+function clip(value: string | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed.slice(0, CLIENT_LABEL_MAX) : null
 }
 
 type BodyResult =

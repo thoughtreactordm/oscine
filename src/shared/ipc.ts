@@ -103,8 +103,12 @@ import type {
   ListPlaylistEntryIdsResult,
   MovePlaylistEntriesRequest,
   Playlist,
+  PlaylistExclusion,
   PlaylistExportResult,
-  RemovePlaylistEntriesRequest
+  RemovePlaylistEntriesRequest,
+  ClearPlaylistExclusionsRequest,
+  SetPlaylistBriefRequest,
+  SetPlaylistKindRequest
 } from './playlists'
 import type {
   BrowsePodcastCategoryQuery,
@@ -169,6 +173,14 @@ import type { OverrideEditState, OverrideField, OverridePatch } from './override
 import type { TagFieldEditState, TagFieldKey, TagFieldPatch } from './tagFields'
 import type { ArtworkRef, CoverArtCandidate } from './artwork'
 import type { InstalledTheme, NoctaliaSetupResult, NoctaliaStatus, NoctaliaVersion } from './theme'
+import type { AgentAccessStatus, AgentBridgeLaunch } from './agentAccess'
+import type {
+  AgentChangesetSummary,
+  AgentRevertResult,
+  ListAgentChangesetsRequest,
+  RevertAgentChangesetRequest
+} from './agentChangesets'
+import type { LibraryChanged } from './libraryChanges'
 
 /**
  * The single source of truth for the main/renderer seam.
@@ -973,6 +985,15 @@ export interface IpcContract {
   'playlists.moveEntries': { request: MovePlaylistEntriesRequest; response: Playlist }
   'playlists.removeEntries': { request: RemovePlaylistEntriesRequest; response: Playlist }
   /**
+   * Smart playlists (**D36.8**): Make smart / Make static, the operator's brief,
+   * and the exclusions an operator removal leaves behind. The agent's notes are
+   * read here (on `Playlist`) and written only by an agent's tool.
+   */
+  'playlists.setKind': { request: SetPlaylistKindRequest; response: Playlist }
+  'playlists.setBrief': { request: SetPlaylistBriefRequest; response: Playlist }
+  'playlists.listExclusions': { request: { playlistId: number }; response: PlaylistExclusion[] }
+  'playlists.clearExclusions': { request: ClearPlaylistExclusionsRequest; response: Playlist }
+  /**
    * D12's interop escape hatch: writes the playlist to a `.m3u8` the operator
    * names in a native save dialog. Resolves `null` when they cancel, following
    * `library.addRoot` — dismissing a dialog is an ordinary outcome and not an
@@ -1409,6 +1430,48 @@ export interface IpcContract {
     request: GetArtistLinksRequest
     response: ArtistLinksResult
   }
+
+  /**
+   * Agent access (W24-2, `oscine-mcp` → D36.1/D36.10): whether the local MCP
+   * server is listening, why not, and who is connected. Never carries the
+   * token. Followed by `agentAccess.changed`.
+   */
+  'agentAccess.status': { request: null; response: AgentAccessStatus }
+  /** Try to listen again — after the operator freed the port, say. */
+  'agentAccess.retry': { request: null; response: AgentAccessStatus }
+  /**
+   * The bearer token, for the operator to copy into an agent's config. Its own
+   * channel so it is sent only when the section asks, never broadcast. Null
+   * while access is off or before a token exists.
+   */
+  'agentAccess.revealToken': { request: null; response: string | null }
+  /** Replace the token and end every open session (D36.1). */
+  'agentAccess.regenerateToken': { request: null; response: AgentAccessStatus }
+  /**
+   * How a stdio-only client starts the bridge (W24-10): the app binary and the
+   * bridge script, as absolute paths in this platform's form, for the Claude
+   * Desktop snippet. Null when the script cannot be found in this install.
+   */
+  'agentAccess.bridgeLaunch': { request: null; response: AgentBridgeLaunch | null }
+
+  /**
+   * The agent change journal (W24-6, `oscine-mcp` → D36.6): recent changesets,
+   * newest first, with their change and reverted counts. Followed by
+   * `agentChangesets.changed`.
+   */
+  'agentChangesets.list': {
+    request: ListAgentChangesetsRequest
+    response: AgentChangesetSummary[]
+  }
+  /**
+   * Revert one changeset, conflict-aware: a change is restored only while it
+   * still holds the agent's value, so a later manual edit is skipped and
+   * reported rather than overwritten. Reverting twice restores nothing new.
+   */
+  'agentChangesets.revert': {
+    request: RevertAgentChangesetRequest
+    response: AgentRevertResult
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -1485,6 +1548,25 @@ export interface IpcEventContract {
    * theme hydrates from `theme.noctaliaStatus` then follows this.
    */
   'theme.noctaliaChanged': NoctaliaStatus
+  /**
+   * Agent access moved — the listener started, stopped or failed, a session
+   * opened or closed, an agent write began or ended (W24-2). Drives the
+   * Settings section and the title-bar indicator.
+   */
+  'agentAccess.changed': AgentAccessStatus
+  /**
+   * A changeset opened, recorded changes, ended or was reverted (W24-6). No
+   * payload: the Settings list refetches its page.
+   */
+  'agentChangesets.changed': null
+  /**
+   * Playlists, corrections or user tags changed under the renderer (**D36.9**,
+   * W24-3). Sent by the write services themselves, once per committed call —
+   * never once per row — naming the affected ids by kind. The renderer
+   * refetches what is named, and ignores `origin: 'renderer'`: its own writes
+   * already applied their results locally.
+   */
+  'library.changed': LibraryChanged
 }
 
 export type IpcEventChannel = keyof IpcEventContract
@@ -1605,6 +1687,10 @@ export const IPC_CHANNELS = [
   'playlists.addTracks',
   'playlists.moveEntries',
   'playlists.removeEntries',
+  'playlists.setKind',
+  'playlists.setBrief',
+  'playlists.listExclusions',
+  'playlists.clearExclusions',
   'playlists.exportM3u8',
   'discover.shelves',
   'discover.saveShelf',
@@ -1658,7 +1744,14 @@ export const IPC_CHANNELS = [
   'artist.biography',
   'artist.relations',
   'artist.image',
-  'artist.links'
+  'artist.links',
+  'agentAccess.status',
+  'agentAccess.retry',
+  'agentAccess.revealToken',
+  'agentAccess.regenerateToken',
+  'agentAccess.bridgeLaunch',
+  'agentChangesets.list',
+  'agentChangesets.revert'
 ] as const satisfies readonly IpcChannel[]
 
 export const IPC_EVENT_CHANNELS = [
@@ -1674,7 +1767,10 @@ export const IPC_EVENT_CHANNELS = [
   'listens.flushRequested',
   'scrobble.statusChanged',
   'update.changed',
-  'theme.noctaliaChanged'
+  'theme.noctaliaChanged',
+  'agentAccess.changed',
+  'agentChangesets.changed',
+  'library.changed'
 ] as const satisfies readonly IpcEventChannel[]
 
 /**

@@ -25,6 +25,12 @@ import { windowControls } from '@renderer/ipc'
  */
 export const useZenStore = defineStore('zen', () => {
   const active = ref(false)
+  /**
+   * The stage visualizer toggled from inside Zen (W23-4, D35.5): a session-only
+   * override that ends with Zen, so Zen never writes
+   * `interface.nowPlayingVisualizer`. Null when nothing was toggled this session.
+   */
+  const visualizerOverride = ref<boolean | null>(null)
 
   function enter(): void {
     if (active.value) return
@@ -35,6 +41,7 @@ export const useZenStore = defineStore('zen', () => {
   function exit(): void {
     if (!active.value) return
     active.value = false
+    visualizerOverride.value = null
     void windowControls.setFullScreen(false)
   }
 
@@ -51,8 +58,11 @@ export const useZenStore = defineStore('zen', () => {
    * window already reports the state this is reacting to.
    */
   function syncFullScreen(fullscreen: boolean): void {
-    if (!fullscreen && active.value) active.value = false
+    if (!fullscreen && active.value) {
+      active.value = false
+      visualizerOverride.value = null
+    }
   }
 
-  return { active, enter, exit, toggle, syncFullScreen }
+  return { active, visualizerOverride, enter, exit, toggle, syncFullScreen }
 })

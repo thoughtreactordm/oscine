@@ -16,7 +16,12 @@ function playlist(id: number, name: string): Playlist {
     name,
     trackCount: 0,
     createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:00.000Z'
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    kind: 'static',
+    brief: null,
+    agentNotes: null,
+    refreshedAt: null,
+    exclusionCount: 0
   }
 }
 

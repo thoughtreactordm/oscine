@@ -43,6 +43,12 @@ export interface CoverSource<Slot extends CoverSlot> {
   setArtwork(url: string | null): void
   /** Advance one rendered frame and return what cover effects read. */
   frame(palette: Palette, dtSec: number): CoverInput<Slot>
+  /**
+   * A decode is in flight: the cover the stage is about to show is not the one
+   * in the slots yet. The wash handoff (D35.12) waits on this, so the `<img>`
+   * is never faded out over a wash that is still the stand-in.
+   */
+  readonly pending: boolean
   /** Abort any decode and release every slot. */
   dispose(): void
 }
@@ -77,6 +83,10 @@ export function createCoverSource<Slot extends CoverSlot>(
   }
 
   return {
+    get pending() {
+      return controller !== null
+    },
+
     setArtwork(next) {
       if (disposed || next === url) return
       url = next

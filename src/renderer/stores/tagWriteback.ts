@@ -12,10 +12,13 @@ import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import {
   buildSelections,
   changedFields,
+  filterByProvenance,
   initialSelection,
+  isAgentRow,
   overallState,
   selectionSummary,
   type CheckState,
+  type ProvenanceFilter,
   type SelectionMap
 } from '@renderer/panels/tools/tagWritebackModel'
 
@@ -35,6 +38,8 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
   const selection = ref<SelectionMap>(new Map())
   const progress = ref<WritebackProgress | null>(null)
   const report = ref<WritebackReport | null>(null)
+  /** Every row, or only the agent-staged ones (W24-8, D36.6). */
+  const provenanceFilter = ref<ProvenanceFilter>('all')
 
   const libraryRoots = useLibraryRootsStore()
 
@@ -43,7 +48,17 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
   let reviewSeq = 0
 
   const summary = computed(() => selectionSummary(pendingWrites.value, selection.value))
-  const headerState = computed<CheckState>(() => overallState(pendingWrites.value, selection.value))
+  const agentCount = computed(() => pendingWrites.value.filter(isAgentRow).length)
+  /**
+   * The rows the grid draws. With no agent rows left (a reload after Apply or
+   * a revert) the filter falls back to everything rather than an empty grid.
+   * The selection is the whole batch's either way: a row hidden by the filter
+   * keeps its checks, and Apply writes what is checked.
+   */
+  const visibleWrites = computed(() =>
+    filterByProvenance(pendingWrites.value, agentCount.value === 0 ? 'all' : provenanceFilter.value)
+  )
+  const headerState = computed<CheckState>(() => overallState(visibleWrites.value, selection.value))
   const hasChanges = computed(() => pendingWrites.value.length > 0)
   const canApply = computed(() => status.value !== 'applying' && summary.value.tracks > 0)
   const outcomeByTrack = computed(() => {
@@ -113,9 +128,9 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
     }
   }
 
-  /** Selects or clears every changed field across the whole batch. */
+  /** Selects or clears every changed field across the rows the filter shows. */
   function setAll(on: boolean): void {
-    for (const pending of pendingWrites.value) {
+    for (const pending of visibleWrites.value) {
       const set = selectedSet(pending.trackId)
       if (on) for (const field of changedFields(pending)) set.add(field)
       else set.clear()
@@ -176,6 +191,7 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
     selection.value = new Map()
     progress.value = null
     report.value = null
+    provenanceFilter.value = 'all'
     reviewSeq += 1
   }
 
@@ -189,6 +205,9 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
     status,
     errorMessage,
     pendingWrites,
+    visibleWrites,
+    agentCount,
+    provenanceFilter,
     selection,
     progress,
     report,
