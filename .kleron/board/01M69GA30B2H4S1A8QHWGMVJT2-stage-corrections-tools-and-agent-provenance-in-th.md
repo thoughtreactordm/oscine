@@ -1,7 +1,7 @@
 ---
 taskId: 01M69GA30B2H4S1A8QHWGMVJT2
 title: Stage-corrections tools and agent provenance in the write-back review
-status: in-review
+status: done
 priority: medium
 labels:
   - D36.5
@@ -13,9 +13,9 @@ workstreamId: W24-8
 dependsOn:
   - 01M69G8T9JM6NJ7XXN3RY49M1F
   - 01M69G9J24JGZ47JZ7XPT1BRR2
-order: 22
+order: 27
 created: '2026-10-31T17:32:23.945Z'
-updated: '2026-10-31T21:50:44.719Z'
+updated: '2026-11-01T03:29:07.964Z'
 ---
 Spec: wiki `oscine-mcp` → D36.5, D36.6.
 

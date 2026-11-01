@@ -1,7 +1,7 @@
 ---
 taskId: 01M69GAC4MDQV5W0YRVEB5V6YH
 title: 'Smart playlists — kind, brief, agent notes and exclusions'
-status: in-review
+status: done
 priority: medium
 labels:
   - D36.8
@@ -12,9 +12,9 @@ workstream: W24
 workstreamId: W24-9
 dependsOn:
   - 01M69G9T4XSKH41NRZ5GVNG7K4
-order: 23
+order: 28
 created: '2026-10-31T17:32:33.299Z'
-updated: '2026-10-31T22:09:21.402Z'
+updated: '2026-11-01T03:29:08.069Z'
 ---
 Spec: wiki `oscine-mcp` → D36.8.
 

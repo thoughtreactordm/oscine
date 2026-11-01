@@ -1,7 +1,7 @@
 ---
 taskId: 01M69G9J24JGZ47JZ7XPT1BRR2
 title: Agent change journal and conflict-aware changeset revert
-status: in-review
+status: done
 priority: medium
 labels:
   - D36.6
@@ -12,9 +12,9 @@ workstream: W24
 workstreamId: W24-6
 dependsOn:
   - 01M69G8CVSNWTRX2K34EJ4AWJP
-order: 20
+order: 25
 created: '2026-10-31T17:32:06.594Z'
-updated: '2026-10-31T21:25:49.969Z'
+updated: '2026-11-01T03:29:07.830Z'
 ---
 Spec: wiki `oscine-mcp` → D36.6.
 

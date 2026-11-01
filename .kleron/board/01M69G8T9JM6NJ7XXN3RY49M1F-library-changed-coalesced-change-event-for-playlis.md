@@ -1,7 +1,7 @@
 ---
 taskId: 01M69G8T9JM6NJ7XXN3RY49M1F
 title: 'library.changed — coalesced change event for playlists, overrides and tags'
-status: in-review
+status: done
 priority: medium
 labels:
   - D36.9
@@ -10,9 +10,9 @@ labels:
   - renderer
 workstream: W24
 workstreamId: W24-3
-order: 17
+order: 22
 created: '2026-10-31T17:31:42.256Z'
-updated: '2026-10-31T20:00:17.793Z'
+updated: '2026-11-01T03:29:07.651Z'
 ---
 Spec: wiki `oscine-mcp` → D36.9. Independent of MCP; can land first.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01M69G9AMRZADFFJWMMYG3ACX7
 title: query_library — read-only SQL over mcp_* views in a worker
-status: in-review
+status: done
 priority: medium
 labels:
   - D36.4
@@ -12,9 +12,9 @@ workstream: W24
 workstreamId: W24-5
 dependsOn:
   - 01M69G8CVSNWTRX2K34EJ4AWJP
-order: 19
+order: 24
 created: '2026-10-31T17:31:58.999Z'
-updated: '2026-10-31T21:08:04.471Z'
+updated: '2026-11-01T03:29:07.774Z'
 ---
 Spec: wiki `oscine-mcp` → D36.4, R19.
 

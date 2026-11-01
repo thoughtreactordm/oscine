@@ -1,7 +1,7 @@
 ---
 taskId: 01M69G92HDTCWXK370T48M4PH6
 title: 'Structured read tools — find_tracks, playlists, stats, tag fields, find_issues'
-status: in-review
+status: done
 priority: medium
 labels:
   - D36.3
@@ -11,9 +11,9 @@ workstream: W24
 workstreamId: W24-4
 dependsOn:
   - 01M69G8CVSNWTRX2K34EJ4AWJP
-order: 18
+order: 23
 created: '2026-10-31T17:31:50.699Z'
-updated: '2026-10-31T20:32:25.058Z'
+updated: '2026-11-01T03:29:07.701Z'
 ---
 Spec: wiki `oscine-mcp` → D36.3, D36.4.
 
