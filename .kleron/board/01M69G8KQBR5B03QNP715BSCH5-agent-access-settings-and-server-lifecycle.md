@@ -1,7 +1,7 @@
 ---
 taskId: 01M69G8KQBR5B03QNP715BSCH5
 title: Agent access settings and server lifecycle
-status: todo
+status: in-review
 priority: medium
 labels:
   - D36.1
@@ -16,7 +16,7 @@ dependsOn:
   - 01M69G8CVSNWTRX2K34EJ4AWJP
 order: 16
 created: '2026-10-31T17:31:35.529Z'
-updated: '2026-10-31T17:37:35.360Z'
+updated: '2026-10-31T19:49:01.865Z'
 ---
 Spec: wiki `oscine-mcp` → D36.1, D36.7, D36.10.
 

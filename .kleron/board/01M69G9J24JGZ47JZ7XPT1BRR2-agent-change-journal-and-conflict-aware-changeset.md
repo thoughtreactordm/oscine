@@ -1,7 +1,7 @@
 ---
 taskId: 01M69G9J24JGZ47JZ7XPT1BRR2
 title: Agent change journal and conflict-aware changeset revert
-status: todo
+status: in-review
 priority: medium
 labels:
   - D36.6
@@ -14,7 +14,7 @@ dependsOn:
   - 01M69G8CVSNWTRX2K34EJ4AWJP
 order: 20
 created: '2026-10-31T17:32:06.594Z'
-updated: '2026-10-31T17:37:35.591Z'
+updated: '2026-10-31T21:25:49.969Z'
 ---
 Spec: wiki `oscine-mcp` → D36.6.
 

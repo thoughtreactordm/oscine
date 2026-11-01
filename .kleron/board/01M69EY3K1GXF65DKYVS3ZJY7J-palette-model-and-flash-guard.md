@@ -1,7 +1,7 @@
 ---
 taskId: 01M69EY3K1GXF65DKYVS3ZJY7J
 title: Palette model and flash guard
-status: todo
+status: done
 priority: high
 labels:
   - D35.3
@@ -11,9 +11,9 @@ labels:
   - safety
 workstream: W23
 workstreamId: W23-2
-order: 1
+order: 0
 created: '2026-10-31T17:08:22.752Z'
-updated: '2026-10-31T17:37:34.468Z'
+updated: '2026-10-31T19:32:16.464Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.3, D35.8, R17.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01M69GAJAZ1MZ0Q2679944MFB7
 title: Stdio bridge for stdio-only MCP clients
-status: todo
+status: in-review
 priority: low
 labels:
   - D36.1
@@ -12,7 +12,7 @@ dependsOn:
   - 01M69G8KQBR5B03QNP715BSCH5
 order: 24
 created: '2026-10-31T17:32:39.645Z'
-updated: '2026-10-31T17:37:35.835Z'
+updated: '2026-10-31T22:19:02.501Z'
 ---
 Spec: wiki `oscine-mcp` → D36.1.
 

@@ -1,7 +1,7 @@
 ---
 taskId: 01M69EZDK5BTVDAS30ANHXZ8NV
 title: 'Visualizer controls — next/previous, cycle, shortcuts, palette commands'
-status: todo
+status: in-review
 priority: medium
 labels:
   - D35.5
@@ -11,9 +11,9 @@ workstream: W23
 workstreamId: W23-6
 dependsOn:
   - 01M69EYSQ430SQBYD9GP7TRQ2Z
-order: 5
+order: 0
 created: '2026-10-31T17:09:05.764Z'
-updated: '2026-10-31T17:37:34.685Z'
+updated: '2026-10-31T22:27:30.329Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.5.
 

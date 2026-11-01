@@ -1,7 +1,7 @@
 ---
 taskId: 01M69EXSYQDAX8PGMYF5P6TCRC
 title: 'Analysis frame model — bands, energies, onsets, allocation-free'
-status: todo
+status: done
 priority: medium
 labels:
   - D35
@@ -11,7 +11,7 @@ workstream: W23
 workstreamId: W23-1
 order: 0
 created: '2026-10-31T17:08:12.885Z'
-updated: '2026-10-31T17:37:34.415Z'
+updated: '2026-10-31T18:19:53.062Z'
 ---
 Spec: wiki `oscine-visualizers` → D35, D35.2.
 

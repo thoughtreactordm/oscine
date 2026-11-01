@@ -1,7 +1,7 @@
 ---
 taskId: 01M69EYD5286ZNY5WBNJ19DCMD
 title: 'Cover input — decode, two-slot crossfade, swatches, synthetic stand-in'
-status: todo
+status: done
 priority: medium
 labels:
   - D35.11
@@ -10,9 +10,9 @@ workstream: W23
 workstreamId: W23-3
 dependsOn:
   - 01M69EY3K1GXF65DKYVS3ZJY7J
-order: 2
+order: 0
 created: '2026-10-31T17:08:32.545Z'
-updated: '2026-10-31T17:37:34.521Z'
+updated: '2026-10-31T19:33:36.957Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.11.
 

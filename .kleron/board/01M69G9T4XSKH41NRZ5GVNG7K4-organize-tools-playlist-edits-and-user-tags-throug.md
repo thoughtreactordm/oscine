@@ -1,7 +1,7 @@
 ---
 taskId: 01M69G9T4XSKH41NRZ5GVNG7K4
 title: Organize tools — playlist edits and user tags through services
-status: todo
+status: in-review
 priority: medium
 labels:
   - D36.5
@@ -14,7 +14,7 @@ dependsOn:
   - 01M69G9J24JGZ47JZ7XPT1BRR2
 order: 21
 created: '2026-10-31T17:32:14.875Z'
-updated: '2026-10-31T17:37:35.665Z'
+updated: '2026-10-31T21:37:03.218Z'
 ---
 Spec: wiki `oscine-mcp` → D36.5, D36.7.
 

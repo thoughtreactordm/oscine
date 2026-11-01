@@ -1,7 +1,7 @@
 ---
 taskId: 01M69EZ4X26HYEWBC126G2R70S
 title: 'Wash and transitions — handoff, emergence, FLIP cluster move (2D tier)'
-status: todo
+status: in-review
 priority: medium
 labels:
   - D35.4
@@ -12,9 +12,9 @@ workstream: W23
 workstreamId: W23-5
 dependsOn:
   - 01M69EYSQ430SQBYD9GP7TRQ2Z
-order: 4
+order: 0
 created: '2026-10-31T17:08:56.864Z'
-updated: '2026-10-31T17:37:34.637Z'
+updated: '2026-10-31T22:17:49.066Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.12, D35.4 (the FLIP move), D35.7 (pause settles to wash).
 
