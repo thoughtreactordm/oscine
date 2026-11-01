@@ -28,8 +28,10 @@ export type VisualizerSurface = '2d' | 'webgl2'
  * wash opacity, on a transparent canvas the size of the effect's own. A `grow`
  * effect draws it as is at emergence 0 and so *is* the wash there; it is
  * transparent when the track has no cover. On the 2D tier it is the host's wash
- * canvas; the WebGL2 tier's texture arrives with W23-8, and until then this is
- * null on that surface.
+ * canvas. On the WebGL2 tier it is a texture in the effect's own context
+ * (`gl/washPass.ts`): premultiplied, at the wash opacity, y-up, so a
+ * full-screen triangle samples it with its screen UVs as is. It is only
+ * composed for `grow` effects; an `overlay` effect gets null on WebGL2.
  */
 export interface WashInput {
   readonly source: CanvasImageSource | WebGLTexture
@@ -44,12 +46,19 @@ export interface StageInputs {
   readonly emergence: number
   /** The flash guard's multiplier (D35.8). Every effect multiplies it into its output. */
   readonly intensity: number
-  /** The wash on the 2D tier; null on WebGL2 until W23-8. */
+  /** The wash; on WebGL2 only for `grow` effects. */
   readonly wash: WashInput | null
   /** Null unless the effect declares `needs.cover` (D35.11). */
   readonly cover: StageCoverInput | null
 }
 
+/**
+ * On WebGL2 the host binds the default framebuffer, sets the viewport to the
+ * internal target (D35.6's budget — the canvas backing store, which the
+ * compositor scales up to the box) and leaves blending off before every
+ * `frame`; an effect sets whatever else it needs. Its `resize` gets that
+ * internal size, not the box's.
+ */
 export type EffectTarget =
   | {
       readonly surface: '2d'

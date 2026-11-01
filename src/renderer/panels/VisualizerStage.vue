@@ -9,7 +9,11 @@ import {
   VISUALIZER_QUALITY_KEY,
   type VisualizerQuality
 } from '@shared/settings'
-import { createAnalysisModel, MAX_FRAME_DT_SEC } from '@renderer/visualizer/analysisFrame'
+import {
+  createAnalysisModel,
+  MAX_FRAME_DT_SEC,
+  type AnalysisFrame
+} from '@renderer/visualizer/analysisFrame'
 import { createStageCoverSource, type StageCoverSlot } from '@renderer/visualizer/coverDecode'
 import type { CoverSource } from '@renderer/visualizer/coverSource'
 import type {
@@ -20,7 +24,23 @@ import type {
 } from '@renderer/visualizer/effect'
 import { createFlashGuard, MIN_SAMPLE_RATE_HZ } from '@renderer/visualizer/flashGuard'
 import { resolveEffect, visualizerLoopRuns } from '@renderer/visualizer/gate'
-import { createPaletteModel, PALETTE_PROPERTIES } from '@renderer/visualizer/palette'
+import { GL_CONTEXT_ATTRIBUTES } from '@renderer/visualizer/gl/context'
+import { createCoverTextures, type CoverTextures } from '@renderer/visualizer/gl/coverTexture'
+import { createLumaReadback, type LumaReadback } from '@renderer/visualizer/gl/lumaReadback'
+import { createGlWashPass, type GlWashPass } from '@renderer/visualizer/gl/washPass'
+import {
+  reportContextLost,
+  reportEffectFailure,
+  reportTierFailure,
+  setDevContext
+} from '@renderer/visualizer/glSession'
+import { meanLuminance } from '@renderer/visualizer/luminance'
+import { createPaletteModel, PALETTE_PROPERTIES, type Palette } from '@renderer/visualizer/palette'
+import {
+  createQualityGovernor,
+  internalSize,
+  LOW_FRAME_MS
+} from '@renderer/visualizer/qualityBudget'
 import { availableEffects } from '@renderer/visualizer/registry'
 import {
   createStageTransition,
@@ -69,6 +89,24 @@ import { createWashPass, decodeWashImage, type WashPass } from '@renderer/visual
  * settles, swaps at the wash (replacing the canvas element if the surface
  * changes) and grows back. A pause holds, settles and stops the loop on the wash.
  *
+ * ## The WebGL2 tier (W23-8, D35.6)
+ *
+ * A WebGL effect gets a context made with `GL_CONTEXT_ATTRIBUTES` on its own
+ * canvas, and with it three things this host owns per context: the cover
+ * textures (`gl/coverTexture.ts`, the only thing that fills `CoverSlot.texture`),
+ * the GPU wash (`gl/washPass.ts`, composed only for `grow` effects — an
+ * `overlay` one sits over the 2D wash canvas like any other) and the luminance
+ * readback. Its backing store is the budgeted internal target
+ * (`qualityBudget.ts`), which the compositor scales to the box; `auto` backs off
+ * to `low` on frame time.
+ *
+ * It fails into 2D, never into a broken stage. No context, a shader that throws
+ * or a lost context each go through `glSession.ts`, which takes the effect (or
+ * the tier) out of `availableEffects()`; `effect` then re-resolves to a 2D one
+ * and the ordinary switch carries the stage there. A loss is the one that
+ * cannot wait for the wash — the canvas is already blank — so the CSS wash is
+ * restored instantly and the 2D effect grows from it.
+ *
  * ## It costs nothing when nobody is watching (D35.7)
  *
  * The loop runs only while `visualizerLoopRuns` says so — mounted, the window
@@ -90,8 +128,11 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  /** True: the canvas has the wash, fade the CSS one out. False: fade it back in. */
-  wash: [hidden: boolean]
+  /**
+   * True: the canvas has the wash, fade the CSS one out. False: fade it back
+   * in — at once when `instant`, because the canvas has already gone blank.
+   */
+  wash: [hidden: boolean, instant: boolean]
   /** Off, settled and handed back: safe to unmount. */
   retired: []
 }>()
@@ -99,8 +140,6 @@ const emit = defineEmits<{
 const playback = usePlaybackStore()
 const settings = useSettings()
 
-/** Frame interval under `quality: 'low'` (D35.6), the ribbon's `FRAME_MS`. */
-const LOW_FRAME_MS = 33
 /** The luminance downsample's edge (D35.8). */
 const LUMA_EDGE = 8
 /**
@@ -164,13 +203,6 @@ let washOpacityStep = -1
 /** The effect canvas's opacity as last applied, for the luminance sample. */
 let effectOpacity = 0
 
-/** sRGB byte → linear light, for the luminance sample. */
-const linearByte = new Float32Array(256)
-for (let byte = 0; byte < 256; byte++) {
-  const c = byte / 255
-  linearByte[byte] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-}
-
 let instance: EffectInstance | null = null
 let instanceEffect: VisualizerEffect | null = null
 /** A `grow` effect has drawn (and so carries the wash); until then the wash canvas does. */
@@ -184,6 +216,16 @@ let styleDirty = true
 let wakeFrames = 0
 let washHiddenSent = false
 let retiredSent = false
+
+/** The WebGL tier's per-context state; all null on the 2D tier. */
+let gl: WebGL2RenderingContext | null = null
+let glCanvas: HTMLCanvasElement | null = null
+let glCovers: CoverTextures | null = null
+let glWash: GlWashPass | null = null
+let glWashInput: WashInput | null = null
+let glLuma: LumaReadback | null = null
+/** `auto`'s frame-time backoff (D35.6). WebGL only: 2D renders at devicePixelRatio. */
+const governor = createQualityGovernor(quality.value)
 
 /**
  * The library's placeholder cover. The CSS wash shows it for a track with no
@@ -326,18 +368,99 @@ function measure(): void {
   if (!element) return
   const rect = element.getBoundingClientRect()
   if (rect.width === 0 || rect.height === 0) return
-  // 2D renders at devicePixelRatio (D35.6); the WebGL budget is W23-8's.
   const ratio = window.devicePixelRatio || 1
   const resized = washPass?.resize(rect.width, rect.height, ratio) ?? false
+  glWash?.resize(rect.width, rect.height)
   const effectCanvas = canvas.value
   if (effectCanvas && instance) {
-    const width = Math.round(rect.width * ratio)
-    const height = Math.round(rect.height * ratio)
+    // 2D renders at devicePixelRatio; WebGL at the budgeted internal target,
+    // which the compositor scales up to the box (D35.6).
+    let width = Math.round(rect.width * ratio)
+    let height = Math.round(rect.height * ratio)
+    if (gl) ({ width, height } = internalSize(width, height, governor.profile.capPixels))
     if (effectCanvas.width !== width) effectCanvas.width = width
     if (effectCanvas.height !== height) effectCanvas.height = height
     instance.resize(width, height)
   }
   if (resized) wake()
+}
+
+/**
+ * The WebGL context for the effect canvas, with the host's per-context state
+ * around it. A canvas keeps its context, so two WebGL effects in a row share
+ * one; a new element (a 2D ↔ WebGL swap, a return after a loss) starts fresh
+ * and re-uploads every cover from the bitmaps the host retained.
+ */
+function attachGl(element: HTMLCanvasElement): WebGL2RenderingContext | null {
+  if (gl && glCanvas === element && !gl.isContextLost()) return gl
+  teardownGl()
+  const context = element.getContext('webgl2', GL_CONTEXT_ATTRIBUTES)
+  if (!context || context.isContextLost()) {
+    reportTierFailure()
+    return null
+  }
+  const covers = createCoverTextures(context)
+  let wash: GlWashPass
+  try {
+    wash = createGlWashPass(context, covers)
+  } catch (error) {
+    // The host's own shaders failing is the tier failing, not one effect.
+    covers.dispose()
+    console.warn('[visualizer] the WebGL wash failed to build', error)
+    reportTierFailure()
+    return null
+  }
+  gl = context
+  glCanvas = element
+  glCovers = covers
+  glWash = wash
+  glWashInput = { source: wash.texture }
+  glLuma = createLumaReadback(context)
+  if (look) wash.setLook(look)
+  element.addEventListener('webglcontextlost', onContextLost)
+  setDevContext(context)
+  return context
+}
+
+/** Let go of the WebGL tier's state. Deleting on a lost context is a harmless no-op. */
+function teardownGl(): void {
+  glCanvas?.removeEventListener('webglcontextlost', onContextLost)
+  glLuma?.dispose()
+  glWash?.dispose()
+  glCovers?.dispose()
+  glLuma = null
+  glWash = null
+  glWashInput = null
+  glCovers = null
+  glCanvas = null
+  gl = null
+  setDevContext(null)
+}
+
+/**
+ * D35.6: context loss is expected. The canvas is already blank, so the CSS
+ * wash comes back at once rather than over the handoff; the tier is suspended
+ * (or, the second time, off for the session), `effect` re-resolves to the
+ * first 2D effect, and that grows from the CSS wash through the ordinary
+ * enable path. `webglcontextrestored` (heard by `glSession`) brings the WebGL
+ * effect back the same way any switch does.
+ */
+function onContextLost(event: Event): void {
+  event.preventDefault()
+  const element = glCanvas
+  disposeInstance()
+  teardownGl()
+  if (element) reportContextLost(element)
+  transition.restart()
+  if (washHiddenSent) {
+    washHiddenSent = false
+    emit('wash', false, true)
+  }
+  // A GPU reset can blank the accelerated 2D wash canvas too.
+  washPass?.invalidate()
+  setWashOpacity(0)
+  setEffectOpacity(0)
+  wake()
 }
 
 function disposeInstance(): void {
@@ -363,12 +486,18 @@ function createInstance(): void {
     instance = next.create({ surface: '2d', context, quality: quality.value })
     stage.wash = washInput
   } else {
-    // No WebGL2 effect is registered before W23-8, which owns the probe, the
-    // context-loss rules and the GPU wash; until then one here does not draw.
-    const gl = element.getContext('webgl2', { premultipliedAlpha: true })
-    if (!gl) return
-    instance = next.create({ surface: 'webgl2', context: gl, quality: quality.value })
-    stage.wash = null
+    const context = attachGl(element)
+    if (!context) return
+    try {
+      instance = next.create({ surface: 'webgl2', context, quality: quality.value })
+    } catch (error) {
+      // Unavailable for the session; `effect` re-resolves and the switch to a
+      // 2D effect runs from the wash, where the stage already is.
+      reportEffectFailure(next, error)
+      return
+    }
+    stage.wash = next.emergence === 'grow' ? glWashInput : null
+    governor.reset()
   }
   instanceEffect = next
   analysis.restartClock()
@@ -388,6 +517,7 @@ function swap(): void {
   // The keyed canvas is replaced on the next render; the new one starts at
   // opacity 0, which is what the outgoing one was showing.
   disposeInstance()
+  teardownGl()
   // The size observer watches the wash canvas, which is never replaced.
   void nextTick().then(() => {
     if (!mounted) return
@@ -406,6 +536,11 @@ function swap(): void {
 function sampleLuminance(): void {
   const element = canvas.value
   if (!element || element.width === 0 || element.height === 0) return
+  if (glLuma && gl) {
+    // Asynchronous: the answer lands in `collectLuminance` a frame or two on.
+    glLuma.request(gl.drawingBufferWidth, gl.drawingBufferHeight)
+    return
+  }
   if (!lumaContext) {
     const probe = document.createElement('canvas')
     probe.width = LUMA_EDGE
@@ -416,15 +551,13 @@ function sampleLuminance(): void {
   lumaContext.clearRect(0, 0, LUMA_EDGE, LUMA_EDGE)
   lumaContext.drawImage(element, 0, 0, LUMA_EDGE, LUMA_EDGE)
   const data = lumaContext.getImageData(0, 0, LUMA_EDGE, LUMA_EDGE).data
-  let sum = 0
-  for (let index = 0; index < data.length; index += 4) {
-    const luminance =
-      0.2126 * linearByte[data[index]] +
-      0.7152 * linearByte[data[index + 1]] +
-      0.0722 * linearByte[data[index + 2]]
-    sum += luminance * (data[index + 3] / 255)
-  }
-  guard.observeLuminance((sum / (LUMA_EDGE * LUMA_EDGE)) * effectOpacity)
+  guard.observeLuminance(meanLuminance(data, false) * effectOpacity)
+}
+
+/** The WebGL tier's readback, once it has landed. */
+function collectLuminance(): void {
+  const luminance = glLuma?.poll() ?? null
+  if (luminance !== null) guard.observeLuminance(luminance * effectOpacity)
 }
 
 /** Something is still moving, or owed a frame. */
@@ -452,11 +585,13 @@ function shouldRun(): boolean {
 
 function tick(now: number): void {
   raf = null
-  const minFrameMs = quality.value === 'low' ? LOW_FRAME_MS : 0
+  const minFrameMs = gl ? governor.profile.minFrameMs : quality.value === 'low' ? LOW_FRAME_MS : 0
   if (lastNow !== 0 && now - lastNow < minFrameMs) {
     raf = requestAnimationFrame(tick)
     return
   }
+  // `auto` backs off on the rolling frame time (D35.6); the new cap lands now.
+  if (gl && instance && lastNow !== 0 && governor.observe(now - lastNow)) measure()
   const elapsedSec = lastNow === 0 ? 1 / 60 : (now - lastNow) / 1000
   const dt = elapsedSec > MAX_FRAME_DT_SEC ? MAX_FRAME_DT_SEC : elapsedSec
   lastNow = now
@@ -468,6 +603,13 @@ function tick(now: number): void {
   // Before the handoff a first decode lands whole rather than fading in from the
   // stand-in: the `<img>` is still showing it whole.
   washPass?.compose(covers, washImage, !washHiddenSent)
+  if (gl && instanceEffect) {
+    const grow = instanceEffect.emergence === 'grow'
+    if (grow || instanceEffect.needs?.cover) {
+      glCovers?.sync(covers, placeholderActive ? placeholderBitmap : null)
+    }
+    if (grow) glWash?.compose(covers, washImage, !washHiddenSent)
+  }
 
   transition.update(
     { active: props.active, playing: playback.isPlaying, washReady: washReady() },
@@ -475,7 +617,7 @@ function tick(now: number): void {
   )
   if (transition.cssWashHidden !== washHiddenSent) {
     washHiddenSent = transition.cssWashHidden
-    emit('wash', washHiddenSent)
+    emit('wash', washHiddenSent, false)
   }
   if (transition.swapDue) swap()
 
@@ -486,12 +628,17 @@ function tick(now: number): void {
     const audio = guard.shape(analysis.update(read, dt), dt)
     stage.intensity = guard.intensity
     stage.cover = instanceEffect.needs?.cover ? covers : null
-    current.frame(audio, colours, stage, dt)
-    if (instanceEffect.emergence === 'grow') growDrawn = true
+    if (gl) {
+      drawGl(current, instanceEffect, audio, colours, dt)
+    } else {
+      current.frame(audio, colours, stage, dt)
+      if (instanceEffect.emergence === 'grow') growDrawn = true
+    }
   }
   applyOpacities()
 
   if (current) {
+    collectLuminance()
     // At least MIN_SAMPLE_RATE_HZ samples a second (the W23-2 note): every
     // frame at a capped rate, every other frame at 60 fps.
     frameCount++
@@ -507,6 +654,34 @@ function tick(now: number): void {
     return
   }
   if (shouldRun()) raf = requestAnimationFrame(tick)
+}
+
+/**
+ * One WebGL frame: the state the effect contract promises, then the effect.
+ * A throw marks the effect unavailable (it is never a broken stage); a lost
+ * context draws nothing and waits for its event.
+ */
+function drawGl(
+  current: EffectInstance,
+  effect: VisualizerEffect,
+  audio: AnalysisFrame,
+  colours: Palette,
+  dt: number
+): void {
+  const context = gl
+  const element = canvas.value
+  if (!context || !element || context.isContextLost()) return
+  context.bindFramebuffer(context.FRAMEBUFFER, null)
+  context.viewport(0, 0, element.width, element.height)
+  context.disable(context.BLEND)
+  try {
+    current.frame(audio, colours, stage, dt)
+  } catch (error) {
+    reportEffectFailure(effect, error)
+    disposeInstance()
+    return
+  }
+  if (effect.emergence === 'grow' && glWash?.drawn) growDrawn = true
 }
 
 /** Start the loop if D35.7 says it should run and it is not already running. */
@@ -540,7 +715,7 @@ onMounted(() => {
     washPass = createWashPass(washCanvas.value)
     washInput = { source: washCanvas.value }
   }
-  cover = createStageCoverSource()
+  cover = createStageCoverSource((slot) => glCovers?.release(slot))
   setArtwork(playback.nowPlaying?.artwork.large ?? null)
 
   readPalette()
@@ -571,6 +746,12 @@ watch(
   }
 )
 
+watch(quality, (next) => {
+  governor.setQuality(next)
+  measure()
+  wake()
+})
+
 watch(
   () => props.active,
   (active) => {
@@ -596,6 +777,8 @@ onBeforeUnmount(() => {
   mounted = false
   stop()
   disposeInstance()
+  // Before the cover source: its release hook deletes through this.
+  teardownGl()
   cover?.dispose()
   cover = null
   washPass?.dispose()

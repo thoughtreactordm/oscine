@@ -8,8 +8,8 @@ import { PALETTE_LERP_SEC, PaletteSlot } from './palette'
  * Three pure pieces live here: the swatch downsample, the synthetic stand-in
  * used when there is no cover, and the two-slot crossfade between covers. The
  * fetch/decode glue is in `coverDecode.ts` and the per-track bookkeeping that
- * drives these pieces in `coverSource.ts`; W23-8 adds the WebGL upload on top
- * and is the only thing that ever fills {@link CoverSlot.texture}.
+ * drives these pieces in `coverSource.ts`; the WebGL upload on top
+ * (`gl/coverTexture.ts`) is the only thing that ever fills {@link CoverSlot.texture}.
  *
  * Like `palette.ts` this is `@renderer`-free and DOM-free. It never names
  * `ImageBitmap` — `tests/` compiles without the DOM lib — so a slot is generic
@@ -27,7 +27,7 @@ export interface CoverBitmap {
 export interface CoverSlot<Bitmap extends CoverBitmap = CoverBitmap, Texture = unknown> {
   /** 2D effects draw this. */
   readonly bitmap: Bitmap
-  /** WebGL effects sample this; null on the 2D tier (and always, until W23-8). */
+  /** WebGL effects sample this; null on the 2D tier. Only `gl/coverTexture.ts` fills it. */
   texture: Texture | null
   /** width / height. */
   readonly aspect: number
@@ -254,7 +254,7 @@ interface MutableInput<Slot> {
 /**
  * `release` is called exactly once for every slot the crossfade lets go of —
  * dropped mid-fade, faded out, replaced, or cleared. By default it closes the
- * bitmap; W23-8 widens it to delete the texture too.
+ * bitmap; the stage's source (`coverDecode.ts`) also deletes the slot's texture.
  */
 export function createCoverCrossfade<Slot extends CoverSlot = CoverSlot>(
   release: (slot: Slot) => void = (slot) => slot.bitmap.close()
