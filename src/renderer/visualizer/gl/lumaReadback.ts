@@ -19,6 +19,9 @@ import { meanLuminance } from '../luminance'
  * The default framebuffer must be single-sampled (the host creates the context
  * with `antialias: false`), or a scaling blit from it is invalid. Readback is
  * premultiplied, which `meanLuminance` undoes.
+ *
+ * The 2D tier samples through here too (`canvasLuma.ts`), from a framebuffer
+ * wrapping a copy of the 2D canvas rather than from a drawing buffer.
  */
 
 const EDGE = 8
@@ -32,8 +35,11 @@ interface Slot {
 }
 
 export interface LumaReadback {
-  /** Issue a sample of the drawing buffer (`width`×`height`). Skipped while both buffers are in flight. */
-  request(width: number, height: number): void
+  /**
+   * Issue a sample of `source` (`width`×`height`; the drawing buffer when null).
+   * Skipped while both buffers are in flight.
+   */
+  request(width: number, height: number, source?: WebGLFramebuffer | null): void
   /** The luminance of the oldest sample that has landed, or null. Call once a frame. */
   poll(): number | null
   dispose(): void
@@ -69,10 +75,10 @@ export function createLumaReadback(gl: WebGL2RenderingContext): LumaReadback {
   let oldest = 0
 
   return {
-    request(width, height) {
+    request(width, height, source = null) {
       const slot = slots[next]
       if (!slot || slot.fence || width === 0 || height === 0) return
-      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null)
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, source)
       let sourceWidth = width
       let sourceHeight = height
       for (const level of levels) {

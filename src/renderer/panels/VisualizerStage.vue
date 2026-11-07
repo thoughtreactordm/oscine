@@ -28,6 +28,7 @@ import { createFlashGuard, MIN_SAMPLE_RATE_HZ } from '@renderer/visualizer/flash
 import { resolveEffect, visualizerLoopRuns } from '@renderer/visualizer/gate'
 import { GL_CONTEXT_ATTRIBUTES } from '@renderer/visualizer/gl/context'
 import { createCoverTextures, type CoverTextures } from '@renderer/visualizer/gl/coverTexture'
+import { createCanvasLuma, type CanvasLuma } from '@renderer/visualizer/gl/canvasLuma'
 import { createLumaReadback, type LumaReadback } from '@renderer/visualizer/gl/lumaReadback'
 import { createGlWashPass, type GlWashPass } from '@renderer/visualizer/gl/washPass'
 import {
@@ -121,9 +122,9 @@ import { createWashPass, decodeWashImage, type WashPass } from '@renderer/visual
  * The per-frame path allocates nothing of its own: `tick` is one function, the
  * stage inputs are one mutable object, opacity strings come from a table built
  * here, and the wash is composed only when what it shows has changed. The one
- * exception is the 2D luminance sample (`getImageData` returns a fresh 8×8
- * `ImageData`), which D35.8 sanctions and which has no allocation-free
- * equivalent on a 2D canvas.
+ * exception is the synchronous 2D luminance sample, kept for a machine with no
+ * WebGL2 to sample through (`getImageData` returns a fresh 8×8 `ImageData`),
+ * which D35.8 sanctions and which has no allocation-free equivalent there.
  */
 const props = defineProps<{
   /** The stage wants the visualizer showing. False starts the way out. */
@@ -248,6 +249,9 @@ let placeholderLoading = false
 let placeholderAbort: AbortController | null = null
 
 let lumaContext: CanvasRenderingContext2D | null = null
+/** The 2D tier's asynchronous sample; made on the first 2D sample, once. */
+let canvasLuma: CanvasLuma | null = null
+let canvasLumaTried = false
 let raf: number | null = null
 let lastNow = 0
 let frameCount = 0
@@ -573,13 +577,30 @@ function swap(): void {
  * the flash guard (D35.8): an 8×8 downsample, alpha-weighted (it sits over the
  * wash, so a transparent pixel adds nothing) and scaled by the opacity the
  * canvas is shown at.
+ *
+ * Asynchronous on both tiers where it can be: the answer lands in
+ * `collectLuminance` a frame or two on. A 2D canvas is never read
+ * synchronously while a helper context can sample it instead (`canvasLuma.ts`
+ * says why); the synchronous read is only for a machine without one.
  */
 function sampleLuminance(): void {
   const element = canvas.value
   if (!element || element.width === 0 || element.height === 0) return
   if (glLuma && gl) {
-    // Asynchronous: the answer lands in `collectLuminance` a frame or two on.
     glLuma.request(gl.drawingBufferWidth, gl.drawingBufferHeight)
+    return
+  }
+  if (!canvasLumaTried) {
+    canvasLumaTried = true
+    canvasLuma = createCanvasLuma()
+  }
+  if (canvasLuma?.lost) {
+    // Not retried: a GPU reset that takes the helper says the sync read is the safe one.
+    canvasLuma.dispose()
+    canvasLuma = null
+  }
+  if (canvasLuma) {
+    canvasLuma.request(element)
     return
   }
   if (!lumaContext) {
@@ -595,9 +616,9 @@ function sampleLuminance(): void {
   guard.observeLuminance(meanLuminance(data, false) * effectOpacity)
 }
 
-/** The WebGL tier's readback, once it has landed. */
+/** The asynchronous readback, once it has landed. */
 function collectLuminance(): void {
-  const luminance = glLuma?.poll() ?? null
+  const luminance = (gl ? glLuma?.poll() : canvasLuma?.poll()) ?? null
   if (luminance !== null) guard.observeLuminance(luminance * effectOpacity)
 }
 
@@ -857,6 +878,8 @@ onBeforeUnmount(() => {
   motionQuery = null
   document.removeEventListener('visibilitychange', onVisibilityChange)
   lumaContext = null
+  canvasLuma?.dispose()
+  canvasLuma = null
 })
 </script>
 
