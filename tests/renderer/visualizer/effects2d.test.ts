@@ -10,7 +10,6 @@ import { createHalo } from '../../../src/renderer/visualizer/effects/halo'
 import { createDrive, spectralCentroid } from '../../../src/renderer/visualizer/effects/drive'
 import { createGyre, ringLevel } from '../../../src/renderer/visualizer/effects/gyre'
 import { createSilk } from '../../../src/renderer/visualizer/effects/silk'
-import { createUpdraft, flowVelocity } from '../../../src/renderer/visualizer/effects/updraft'
 import { triggerIndex } from '../../../src/renderer/visualizer/effects/waveform'
 import { PALETTE_SLOT_COUNT, type Palette } from '../../../src/renderer/visualizer/palette'
 
@@ -242,8 +241,7 @@ type Core = (
 const CORES: readonly (readonly [string, Core])[] = [
   ['Halo', createHalo],
   ['Gyre', createGyre],
-  ['Silk', createSilk],
-  ['Updraft', createUpdraft]
+  ['Silk', createSilk]
 ]
 const QUALITIES: readonly Quality2D[] = ['low', 'auto', 'high']
 /** 144 Hz, 60 Hz, a capped low-quality rate, and the 0.1 s clamp. */
@@ -427,44 +425,6 @@ describe('Silk', () => {
       steadyPaths(createSilk, 1 / 120, 243),
       SAME_PATH_PX
     )
-  })
-})
-
-describe('Updraft', () => {
-  it('blows a divergence-free wind', () => {
-    const out = new Float64Array(2)
-    const h = 1e-4
-    for (const [x, y, t] of [
-      [0.1, 0.2, 0],
-      [-0.4, 0.3, 5],
-      [0.7, -0.6, 12.5]
-    ]) {
-      flowVelocity(x + h, y, t, out)
-      const right = out[0]
-      flowVelocity(x - h, y, t, out)
-      const left = out[0]
-      flowVelocity(x, y + h, t, out)
-      const up = out[1]
-      flowVelocity(x, y - h, t, out)
-      const down = out[1]
-      expect((right - left + up - down) / (2 * h)).toBeCloseTo(0, 6)
-    }
-  })
-
-  it('keeps every mote on the stage, reborn when it drifts off', () => {
-    const ctx = run(createUpdraft, 'high', 1200, makeStage())
-    // After the mid-run resize the stage is 800×1200; motes may overshoot by the margin.
-    const strokes = ctx.ops.filter((op) => op.kind === 'stroke')
-    const last = strokes.slice(-32)
-    for (const op of last) {
-      if (op.kind !== 'stroke') continue
-      for (let k = 0; k < op.path.length; k += 2) {
-        expect(op.path[k]).toBeGreaterThan(-0.1 * 800)
-        expect(op.path[k]).toBeLessThan(800 + 0.1 * 800)
-        expect(op.path[k + 1]).toBeGreaterThan(-0.1 * 800)
-        expect(op.path[k + 1]).toBeLessThan(1200 + 0.1 * 800)
-      }
-    }
   })
 })
 

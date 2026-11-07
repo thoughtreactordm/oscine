@@ -150,6 +150,21 @@ function encode(linear: number): number {
   return linear <= 0.0031308 ? linear * 12.92 : 1.055 * Math.pow(linear, 1 / 2.4) - 0.055
 }
 
+/**
+ * The two {@link StrokeColour}s, sRGB-encoded, into `out` (six floats) — what
+ * a `u_colours[2]` uniform takes. Shared with Updraft's segment renderer.
+ */
+export function encodeStrokeColours(palette: Palette, out: Float32Array): void {
+  for (let channel = 0; channel < 3; channel++) {
+    out[StrokeColour.accent * 3 + channel] = encode(
+      palette.linear[PaletteSlot.accent * 3 + channel]
+    )
+    out[StrokeColour.highlighted * 3 + channel] = encode(
+      palette.linear[PaletteSlot.textHighlighted * 3 + channel]
+    )
+  }
+}
+
 /** Throws a `GlProgramError` if the shaders do not build; the host makes the effect unavailable. */
 export function createStrokeRenderer(
   gl: WebGL2RenderingContext,
@@ -201,14 +216,7 @@ export function createStrokeRenderer(
   function updateColours(palette: Palette): void {
     if (palette.version === coloursVersion) return
     coloursVersion = palette.version
-    for (let channel = 0; channel < 3; channel++) {
-      colours[StrokeColour.accent * 3 + channel] = encode(
-        palette.linear[PaletteSlot.accent * 3 + channel]
-      )
-      colours[StrokeColour.highlighted * 3 + channel] = encode(
-        palette.linear[PaletteSlot.textHighlighted * 3 + channel]
-      )
-    }
+    encodeStrokeColours(palette, colours)
   }
 
   return {

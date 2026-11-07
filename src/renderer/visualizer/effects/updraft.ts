@@ -1,266 +1,159 @@
-import type { AnalysisFrame } from '../analysisFrame'
-import { PaletteSlot, type Palette } from '../palette'
-import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
-import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
-import { createDrive } from './drive'
+import type { EffectInstance, EffectTarget, VisualizerEffect } from '../effect'
+import { compileProgram, uniformLocations } from '../gl/program'
+import type { Palette } from '../palette'
+import { encodeStrokeColours } from './strokeRenderer'
+import { createUpdraftModel, SEGMENT_FLOATS, UPDRAFT_KNOBS } from './updraftModel'
 
 /**
- * **Updraft** — W23-7: a few hundred motes drifting on a slowly changing swirl
- * of air, each leaving a short fading trail like smoke.
+ * **Updraft** on the WebGL2 tier — W23-7, ported by W23-16. The air and the
+ * motes are `updraftModel.ts`, simulated on the CPU as before; this draws their
+ * trails.
  *
- * 2D, `overlay`. The host lays it over the wash and scales it by emergence; this
- * multiplies only by the flash guard's intensity (D35.8).
+ * Every trail segment is one instance of a quad around it, all in one draw: the
+ * quad is the segment's capsule grown by a pixel, and the fragment shader turns
+ * the distance to the segment into coverage — the 2D version's round cap, and
+ * smooth edges, without multisampling. Segments of different ages overlap at
+ * their joints and blend there, as the 2D version's per-age strokes did.
  *
- * - **The air** is the curl of a sum-of-sines stream function that drifts in
- *   time ({@link flowVelocity}): divergence-free, so motes swirl and never
- *   bunch into sinks, and analytic, so it costs a few `sin`s per mote.
- * - **The music**: the level and the heat set how fast the air moves; the
- *   bass stirs a vortex round the centre; every beat bursts the motes outward
- *   from it (the drive's pulse, so a push that decays rather than a jump) and
- *   thickens and brightens the trails. The brightness (pitch) sets the draft:
- *   a bright passage rises, a bass-heavy one sinks.
- * - **The trails** are a ring of positions every mote shares, laid at a fixed
- *   {@link TRAIL_STEP_SEC} of clamped time, drawn as segments bucketed by age —
- *   one stroke per age per colour, faint at the tail, bright at the mote.
- *
- * A mote that leaves the stage is reborn somewhere else on it with its trail
- * collapsed onto it, so it grows a new wisp rather than streaking across. The
- * births use a seeded xorshift, so a run is reproducible. Integration is in
- * substeps of at most {@link MAX_STEP_SEC}; every array is made in `create`.
+ * `overlay`, so the host fades it in over the wash; blended premultiplied over
+ * a cleared, transparent canvas, in the palette's sRGB values as the 2D version
+ * stroked them.
  */
 
-/** Positions are in units of the stage's shorter side, from its centre. */
-const FLOW_SPEED = 0.05
-/** The draft (units/s upward) at the darkest spectrum and added at the brightest: bass sinks, treble rises. */
-const RISE_FLOOR = -0.04
-const RISE_BRIGHTNESS = 0.2
-const LEVEL_SPEED = 3.5
-const BASE_SPEED = 0.45
-/** The heat multiplies every speed by up to this much more. */
-const HEAT_SPEED = 1.5
-/** The bass vortex: tangential speed at full bass, and the core radius that keeps it finite. */
-const VORTEX = 0.3
-const VORTEX_CORE = 0.12
-/** The beat's puff: outward speed at a full pulse. */
-const PUFF = 1.1
-const ENERGY_TAU_SEC = 0.25
-/** How far past the edge a mote may drift before it is reborn. */
-const MARGIN = 0.08
-const MAX_STEP_SEC = 1 / 60
-const TRAIL_STEP_SEC = 1 / 24
-const TRAIL = 16
-const TRAIL_ALPHA = 0.5
-/** The heat and the beat brighten the trails; the beat thickens them. */
-const HEAT_ALPHA = 0.35
-const PULSE_ALPHA = 0.35
-const PULSE_WIDTH = 2
-/** One mote in this many is drawn in `--ui-text-highlighted`, the rest in `--ui-primary`. */
-const HIGHLIGHT_EVERY = 3
+const VERTEX_SHADER = `#version 300 es
+precision highp float;
+layout(location = 0) in vec4 a_segment;
+layout(location = 1) in vec4 a_style;
+uniform vec2 u_size;
+uniform vec3 u_colours[2];
+out vec2 v_pixel;
+flat out vec4 v_ends;
+flat out float v_halfWidth;
+flat out vec4 v_colour;
 
-const MOTES_BY_QUALITY: Readonly<Record<Quality2D, number>> = { low: 140, auto: 220, high: 320 }
+void main() {
+  // Triangle strip corners: (-1,-1), (1,-1), (-1,1), (1,1).
+  vec2 corner = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1)) * 2.0 - 1.0;
+  vec2 a = a_segment.xy;
+  vec2 b = a_segment.zw;
+  vec2 d = b - a;
+  float l = length(d);
+  vec2 along = l > 1e-4 ? d / l : vec2(1.0, 0.0);
+  vec2 across = vec2(-along.y, along.x);
+  float halfWidth = a_style.x * 0.5;
+  // The capsule plus a pixel all round, so the fragment shader has room to fade it.
+  float extent = halfWidth + 1.0;
+  vec2 middle = (a + b) * 0.5;
+  vec2 p = middle + along * (corner.x * (l * 0.5 + extent)) + across * (corner.y * extent);
+  // Pixels are y down, as the 2D version drew them; clip space is y up.
+  gl_Position = vec4(p.x / u_size.x * 2.0 - 1.0, 1.0 - p.y / u_size.y * 2.0, 0.0, 1.0);
 
-/** Scales mote speed, the swirl, the beat's burst, and trail brightness. */
-export const UPDRAFT_KNOBS: readonly EffectParamSpec[] = [
-  multiplierParam('speed', 'Mote speed', 'How fast the motes drift.', { min: 0.25, max: 3 }),
-  multiplierParam('swirl', 'Swirl', 'How strongly the motes curl and spin.', { min: 0, max: 3 }),
-  multiplierParam(
-    'burst',
-    'Beat burst',
-    'How hard a beat throws the motes out and flares their trails.',
-    { min: 0, max: 2 }
-  ),
-  multiplierParam('trail', 'Trail brightness', 'How bright the smoke trails are.', {
-    min: 0.25,
-    max: 1.75
-  })
-]
-
-/**
- * The air's velocity at `(x, y)` and time `t`: the curl `(∂ψ/∂y, −∂ψ/∂x)` of
- * `ψ = sin(1.9x + .21t)·cos(1.6y − .17t) + .6·sin(2.7y + 1.3x + .13t + 1)`,
- * scaled by {@link FLOW_SPEED}. Written into `out[0..1]`.
- */
-export function flowVelocity(x: number, y: number, t: number, out: Float64Array): void {
-  const a = 1.9 * x + 0.21 * t
-  const b = 1.6 * y - 0.17 * t
-  const c = 2.7 * y + 1.3 * x + 0.13 * t + 1
-  const cosC = Math.cos(c)
-  out[0] = FLOW_SPEED * (-1.6 * Math.sin(a) * Math.sin(b) + 0.6 * 2.7 * cosC)
-  out[1] = -FLOW_SPEED * (1.9 * Math.cos(a) * Math.cos(b) + 0.6 * 1.3 * cosC)
+  v_pixel = p;
+  v_ends = a_segment;
+  v_halfWidth = halfWidth;
+  float alpha = a_style.y;
+  v_colour = vec4(u_colours[int(a_style.z)] * alpha, alpha);
 }
+`
 
-export function createUpdraft<I>(
-  ctx: Draw2D<I>,
-  quality: Quality2D,
-  knobs: EffectParams = resolveParams(UPDRAFT_KNOBS, undefined)
-): Effect2DInstance<I, AnalysisFrame, Palette> {
-  const motes = MOTES_BY_QUALITY[quality]
-  const posX = new Float32Array(motes)
-  const posY = new Float32Array(motes)
-  /** x, y per trail point, per mote; the ring's head is shared. */
-  const trails = new Float32Array(motes * TRAIL * 2)
-  const velocity = new Float64Array(2)
+const FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+in vec2 v_pixel;
+flat in vec4 v_ends;
+flat in float v_halfWidth;
+flat in vec4 v_colour;
+out vec4 o_colour;
+void main() {
+  vec2 a = v_ends.xy;
+  vec2 ab = v_ends.zw - a;
+  float t = clamp(dot(v_pixel - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+  float distance = length(v_pixel - (a + ab * t));
+  o_colour = v_colour * clamp(v_halfWidth + 0.5 - distance, 0.0, 1.0);
+}
+`
 
-  let width = 0
-  let height = 0
-  let halfX = 0.5
-  let halfY = 0.5
-  let seed = 0x2545f491
-  let time = 0
-  let carry = 0
-  let head = 0
-  let level = 0
-  let bass = 0
-  let heat = 0
-  let pulse = 0
-  let rise = 0
-  const drive = createDrive()
+const UNIFORMS = ['u_size', 'u_colours'] as const
 
-  function random(): number {
-    seed ^= seed << 13
-    seed ^= seed >>> 17
-    seed ^= seed << 5
-    return (seed >>> 0) / 4294967296
-  }
+function create(target: EffectTarget): EffectInstance {
+  if (target.surface !== 'webgl2') throw new Error('Updraft draws on a WebGL2 surface')
+  const gl = target.context
+  const program = compileProgram(gl, FRAGMENT_SHADER, 'Updraft', VERTEX_SHADER)
+  const u = uniformLocations(gl, program, UNIFORMS)
+  const model = createUpdraftModel(target.quality, target.params)
 
-  function rebirth(mote: number): void {
-    const x = (random() * 2 - 1) * halfX
-    const y = (random() * 2 - 1) * halfY
-    posX[mote] = x
-    posY[mote] = y
-    for (let point = 0; point < TRAIL; point++) {
-      const at = (mote * TRAIL + point) * 2
-      trails[at] = x
-      trails[at + 1] = y
-    }
-  }
+  const instanceBuffer = gl.createBuffer()
+  const vao = gl.createVertexArray()
+  gl.bindVertexArray(vao)
+  gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer)
+  gl.bufferData(gl.ARRAY_BUFFER, model.maxSegments * SEGMENT_FLOATS * 4, gl.DYNAMIC_DRAW)
+  gl.enableVertexAttribArray(0)
+  gl.vertexAttribPointer(0, 4, gl.FLOAT, false, SEGMENT_FLOATS * 4, 0)
+  gl.vertexAttribDivisor(0, 1)
+  gl.enableVertexAttribArray(1)
+  gl.vertexAttribPointer(1, 4, gl.FLOAT, false, SEGMENT_FLOATS * 4, 16)
+  gl.vertexAttribDivisor(1, 1)
+  gl.bindVertexArray(null)
+  gl.bindBuffer(gl.ARRAY_BUFFER, null)
 
-  for (let mote = 0; mote < motes; mote++) rebirth(mote)
+  const colours = new Float32Array(6)
+  let coloursVersion = -1
+  let width = 1
+  let height = 1
 
-  function advance(dtSec: number): void {
-    const speed =
-      (BASE_SPEED * knobs.speed + level * LEVEL_SPEED * knobs.speed) * (1 + heat * HEAT_SPEED)
-    for (let mote = 0; mote < motes; mote++) {
-      const x = posX[mote]
-      const y = posY[mote]
-      flowVelocity(x, y, time, velocity)
-      // flowVelocity bakes in FLOW_SPEED; the swirl knob scales that field here.
-      let vx = velocity[0] * knobs.swirl * speed
-      let vy = velocity[1] * knobs.swirl * speed - rise
-      const r = Math.sqrt(x * x + y * y)
-      if (r > 1e-4) {
-        // Tangential round the centre (bass), radial out from it (onsets).
-        const swirl = (VORTEX * knobs.swirl * bass) / (r + VORTEX_CORE)
-        const push = PUFF * knobs.burst * pulse
-        vx += (-y / r) * swirl + (x / r) * push
-        vy += (x / r) * swirl + (y / r) * push
-      }
-      const nx = x + vx * dtSec
-      const ny = y + vy * dtSec
-      if (
-        nx < -halfX - MARGIN ||
-        nx > halfX + MARGIN ||
-        ny < -halfY - MARGIN ||
-        ny > halfY + MARGIN
-      ) {
-        rebirth(mote)
-      } else {
-        posX[mote] = nx
-        posY[mote] = ny
-      }
-    }
-    time += dtSec
-  }
-
-  function layTrail(): void {
-    for (let mote = 0; mote < motes; mote++) {
-      const at = (mote * TRAIL + head) * 2
-      trails[at] = posX[mote]
-      trails[at + 1] = posY[mote]
-    }
-    head = (head + 1) % TRAIL
-  }
-
-  /** Path every mote's segment of one age; `highlight` picks which motes. */
-  function segments(age: number, highlight: boolean, cx: number, cy: number, unit: number): void {
-    ctx.beginPath()
-    // Logical point `age` (0 = oldest) to the next, or to the mote itself for the newest.
-    const from = (head + age) % TRAIL
-    const to = (head + age + 1) % TRAIL
-    const newest = age === TRAIL - 1
-    for (let mote = 0; mote < motes; mote++) {
-      if ((mote % HIGHLIGHT_EVERY === 0) !== highlight) continue
-      const a = (mote * TRAIL + from) * 2
-      const x1 = newest ? posX[mote] : trails[(mote * TRAIL + to) * 2]
-      const y1 = newest ? posY[mote] : trails[(mote * TRAIL + to) * 2 + 1]
-      ctx.moveTo(cx + trails[a] * unit, cy + trails[a + 1] * unit)
-      ctx.lineTo(cx + x1 * unit, cy + y1 * unit)
-    }
+  function updateColours(palette: Palette): void {
+    if (palette.version === coloursVersion) return
+    coloursVersion = palette.version
+    encodeStrokeColours(palette, colours)
   }
 
   return {
-    resize(nextWidth: number, nextHeight: number): void {
-      width = nextWidth
-      height = nextHeight
-      const short = width < height ? width : height
-      if (short > 0) {
-        halfX = width / short / 2
-        halfY = height / short / 2
-      }
+    resize(nextWidth, nextHeight) {
+      width = Math.max(1, Math.round(nextWidth))
+      height = Math.max(1, Math.round(nextHeight))
+      model.resize(width, height)
     },
 
-    frame(audio, palette, stage: Stage2D<I>, dtSec): void {
-      ctx.clearRect(0, 0, width, height)
+    frame(audio, palette, stage, dtSec) {
+      model.update(audio, stage.intensity, dtSec)
+      updateColours(palette)
 
-      const dt = dtSec > 0 ? dtSec : 0
-      const energyFollow = follow(dt, ENERGY_TAU_SEC)
-      level += (audio.level - level) * energyFollow
-      bass += (audio.bass - bass) * energyFollow
-      drive.update(audio, dt)
-      pulse = drive.pulse
-      heat = drive.heat
-      rise = RISE_FLOOR + drive.brightness * RISE_BRIGHTNESS
-      const steps = Math.ceil(dt / MAX_STEP_SEC)
-      for (let n = 0; n < steps; n++) {
-        advance(dt / steps)
-        carry += dt / steps
-        if (carry >= TRAIL_STEP_SEC) {
-          carry -= TRAIL_STEP_SEC
-          layTrail()
-        }
-      }
-      if (width <= 0 || height <= 0) return
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(0, 0, width, height)
+      gl.clearColor(0, 0, 0, 0)
+      gl.clear(gl.COLOR_BUFFER_BIT)
 
-      const intensity = stage.intensity
-      const unit = width < height ? width : height
-      const cx = width / 2
-      const cy = height / 2
-      ctx.globalCompositeOperation = 'source-over'
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
-      ctx.lineWidth = Math.max(1, unit * 0.0025 * (1 + pulse * PULSE_WIDTH * knobs.burst))
-      const glow = Math.min(
-        1.6,
-        1 + heat * HEAT_ALPHA * knobs.trail + pulse * PULSE_ALPHA * knobs.burst
-      )
+      const count = model.count
+      if (count === 0) return
+      gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer)
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, model.instances, 0, count * SEGMENT_FLOATS)
+      gl.bindBuffer(gl.ARRAY_BUFFER, null)
 
-      for (let age = 0; age < TRAIL; age++) {
-        const strength = (age + 1) / TRAIL
-        ctx.globalAlpha =
-          Math.min(1, strength * Math.sqrt(strength) * TRAIL_ALPHA * knobs.trail * glow) * intensity
-        ctx.strokeStyle = palette.css[PaletteSlot.accent]
-        segments(age, false, cx, cy, unit)
-        ctx.stroke()
-        ctx.strokeStyle = palette.css[PaletteSlot.textHighlighted]
-        segments(age, true, cx, cy, unit)
-        ctx.stroke()
-      }
-
-      ctx.globalAlpha = 1
+      gl.useProgram(program)
+      gl.uniform2f(u.u_size, width, height)
+      gl.uniform3fv(u.u_colours, colours)
+      gl.enable(gl.BLEND)
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+      gl.bindVertexArray(vao)
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count)
+      gl.bindVertexArray(null)
+      gl.disable(gl.BLEND)
+      gl.useProgram(null)
     },
 
-    dispose(): void {
-      ctx.clearRect(0, 0, width, height)
+    dispose() {
+      gl.deleteVertexArray(vao)
+      gl.deleteBuffer(instanceBuffer)
+      gl.deleteProgram(program)
     }
   }
+}
+
+/** W23-7: motes on a swirling flow field, trailing smoke. */
+export const UPDRAFT: VisualizerEffect = {
+  id: 'updraft',
+  label: 'Updraft',
+  surface: 'webgl2',
+  emergence: 'overlay',
+  params: UPDRAFT_KNOBS,
+  create
 }

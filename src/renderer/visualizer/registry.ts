@@ -5,7 +5,7 @@ import { createGyre, GYRE_KNOBS } from './effects/gyre'
 import { createHalo, HALO_KNOBS } from './effects/halo'
 import { createSilk, SILK_KNOBS } from './effects/silk'
 import { TRACE } from './effects/trace'
-import { createUpdraft, UPDRAFT_KNOBS } from './effects/updraft'
+import { UPDRAFT } from './effects/updraft'
 import { WHORL } from './effects/whorl'
 import { DRIFT } from './effects/drift'
 import { PLUMAGE } from './effects/plumage'
@@ -34,16 +34,6 @@ const SILK: VisualizerEffect = {
   emergence: 'overlay',
   params: SILK_KNOBS,
   create: create2D(createSilk, 'Silk')
-}
-
-/** W23-7: motes on a swirling flow field, trailing smoke. */
-const UPDRAFT: VisualizerEffect = {
-  id: 'updraft',
-  label: 'Updraft',
-  surface: '2d',
-  emergence: 'overlay',
-  params: UPDRAFT_KNOBS,
-  create: create2D(createUpdraft, 'Updraft')
 }
 
 /** W23-7: the spectrum as arcs orbiting on concentric rings. */

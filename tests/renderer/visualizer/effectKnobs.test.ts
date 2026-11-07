@@ -17,7 +17,7 @@ import { PLUMAGE_KNOBS } from '../../../src/renderer/visualizer/effects/plumageM
 import { RAINFALL_KNOBS } from '../../../src/renderer/visualizer/effects/rainfallModel'
 import { SILK_KNOBS } from '../../../src/renderer/visualizer/effects/silk'
 import { TRACE_KNOBS } from '../../../src/renderer/visualizer/effects/traceModel'
-import { UPDRAFT_KNOBS } from '../../../src/renderer/visualizer/effects/updraft'
+import { UPDRAFT_KNOBS } from '../../../src/renderer/visualizer/effects/updraftModel'
 import { WHORL_KNOBS } from '../../../src/renderer/visualizer/effects/whorlModel'
 import { resolveParams, writeParams } from '../../../src/renderer/visualizer/params'
 
