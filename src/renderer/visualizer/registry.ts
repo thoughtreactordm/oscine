@@ -6,7 +6,7 @@ import { createHalo, HALO_KNOBS } from './effects/halo'
 import { createSilk, SILK_KNOBS } from './effects/silk'
 import { createTrace, TRACE_KNOBS } from './effects/trace'
 import { createUpdraft, UPDRAFT_KNOBS } from './effects/updraft'
-import { createWhorl, WHORL_KNOBS } from './effects/whorl'
+import { WHORL } from './effects/whorl'
 import { DRIFT } from './effects/drift'
 import { PLUMAGE } from './effects/plumage'
 import { RAINFALL } from './effects/rainfall'
@@ -34,16 +34,6 @@ const TRACE: VisualizerEffect = {
   emergence: 'overlay',
   params: TRACE_KNOBS,
   create: create2D(createTrace, 'Trace')
-}
-
-/** W23-7: the waveform as a ring, its afterimages spiralling outward. */
-const WHORL: VisualizerEffect = {
-  id: 'whorl',
-  label: 'Whorl',
-  surface: '2d',
-  emergence: 'overlay',
-  params: WHORL_KNOBS,
-  create: create2D(createWhorl, 'Whorl')
 }
 
 /** W23-7: pendulum-pen threads whose rates drift with the band energies. */

@@ -1,253 +1,228 @@
-import type { AnalysisFrame } from '../analysisFrame'
+import type { EffectInstance, EffectTarget, VisualizerEffect } from '../effect'
+import { compileProgram, uniformLocations } from '../gl/program'
 import { PaletteSlot, type Palette } from '../palette'
-import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
-import { follow, type Draw2D, type Effect2DInstance, type Quality2D, type Stage2D } from './draw2d'
-import { createDrive } from './drive'
-import { createWaveformReader } from './waveform'
+import {
+  createWhorlModel,
+  INSTANCE_FLOATS,
+  MAX_INSTANCES,
+  WHORL_KNOBS,
+  WhorlColour
+} from './whorlModel'
 
 /**
- * **Whorl** — W23-7: the waveform as a ring at the centre, leaving a tunnel of
- * its past selves that rush outward and twist as the song picks up.
+ * **Whorl** on the WebGL2 tier — W23-7, ported by W23-16. The tunnel itself is
+ * `whorlModel.ts`; this draws it.
  *
- * 2D, `overlay`. The host lays it over the wash and scales it by emergence; this
- * multiplies only by the flash guard's intensity (D35.8).
+ * Every stroke — each past ring, then the live ring's band and core — is one
+ * instance of a closed triangle strip, all of them in one draw. A ring's shape
+ * lives in a row of an `R32F` texture (`points` × rows); a frame uploads the
+ * live row and, when the model snapshotted one, that row, so a ring's shape
+ * crosses the bus once in its life. The vertex shader lays the shape round the
+ * circle, as the 2D version did with `lineTo`, and pushes each point out along
+ * the mitred normal by half the line width plus a pixel; the fragment shader
+ * turns the distance across the strip into coverage, so the edges are smooth
+ * without multisampling.
  *
- * - **The ring** is the shared waveform reader's shape laid round a circle. It
- *   swells on the beat, its swing follows the level (the reader auto-scales, so
- *   loudness is put back here), and it spins faster with the bass and the heat.
- * - **The tunnel.** Every {@link SNAPSHOT_SEC} the ring is copied into a ring
- *   buffer of up to {@link CAPACITY} past rings. Each keeps its own scale, turn
- *   and fade, integrated every frame from the drive as it is *now*, so the
- *   whole tunnel answers the music at once:
- *   - it grows exponentially (perspective — rings speed up as they near the
- *     viewer), faster with the heat and surging on every beat;
- *   - it twists, faster with the heat, the way the brightness leans;
- *   - it fades over a lifetime that runs from well under a second in a quiet
- *     passage to {@link MAX_LIFE_SEC} when the song is going hard, so a build
- *     fills the stage with rings.
- *   A ring laid on a beat is drawn brighter, in `--ui-text-highlighted`, all
- *   the way out. Rings are dropped once they leave the stage or fade out.
- *
- * Every array is made in `create`; the angle tables too.
+ * `overlay`, so the host fades it in over the wash; blended premultiplied over
+ * a cleared, transparent canvas. Colours are the palette's sRGB values, as the
+ * 2D version stroked them, so blending happens in the same space it did there.
  */
 
-const SNAPSHOT_SEC = 1 / 15
-/** Ten seconds of rings at most. */
-const CAPACITY = 150
-/** A ring's life: in a quiet passage, and added at full heat. */
-const MIN_LIFE_SEC = 0.6
-const MAX_LIFE_SEC = 8
-const RING_ALPHA = 0.6
-const RING_FLOOR = 0.012
-/** Growth per second (log scale): at rest, at full heat, and the surge at a full beat. */
-const GROW = 0.12
-const GROW_HEAT = 0.28
-const GROW_PULSE = 0.9
-/** Twist (rad/s): at rest, at full heat, and how far the brightness leans it either way. */
-const TWIST = 0.12
-const TWIST_HEAT = 0.5
-const TWIST_BRIGHTNESS = 0.9
-/** A beat ring: strength at least this marks it, and its brightness boost. */
-const BEAT_RING = 0.55
+const VERTEX_SHADER = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+layout(location = 0) in vec4 a_ring;
+layout(location = 1) in vec4 a_style;
+uniform sampler2D u_shapes;
+uniform int u_points;
+uniform vec2 u_size;
+uniform vec3 u_colours[2];
+out float v_across;
+flat out float v_halfWidth;
+flat out float v_extent;
+flat out vec4 v_colour;
 
-/** The ring's base radius and the waveform's swing, as fractions of the shorter side. */
-const RADIUS = 0.15
-const SWING = 0.11
-/** The level's and the beat's share of the swing; the beat's swell of the radius; the heat's. */
-const LEVEL_SWING = 1.2
-const PULSE_SWING = 0.7
-const PULSE_SWELL = 0.45
-const HEAT_SWELL = 0.15
-/** Radians per second of spin: at rest, at full bass, at full heat. */
-const SPIN = 0.25
-const BASS_SPIN = 1.8
-const HEAT_SPIN = 1.2
-const SPIN_TAU_SEC = 0.3
-const BAND_WIDTH = 0.007
-const BAND_LEVEL_WIDTH = 0.012
-const BAND_ALPHA = 0.55
-const CORE_ALPHA = 0.95
-const TAU = Math.PI * 2
+const float TAU = 6.28318530718;
+// The mitre may lengthen the extrusion this much at most, so a sharp spike in
+// the waveform thickens its tip rather than throwing a sliver across the stage.
+const float MITRE_LIMIT = 2.0;
 
-const POINTS_BY_QUALITY: Readonly<Record<Quality2D, number>> = { low: 72, auto: 128, high: 192 }
+vec2 at(int point) {
+  int p = point - (point / u_points) * u_points;
+  if (p < 0) p += u_points;
+  float shape = texelFetch(u_shapes, ivec2(p, int(a_ring.w)), 0).r;
+  float r = a_ring.x + shape * a_ring.y;
+  float angle = float(p) / float(u_points) * TAU + a_ring.z;
+  return u_size * 0.5 + vec2(cos(angle), sin(angle)) * r;
+}
 
-/** Knobs scale the ring's size, spin, tunnel speed, trail life, and line weight. */
-export const WHORL_KNOBS: readonly EffectParamSpec[] = [
-  multiplierParam('size', 'Size', 'How large the ring and its swing are.', { min: 0.5, max: 1.75 }),
-  multiplierParam('spin', 'Spin', 'How fast the ring spins.', { min: 0, max: 3 }),
-  multiplierParam('tunnel', 'Tunnel speed', 'How fast past rings rush outward and twist.', {
-    min: 0,
-    max: 3
-  }),
-  // Max 1.25: a full-heat trail then lasts exactly as long as the ring buffer holds.
-  multiplierParam('trail', 'Trail length', 'How long past rings stay visible.', {
-    min: 0.25,
-    max: 1.25
-  }),
-  multiplierParam('weight', 'Line weight', 'How thick the ring and its tunnel are.', {
-    min: 0.25,
-    max: 3
-  })
-]
+vec2 direction(vec2 d) {
+  float l = length(d);
+  return l > 1e-4 ? d / l : vec2(1.0, 0.0);
+}
 
-export function createWhorl<I>(
-  ctx: Draw2D<I>,
-  quality: Quality2D,
-  knobs: EffectParams = resolveParams(WHORL_KNOBS, undefined)
-): Effect2DInstance<I, AnalysisFrame, Palette> {
-  const points = POINTS_BY_QUALITY[quality]
-  const reader = createWaveformReader(points)
-  const drive = createDrive()
-  const live = reader.points
-  const cos = new Float32Array(points)
-  const sin = new Float32Array(points)
-  for (let point = 0; point < points; point++) {
-    const angle = (point / points) * TAU
-    cos[point] = Math.cos(angle)
-    sin[point] = Math.sin(angle)
+void main() {
+  // A closed strip: points + 1 pairs, the last pair back on point 0.
+  int point = gl_VertexID >> 1;
+  float side = (gl_VertexID & 1) == 0 ? -1.0 : 1.0;
+  vec2 p = at(point);
+  vec2 inbound = direction(p - at(point - 1));
+  vec2 outbound = direction(at(point + 1) - p);
+  vec2 tangent = direction(inbound + outbound);
+  vec2 normal = vec2(-tangent.y, tangent.x);
+  float mitre = 1.0 / max(dot(normal, vec2(-inbound.y, inbound.x)), 1.0 / MITRE_LIMIT);
+
+  float halfWidth = a_style.x * 0.5;
+  // A pixel past the line's edge, so the fragment shader has room to fade it.
+  float extent = halfWidth + 1.0;
+  vec2 q = p + normal * (side * extent * mitre);
+  // Pixels are y down, as the 2D version drew them; clip space is y up.
+  gl_Position = vec4(q.x / u_size.x * 2.0 - 1.0, 1.0 - q.y / u_size.y * 2.0, 0.0, 1.0);
+
+  v_across = side;
+  v_halfWidth = halfWidth;
+  v_extent = extent;
+  float alpha = a_style.y;
+  v_colour = vec4(u_colours[int(a_style.z)] * alpha, alpha);
+}
+`
+
+const FRAGMENT_SHADER = `#version 300 es
+precision mediump float;
+in float v_across;
+flat in float v_halfWidth;
+flat in float v_extent;
+flat in vec4 v_colour;
+out vec4 o_colour;
+void main() {
+  float distance = abs(v_across) * v_extent;
+  o_colour = v_colour * clamp(v_halfWidth + 0.5 - distance, 0.0, 1.0);
+}
+`
+
+const UNIFORMS = ['u_shapes', 'u_points', 'u_size', 'u_colours'] as const
+
+/** Linear light back to the sRGB encoding the 2D version's `css` strings carried. */
+function encode(linear: number): number {
+  return linear <= 0.0031308 ? linear * 12.92 : 1.055 * Math.pow(linear, 1 / 2.4) - 0.055
+}
+
+function create(target: EffectTarget): EffectInstance {
+  if (target.surface !== 'webgl2') throw new Error('Whorl draws on a WebGL2 surface')
+  const gl = target.context
+  const program = compileProgram(gl, FRAGMENT_SHADER, 'Whorl', VERTEX_SHADER)
+  const u = uniformLocations(gl, program, UNIFORMS)
+  const model = createWhorlModel(target.quality, target.params)
+  const { points, rows, shapes, instances } = model
+
+  const shapeTexture = gl.createTexture()
+  gl.bindTexture(gl.TEXTURE_2D, shapeTexture)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, points, rows)
+  gl.bindTexture(gl.TEXTURE_2D, null)
+
+  const instanceBuffer = gl.createBuffer()
+  const vao = gl.createVertexArray()
+  gl.bindVertexArray(vao)
+  gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer)
+  gl.bufferData(gl.ARRAY_BUFFER, MAX_INSTANCES * INSTANCE_FLOATS * 4, gl.DYNAMIC_DRAW)
+  gl.enableVertexAttribArray(0)
+  gl.vertexAttribPointer(0, 4, gl.FLOAT, false, INSTANCE_FLOATS * 4, 0)
+  gl.vertexAttribDivisor(0, 1)
+  gl.enableVertexAttribArray(1)
+  gl.vertexAttribPointer(1, 4, gl.FLOAT, false, INSTANCE_FLOATS * 4, 16)
+  gl.vertexAttribDivisor(1, 1)
+  gl.bindVertexArray(null)
+  gl.bindBuffer(gl.ARRAY_BUFFER, null)
+
+  gl.useProgram(program)
+  gl.uniform1i(u.u_shapes, 0)
+  gl.uniform1i(u.u_points, points)
+  gl.useProgram(null)
+
+  const colours = new Float32Array(6)
+  let coloursVersion = -1
+  let width = 1
+  let height = 1
+
+  function uploadRow(row: number): void {
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, points, 1, gl.RED, gl.FLOAT, shapes, row * points)
   }
-  const shapes = new Float32Array(points * CAPACITY)
-  /** Per ring: radius, swing (px at scale 1), scale, turn, life left (1 → 0), beat strength. */
-  const radii = new Float32Array(CAPACITY)
-  const swings = new Float32Array(CAPACITY)
-  const scales = new Float32Array(CAPACITY)
-  const turns = new Float32Array(CAPACITY)
-  const lives = new Float32Array(CAPACITY)
-  const strengths = new Float32Array(CAPACITY)
 
-  let width = 0
-  let height = 0
-  let head = 0
-  let sinceSnapshot = 0
-  let spin = 0
-  let spinSpeed = SPIN * knobs.spin
-
-  /** Trace one closed ring; the caller strokes it. */
-  function ring(
-    source: Float32Array,
-    offset: number,
-    cx: number,
-    cy: number,
-    radius: number,
-    swing: number,
-    turn: number
-  ): void {
-    const turnCos = Math.cos(turn)
-    const turnSin = Math.sin(turn)
-    ctx.beginPath()
-    for (let point = 0; point < points; point++) {
-      const r = radius + source[offset + point] * swing
-      const dirX = cos[point] * turnCos - sin[point] * turnSin
-      const dirY = sin[point] * turnCos + cos[point] * turnSin
-      if (point === 0) ctx.moveTo(cx + dirX * r, cy + dirY * r)
-      else ctx.lineTo(cx + dirX * r, cy + dirY * r)
+  function updateColours(palette: Palette): void {
+    if (palette.version === coloursVersion) return
+    coloursVersion = palette.version
+    for (let channel = 0; channel < 3; channel++) {
+      colours[WhorlColour.accent * 3 + channel] = encode(
+        palette.linear[PaletteSlot.accent * 3 + channel]
+      )
+      colours[WhorlColour.highlighted * 3 + channel] = encode(
+        palette.linear[PaletteSlot.textHighlighted * 3 + channel]
+      )
     }
-    ctx.closePath()
   }
 
   return {
-    resize(nextWidth: number, nextHeight: number): void {
-      width = nextWidth
-      height = nextHeight
+    resize(nextWidth, nextHeight) {
+      width = Math.max(1, Math.round(nextWidth))
+      height = Math.max(1, Math.round(nextHeight))
     },
 
-    frame(audio, palette, stage: Stage2D<I>, dtSec): void {
-      ctx.clearRect(0, 0, width, height)
-      const dt = dtSec > 0 ? dtSec : 0
-      drive.update(audio, dt)
-      const pulse = drive.pulse
-      const heat = drive.heat
-      reader.read(audio.waveform, dt)
+    frame(audio, palette, stage, dtSec) {
+      model.update(audio, stage.intensity, width, height, dtSec)
+      updateColours(palette)
 
-      const target = (SPIN + audio.bass * BASS_SPIN + heat * HEAT_SPIN) * knobs.spin
-      spinSpeed += (target - spinSpeed) * follow(dt, SPIN_TAU_SEC)
-      spin = (spin + spinSpeed * dt) % TAU
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(0, 0, width, height)
+      gl.clearColor(0, 0, 0, 0)
+      gl.clear(gl.COLOR_BUFFER_BIT)
 
-      // The tunnel moves as one, by the drive as it is now.
-      const grow = Math.exp(
-        (GROW * knobs.tunnel + heat * GROW_HEAT * knobs.tunnel + pulse * GROW_PULSE) * dt
-      )
-      const twist =
-        (TWIST * knobs.tunnel +
-          heat * TWIST_HEAT * knobs.tunnel +
-          (drive.brightness - 0.5) * TWIST_BRIGHTNESS) *
-        dt
-      const fade = dt / ((MIN_LIFE_SEC + heat * heat * (MAX_LIFE_SEC - MIN_LIFE_SEC)) * knobs.trail)
-      for (let slot = 0; slot < CAPACITY; slot++) {
-        if (lives[slot] <= 0) continue
-        scales[slot] *= grow
-        turns[slot] += twist
-        lives[slot] -= fade
+      gl.activeTexture(gl.TEXTURE0)
+      gl.bindTexture(gl.TEXTURE_2D, shapeTexture)
+      // Rows are tightly packed floats; say so rather than trust the default.
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4)
+      uploadRow(rows - 1)
+      if (model.snapshotRow >= 0) uploadRow(model.snapshotRow)
+
+      const count = model.count
+      if (count > 0) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer)
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, instances, 0, count * INSTANCE_FLOATS)
+        gl.bindBuffer(gl.ARRAY_BUFFER, null)
+
+        gl.useProgram(program)
+        gl.uniform2f(u.u_size, width, height)
+        gl.uniform3fv(u.u_colours, colours)
+        gl.enable(gl.BLEND)
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+        gl.bindVertexArray(vao)
+        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, (points + 1) * 2, count)
+        gl.bindVertexArray(null)
+        gl.disable(gl.BLEND)
+        gl.useProgram(null)
       }
-
-      const short = width < height ? width : height
-      const radius = short * RADIUS * (1 + pulse * PULSE_SWELL + heat * HEAT_SWELL) * knobs.size
-      const swing =
-        short * SWING * (0.35 + audio.level * LEVEL_SWING + pulse * PULSE_SWING) * knobs.size
-      sinceSnapshot += dt
-      if (sinceSnapshot >= SNAPSHOT_SEC) {
-        sinceSnapshot %= SNAPSHOT_SEC
-        shapes.set(live, head * points)
-        radii[head] = radius
-        swings[head] = swing
-        scales[head] = 1
-        turns[head] = spin
-        lives[head] = 1
-        strengths[head] = pulse
-        head = (head + 1) % CAPACITY
-      }
-      if (width <= 0 || height <= 0) return
-
-      const intensity = stage.intensity
-      const cx = width / 2
-      const cy = height / 2
-      /** A ring whose inner edge is past the corners is off the stage. */
-      const reach = Math.sqrt(cx * cx + cy * cy)
-      const baseWidth = Math.max(1, short * BAND_WIDTH * 0.4 * knobs.weight)
-      ctx.globalCompositeOperation = 'source-over'
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
-
-      // The tunnel, oldest (outermost) first.
-      for (let n = 0; n < CAPACITY; n++) {
-        const slot = (head + n) % CAPACITY
-        if (lives[slot] <= 0) continue
-        const scale = scales[slot]
-        const r = radii[slot] * scale
-        const s = swings[slot] * scale
-        const alpha = lives[slot] * lives[slot] * RING_ALPHA
-        if (alpha < RING_FLOOR || r - s > reach) {
-          lives[slot] = 0
-          continue
-        }
-        const beat = strengths[slot] >= BEAT_RING
-        ctx.strokeStyle = palette.css[beat ? PaletteSlot.textHighlighted : PaletteSlot.accent]
-        ctx.globalAlpha = Math.min(1, alpha * (0.6 + strengths[slot])) * intensity
-        // Nearer rings are thicker, as they would be down a tunnel.
-        ctx.lineWidth = Math.min(baseWidth * 6, baseWidth * Math.sqrt(scale))
-        ring(shapes, slot * points, cx, cy, r, s, turns[slot])
-        ctx.stroke()
-      }
-
-      // The ring now.
-      ctx.strokeStyle = palette.css[PaletteSlot.accent]
-      ctx.globalAlpha = BAND_ALPHA * intensity
-      ctx.lineWidth = Math.max(
-        1,
-        short * (BAND_WIDTH + (audio.level + pulse) * BAND_LEVEL_WIDTH) * knobs.weight
-      )
-      ring(live, 0, cx, cy, radius, swing, spin)
-      ctx.stroke()
-      ctx.globalAlpha = CORE_ALPHA * intensity
-      ctx.strokeStyle = palette.css[PaletteSlot.textHighlighted]
-      ctx.lineWidth = Math.max(1, short * 0.0022)
-      ctx.stroke()
-
-      ctx.globalAlpha = 1
+      gl.bindTexture(gl.TEXTURE_2D, null)
     },
 
-    dispose(): void {
-      ctx.clearRect(0, 0, width, height)
+    dispose() {
+      gl.deleteVertexArray(vao)
+      gl.deleteBuffer(instanceBuffer)
+      gl.deleteTexture(shapeTexture)
+      gl.deleteProgram(program)
     }
   }
+}
+
+/** W23-7: the waveform as a ring, its afterimages spiralling outward. */
+export const WHORL: VisualizerEffect = {
+  id: 'whorl',
+  label: 'Whorl',
+  surface: 'webgl2',
+  emergence: 'overlay',
+  params: WHORL_KNOBS,
+  create
 }

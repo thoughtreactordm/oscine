@@ -12,7 +12,6 @@ import { createGyre, ringLevel } from '../../../src/renderer/visualizer/effects/
 import { createSilk } from '../../../src/renderer/visualizer/effects/silk'
 import { createTrace } from '../../../src/renderer/visualizer/effects/trace'
 import { createUpdraft, flowVelocity } from '../../../src/renderer/visualizer/effects/updraft'
-import { createWhorl } from '../../../src/renderer/visualizer/effects/whorl'
 import { triggerIndex } from '../../../src/renderer/visualizer/effects/waveform'
 import { PALETTE_SLOT_COUNT, type Palette } from '../../../src/renderer/visualizer/palette'
 
@@ -245,7 +244,6 @@ const CORES: readonly (readonly [string, Core])[] = [
   ['Halo', createHalo],
   ['Gyre', createGyre],
   ['Trace', createTrace],
-  ['Whorl', createWhorl],
   ['Silk', createSilk],
   ['Updraft', createUpdraft]
 ]
@@ -545,29 +543,6 @@ describe('the drive', () => {
 })
 
 describe('oomph', () => {
-  /** How many strokes the effect draws in its last frame after `seconds` of a section. */
-  function strokesAfter(core: Core, loud: boolean, seconds: number): number {
-    const ctx = new RecordingContext()
-    const effect = core(ctx, 'auto')
-    effect.resize(1280, 720)
-    const frame = makeFrame()
-    let time = 0
-    for (let n = 0; n < seconds * 60; n++) {
-      time += 1 / 60
-      section(frame, time, 1 / 60, loud)
-      ctx.ops = []
-      effect.frame(frame, makePalette(), makeStage(), 1 / 60)
-    }
-    return ctx.ops.filter((op) => op.kind === 'stroke').length
-  }
-
-  it('Whorl builds a long tunnel as the song picks up', () => {
-    const quiet = strokesAfter(createWhorl, false, 6)
-    const loud = strokesAfter(createWhorl, true, 6)
-    expect(loud).toBeGreaterThan(quiet * 2.5)
-    expect(loud).toBeGreaterThan(25)
-  })
-
   it('Trace draws a loud passage bigger than a quiet one', () => {
     function extent(loud: boolean): number {
       const ctx = new RecordingContext()

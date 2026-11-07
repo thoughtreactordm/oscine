@@ -18,7 +18,7 @@ import { RAINFALL_KNOBS } from '../../../src/renderer/visualizer/effects/rainfal
 import { SILK_KNOBS } from '../../../src/renderer/visualizer/effects/silk'
 import { TRACE_KNOBS } from '../../../src/renderer/visualizer/effects/trace'
 import { UPDRAFT_KNOBS } from '../../../src/renderer/visualizer/effects/updraft'
-import { WHORL_KNOBS } from '../../../src/renderer/visualizer/effects/whorl'
+import { WHORL_KNOBS } from '../../../src/renderer/visualizer/effects/whorlModel'
 import { resolveParams, writeParams } from '../../../src/renderer/visualizer/params'
 
 /**
