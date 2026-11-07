@@ -645,7 +645,25 @@ function shouldRun(): boolean {
   })
 }
 
+/**
+ * True while a frame runs. A frame can reach `evaluate` — a settled resize's
+ * `measure` calls `wake` — and `raf` is null by then, so without this
+ * `evaluate` would start a second loop beside the one the frame is about to
+ * continue. Every such resize then added a loop for good: three were found
+ * running at once, each drawing and sampling every vsync (W23-16).
+ */
+let ticking = false
+
 function tick(now: number): void {
+  ticking = true
+  try {
+    runFrame(now)
+  } finally {
+    ticking = false
+  }
+}
+
+function runFrame(now: number): void {
   raf = null
   const minFrameMs = gl ? governor.profile.minFrameMs : quality.value === 'low' ? LOW_FRAME_MS : 0
   if (lastNow !== 0 && now - lastNow < minFrameMs) {
@@ -719,7 +737,7 @@ function tick(now: number): void {
     }
     return
   }
-  if (shouldRun()) raf = requestAnimationFrame(tick)
+  if (raf === null && shouldRun()) raf = requestAnimationFrame(tick)
 }
 
 /**
@@ -750,9 +768,12 @@ function drawGl(
   if (effect.emergence === 'grow' && glWash?.drawn) growDrawn = true
 }
 
-/** Start the loop if D35.7 says it should run and it is not already running. */
+/**
+ * Start the loop if D35.7 says it should run and it is not already running.
+ * Inside a frame it is running: the frame re-requests itself at its end.
+ */
 function evaluate(): void {
-  if (raf !== null || !mounted || !shouldRun()) return
+  if (ticking || raf !== null || !mounted || !shouldRun()) return
   lastNow = 0
   raf = requestAnimationFrame(tick)
 }
