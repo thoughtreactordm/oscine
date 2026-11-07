@@ -44,7 +44,6 @@ import {
   LOW_FRAME_MS
 } from '@renderer/visualizer/qualityBudget'
 import { resolveParams, writeParams } from '@renderer/visualizer/params'
-import { canvasKey, parseRasterOverride, rasterFor } from '@renderer/visualizer/raster'
 import { availableEffects } from '@renderer/visualizer/registry'
 import {
   createStageTransition,
@@ -77,9 +76,8 @@ import { createWashPass, decodeWashImage, type WashPass } from '@renderer/visual
  *
  * The **wash canvas** carries the stage's blurred cover, drawn by the 2D wash
  * pass once per cover, theme or size and only blitted by the compositor after
- * that. The **effect canvas** above it is keyed on the effect's surface and, for
- * 2D, its raster (a canvas cannot change its context type or attributes, D35.1;
- * `visualizer/raster.ts`). An `overlay` effect's canvas
+ * that. The **effect canvas** above it is keyed on the effect's surface (a
+ * canvas cannot change its context type, D35.1). An `overlay` effect's canvas
  * fades in over the wash with the emergence, and the wash under it eases to its
  * `washUnder`. A `grow` effect draws `stage.wash` itself, so once it has drawn
  * the wash canvas steps aside and the effect canvas carries the handoff instead.
@@ -164,14 +162,6 @@ const HOLD_EMERGENCE = import.meta.env.DEV
   ? parseHoldEmergence(import.meta.env.VITE_VISUALIZER_HOLD_EMERGENCE)
   : null
 
-/**
- * `VITE_VISUALIZER_RASTER=cpu|gpu` forces every 2D effect onto one raster, so
- * the two can be compared on one machine (`visualizer/raster.ts`). Dev builds only.
- */
-const RASTER_OVERRIDE = import.meta.env.DEV
-  ? parseRasterOverride(import.meta.env.VITE_VISUALIZER_RASTER)
-  : null
-
 const washCanvas = ref<HTMLCanvasElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 
@@ -189,11 +179,8 @@ const effect = computed<VisualizerEffect | null>(() =>
  * outgoing one settles into the wash first and the swap happens there.
  */
 const shown = shallowRef<VisualizerEffect | null>(effect.value)
-/**
- * A canvas cannot change its context type or attributes, so the element is
- * keyed on the surface and, for 2D, the raster.
- */
-const surfaceKey = computed(() => canvasKey(shown.value, RASTER_OVERRIDE))
+/** A canvas cannot change its context type, so the element is keyed on this. */
+const surface = computed(() => shown.value?.surface ?? '2d')
 
 const reducedMotion = ref(false)
 const hidden = ref(false)
@@ -535,12 +522,7 @@ function createInstance(): void {
   const params = resolveParams(next.params ?? [], storedParams.value[next.id])
   instanceParams = params
   if (next.surface === '2d') {
-    const cpu = rasterFor(next, RASTER_OVERRIDE) === 'cpu'
-    if (import.meta.env.DEV) {
-      // So an A/B can see the override took: the flag is read at build time.
-      console.info(`[visualizer] ${next.id}: ${cpu ? 'cpu' : 'gpu'} raster`)
-    }
-    const context = element.getContext('2d', cpu ? { willReadFrequently: true } : undefined)
+    const context = element.getContext('2d')
     if (!context) return
     instance = next.create({ surface: '2d', context, quality: quality.value, params })
     stage.wash = washInput
@@ -567,7 +549,7 @@ function createInstance(): void {
 function swap(): void {
   const next = effect.value
   if (next === shown.value && instance) return
-  const surfaceChanges = canvasKey(next, RASTER_OVERRIDE) !== surfaceKey.value
+  const surfaceChanges = (next?.surface ?? '2d') !== surface.value
   shown.value = next
   if (!surfaceChanges) {
     createInstance()
@@ -881,12 +863,12 @@ onBeforeUnmount(() => {
 <template>
   <!--
     Decoration: nothing here is announced or clickable. The wash canvas sits
-    under the effect canvas; the effect canvas is keyed on the surface and
-    raster because a canvas cannot change its context type or attributes (D35.1).
+    under the effect canvas; the effect canvas is keyed on the surface because
+    a canvas cannot change its context type (D35.1).
   -->
   <div aria-hidden="true" class="pointer-events-none absolute inset-0">
     <canvas ref="washCanvas" class="visualizer-layer absolute inset-0 size-full" />
-    <canvas :key="surfaceKey" ref="canvas" class="visualizer-layer absolute inset-0 size-full" />
+    <canvas :key="surface" ref="canvas" class="visualizer-layer absolute inset-0 size-full" />
   </div>
 </template>
 
