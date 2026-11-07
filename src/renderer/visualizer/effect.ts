@@ -3,6 +3,7 @@ import type { AnalysisFrame } from './analysisFrame'
 import type { StageCoverInput } from './coverDecode'
 import type { Palette } from './palette'
 import type { EffectParamSpec, EffectParams } from './params'
+import type { Raster2D } from './raster'
 import type { WashLook } from './wash'
 
 /**
@@ -108,6 +109,13 @@ export interface VisualizerEffect {
    * the effect at full emergence.
    */
   readonly washUnder?: number
+  /**
+   * `2d` only, default `'gpu'`: where the effect canvas rasterises (`raster.ts`).
+   * `'cpu'` is for path-heavy effects — Chromium's accelerated canvas on Windows
+   * draws each anti-aliased path through a mask the size of its bounds, which a
+   * tunnel of near-full-stage rings cannot afford.
+   */
+  readonly raster?: Raster2D
   /** The knobs the stage's tuning popover offers, in display order. None: no popover. */
   readonly params?: readonly EffectParamSpec[]
   create(target: EffectTarget): EffectInstance

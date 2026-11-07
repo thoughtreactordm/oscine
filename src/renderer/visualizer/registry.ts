@@ -32,6 +32,8 @@ const TRACE: VisualizerEffect = {
   label: 'Trace',
   surface: '2d',
   emergence: 'overlay',
+  // Whorl's afterimage buffer laid flat: a stroke per past ribbon (`raster.ts`).
+  raster: 'cpu',
   params: TRACE_KNOBS,
   create: create2D(createTrace, 'Trace')
 }
@@ -42,6 +44,8 @@ const WHORL: VisualizerEffect = {
   label: 'Whorl',
   surface: '2d',
   emergence: 'overlay',
+  // Up to 150 rings stroked a frame, the outer ones stage-sized (`raster.ts`).
+  raster: 'cpu',
   params: WHORL_KNOBS,
   create: create2D(createWhorl, 'Whorl')
 }
