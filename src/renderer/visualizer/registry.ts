@@ -4,7 +4,7 @@ import { create2D } from './effects/canvas2d'
 import { createGyre, GYRE_KNOBS } from './effects/gyre'
 import { createHalo, HALO_KNOBS } from './effects/halo'
 import { createSilk, SILK_KNOBS } from './effects/silk'
-import { createTrace, TRACE_KNOBS } from './effects/trace'
+import { TRACE } from './effects/trace'
 import { createUpdraft, UPDRAFT_KNOBS } from './effects/updraft'
 import { WHORL } from './effects/whorl'
 import { DRIFT } from './effects/drift'
@@ -24,16 +24,6 @@ const HALO: VisualizerEffect = {
   emergence: 'overlay',
   params: HALO_KNOBS,
   create: create2D(createHalo, 'Halo')
-}
-
-/** W23-7: the waveform as a drifting ribbon with afterimages. */
-const TRACE: VisualizerEffect = {
-  id: 'trace',
-  label: 'Trace',
-  surface: '2d',
-  emergence: 'overlay',
-  params: TRACE_KNOBS,
-  create: create2D(createTrace, 'Trace')
 }
 
 /** W23-7: pendulum-pen threads whose rates drift with the band energies. */

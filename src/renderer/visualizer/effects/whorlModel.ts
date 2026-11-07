@@ -2,6 +2,7 @@ import type { AnalysisFrame } from '../analysisFrame'
 import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
 import { follow, type Quality2D } from './draw2d'
 import { createDrive } from './drive'
+import { STROKE_FLOATS, StrokeColour, writeStroke, type StrokeSource } from './strokes'
 import { createWaveformReader } from './waveform'
 
 /**
@@ -34,7 +35,7 @@ import { createWaveformReader } from './waveform'
  * next to nothing.
  *
  * Each frame `update` fills {@link WhorlModel.instances}: one record of
- * {@link INSTANCE_FLOATS} per stroke, oldest (outermost) ring first, then the
+ * {@link STROKE_FLOATS} per stroke, oldest (outermost) ring first, then the
  * live ring's band and core. All in pixels of the target, y down, centred on
  * the target's middle. Every array is made here, once.
  */
@@ -80,16 +81,6 @@ const TAU = Math.PI * 2
 
 const POINTS_BY_QUALITY: Readonly<Record<Quality2D, number>> = { low: 72, auto: 128, high: 192 }
 
-/** Which palette entry a stroke takes. */
-export const WhorlColour = { accent: 0, highlighted: 1 } as const
-
-/**
- * One stroke: `radius`, `swing` (px the shape's ±1 swings it), `turn` (rad),
- * the shape's `row` in {@link WhorlModel.shapes}, `lineWidth` (px), `alpha`
- * (with the flash guard's intensity in it), a {@link WhorlColour}, and a pad
- * to keep the record two `vec4`s.
- */
-export const INSTANCE_FLOATS = 8
 /** Every past ring, plus the live ring drawn twice (band and core). */
 export const MAX_INSTANCES = CAPACITY + 2
 
@@ -112,19 +103,12 @@ export const WHORL_KNOBS: readonly EffectParamSpec[] = [
   })
 ]
 
-export interface WhorlModel {
-  /** Points per ring. */
-  readonly points: number
-  /** {@link CAPACITY} past rings, then the live one. */
-  readonly rows: number
-  /** Ring shapes, `points` per row, in −1..1. The last row is the live ring. */
-  readonly shapes: Float32Array
-  /** The row `update` snapshotted into, or −1. The live row changes every frame. */
-  readonly snapshotRow: number
-  /** {@link INSTANCE_FLOATS} per stroke, drawing order. */
-  readonly instances: Float32Array
-  /** Strokes to draw this frame. */
-  readonly count: number
+/**
+ * {@link CAPACITY} past rings and then the live one as rows; strokes in the
+ * `ring` layout (`strokeRenderer.ts`): `(radius, swing, turn, row)`,
+ * `(lineWidth, alpha, colour, 0)`, pixels.
+ */
+export interface WhorlModel extends StrokeSource {
   update(audio: AnalysisFrame, intensity: number, width: number, height: number, dt: number): void
 }
 
@@ -139,7 +123,7 @@ export function createWhorlModel(
   const drive = createDrive()
   const live = reader.points
   const shapes = new Float32Array(points * rows)
-  const instances = new Float32Array(MAX_INSTANCES * INSTANCE_FLOATS)
+  const instances = new Float32Array(MAX_INSTANCES * STROKE_FLOATS)
   /** Per ring: radius, swing (px at scale 1), scale, turn, life left (1 → 0), beat strength. */
   const radii = new Float32Array(CAPACITY)
   const swings = new Float32Array(CAPACITY)
@@ -164,16 +148,7 @@ export function createWhorlModel(
     alpha: number,
     colour: number
   ): void {
-    const at = count * INSTANCE_FLOATS
-    instances[at] = radius
-    instances[at + 1] = swing
-    instances[at + 2] = turn
-    instances[at + 3] = row
-    instances[at + 4] = lineWidth
-    instances[at + 5] = alpha
-    instances[at + 6] = colour
-    instances[at + 7] = 0
-    count++
+    count = writeStroke(instances, count, radius, swing, turn, row, lineWidth, alpha, colour)
   }
 
   return {
@@ -265,7 +240,7 @@ export function createWhorlModel(
           // Nearer rings are thicker, as they would be down a tunnel.
           Math.min(baseWidth * 6, baseWidth * Math.sqrt(scale)),
           Math.min(1, alpha * (0.6 + strengths[slot])) * intensity,
-          beat ? WhorlColour.highlighted : WhorlColour.accent
+          beat ? StrokeColour.highlighted : StrokeColour.accent
         )
       }
 
@@ -277,7 +252,7 @@ export function createWhorlModel(
         liveRow,
         Math.max(1, short * (BAND_WIDTH + (audio.level + pulse) * BAND_LEVEL_WIDTH) * knobs.weight),
         BAND_ALPHA * intensity,
-        WhorlColour.accent
+        StrokeColour.accent
       )
       push(
         radius,
@@ -286,7 +261,7 @@ export function createWhorlModel(
         liveRow,
         Math.max(1, short * CORE_WIDTH),
         CORE_ALPHA * intensity,
-        WhorlColour.highlighted
+        StrokeColour.highlighted
       )
     }
   }

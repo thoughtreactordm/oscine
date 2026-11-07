@@ -10,7 +10,6 @@ import { createHalo } from '../../../src/renderer/visualizer/effects/halo'
 import { createDrive, spectralCentroid } from '../../../src/renderer/visualizer/effects/drive'
 import { createGyre, ringLevel } from '../../../src/renderer/visualizer/effects/gyre'
 import { createSilk } from '../../../src/renderer/visualizer/effects/silk'
-import { createTrace } from '../../../src/renderer/visualizer/effects/trace'
 import { createUpdraft, flowVelocity } from '../../../src/renderer/visualizer/effects/updraft'
 import { triggerIndex } from '../../../src/renderer/visualizer/effects/waveform'
 import { PALETTE_SLOT_COUNT, type Palette } from '../../../src/renderer/visualizer/palette'
@@ -243,7 +242,6 @@ type Core = (
 const CORES: readonly (readonly [string, Core])[] = [
   ['Halo', createHalo],
   ['Gyre', createGyre],
-  ['Trace', createTrace],
   ['Silk', createSilk],
   ['Updraft', createUpdraft]
 ]
@@ -539,30 +537,5 @@ describe('the drive', () => {
     expect(spectralCentroid(dark)).toBeLessThan(0.15)
     expect(spectralCentroid(bright)).toBeGreaterThan(0.8)
     expect(spectralCentroid(new Float32Array(ANALYSIS_BANDS))).toBe(0.5)
-  })
-})
-
-describe('oomph', () => {
-  it('Trace draws a loud passage bigger than a quiet one', () => {
-    function extent(loud: boolean): number {
-      const ctx = new RecordingContext()
-      const trace = createTrace(ctx, 'auto')
-      trace.resize(1280, 720)
-      const frame = makeFrame()
-      let time = 0
-      for (let n = 0; n < 120; n++) {
-        time += 1 / 60
-        section(frame, time, 1 / 60, loud)
-        frame.onset = 0
-        ctx.ops = []
-        trace.frame(frame, makePalette(), makeStage(), 1 / 60)
-      }
-      // The live ribbon is the last stroke.
-      const live = ctx.ops.filter((op) => op.kind === 'stroke').at(-1)
-      if (!live || live.kind !== 'stroke') throw new Error('nothing drawn')
-      const ys = live.path.filter((_, index) => index % 2 === 1)
-      return Math.max(...ys) - Math.min(...ys)
-    }
-    expect(extent(true)).toBeGreaterThan(extent(false) * 2)
   })
 })

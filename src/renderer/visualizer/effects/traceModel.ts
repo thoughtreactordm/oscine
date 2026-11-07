@@ -1,0 +1,258 @@
+import type { AnalysisFrame } from '../analysisFrame'
+import { multiplierParam, resolveParams, type EffectParamSpec, type EffectParams } from '../params'
+import type { Quality2D } from './draw2d'
+import { createDrive } from './drive'
+import { STROKE_FLOATS, StrokeColour, writeStroke, type StrokeSource } from './strokes'
+import { createWaveformReader } from './waveform'
+
+/**
+ * **Trace**'s ribbon and afterimages, without the drawing — W23-7, D35.9,
+ * moved to the WebGL2 tier by W23-16 (`trace.ts` draws it).
+ *
+ * The waveform as a slow-drifting ribbon with fading afterimages.
+ *
+ * - **The ribbon** is the shared waveform reader's shape (triggered, auto-
+ *   scaled, tapered). Its amplitude follows the level and leaps on the beat —
+ *   the reader's auto-scale is undone here, so a chorus draws bigger than a
+ *   verse. It climbs for a bright (high-pitched) spectrum and sinks for a dark
+ *   one, and sways and tilts slowly on two incommensurate periods. It is a
+ *   wide `--ui-primary` band, thickening with level and beat, under a thin
+ *   `--ui-text-highlighted` core.
+ * - **The afterimages** are earlier ribbons, a snapshot every
+ *   {@link SNAPSHOT_SEC} of clamped time. Each keeps its own rise, scroll,
+ *   widening and fade, integrated every frame from the drive as it is now: as
+ *   the song heats up they stream away faster and live longer (up to
+ *   {@link MAX_LIFE_SEC}), and a beat throws them up and open. One laid on a
+ *   beat stays brighter, in `--ui-text-highlighted`. Redrawing snapshots,
+ *   rather than fading a canvas into itself, keeps persistence exactly
+ *   `dtSec`-driven.
+ *
+ * Why it left the 2D tier: seventy-odd stage-wide strokes a frame measured
+ * ~14 ms of 2D raster at 1440p, enough to saturate the GPU process and starve
+ * the flash guard's sample to 5 Hz.
+ *
+ * Each frame `update` fills {@link TraceModel.instances}, {@link STROKE_FLOATS}
+ * per stroke in the `ribbon` layout (`strokeRenderer.ts`): oldest afterimage
+ * first so the newest lie on top, then the live ribbon's band and core. Pixels
+ * of the target, y down. Every array is made here, once.
+ */
+
+/** Snapshot spacing and capacity: three seconds of history at most. */
+const SNAPSHOT_SEC = 1 / 24
+export const CAPACITY = 72
+/** An afterimage's life: in a quiet passage, and added at full heat. */
+const MIN_LIFE_SEC = 0.3
+const MAX_LIFE_SEC = 2.4
+const AFTERIMAGE_ALPHA = 0.55
+/** Below this an afterimage is not drawn at all. */
+const AFTERIMAGE_FLOOR = 0.01
+/** Rates per second: rise (× height), scroll (× width), widening (log). Each grows with the heat. */
+const RISE = 0.05
+const SCROLL = 0.06
+const WIDEN = 0.5
+const HEAT_RATE = 3
+/** A beat throws the afterimages up and open. */
+const PULSE_RISE = 0.35
+const PULSE_WIDEN = 1.6
+/** An afterimage laid on a beat this strong is drawn in `--ui-text-highlighted`. */
+const BEAT_TRACE = 0.55
+
+/** The ribbon's amplitude at full scale, as a fraction of the height. */
+const AMPLITUDE = 0.26
+/** The level's and the beat's share of the amplitude (the reader auto-scales; this puts loudness back). */
+const LEVEL_AMPLITUDE = 1.1
+const PULSE_AMPLITUDE = 0.6
+/** Sway and tilt, as fractions of the height, and their periods in seconds. */
+const SWAY = 0.08
+const SWAY_PERIOD_SEC = 17
+const TILT = 0.1
+const TILT_PERIOD_SEC = 29
+/** How far the ribbon climbs for a bright (high) spectrum and sinks for a dark one. */
+const PITCH_LIFT = 0.3
+/** The band's width (× shorter side) at rest and how much the level and the beat add. */
+const BAND_WIDTH = 0.008
+const BAND_LEVEL_WIDTH = 0.014
+const BAND_ALPHA = 0.55
+const CORE_ALPHA = 0.95
+const CORE_WIDTH = 0.002
+
+const POINTS_BY_QUALITY: Readonly<Record<Quality2D, number>> = { low: 96, auto: 160, high: 240 }
+
+/** Every afterimage, plus the live ribbon drawn twice (band and core). */
+export const MAX_INSTANCES = CAPACITY + 2
+
+/** Knobs scale the ribbon's amplitude, afterimage life, drift, and line weight. */
+export const TRACE_KNOBS: readonly EffectParamSpec[] = [
+  multiplierParam('amplitude', 'Amplitude', 'How tall the ribbon is.', { min: 0.25, max: 2 }),
+  // Max 1.25: a full-heat trail then lasts exactly as long as the snapshot ring holds.
+  multiplierParam('trail', 'Trail length', 'How long the fading afterimages last.', {
+    min: 0.25,
+    max: 1.25
+  }),
+  multiplierParam('drift', 'Drift speed', 'How fast the afterimages rise, scroll, and spread.', {
+    min: 0,
+    max: 3
+  }),
+  multiplierParam('weight', 'Line weight', 'How thick the ribbon and its afterimages are.', {
+    min: 0.25,
+    max: 3
+  })
+]
+
+/**
+ * {@link CAPACITY} afterimages and then the live ribbon as rows; strokes in
+ * the `ribbon` layout: `(centreY, tilt, amplitude, row)`,
+ * `(lineWidth, alpha, colour, shiftX)`, pixels.
+ */
+export interface TraceModel extends StrokeSource {
+  update(audio: AnalysisFrame, intensity: number, width: number, height: number, dt: number): void
+}
+
+export function createTraceModel(
+  quality: Quality2D,
+  knobs: EffectParams = resolveParams(TRACE_KNOBS, undefined)
+): TraceModel {
+  const points = POINTS_BY_QUALITY[quality]
+  const rows = CAPACITY + 1
+  const liveRow = CAPACITY
+  const reader = createWaveformReader(points)
+  const drive = createDrive()
+  const live = reader.points
+  const shapes = new Float32Array(points * rows)
+  const instances = new Float32Array(MAX_INSTANCES * STROKE_FLOATS)
+  /** Per afterimage, as fractions of the stage: centre, tilt, amplitude, rise, scroll; and life left (1 → 0), beat. */
+  const centres = new Float32Array(CAPACITY)
+  const tilts = new Float32Array(CAPACITY)
+  const amplitudes = new Float32Array(CAPACITY)
+  const rises = new Float32Array(CAPACITY)
+  const scrolls = new Float32Array(CAPACITY)
+  const lives = new Float32Array(CAPACITY)
+  const strengths = new Float32Array(CAPACITY)
+
+  let head = 0
+  let sinceSnapshot = 0
+  let swayPhase = 0
+  let tiltPhase = 0
+  let snapshotRow = -1
+  let count = 0
+
+  return {
+    points,
+    rows,
+    shapes,
+    instances,
+    get snapshotRow() {
+      return snapshotRow
+    },
+    get count() {
+      return count
+    },
+
+    update(audio, intensity, width, height, dtSec) {
+      count = 0
+      snapshotRow = -1
+      const dt = dtSec > 0 ? dtSec : 0
+      drive.update(audio, dt)
+      const pulse = drive.pulse
+      const heat = drive.heat
+
+      swayPhase = (swayPhase + (dt / SWAY_PERIOD_SEC) * Math.PI * 2) % (Math.PI * 2)
+      tiltPhase = (tiltPhase + (dt / TILT_PERIOD_SEC) * Math.PI * 2) % (Math.PI * 2)
+      reader.read(audio.waveform, dt)
+      shapes.set(live, liveRow * points)
+
+      // The afterimages move as one, by the drive as it is now.
+      const pace = 1 + heat * HEAT_RATE
+      const rise = (RISE * knobs.drift * pace + pulse * PULSE_RISE) * dt
+      const scroll = SCROLL * knobs.drift * pace * dt
+      const widen = Math.exp((WIDEN * knobs.drift * pace + pulse * PULSE_WIDEN) * dt)
+      const fade = dt / ((MIN_LIFE_SEC + heat * heat * (MAX_LIFE_SEC - MIN_LIFE_SEC)) * knobs.trail)
+      for (let slot = 0; slot < CAPACITY; slot++) {
+        if (lives[slot] <= 0) continue
+        rises[slot] += rise
+        scrolls[slot] += scroll
+        amplitudes[slot] *= widen
+        lives[slot] -= fade
+      }
+
+      // Positions are kept as fractions of the stage, so a resize keeps the history.
+      const centre = 0.5 + Math.sin(swayPhase) * SWAY + (0.5 - drive.brightness) * PITCH_LIFT
+      const tilt = Math.sin(tiltPhase) * TILT
+      const amplitude =
+        AMPLITUDE *
+        (0.35 + audio.level * LEVEL_AMPLITUDE + pulse * PULSE_AMPLITUDE) *
+        knobs.amplitude
+      sinceSnapshot += dt
+      if (sinceSnapshot >= SNAPSHOT_SEC) {
+        sinceSnapshot %= SNAPSHOT_SEC
+        shapes.set(live, head * points)
+        snapshotRow = head
+        centres[head] = centre
+        tilts[head] = tilt
+        amplitudes[head] = amplitude
+        rises[head] = 0
+        scrolls[head] = 0
+        lives[head] = 1
+        strengths[head] = pulse
+        head = (head + 1) % CAPACITY
+      }
+      if (width <= 0 || height <= 0 || points < 2) return
+
+      const short = width < height ? width : height
+
+      // Afterimages, oldest first so the newest lie on top.
+      const afterimageWidth = Math.max(1, short * BAND_WIDTH * 0.5 * knobs.weight)
+      for (let n = 0; n < CAPACITY; n++) {
+        const slot = (head + n) % CAPACITY
+        if (lives[slot] <= 0) continue
+        const alpha = lives[slot] * lives[slot] * AFTERIMAGE_ALPHA
+        const y = centres[slot] - rises[slot]
+        if (alpha < AFTERIMAGE_FLOOR || y + amplitudes[slot] < -0.5 || scrolls[slot] > 1) {
+          lives[slot] = 0
+          continue
+        }
+        const beat = strengths[slot] >= BEAT_TRACE
+        count = writeStroke(
+          instances,
+          count,
+          y * height,
+          tilts[slot] * height,
+          amplitudes[slot] * height,
+          slot,
+          afterimageWidth,
+          Math.min(1, alpha * (0.6 + strengths[slot])) * intensity,
+          beat ? StrokeColour.highlighted : StrokeColour.accent,
+          scrolls[slot] * width
+        )
+      }
+
+      // The ribbon now: a band, then its core.
+      const bandWidth = Math.max(
+        1,
+        short * (BAND_WIDTH + (audio.level + pulse) * BAND_LEVEL_WIDTH) * knobs.weight
+      )
+      count = writeStroke(
+        instances,
+        count,
+        centre * height,
+        tilt * height,
+        amplitude * height,
+        liveRow,
+        bandWidth,
+        BAND_ALPHA * intensity,
+        StrokeColour.accent
+      )
+      count = writeStroke(
+        instances,
+        count,
+        centre * height,
+        tilt * height,
+        amplitude * height,
+        liveRow,
+        Math.max(1, short * CORE_WIDTH),
+        CORE_ALPHA * intensity,
+        StrokeColour.highlighted
+      )
+    }
+  }
+}
