@@ -536,6 +536,10 @@ function createInstance(): void {
   instanceParams = params
   if (next.surface === '2d') {
     const cpu = rasterFor(next, RASTER_OVERRIDE) === 'cpu'
+    if (import.meta.env.DEV) {
+      // So an A/B can see the override took: the flag is read at build time.
+      console.info(`[visualizer] ${next.id}: ${cpu ? 'cpu' : 'gpu'} raster`)
+    }
     const context = element.getContext('2d', cpu ? { willReadFrequently: true } : undefined)
     if (!context) return
     instance = next.create({ surface: '2d', context, quality: quality.value, params })
