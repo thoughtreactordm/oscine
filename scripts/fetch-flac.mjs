@@ -57,7 +57,10 @@ async function vendorWindows() {
   writeFileSync(zip, body)
   const unpack = mkdtempSync(join(tmpdir(), 'oscine-flac-'))
   try {
-    const extract = spawnSync('tar', ['-xf', zip, '-C', unpack], { encoding: 'utf8' })
+    // Pin the bsdtar Windows ships in System32. A bare `tar` can resolve to Git's
+    // GNU tar, which reads `C:\…` as host:path and cannot unpack zips anyway.
+    const tar = join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe')
+    const extract = spawnSync(tar, ['-xf', zip, '-C', unpack], { encoding: 'utf8' })
     if (extract.status !== 0) {
       throw new Error(extract.stderr || 'failed to extract flac zip')
     }
