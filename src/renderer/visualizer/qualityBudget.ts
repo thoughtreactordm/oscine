@@ -2,7 +2,8 @@ import type { VisualizerQuality } from '@shared/settings'
 
 /**
  * The WebGL tier's resolution budget and `interface.visualizerQuality` —
- * **W23-8, D35.6 / R16**.
+ * **W23-8, D35.6 / R16**. The frame rates hold for the 2D tier too, which
+ * renders at `devicePixelRatio` rather than under a pixel cap.
  *
  * WebGL effects render to an internal target capped in pixels and the
  * compositor scales it up to the canvas box, so Zen on a 4K panel costs what
@@ -33,10 +34,12 @@ import type { VisualizerQuality } from '@shared/settings'
 export const AUTO_CAP_PIXELS = 1920 * 1080
 /** `low`'s cap. */
 export const LOW_CAP_PIXELS = 1_000_000
-/** `low`'s frame interval, the ribbon's `FRAME_MS`: 30 fps. */
-export const LOW_FRAME_MS = 33
+/** `low`'s frame rate, the ribbon's: 30 fps. */
+export const LOW_FPS = 30
+/** `auto`'s and `high`'s. */
+export const TARGET_FPS = 60
 /** The frame time `auto` and `high` aim at. */
-export const TARGET_FRAME_MS = 1000 / 60
+export const TARGET_FRAME_MS = 1000 / TARGET_FPS
 /** The average must exceed this × the target to count as over budget (~46 fps). */
 export const OVER_BUDGET_FACTOR = 1.3
 /** …and fall below this × the target (~52 fps) to reset the count. */
@@ -51,13 +54,89 @@ export const MAX_SAMPLE_MS = 50
 export interface RenderProfile {
   /** The internal target's pixel cap; `Infinity` for native. */
   readonly capPixels: number
-  /** The minimum interval between rendered frames; 0 for every display frame. */
-  readonly minFrameMs: number
+  /** The frame rate rendered at, as near as the display's refresh allows ({@link vsyncsPerFrame}). */
+  readonly fps: number
 }
 
-const AUTO_PROFILE: RenderProfile = { capPixels: AUTO_CAP_PIXELS, minFrameMs: 0 }
-const LOW_PROFILE: RenderProfile = { capPixels: LOW_CAP_PIXELS, minFrameMs: LOW_FRAME_MS }
-const HIGH_PROFILE: RenderProfile = { capPixels: Infinity, minFrameMs: 0 }
+const AUTO_PROFILE: RenderProfile = { capPixels: AUTO_CAP_PIXELS, fps: TARGET_FPS }
+const LOW_PROFILE: RenderProfile = { capPixels: LOW_CAP_PIXELS, fps: LOW_FPS }
+const HIGH_PROFILE: RenderProfile = { capPixels: Infinity, fps: TARGET_FPS }
+
+/**
+ * How many vsyncs each rendered frame spans, for a display refreshing every
+ * `vsyncMs`, aiming at `fps`: the most that keep the rate at or above `fps`
+ * where the display can reach it, so it never more than doubles it either.
+ * 60 fps lands on 60 Hz → 60, 75 → 75, 90 → 90, 120 → 60, 144 → 72,
+ * 165 → 82, 240 → 60, 360 → 60. A fixed minimum interval cannot do this:
+ * whatever it is, some common refresh's frame time sits right on it (75 Hz's
+ * 13.3 ms, 144 Hz's 13.9) and jitter flips it between two rates.
+ *
+ * Uncapped, a 240 Hz panel drew four times the frames this budget is for, and
+ * the 2D tier's raster saturated the GPU process (W23-16).
+ */
+export function vsyncsPerFrame(vsyncMs: number, fps: number): number {
+  if (!(vsyncMs > 0) || !(fps > 0)) return 1
+  // The tenth absorbs a measured refresh a hair under nominal (59.94 Hz).
+  return Math.max(1, Math.floor(1000 / vsyncMs / fps + 0.1))
+}
+
+/**
+ * Whether a frame is due `sinceLastMs` after the last one rendered. Half a
+ * vsync early, so jitter in the timestamps never slips a frame to the next
+ * vsync.
+ */
+export function frameDue(sinceLastMs: number, vsyncMs: number, fps: number): boolean {
+  if (!(vsyncMs > 0)) return true
+  return sinceLastMs >= (vsyncsPerFrame(vsyncMs, fps) - 0.5) * vsyncMs
+}
+
+/** After this many deltas in a row disagree with the estimate, the display has changed. */
+const VSYNC_RESET_AFTER = 30
+const VSYNC_SMOOTHING = 0.1
+
+export interface VsyncEstimator {
+  /** The display's frame interval, ms; 0 until the first delta. */
+  readonly vsyncMs: number
+  /** The time between two consecutive animation frames, rendered or not. */
+  observe(deltaMs: number): void
+  reset(): void
+}
+
+/**
+ * The display's refresh interval, learned from consecutive `requestAnimationFrame`
+ * timestamps. A delta well over the estimate is a missed vsync, not a slower
+ * display, and is ignored — unless it keeps happening, which is the window
+ * moving to a slower monitor; a delta well under it is a faster one.
+ */
+export function createVsyncEstimator(): VsyncEstimator {
+  let vsyncMs = 0
+  let disagreements = 0
+  return {
+    get vsyncMs() {
+      return vsyncMs
+    },
+    observe(deltaMs) {
+      if (!(deltaMs > 0) || deltaMs > 1000) return
+      if (vsyncMs === 0) {
+        vsyncMs = deltaMs
+        return
+      }
+      if (deltaMs > vsyncMs * 1.5 || deltaMs < vsyncMs * 0.6) {
+        if (++disagreements >= VSYNC_RESET_AFTER) {
+          vsyncMs = deltaMs
+          disagreements = 0
+        }
+        return
+      }
+      disagreements = 0
+      vsyncMs += (deltaMs - vsyncMs) * VSYNC_SMOOTHING
+    },
+    reset() {
+      vsyncMs = 0
+      disagreements = 0
+    }
+  }
+}
 
 /** The profile for a quality setting, with `auto`'s backoff applied. */
 export function renderProfile(quality: VisualizerQuality, backedOff = false): RenderProfile {

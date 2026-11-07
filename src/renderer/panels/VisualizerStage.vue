@@ -41,8 +41,10 @@ import { meanLuminance } from '@renderer/visualizer/luminance'
 import { createPaletteModel, PALETTE_PROPERTIES, type Palette } from '@renderer/visualizer/palette'
 import {
   createQualityGovernor,
+  createVsyncEstimator,
+  frameDue,
   internalSize,
-  LOW_FRAME_MS
+  renderProfile
 } from '@renderer/visualizer/qualityBudget'
 import { resolveParams, writeParams } from '@renderer/visualizer/params'
 import { availableEffects } from '@renderer/visualizer/registry'
@@ -254,6 +256,10 @@ let canvasLuma: CanvasLuma | null = null
 let canvasLumaTried = false
 let raf: number | null = null
 let lastNow = 0
+/** The last animation frame's timestamp, rendered or skipped, for the vsync estimate. */
+let lastVsync = 0
+/** Kept across loop restarts: the display does not change because playback paused. */
+const vsync = createVsyncEstimator()
 let frameCount = 0
 let observer: ResizeObserver | null = null
 /**
@@ -665,8 +671,12 @@ function tick(now: number): void {
 
 function runFrame(now: number): void {
   raf = null
-  const minFrameMs = gl ? governor.profile.minFrameMs : quality.value === 'low' ? LOW_FRAME_MS : 0
-  if (lastNow !== 0 && now - lastNow < minFrameMs) {
+  // Every animation frame, rendered or not, says how fast the display runs.
+  if (lastVsync !== 0) vsync.observe(now - lastVsync)
+  lastVsync = now
+  // WebGL follows the governor (`auto` may have backed off); 2D has no backoff.
+  const fps = gl ? governor.profile.fps : renderProfile(quality.value).fps
+  if (lastNow !== 0 && !frameDue(now - lastNow, vsync.vsyncMs, fps)) {
     raf = requestAnimationFrame(tick)
     return
   }
@@ -775,6 +785,7 @@ function drawGl(
 function evaluate(): void {
   if (ticking || raf !== null || !mounted || !shouldRun()) return
   lastNow = 0
+  lastVsync = 0
   raf = requestAnimationFrame(tick)
 }
 

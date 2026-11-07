@@ -3,14 +3,18 @@ import {
   AUTO_CAP_PIXELS,
   BACKOFF_SEC,
   createQualityGovernor,
+  createVsyncEstimator,
+  frameDue,
   internalSize,
   LOW_CAP_PIXELS,
-  LOW_FRAME_MS,
+  LOW_FPS,
   MAX_SAMPLE_MS,
   OVER_BUDGET_FACTOR,
   renderProfile,
+  TARGET_FPS,
   TARGET_FRAME_MS,
-  UNDER_BUDGET_FACTOR
+  UNDER_BUDGET_FACTOR,
+  vsyncsPerFrame
 } from '../../../src/renderer/visualizer/qualityBudget'
 
 /** W23-8, D35.6 / R16: the WebGL tier's resolution budget and the `auto` backoff. */
@@ -28,15 +32,107 @@ function feed(
 
 describe('renderProfile', () => {
   it('caps resolution and frame rate by tier', () => {
-    expect(renderProfile('auto')).toEqual({ capPixels: AUTO_CAP_PIXELS, minFrameMs: 0 })
-    expect(renderProfile('low')).toEqual({ capPixels: LOW_CAP_PIXELS, minFrameMs: LOW_FRAME_MS })
-    expect(renderProfile('high')).toEqual({ capPixels: Infinity, minFrameMs: 0 })
+    expect(renderProfile('auto')).toEqual({ capPixels: AUTO_CAP_PIXELS, fps: TARGET_FPS })
+    expect(renderProfile('low')).toEqual({ capPixels: LOW_CAP_PIXELS, fps: LOW_FPS })
+    expect(renderProfile('high')).toEqual({ capPixels: Infinity, fps: TARGET_FPS })
     expect(AUTO_CAP_PIXELS).toBe(1920 * 1080)
   })
 
   it('auto, backed off, behaves like low; the other tiers ignore the flag', () => {
     expect(renderProfile('auto', true)).toEqual(renderProfile('low'))
     expect(renderProfile('high', true)).toEqual(renderProfile('high'))
+  })
+})
+
+/**
+ * The host's pacing over ten seconds of vsyncs at `hz`, each timestamp
+ * jittered by up to ±`jitterMs`, learning the refresh as it goes. Chromium's
+ * rAF timestamps are BeginFrame times, measured at ±0.1 ms on a 240 Hz panel;
+ * the default is five times that. (The half-vsync margin in `frameDue` takes
+ * up to a quarter of a vsync each way, ±1 ms at 240 Hz.)
+ */
+function renderedFps(hz: number, fps: number, jitterMs = 0.5): number {
+  const interval = 1000 / hz
+  const estimator = createVsyncEstimator()
+  let seed = 0x9e3779b9
+  const jitter = (): number => {
+    seed = (seed * 1664525 + 1013904223) >>> 0
+    return (seed / 4294967296 - 0.5) * 2 * jitterMs
+  }
+  let lastVsync = 0
+  let lastRendered = 0
+  let rendered = 0
+  for (let vsync = 1; vsync <= hz * 10; vsync++) {
+    const now = vsync * interval + jitter()
+    if (lastVsync !== 0) estimator.observe(now - lastVsync)
+    lastVsync = now
+    if (lastRendered === 0 || frameDue(now - lastRendered, estimator.vsyncMs, fps)) {
+      rendered++
+      lastRendered = now
+    }
+  }
+  return Math.round(rendered / 10)
+}
+
+describe('frame pacing', () => {
+  it('lands 60 fps on a whole divisor of every common refresh', () => {
+    const expected: [number, number][] = [
+      [60, 60],
+      [75, 75],
+      [90, 90],
+      [100, 100],
+      [120, 60],
+      [144, 72],
+      [165, 83],
+      [240, 60],
+      [360, 60]
+    ]
+    // Within a frame a second: at 360 Hz the test's jitter is a fifth of a vsync.
+    for (const [hz, fps] of expected) {
+      expect(Math.abs(renderedFps(hz, TARGET_FPS) - fps), `${hz} Hz`).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('lands 30 fps the same way', () => {
+    expect(renderedFps(60, LOW_FPS)).toBe(30)
+    expect(renderedFps(144, LOW_FPS)).toBe(36)
+    expect(renderedFps(240, LOW_FPS)).toBe(30)
+  })
+
+  it('takes a refresh a hair under nominal as the nominal one', () => {
+    expect(vsyncsPerFrame(1000 / 59.94, TARGET_FPS)).toBe(1)
+    expect(vsyncsPerFrame(1000 / 119.88, TARGET_FPS)).toBe(2)
+  })
+
+  it('renders every vsync before it knows the refresh', () => {
+    expect(frameDue(0.1, 0, TARGET_FPS)).toBe(true)
+  })
+})
+
+describe('the vsync estimator', () => {
+  it('learns the refresh and shrugs off a missed vsync', () => {
+    const estimator = createVsyncEstimator()
+    for (let n = 0; n < 50; n++) estimator.observe(1000 / 240)
+    estimator.observe((1000 / 240) * 3)
+    expect(estimator.vsyncMs).toBeCloseTo(1000 / 240, 3)
+  })
+
+  it('follows the window to a slower or a faster display', () => {
+    const estimator = createVsyncEstimator()
+    for (let n = 0; n < 50; n++) estimator.observe(1000 / 240)
+    for (let n = 0; n < 40; n++) estimator.observe(1000 / 60)
+    expect(estimator.vsyncMs).toBeCloseTo(1000 / 60, 1)
+    for (let n = 0; n < 40; n++) estimator.observe(1000 / 144)
+    expect(estimator.vsyncMs).toBeCloseTo(1000 / 144, 1)
+  })
+
+  it('ignores nonsense', () => {
+    const estimator = createVsyncEstimator()
+    estimator.observe(0)
+    estimator.observe(-5)
+    estimator.observe(Number.NaN)
+    estimator.observe(5000)
+    expect(estimator.vsyncMs).toBe(0)
   })
 })
 
