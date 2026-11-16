@@ -1,14 +1,14 @@
 ---
 taskId: 01M7EDA8PT24R1QT0ZA9WRAXM3
 title: Opus R128_* read in the scanner + shared Q7.8 conversion
-status: todo
+status: in-review
 priority: medium
 labels: []
 workstream: W25
 workstreamId: W25-2
-order: 27
+order: 1
 created: '2026-11-15T01:31:58.041Z'
-updated: '2026-11-15T01:31:58.041Z'
+updated: '2026-11-16T20:09:00.150Z'
 ---
 **Phase 2 — RG-2.** Independent of the rest of Phase 2; lands first. Implements the read half of D37 **Decision E (Opus writes `R128_*`, never `REPLAYGAIN_*`)**.
 

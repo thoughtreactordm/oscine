@@ -1,7 +1,7 @@
 ---
 taskId: 01M7EDBPHH6N9S3MZM8FEG8Z7W
 title: Forced re-measure + selection context menu
-status: todo
+status: in-review
 priority: low
 labels: []
 workstream: W25
@@ -10,7 +10,7 @@ dependsOn:
   - 01M7EDAVDD2BF7FYSMWK7W4WAA
 order: 32
 created: '2026-11-15T01:32:44.975Z'
-updated: '2026-11-15T01:32:44.975Z'
+updated: '2026-11-16T20:49:42.692Z'
 ---
 **Phase 3 — RG-7.** Re-measuring already-measured or already-tagged tracks on demand. Depends on RG-4 so that a forced result can be re-staged and the Decision C album-whole rule still holds.
 
