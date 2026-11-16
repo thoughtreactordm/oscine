@@ -24,6 +24,7 @@ import {
   type ListTracksResult,
   type OrderTrackIdsQuery,
   type ReplayGainJobProgress,
+  type ReplayGainStageResult,
   type ReplayGainSummary,
   type ScanProgress,
   type ScanSummary,
@@ -82,6 +83,7 @@ import { RootDirectoryWatcher, type DirectoryWatchAdapter, type WatchMode } from
 import type { LibraryService } from './service'
 import type { ReplayGainAnalyzer } from '../replaygain/analyzer'
 import { ReplayGainJobService } from '../replaygain/jobService'
+import { ReplayGainStagingService } from '../replaygain/staging'
 import { ingestRippedTracks } from '../cdrip/ingest'
 import { toRelPath } from '../db/paths'
 import { NO_LIBRARY_CHANGES, type LibraryChangeNotifier } from './changes'
@@ -224,6 +226,7 @@ export class SqliteLibraryService implements LibraryService {
   private readonly readEmbeddedLyrics: (audioAbsPath: string) => Promise<string | null>
   private readonly lyricsNetwork: LyricsNetworkService | null
   private readonly replayGain: ReplayGainJobService
+  private readonly replayGainStaging: ReplayGainStagingService
   private readonly watcher: RootDirectoryWatcher
   private readonly artwork: ArtworkCacheService | null
   private readonly originals: ArtworkOriginalsStore | null
@@ -283,6 +286,7 @@ export class SqliteLibraryService implements LibraryService {
       ...(deps.createReplayGainAnalyzer ? { createAnalyzer: deps.createReplayGainAnalyzer } : {}),
       ...(deps.canComputeReplayGain ? { canCompute: deps.canComputeReplayGain } : {})
     })
+    this.replayGainStaging = new ReplayGainStagingService(deps.db)
     this.watcher = new RootDirectoryWatcher({
       ...(deps.watchAdapter ? { adapter: deps.watchAdapter } : {}),
       ...(deps.watchDebounceMs !== undefined ? { debounceMs: deps.watchDebounceMs } : {}),
@@ -783,6 +787,14 @@ export class SqliteLibraryService implements LibraryService {
 
   async resumeReplayGain(jobId: number): Promise<ReplayGainJobProgress> {
     return this.replayGain.resume(jobId)
+  }
+
+  async stageComputedReplayGain(request: {
+    albumIds?: readonly number[]
+  }): Promise<ReplayGainStageResult> {
+    const { trackIds, ...result } = this.replayGainStaging.stage(request)
+    if (trackIds.length > 0) this.changes.notify({ tagOverrides: trackIds })
+    return result
   }
 
   /**

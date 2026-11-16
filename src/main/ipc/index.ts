@@ -37,6 +37,7 @@ import {
   assertAddTracksRequest,
   assertWritebackApplyRequest,
   assertWritebackPreviewRequest,
+  assertStageComputedReplayGainRequest,
   assertOverrideEditStateRequest,
   assertSetOverridesRequest,
   assertSetTagOverridesRequest,
@@ -330,6 +331,10 @@ export function registerIpcHandlers(
     const { jobId } = assertRecord(request, 'request')
     return library.resumeReplayGain(assertPositiveInt(jobId, 'jobId'))
   })
+
+  handle('library.stageComputedReplayGain', (request) =>
+    library.stageComputedReplayGain(assertStageComputedReplayGainRequest(request))
+  )
 
   handle('overrides.getEditState', (request) => {
     const { trackIds } = assertOverrideEditStateRequest(request)

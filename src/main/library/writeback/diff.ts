@@ -1,6 +1,11 @@
 import { ABSENT_ARTWORK, artworkRef, type ArtworkRef } from '@shared/artwork'
 import { normalizeLabel, splitGenres } from '@shared/genre'
-import { TAG_FIELDS, tagValuesEqual, type TagFieldKey, type TagFieldValue } from '@shared/tagFields'
+import {
+  TAG_FIELDS,
+  tagFieldValuesEqual,
+  type TagFieldKey,
+  type TagFieldValue
+} from '@shared/tagFields'
 import type { TagSource } from '@shared/tags'
 import type {
   ArtworkDiff,
@@ -232,7 +237,7 @@ function tagFieldDiffs(input: PendingWriteInput): TagFieldDiffs {
     if (!flushable.has(key)) continue
     const current = canonicalTagValue(field, input.fileFields?.get(key) ?? null)
     const proposed = canonicalTagValue(field, overrides.get(key) ?? null)
-    diffs[key] = { current, proposed, changed: !tagValuesEqual(current, proposed) }
+    diffs[key] = { current, proposed, changed: !tagFieldValuesEqual(field, current, proposed) }
   }
   return diffs
 }

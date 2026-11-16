@@ -16,6 +16,7 @@ import type {
   ListTracksResult,
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
+  ReplayGainStageResult,
   ReplayGainSummary,
   ScanSummary,
   TagFacet,
@@ -241,4 +242,10 @@ export interface LibraryService {
   getReplayGainSummary(): Promise<ReplayGainSummary>
   cancelReplayGain(jobId: number): Promise<ReplayGainJobProgress>
   resumeReplayGain(jobId: number): Promise<ReplayGainJobProgress>
+  /**
+   * Stages computed ReplayGain into `track_tag_overrides` for the write-back
+   * review — **W25-4**, `oscine-replaygain` Decisions C, D, F. No `albumIds`
+   * means every eligible album plus every computed single.
+   */
+  stageComputedReplayGain(request: { albumIds?: readonly number[] }): Promise<ReplayGainStageResult>
 }

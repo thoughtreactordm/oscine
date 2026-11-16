@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import { OscineError } from '@shared/errors'
 import type { ReplayGainJobProgress, ReplayGainJobState, ReplayGainSummary } from '@shared/library'
+import { REPLAYGAIN_TAG_KEYS } from '@shared/tagFields'
 import { toAbsPath } from '../db/paths'
 import {
   gainFromHistogram,
@@ -29,6 +30,9 @@ interface ProgressRow extends JobRow {
   failed: number
   pending: number
 }
+
+/** `IN (...)` over the four ReplayGain override keys, as literal SQL. */
+const RG_KEYS_SQL = REPLAYGAIN_TAG_KEYS.map((key) => `'${key}'`).join(', ')
 
 const PROGRESS_SQL = `
   SELECT j.id AS id, j.state AS state, j.created_at AS createdAt,
@@ -202,13 +206,22 @@ export class ReplayGainJobStore {
       // The guard is the tagged-value race rule. If a rescan found real tags
       // while analysis was running, the worker result loses without touching a
       // byte of authoritative ReplayGain data.
-      this.db
+      const measured = this.db
         .prepare(
           `UPDATE tracks
            SET rg_track_gain = ?, rg_track_peak = ?, rg_source = 'computed'
            WHERE id = ? AND rg_source IS NULL`
         )
-        .run(result.trackGainDb, result.trackPeak, item.trackId)
+        .run(result.trackGainDb, result.trackPeak, item.trackId).changes
+      // Decision F: staged ReplayGain is a snapshot of the previous measurement.
+      // A new one lands with the old rows gone, so a review never offers it.
+      if (measured > 0) {
+        this.db
+          .prepare(
+            `DELETE FROM track_tag_overrides WHERE track_id = ? AND field IN (${RG_KEYS_SQL})`
+          )
+          .run(item.trackId)
+      }
       this.db
         .prepare(
           `UPDATE replaygain_job_items
@@ -301,13 +314,25 @@ export class ReplayGainJobStore {
     const albumGain = gainFromHistogram(mergeHistograms(histograms))
     if (albumGain === null) return
     const albumPeak = Math.max(...rows.map((row) => row.trackPeak ?? 0))
-    this.db
-      .prepare(
-        `UPDATE tracks
-         SET rg_album_gain = ?, rg_album_peak = ?
-         WHERE album_id = ? AND rg_source = 'computed'`
-      )
-      .run(albumGain, albumPeak, albumId)
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE tracks
+           SET rg_album_gain = ?, rg_album_peak = ?
+           WHERE album_id = ? AND rg_source = 'computed'`
+        )
+        .run(albumGain, albumPeak, albumId)
+      // Decision F, album-wide: a re-finalized album gain makes every staged row
+      // of the album stale — the tagged tracks' filled-in album gain included —
+      // and Decision C stages albums whole, so the album is re-staged whole.
+      this.db
+        .prepare(
+          `DELETE FROM track_tag_overrides
+           WHERE field IN (${RG_KEYS_SQL})
+             AND track_id IN (SELECT id FROM tracks WHERE album_id = ?)`
+        )
+        .run(albumId)
+    })()
   }
 
   private touch(jobId: number): void {

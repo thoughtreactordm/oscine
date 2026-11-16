@@ -72,6 +72,7 @@ import type {
   ListTracksResult,
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
+  ReplayGainStageResult,
   ReplayGainSummary,
   ScanProgress,
   ScanSummary,
@@ -374,6 +375,17 @@ export interface IpcContract {
   'library.resumeReplayGain': {
     request: { jobId: number }
     response: ReplayGainJobProgress
+  }
+  /**
+   * W25-4: stages Oscine's measured ReplayGain into `track_tag_overrides` for
+   * the write-back review (`oscine-replaygain` Decisions C, D, F). Omitting
+   * `albumIds` stages every eligible album plus every computed single; naming
+   * albums stages those only. Nothing reaches a file here — only the review's
+   * flush writes.
+   */
+  'library.stageComputedReplayGain': {
+    request: { albumIds?: number[] }
+    response: ReplayGainStageResult
   }
   /**
    * The metadata editor's prefill for a set of tracks — **W16 (editor)**.
@@ -1623,6 +1635,7 @@ export const IPC_CHANNELS = [
   'library.getReplayGainSummary',
   'library.cancelReplayGain',
   'library.resumeReplayGain',
+  'library.stageComputedReplayGain',
   'overrides.getEditState',
   'overrides.set',
   'overrides.clear',

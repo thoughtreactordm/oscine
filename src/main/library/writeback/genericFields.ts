@@ -10,7 +10,7 @@ import {
 import {
   isFlushableTagField,
   tagField,
-  tagValuesEqual,
+  tagFieldValuesEqual,
   type TagFieldDef,
   type TagFieldKey,
   type TagFieldPatch,
@@ -313,7 +313,7 @@ export function verifyTagFields(after: TagFieldValues, desired: TagFieldPatch): 
     if (field === undefined) return `${key}: not a tag field`
     const want = canonicalTagValue(field, value)
     const got = canonicalTagValue(field, after.get(field.key as TagFieldKey) ?? null)
-    if (!tagValuesEqual(got, want)) {
+    if (!tagFieldValuesEqual(field, got, want)) {
       return `${key}: expected ${JSON.stringify(want)} but file holds ${JSON.stringify(got)}`
     }
   }

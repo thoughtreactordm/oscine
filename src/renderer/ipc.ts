@@ -118,6 +118,8 @@ export const library = {
   getReplayGainSummary: () => unwrap(window.oscine.library.getReplayGainSummary()),
   cancelReplayGain: (jobId: number) => unwrap(window.oscine.library.cancelReplayGain(jobId)),
   resumeReplayGain: (jobId: number) => unwrap(window.oscine.library.resumeReplayGain(jobId)),
+  stageComputedReplayGain: (albumIds?: number[]) =>
+    unwrap(window.oscine.library.stageComputedReplayGain(albumIds)),
   /** Returns an unsubscribe function. Call it on unmount. */
   onScanProgress: (listener: (progress: ScanProgress) => void) =>
     window.oscine.library.onScanProgress(listener),

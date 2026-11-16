@@ -474,6 +474,27 @@ export function assertWritebackPreviewRequest(value: unknown): { trackIds: numbe
   return { trackIds: trackIds as number[] }
 }
 
+/** The most albums one ReplayGain staging request may name (W25-4). */
+const MAX_STAGE_REPLAYGAIN_ALBUMS = 50_000
+
+/**
+ * `library.stageComputedReplayGain` — an optional, capped, positive album-id
+ * list. Absent means every eligible album; an empty list stages nothing.
+ */
+export function assertStageComputedReplayGainRequest(value: unknown): { albumIds?: number[] } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['albumIds'])
+  if (raw.albumIds === undefined) return {}
+
+  const albumIds = raw.albumIds
+  if (!Array.isArray(albumIds)) invalid('albumIds must be an array.')
+  if (albumIds.length > MAX_STAGE_REPLAYGAIN_ALBUMS) {
+    invalid(`albumIds must not exceed ${MAX_STAGE_REPLAYGAIN_ALBUMS} entries.`)
+  }
+  for (const id of albumIds) assertPositiveInt(id, 'albumIds entry')
+  return { albumIds: albumIds as number[] }
+}
+
 /** One track's approved fields — a positive id and a non-empty, deduped field subset. */
 function assertWritebackSelection(value: unknown): WritebackSelection {
   const raw = assertRecord(value, 'selection')

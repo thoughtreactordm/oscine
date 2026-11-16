@@ -101,7 +101,19 @@ export interface ListTagField extends TagFieldBase {
 
 export interface RealTagField extends TagFieldBase {
   readonly kind: 'real'
+  /**
+   * How far apart two values may be and still count as the same — the diff and
+   * the post-write verify both use it (`oscine-replaygain` Decision F). A gain is
+   * written to two decimals, so a re-staged identical measurement must not read
+   * as a pending change, nor a just-written one fail its verify.
+   */
+  readonly tolerance: number
 }
+
+/** Decision F: ReplayGain gains compare within ±0.005 dB (two written decimals). */
+export const REPLAYGAIN_GAIN_TOLERANCE_DB = 0.005
+/** Decision F: ReplayGain peaks compare within ±1e-6 (six written decimals). */
+export const REPLAYGAIN_PEAK_TOLERANCE = 1e-6
 
 export type TagFieldDef = TextTagField | IntTagField | BoolTagField | ListTagField | RealTagField
 
@@ -157,9 +169,19 @@ function bool<K extends string>(
 function replayGain<K extends string>(
   key: K,
   label: string,
-  taglib: string
+  taglib: string,
+  tolerance: number
 ): Keyed<RealTagField, K> {
-  return { key, label, group: 'readOnly', taglib, kind: 'real', readOnly: true, admitted: true }
+  return {
+    key,
+    label,
+    group: 'readOnly',
+    taglib,
+    kind: 'real',
+    tolerance,
+    readOnly: true,
+    admitted: true
+  }
 }
 
 /**
@@ -230,14 +252,54 @@ export const TAG_FIELDS = [
   // Read-only — never hand-edited; measured values are staged by the ReplayGain
   // service and flushed through the review (D37 Decision B). Held until their
   // W16-16 corpus rows exist and are green on all five codecs (W25-5, RG-5).
-  held(replayGain('replayGainTrackGain', 'Track gain', 'replayGainTrackGain')),
-  held(replayGain('replayGainTrackPeak', 'Track peak', 'replayGainTrackPeak')),
-  held(replayGain('replayGainAlbumGain', 'Album gain', 'replayGainAlbumGain')),
-  held(replayGain('replayGainAlbumPeak', 'Album peak', 'replayGainAlbumPeak'))
+  held(
+    replayGain(
+      'replayGainTrackGain',
+      'Track gain',
+      'replayGainTrackGain',
+      REPLAYGAIN_GAIN_TOLERANCE_DB
+    )
+  ),
+  held(
+    replayGain(
+      'replayGainTrackPeak',
+      'Track peak',
+      'replayGainTrackPeak',
+      REPLAYGAIN_PEAK_TOLERANCE
+    )
+  ),
+  held(
+    replayGain(
+      'replayGainAlbumGain',
+      'Album gain',
+      'replayGainAlbumGain',
+      REPLAYGAIN_GAIN_TOLERANCE_DB
+    )
+  ),
+  held(
+    replayGain(
+      'replayGainAlbumPeak',
+      'Album peak',
+      'replayGainAlbumPeak',
+      REPLAYGAIN_PEAK_TOLERANCE
+    )
+  )
 ] as const satisfies readonly TagFieldDef[]
 
 /** A generic field's registry key — also its persisted `field` column value. */
 export type TagFieldKey = (typeof TAG_FIELDS)[number]['key']
+
+/**
+ * The four ReplayGain keys. Rows under them enter `track_tag_overrides` only
+ * from the ReplayGain staging service (D37 Decision B), and a re-measure deletes
+ * them (Decision F).
+ */
+export const REPLAYGAIN_TAG_KEYS = [
+  'replayGainTrackGain',
+  'replayGainTrackPeak',
+  'replayGainAlbumGain',
+  'replayGainAlbumPeak'
+] as const satisfies readonly TagFieldKey[]
 
 const BY_KEY: ReadonlyMap<string, TagFieldDef> = new Map(
   TAG_FIELDS.map((field): [string, TagFieldDef] => [field.key, field])
@@ -290,6 +352,23 @@ export function tagValuesEqual(a: TagFieldValue | null, b: TagFieldValue | null)
     return a.length === b.length && a.every((entry, index) => entry === b[index])
   }
   return a === b
+}
+
+/**
+ * {@link tagValuesEqual} under a field's own rule: a `real` field compares
+ * within its tolerance (Decision F), everything else exactly. The diff and the
+ * post-write verify ask this, so neither flags a rounding difference.
+ */
+export function tagFieldValuesEqual(
+  field: TagFieldDef,
+  a: TagFieldValue | null,
+  b: TagFieldValue | null
+): boolean {
+  if (field.kind === 'real' && typeof a === 'number' && typeof b === 'number') {
+    // The epsilon absorbs the binary-float noise in e.g. 1.234 vs 1.239.
+    return Math.abs(a - b) <= field.tolerance + 1e-12
+  }
+  return tagValuesEqual(a, b)
 }
 
 /**

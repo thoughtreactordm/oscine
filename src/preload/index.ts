@@ -190,6 +190,8 @@ const api = {
     getReplayGainSummary: () => request('library.getReplayGainSummary', null),
     cancelReplayGain: (jobId: number) => request('library.cancelReplayGain', { jobId }),
     resumeReplayGain: (jobId: number) => request('library.resumeReplayGain', { jobId }),
+    stageComputedReplayGain: (albumIds?: number[]) =>
+      request('library.stageComputedReplayGain', albumIds === undefined ? {} : { albumIds }),
     onScanProgress: (listener: (progress: ScanProgress) => void) =>
       subscribe('library.scanProgress', listener),
     onNotice: (listener: (notice: LibraryNotice) => void) => subscribe('library.notice', listener),
