@@ -24,6 +24,7 @@ import { createOrganizeReads } from '../../../src/main/mcp/organize/reads'
 import { createStageReads } from '../../../src/main/mcp/stage/reads'
 import { TagStore } from '../../../src/main/tags/store'
 import { overviewOnlyTools } from './fakeTools'
+import { pinAdmission } from '../../support/pinAdmission'
 
 /**
  * The Stage corrections tools over a real client, the real schema and the real
@@ -63,6 +64,10 @@ function fileTags(over: Partial<TrackTags> = {}): TrackTags {
 }
 
 describe('stage tools', () => {
+  // ReplayGain admitted as if its corpus row were green: MCP must still refuse a
+  // hand-staged gain on read-only alone (D37 Decision B), not on the hold.
+  pinAdmission({ replayGainTrackGain: true })
+
   let dir: string
   let db: Database.Database
   let events: LibraryChanged[]
@@ -246,7 +251,7 @@ describe('stage tools', () => {
       await fail('stage_tag_changes', {
         changes: [{ trackIds: tracks, set: { replayGainTrackGain: -6 } }]
       })
-    ).toMatch(/read-only|not a tag field/)
+    ).toMatch(/read-only/)
     expect(
       await fail('stage_tag_changes', {
         changes: [{ trackIds: [tracks[0], wav], set: { conductor: 'Someone' } }]

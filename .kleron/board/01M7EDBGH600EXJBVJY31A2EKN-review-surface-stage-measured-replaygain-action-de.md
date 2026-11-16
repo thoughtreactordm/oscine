@@ -3,7 +3,7 @@ taskId: 01M7EDBGH600EXJBVJY31A2EKN
 title: >-
   Review surface: Stage measured ReplayGain action, deselected mixed-album rows,
   split-album warning, source labels
-status: todo
+status: in-review
 priority: medium
 labels: []
 workstream: W25
@@ -12,7 +12,7 @@ dependsOn:
   - 01M7EDAVDD2BF7FYSMWK7W4WAA
 order: 31
 created: '2026-11-15T01:32:38.820Z'
-updated: '2026-11-15T01:32:38.820Z'
+updated: '2026-11-16T20:41:08.343Z'
 ---
 **Phase 2 — RG-6.** The operator-facing review, on top of RG-4's staging service and the W16-18 generic review columns.
 

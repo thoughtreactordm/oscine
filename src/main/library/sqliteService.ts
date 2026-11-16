@@ -24,6 +24,9 @@ import {
   type ListTracksResult,
   type OrderTrackIdsQuery,
   type ReplayGainJobProgress,
+  type ReplayGainStageResult,
+  type ReplayGainStartRequest,
+  type ReplayGainSummary,
   type ScanProgress,
   type ScanSummary,
   type TagFacet,
@@ -43,7 +46,10 @@ import {
   type OverridePatch
 } from '@shared/overrides'
 import {
+  isEditableTagField,
   prefillTagFieldKeys,
+  REPLAYGAIN_TAG_KEYS,
+  tagField,
   type TagFieldEditState,
   type TagFieldKey,
   type TagFieldPatch
@@ -79,6 +85,8 @@ import { RootDirectoryWatcher, type DirectoryWatchAdapter, type WatchMode } from
 import type { LibraryService } from './service'
 import type { ReplayGainAnalyzer } from '../replaygain/analyzer'
 import { ReplayGainJobService } from '../replaygain/jobService'
+import { ReplayGainStagingService } from '../replaygain/staging'
+import { applyFlushedReplayGain } from '../replaygain/afterFlush'
 import { ingestRippedTracks } from '../cdrip/ingest'
 import { toRelPath } from '../db/paths'
 import { NO_LIBRARY_CHANGES, type LibraryChangeNotifier } from './changes'
@@ -221,6 +229,7 @@ export class SqliteLibraryService implements LibraryService {
   private readonly readEmbeddedLyrics: (audioAbsPath: string) => Promise<string | null>
   private readonly lyricsNetwork: LyricsNetworkService | null
   private readonly replayGain: ReplayGainJobService
+  private readonly replayGainStaging: ReplayGainStagingService
   private readonly watcher: RootDirectoryWatcher
   private readonly artwork: ArtworkCacheService | null
   private readonly originals: ArtworkOriginalsStore | null
@@ -277,9 +286,11 @@ export class SqliteLibraryService implements LibraryService {
     this.replayGain = new ReplayGainJobService({
       db: deps.db,
       onProgress: deps.onReplayGainProgress ?? (() => {}),
+      onStagedCleared: (trackIds) => this.changes.notify({ tagOverrides: trackIds }),
       ...(deps.createReplayGainAnalyzer ? { createAnalyzer: deps.createReplayGainAnalyzer } : {}),
       ...(deps.canComputeReplayGain ? { canCompute: deps.canComputeReplayGain } : {})
     })
+    this.replayGainStaging = new ReplayGainStagingService(deps.db)
     this.watcher = new RootDirectoryWatcher({
       ...(deps.watchAdapter ? { adapter: deps.watchAdapter } : {}),
       ...(deps.watchDebounceMs !== undefined ? { debounceMs: deps.watchDebounceMs } : {}),
@@ -499,6 +510,16 @@ export class SqliteLibraryService implements LibraryService {
     trackIds: readonly number[]
     patch: TagFieldPatch
   }): Promise<void> {
+    // The hand-edit sink `tagOverrides.set` and MCP `stage_tag_changes` share.
+    // Both validate first; this is the backstop that keeps a hand-typed gain out
+    // of `track_tag_overrides` whoever calls it (D37 Decision B). ReplayGain
+    // staging writes through its own path, never this one.
+    for (const key of Object.keys(request.patch)) {
+      const field = tagField(key)
+      if (field === undefined || !isEditableTagField(field)) {
+        throw new OscineError('invalid-request', `${key} is not a hand-editable tag field.`)
+      }
+    }
     this.tagOverrides.set(request.trackIds, request.patch, Date.now())
     if (Object.keys(request.patch).length > 0) {
       this.changes.notify({ tagOverrides: request.trackIds })
@@ -538,11 +559,31 @@ export class SqliteLibraryService implements LibraryService {
     const generic = fields.filter((field): field is TagFieldKey => !isGroupedWritebackField(field))
     this.store.retireWrittenOverrides(trackId, grouped, Date.now())
     this.tagOverrides.revert([trackId], generic)
+    // W25-6 (oscine-replaygain OQ5): a flush does not re-index, so a written
+    // ReplayGain value is re-read here and the track takes what the file holds.
+    if (generic.some((field) => (REPLAYGAIN_TAG_KEYS as readonly string[]).includes(field))) {
+      await this.refreshReplayGainFromFile(trackId)
+    }
     this.changes.notify({
       ...(grouped.length > 0 ? { overrides: [trackId] } : {}),
       ...(generic.length > 0 ? { tagOverrides: [trackId] } : {})
     })
     if (fields.includes('artwork')) await this.gcArtworkOriginals()
+  }
+
+  /**
+   * Re-reads a just-flushed file's ReplayGain into the track row (W25-6). A
+   * file that cannot be read keeps the row as it was: the write was verified,
+   * and the next scan reads it anyway.
+   */
+  private async refreshReplayGainFromFile(trackId: number): Promise<void> {
+    const absPath = this.store.resolveTrackPath(trackId)
+    if (absPath === null) return
+    try {
+      applyFlushedReplayGain(this.deps.db, trackId, (await this.readMetadata(absPath)).replayGain)
+    } catch (error) {
+      console.warn(`[writeback] track ${trackId} ReplayGain re-read failed:`, error)
+    }
   }
 
   /** Releases originals no live artwork override still names (R8). */
@@ -752,12 +793,16 @@ export class SqliteLibraryService implements LibraryService {
     return this.store.resolveTrackPath(trackId)
   }
 
-  async startReplayGain(): Promise<ReplayGainJobProgress> {
-    return this.replayGain.start()
+  async startReplayGain(request: ReplayGainStartRequest = {}): Promise<ReplayGainJobProgress> {
+    return this.replayGain.start(request)
   }
 
   async getReplayGainJob(): Promise<ReplayGainJobProgress | null> {
     return this.replayGain.get()
+  }
+
+  async getReplayGainSummary(): Promise<ReplayGainSummary> {
+    return this.replayGain.summary()
   }
 
   async cancelReplayGain(jobId: number): Promise<ReplayGainJobProgress> {
@@ -766,6 +811,14 @@ export class SqliteLibraryService implements LibraryService {
 
   async resumeReplayGain(jobId: number): Promise<ReplayGainJobProgress> {
     return this.replayGain.resume(jobId)
+  }
+
+  async stageComputedReplayGain(request: {
+    albumIds?: readonly number[]
+  }): Promise<ReplayGainStageResult> {
+    const { trackIds, ...result } = this.replayGainStaging.stage(request)
+    if (trackIds.length > 0) this.changes.notify({ tagOverrides: trackIds })
+    return result
   }
 
   /**

@@ -72,6 +72,9 @@ import type {
   ListTracksResult,
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
+  ReplayGainStageResult,
+  ReplayGainStartRequest,
+  ReplayGainSummary,
   ScanProgress,
   ScanSummary,
   TagFacet,
@@ -359,8 +362,20 @@ export interface IpcContract {
    * per the invariant, so this is where the resolution happens.
    */
   'lyrics.get': { request: { trackId: number }; response: LyricsDocument | null }
-  'library.startReplayGain': { request: null; response: ReplayGainJobProgress }
+  /**
+   * Queues a ReplayGain job. `null` (or `{}`) is the whole library; W25-7 adds
+   * a scope of tracks and whole albums, and `force` over existing values.
+   */
+  'library.startReplayGain': {
+    request: ReplayGainStartRequest | null
+    response: ReplayGainJobProgress
+  }
   'library.getReplayGainJob': { request: null; response: ReplayGainJobProgress | null }
+  /**
+   * W25-1: tagged / computed / missing / failed counts over `tracks`, for the
+   * Measure control and the post-scan nudge. Counts only — no track identity.
+   */
+  'library.getReplayGainSummary': { request: null; response: ReplayGainSummary }
   'library.cancelReplayGain': {
     request: { jobId: number }
     response: ReplayGainJobProgress
@@ -368,6 +383,17 @@ export interface IpcContract {
   'library.resumeReplayGain': {
     request: { jobId: number }
     response: ReplayGainJobProgress
+  }
+  /**
+   * W25-4: stages Oscine's measured ReplayGain into `track_tag_overrides` for
+   * the write-back review (`oscine-replaygain` Decisions C, D, F). Omitting
+   * `albumIds` stages every eligible album plus every computed single; naming
+   * albums stages those only. Nothing reaches a file here — only the review's
+   * flush writes.
+   */
+  'library.stageComputedReplayGain': {
+    request: { albumIds?: number[] }
+    response: ReplayGainStageResult
   }
   /**
    * The metadata editor's prefill for a set of tracks — **W16 (editor)**.
@@ -1614,8 +1640,10 @@ export const IPC_CHANNELS = [
   'lyrics.get',
   'library.startReplayGain',
   'library.getReplayGainJob',
+  'library.getReplayGainSummary',
   'library.cancelReplayGain',
   'library.resumeReplayGain',
+  'library.stageComputedReplayGain',
   'overrides.getEditState',
   'overrides.set',
   'overrides.clear',

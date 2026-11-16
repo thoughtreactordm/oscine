@@ -38,7 +38,7 @@ function cell(
 }
 
 describe('tagFieldSections', () => {
-  it('groups admitted fields in group order and skips held ones', () => {
+  it('groups shown fields in group order and skips held editable ones', () => {
     const sections = tagFieldSections()
     expect(sections.map((section) => section.group)).toEqual([
       'credits',
@@ -53,7 +53,8 @@ describe('tagFieldSections', () => {
     expect(keys).toContain('composers')
     expect(keys).toContain('replayGainTrackGain')
     for (const field of TAG_FIELDS) {
-      expect(keys.includes(field.key)).toBe(field.admitted)
+      // Held ReplayGain still displays (D37 Decision B): only a held editable field hides.
+      expect(keys.includes(field.key)).toBe(field.admitted || field.readOnly)
     }
   })
 

@@ -5,6 +5,7 @@ import {
   TAG_FIELDS,
   TAG_TEXT_MAX_LENGTH,
   isEditableTagField,
+  isShownTagField,
   tagValuesEqual,
   type TagFieldDef,
   type TagFieldGroup,
@@ -30,13 +31,14 @@ export interface TagFieldSection {
 }
 
 /**
- * The sections to draw, in group order: admitted fields only (Decision D), and
- * a group with none left is not drawn. Read-only fields stay — they display.
+ * The sections to draw, in group order: shown fields only (Decision D), and a
+ * group with none left is not drawn. Read-only fields stay even while held —
+ * they display.
  */
 export function tagFieldSections(registry: readonly TagFieldDef[] = TAG_FIELDS): TagFieldSection[] {
   const sections: TagFieldSection[] = []
   for (const group of TAG_FIELD_GROUPS) {
-    const fields = registry.filter((field) => field.group === group && field.admitted)
+    const fields = registry.filter((field) => field.group === group && isShownTagField(field))
     if (fields.length > 0) sections.push({ group, label: TAG_FIELD_GROUP_LABELS[group], fields })
   }
   return sections

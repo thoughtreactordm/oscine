@@ -1,6 +1,11 @@
 import { ABSENT_ARTWORK, artworkRef, type ArtworkRef } from '@shared/artwork'
 import { normalizeLabel, splitGenres } from '@shared/genre'
-import { TAG_FIELDS, tagValuesEqual, type TagFieldKey, type TagFieldValue } from '@shared/tagFields'
+import {
+  TAG_FIELDS,
+  tagFieldValuesEqual,
+  type TagFieldKey,
+  type TagFieldValue
+} from '@shared/tagFields'
 import type { TagSource } from '@shared/tags'
 import type {
   ArtworkDiff,
@@ -206,8 +211,10 @@ function artworkDiff(
 /**
  * The generic keys a track's corrections name that the flush may write — the
  * set the differ reads from the file and {@link computePendingWrite} diffs, in
- * registry order. A correction under a held or read-only key is left standing
- * and out of the review: it is not a pending write until its field is admitted.
+ * registry order. A correction under a held key is left standing and out of
+ * the review: it is not a pending write until its field is admitted. Read-only
+ * keys are not excluded (D37 Decision B): their rows come only from ReplayGain
+ * staging and are reviewed like any other correction.
  */
 export function flushableOverrideKeys(overrides: TagOverrideMap | undefined): TagFieldKey[] {
   if (overrides === undefined || overrides.size === 0) return []
@@ -230,7 +237,7 @@ function tagFieldDiffs(input: PendingWriteInput): TagFieldDiffs {
     if (!flushable.has(key)) continue
     const current = canonicalTagValue(field, input.fileFields?.get(key) ?? null)
     const proposed = canonicalTagValue(field, overrides.get(key) ?? null)
-    diffs[key] = { current, proposed, changed: !tagValuesEqual(current, proposed) }
+    diffs[key] = { current, proposed, changed: !tagFieldValuesEqual(field, current, proposed) }
   }
   return diffs
 }

@@ -1,14 +1,14 @@
 ---
 taskId: 01M7EDAF6X9BCSSQM1G94RJ6DK
 title: Write-gate change + hand-edit refusal at every entry point (fields held)
-status: todo
+status: in-review
 priority: medium
 labels: []
 workstream: W25
 workstreamId: W25-3
 order: 28
 created: '2026-11-15T01:32:04.700Z'
-updated: '2026-11-15T01:32:04.700Z'
+updated: '2026-11-16T20:15:15.800Z'
 ---
 **Phase 2 — RG-3.** Executes D37 **Decision B (Decision F is amended, not dropped).** `readOnly` stops meaning "never written" and starts meaning "never hand-edited".
 

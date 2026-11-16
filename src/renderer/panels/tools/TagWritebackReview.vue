@@ -7,7 +7,8 @@ import type {
   WritebackOutcome
 } from '@shared/tagWriteback'
 import { isGroupedWritebackField } from '@shared/tagWriteback'
-import { tagField, type TagFieldKind } from '@shared/tagFields'
+import { isFlushableTagField, tagField, type TagFieldKind } from '@shared/tagFields'
+import { REPLAYGAIN_MIXED_ALBUM_DESELECT_DB } from '@shared/library'
 import type { ArtworkRef } from '@shared/artwork'
 import { artworkUrl } from '@shared/ipc'
 import { visibleRange } from '@renderer/panels/listViewport'
@@ -19,10 +20,12 @@ import {
   fieldText,
   formatArtwork,
   isAgentRow,
+  isMixedAlbumOverwrite,
   reviewColumns,
   rowLabel,
   rowState,
-  type CheckState
+  type CheckState,
+  type SplitAlbum
 } from '@renderer/panels/tools/tagWritebackModel'
 import { useTagWritebackStore } from '@renderer/stores/tagWriteback'
 
@@ -40,6 +43,12 @@ import { useTagWritebackStore } from '@renderer/stores/tagWriteback'
  * Rows whose standing correction an agent changeset left (W24-8, `oscine-mcp`
  * → D36.6) carry an "Agent" badge, and a filter narrows the grid to them. The
  * badge is resolved in main when the review loads; nothing here infers it.
+ *
+ * **W25-6** adds the ReplayGain half (`oscine-replaygain` D37): a "Stage
+ * measured ReplayGain" action that puts finished measurements into the same
+ * review, Decision D rows that start unchecked, and the R21 warnings. The
+ * selection warns when it would split an album's gain, and the report lists
+ * albums a flush left partial.
  */
 const store = useTagWritebackStore()
 
@@ -178,6 +187,28 @@ function statusMeta(outcome: WritebackOutcome): { icon: string; text: string; cl
   return { icon: 'i-tabler-alert-triangle', text: failLabel(outcome.code), cls: 'text-error' }
 }
 
+// --- ReplayGain (W25-6) --------------------------------------------------------
+/**
+ * Whether ReplayGain writes are still held (W25-5: the Windows corpus run is
+ * owed). Staged rows are kept but stay out of the review until the hold lifts.
+ */
+const replayGainHeld = computed(() => {
+  const def = tagField('replayGainAlbumGain')
+  return def === undefined || !isFlushableTagField(def)
+})
+
+const mixedAlbumHint = `This file already has an album gain that differs from the measured one by more than ${REPLAYGAIN_MIXED_ALBUM_DESELECT_DB} dB. Check it to overwrite.`
+
+function albumList(albums: readonly SplitAlbum[]): string {
+  return albums.map((album) => `${album.title} (${album.landing}/${album.total})`).join(', ')
+}
+
+const splitDescription = computed(() => {
+  const albums = store.splitWarnings
+  const noun = albums.length === 1 ? 'album' : 'albums'
+  return `Only some of its tracks would get the new album gain, so the ${noun} would play at mixed levels in album mode: ${albumList(albums)}.`
+})
+
 // --- Header / footer text ------------------------------------------------------
 function plural(n: number, one: string): string {
   return `${n} ${one}${n === 1 ? '' : 's'}`
@@ -252,6 +283,15 @@ function discard(): void {
             />
           </template>
           <template v-else>
+            <UButton
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              icon="i-tabler-wave-sine"
+              label="Stage measured ReplayGain"
+              :loading="store.staging"
+              @click="store.stageReplayGain()"
+            />
             <UFieldGroup v-if="store.agentCount > 0" size="xs">
               <UButton
                 color="neutral"
@@ -338,6 +378,42 @@ function discard(): void {
       <span v-if="store.report.cancelled" class="text-warning">· stopped early</span>
     </div>
 
+    <UAlert
+      v-if="store.status === 'done' && store.partialAlbums.length > 0"
+      class="shrink-0 rounded-none"
+      color="warning"
+      variant="subtle"
+      icon="i-tabler-alert-triangle"
+      :title="`${store.partialAlbums.length === 1 ? 'An album was' : 'Albums were'} left partial`"
+      :description="`Some tracks did not get the new album gain: ${albumList(store.partialAlbums)}. Stage and write them again to even the album out.`"
+    />
+
+    <UAlert
+      v-if="store.stageMessage !== null"
+      class="shrink-0 rounded-none"
+      color="neutral"
+      variant="subtle"
+      icon="i-tabler-wave-sine"
+      :title="store.stageMessage"
+      :description="
+        replayGainHeld
+          ? 'ReplayGain writes are on hold for now. Staged values are kept and join this review once the hold lifts.'
+          : undefined
+      "
+      :close="true"
+      @update:open="store.stageMessage = null"
+    />
+
+    <UAlert
+      v-if="showTable && store.status !== 'applying' && store.splitWarnings.length > 0"
+      class="shrink-0 rounded-none"
+      color="warning"
+      variant="subtle"
+      icon="i-tabler-alert-triangle"
+      :title="`This selection splits ${store.splitWarnings.length === 1 ? 'an album' : `${store.splitWarnings.length} albums`}`"
+      :description="splitDescription"
+    />
+
     <!-- The diff grid -->
     <div
       v-if="showTable"
@@ -390,6 +466,16 @@ function discard(): void {
               <p class="truncate text-xs font-medium text-default">
                 {{ rowLabel(pending).primary }}
               </p>
+              <UTooltip v-if="isMixedAlbumOverwrite(pending)" :text="mixedAlbumHint">
+                <UBadge
+                  color="warning"
+                  variant="subtle"
+                  size="sm"
+                  icon="i-tabler-arrows-diff"
+                  label="Differs"
+                  class="shrink-0"
+                />
+              </UTooltip>
               <UTooltip v-if="isAgentRow(pending)" :text="agentBadgeTitle(pending)">
                 <UBadge
                   color="primary"
@@ -504,7 +590,8 @@ function discard(): void {
           <p class="mt-2 text-sm font-medium text-default">No unwritten changes</p>
           <p class="mt-1 text-xs text-muted">
             Edit a track’s metadata — right-click and choose “Edit metadata…” — and your changes
-            gather here to write to disk when you’re ready.
+            gather here to write to disk when you’re ready. Measured ReplayGain joins them through
+            “Stage measured ReplayGain”.
           </p>
         </template>
       </div>

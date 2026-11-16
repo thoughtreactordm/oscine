@@ -3,14 +3,14 @@ taskId: 01M7EDA0FAJPP87783KZJXZ6VA
 title: >-
   Start the measurement: Measure control, summary IPC, post-scan nudge, palette
   command
-status: todo
+status: in-review
 priority: high
 labels: []
 workstream: W25
 workstreamId: W25-1
-order: 26
+order: 0
 created: '2026-11-15T01:31:49.608Z'
-updated: '2026-11-15T01:31:49.608Z'
+updated: '2026-11-16T20:02:40.123Z'
 ---
 **Phase 1 — start the measurement.** RG-1 of the `oscine-replaygain` card map. Ships on its own: it fixes in-app loudness for untagged tracks without touching any file. The analyzer and `library.startReplayGain` already exist end-to-end (IPC → preload → `src/renderer/ipc.ts`); the only caller today is `scripts/m2-exit-probe.mjs`. This card gives the operator the button.
 

@@ -1,10 +1,26 @@
 import type Database from 'better-sqlite3'
 import { OscineError } from '@shared/errors'
-import type { ReplayGainJobProgress } from '@shared/library'
+import type {
+  ReplayGainJobProgress,
+  ReplayGainStartRequest,
+  ReplayGainSummary
+} from '@shared/library'
 import { WorkerReplayGainAnalyzer, type ReplayGainAnalyzer } from './analyzer'
 import { ReplayGainJobStore, type ReplayGainWorkItem } from './jobStore'
 
 const WORKER_COUNT = 2
+
+/**
+ * The floor between two per-track progress events.
+ *
+ * Load-bearing, not cosmetic. Every event is a `PROGRESS_SQL` aggregate over
+ * the job's items and an IPC message the renderer has to parse and render; at
+ * two workers on short tracks that is a stream fast enough to starve the
+ * renderer's event loop — the failure that once left a Cancel button unable to
+ * answer a click. State transitions are never throttled: they are what a
+ * control is waiting on.
+ */
+const PROGRESS_INTERVAL_MS = 250
 
 export interface ReplayGainJobDeps {
   db: Database.Database
@@ -23,6 +39,15 @@ export interface ReplayGainJobDeps {
    * without a settings service wants.
    */
   canCompute?: () => boolean
+  /**
+   * Staged ReplayGain rows a new measurement dropped (Decision F), so the
+   * renderer's review and editor can re-read them. Called after the delete has
+   * committed; omitted means nobody is listening.
+   */
+  onStagedCleared?: (trackIds: number[]) => void
+  /** Injectable so tests can drive the progress throttle deterministically. */
+  progressIntervalMs?: number
+  now?: () => number
 }
 
 export class ReplayGainJobService {
@@ -31,26 +56,38 @@ export class ReplayGainJobService {
   private running: Promise<void> | null = null
   private abort: AbortController | null = null
   private closing = false
+  /** The title most recently claimed by a worker, carried by throttled events. */
+  private currentTitle: string | null = null
+  private readonly progressIntervalMs: number
+  private readonly now: () => number
+  private lastEmitAt = Number.NEGATIVE_INFINITY
+  private trailing: { timer: ReturnType<typeof setTimeout>; jobId: number } | null = null
 
   constructor(private readonly deps: ReplayGainJobDeps) {
     this.store = new ReplayGainJobStore(deps.db)
     this.store.recoverInterrupted()
     this.createAnalyzer = deps.createAnalyzer ?? (() => new WorkerReplayGainAnalyzer())
+    this.progressIntervalMs = deps.progressIntervalMs ?? PROGRESS_INTERVAL_MS
+    this.now = deps.now ?? Date.now
   }
 
-  async start(): Promise<ReplayGainJobProgress> {
+  async start(request: ReplayGainStartRequest = {}): Promise<ReplayGainJobProgress> {
     this.assertComputeAllowed()
-    const progress = this.store.createJob()
+    const progress = this.store.createJob(request)
     if (progress.total === 0) {
       this.store.setState(progress.jobId, 'completed')
       return this.emit(progress.jobId)
     }
     this.launch(progress.jobId)
-    return this.store.progress(progress.jobId)
+    return this.emit(progress.jobId)
   }
 
   async get(): Promise<ReplayGainJobProgress | null> {
     return this.store.latestProgress()
+  }
+
+  async summary(): Promise<ReplayGainSummary> {
+    return this.store.summary()
   }
 
   async cancel(jobId: number): Promise<ReplayGainJobProgress> {
@@ -75,12 +112,13 @@ export class ReplayGainJobService {
     }
     this.store.setState(jobId, 'running')
     this.launch(jobId)
-    return this.store.progress(jobId)
+    return this.emit(jobId)
   }
 
   async close(): Promise<void> {
     if (this.closing) return
     this.closing = true
+    this.clearTrailing()
     const progress = this.store.latestProgress()
     if (progress && (progress.state === 'running' || progress.state === 'cancelling')) {
       this.store.pause(progress.jobId)
@@ -114,6 +152,7 @@ export class ReplayGainJobService {
     const run = this.run(jobId, abort.signal).finally(() => {
       if (this.running === run) this.running = null
       if (this.abort === abort) this.abort = null
+      this.currentTitle = null
     })
     this.running = run
     void run.catch((error: unknown) => {
@@ -134,9 +173,10 @@ export class ReplayGainJobService {
       if (signal.aborted || this.store.state(jobId) === 'cancelling') {
         this.store.setState(jobId, 'cancelled')
       } else {
-        this.store.finalizeAlbums(jobId)
+        this.notifyCleared(this.store.finalizeAlbums(jobId))
         this.store.setState(jobId, 'completed')
       }
+      this.currentTitle = null
       this.emit(jobId)
     } finally {
       await Promise.all(analyzers.map((analyzer) => analyzer.close()))
@@ -151,9 +191,10 @@ export class ReplayGainJobService {
     while (!signal.aborted) {
       const item = this.store.claimNext(jobId)
       if (!item) return
-      this.emit(jobId, item.title)
+      this.currentTitle = item.title
+      this.emitThrottled(jobId)
       await this.analyzeItem(analyzer, item, signal)
-      if (!this.closing) this.emit(jobId)
+      if (!this.closing) this.emitThrottled(jobId)
     }
   }
 
@@ -170,7 +211,7 @@ export class ReplayGainJobService {
       const result = await analyzer.analyze(item.path, signal)
       // A finished unit is checkpointed even when cancellation arrived during
       // its final DSP instruction. This is the track-sized durability promise.
-      this.store.complete(item, result)
+      if (this.store.complete(item, result)) this.notifyCleared([item.trackId])
     } catch (error) {
       if (signal.aborted) {
         if (!this.closing) this.store.returnToPending(item)
@@ -181,9 +222,53 @@ export class ReplayGainJobService {
     }
   }
 
-  private emit(jobId: number, currentTitle: string | null = null): ReplayGainJobProgress {
-    const progress = this.store.progress(jobId, currentTitle)
+  /**
+   * Emit now. Every state transition comes through here, and it supersedes
+   * any per-track event still waiting, so a stale `running` can never land
+   * after the `cancelled` that replaced it.
+   */
+  private emit(jobId: number): ReplayGainJobProgress {
+    this.clearTrailing()
+    const progress = this.store.progress(jobId, this.titleFor(jobId))
+    this.lastEmitAt = this.now()
     this.deps.onProgress(progress)
     return progress
+  }
+
+  /**
+   * A per-track event, coalesced to {@link progressIntervalMs}. Leading and
+   * trailing: the first event in a quiet window goes at once, the rest collapse
+   * into one that fires when the window closes, so the final count of a burst
+   * is never the one that is dropped.
+   */
+  private emitThrottled(jobId: number): void {
+    const elapsed = this.now() - this.lastEmitAt
+    if (elapsed >= this.progressIntervalMs) {
+      this.emit(jobId)
+      return
+    }
+    if (this.trailing) return
+    const timer = setTimeout(() => {
+      this.trailing = null
+      if (!this.closing) this.emit(jobId)
+    }, this.progressIntervalMs - elapsed)
+    timer.unref?.()
+    this.trailing = { timer, jobId }
+  }
+
+  private clearTrailing(): void {
+    if (!this.trailing) return
+    clearTimeout(this.trailing.timer)
+    this.trailing = null
+  }
+
+  private notifyCleared(trackIds: number[]): void {
+    if (trackIds.length > 0) this.deps.onStagedCleared?.(trackIds)
+  }
+
+  /** Only a job that is working on something has a current track to name. */
+  private titleFor(jobId: number): string | null {
+    const state = this.store.state(jobId)
+    return state === 'running' || state === 'cancelling' ? this.currentTitle : null
   }
 }

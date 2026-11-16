@@ -64,7 +64,7 @@ function ffmpegVersion() {
 /** The matrix's rows: every registry field, then the grouped album artist (W16-14). */
 const MATRIX_FIELDS = [...FIELD_CASES.map((fieldCase) => fieldCase.key), 'album-artist']
 
-/** `written:<field>:<case>`, `read:<field>`, and their `reader:` twins → the field. */
+/** `written:<field>:<case>` (and the older `read:<field>`), plus `reader:` twins → the field. */
 const FIELD_CHECK = /^(?:reader:)?(?:written|read):([^:]+)(?::(.+))?$/
 
 /**
@@ -168,9 +168,12 @@ function markdownReport(report, env) {
   lines.push(
     '- Field cells cover set, clear and (for lists) an ordered two-entry write, ' +
       'type-exact for ints and bools. A clear is green only if no other field — ' +
-      'generic or grouped — moved with it. Read-only ReplayGain rows are seeded and ' +
-      'read back, never cleared. Album artist is also read through music-metadata, ' +
-      'which is what the scanner groups albums on.'
+      'generic or grouped — moved with it. ReplayGain rows (read-only to the editor, ' +
+      'written by the staged review — D37) are set and cleared like any field and ' +
+      'also read back through music-metadata as the scanner reads them; on Opus a ' +
+      "gain must land as `R128_*` with that scope's `REPLAYGAIN_*` removed, and a " +
+      'peak must be refused (R128 has no peak tag). Album artist is also read ' +
+      'through music-metadata, which is what the scanner groups albums on.'
   )
   lines.push('')
   return lines.join('\n')

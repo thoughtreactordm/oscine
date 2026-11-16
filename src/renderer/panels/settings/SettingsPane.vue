@@ -8,6 +8,7 @@ import ScrobblingAccounts from '@renderer/panels/settings/ScrobblingAccounts.vue
 import AppUpdates from '@renderer/panels/settings/AppUpdates.vue'
 import AgentAccessPanel from '@renderer/panels/settings/AgentAccessPanel.vue'
 import AudioEqualizerNote from '@renderer/panels/settings/AudioEqualizerNote.vue'
+import MeasureReplayGain from '@renderer/panels/settings/MeasureReplayGain.vue'
 import ThemeActions from '@renderer/panels/settings/theme/ThemeActions.vue'
 import SettingRow from '@renderer/panels/settings/SettingRow.vue'
 import { useSettings } from '@renderer/settings'
@@ -90,6 +91,8 @@ const showUpdates = computed(() => !catalog.value.spanning && section.value?.id 
  * went rather than a control that could not do it justice.
  */
 const showAudioNote = computed(() => !catalog.value.spanning && section.value?.id === 'audio')
+// W25-1's Measure ReplayGain block shares that leading slot — see its component
+// on why it sits above the rows rather than among them.
 
 /**
  * W24-2's agent access island: server status, the token, client config and the
@@ -334,6 +337,7 @@ watch(
       </div>
       <div v-else-if="showAudioNote" ref="leading">
         <AudioEqualizerNote />
+        <MeasureReplayGain />
       </div>
       <div v-else-if="showAgentAccess" ref="leading">
         <AgentAccessPanel />

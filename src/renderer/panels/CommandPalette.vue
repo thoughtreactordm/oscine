@@ -19,6 +19,7 @@ import {
   type NavigationCommand
 } from '@renderer/shell/navigationCommands'
 import { buildOnboardingCommands } from '@renderer/shell/onboardingCommands'
+import { buildReplayGainCommands } from '@renderer/shell/replayGainCommands'
 import {
   activateHit,
   performSelection,
@@ -32,6 +33,7 @@ import { usePaletteStore } from '@renderer/stores/palette'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
 import { usePodcastsStore } from '@renderer/stores/podcasts'
+import { useReplayGainStore } from '@renderer/stores/replayGain'
 import { useSettingsNavStore } from '@renderer/stores/settingsNav'
 import { useVisualizerStore } from '@renderer/stores/visualizer'
 import { useZenStore } from '@renderer/stores/zen'
@@ -68,6 +70,7 @@ const settings = useSettings()
 const settingsNav = useSettingsNavStore()
 const zen = useZenStore()
 const visualizer = useVisualizerStore()
+const replayGain = useReplayGainStore()
 const toast = useToast()
 
 const search = createPaletteSearch({ query: searchIpc.query })
@@ -164,6 +167,15 @@ const onboardingCommands = buildOnboardingCommands({
   close
 })
 
+/** W25-1. An Actions verb; the store decides start versus resume. */
+const replayGainCommands = buildReplayGainCommands({
+  measure: () => replayGain.measure(),
+  notify,
+  fail: (title, detail) =>
+    toast.add({ title, description: detail, icon: 'i-tabler-alert-triangle', color: 'error' }),
+  close
+})
+
 const settingCommands = buildSettingsCommands({
   get: (key) => settings.get(key),
   set: (key, value) => settings.set(key, value),
@@ -239,7 +251,7 @@ const groups = computed<CommandPaletteGroup[]>(() => {
   // them, so a keystroke of entities is never buried under every command.
   if (mode === 'action' || (mode === 'blended' && text.length > 0)) {
     const items = matchCommands(
-      [...actionCommands, ...visualizerCommands, ...onboardingCommands],
+      [...actionCommands, ...visualizerCommands, ...replayGainCommands, ...onboardingCommands],
       text
     )
     if (items.length > 0) {

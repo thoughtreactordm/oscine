@@ -1,4 +1,10 @@
-import type { FieldDiff, GenreValue, PendingWrite, WritebackSelection } from '@shared/tagWriteback'
+import type {
+  FieldDiff,
+  GenreValue,
+  PendingWrite,
+  WritebackOutcome,
+  WritebackSelection
+} from '@shared/tagWriteback'
 import {
   WRITEBACK_FIELDS,
   isGroupedWritebackField,
@@ -7,6 +13,11 @@ import {
 } from '@shared/tagWriteback'
 import { TAG_FIELDS, type TagFieldDef, type TagFieldValue } from '@shared/tagFields'
 import type { ArtworkRef } from '@shared/artwork'
+import {
+  REPLAYGAIN_MIXED_ALBUM_DESELECT_DB,
+  type ReplayGainStageResult,
+  type ReplayGainStageSkipReason
+} from '@shared/library'
 import { formatTagValue } from '../tagFieldForm'
 
 /**
@@ -127,9 +138,148 @@ export function initialSelection(
 ): SelectionMap {
   const map: SelectionMap = new Map()
   for (const pending of pendings) {
-    map.set(pending.trackId, new Set(changedFields(pending, registry)))
+    const fields = new Set(changedFields(pending, registry))
+    // Decision D: a file's own album gain that the measurement disagrees with
+    // is offered, not pre-checked. The operator opts in per row.
+    if (isMixedAlbumOverwrite(pending)) {
+      fields.delete('replayGainAlbumGain')
+      fields.delete('replayGainAlbumPeak')
+    }
+    map.set(pending.trackId, fields)
   }
   return map
+}
+
+/**
+ * Whether a row would overwrite an album gain the file already carries with a
+ * measured one that differs by more than
+ * {@link REPLAYGAIN_MIXED_ALBUM_DESELECT_DB} — **W25-6**, `oscine-replaygain`
+ * Decision D. Staging stores no "deselected" flag; this comparison of the
+ * staged value with the file's fresh read is the whole of that state.
+ */
+export function isMixedAlbumOverwrite(pending: PendingWrite): boolean {
+  const diff = genericDiff(pending, 'replayGainAlbumGain')
+  if (diff === undefined || !diff.changed) return false
+  const { current, proposed } = diff
+  if (typeof current !== 'number' || typeof proposed !== 'number') return false
+  return Math.abs(proposed - current) > REPLAYGAIN_MIXED_ALBUM_DESELECT_DB
+}
+
+/**
+ * One album whose staged ReplayGain album gain would not land on every track
+ * that needs it — **W25-6**, `oscine-replaygain` R21.
+ */
+export interface SplitAlbum {
+  readonly albumId: number
+  /** The album's title as the rows carry it, for the warning's text. */
+  readonly title: string
+  /** Rows in the review that change this album's gain. */
+  readonly total: number
+  /** Of those, the rows whose album gain lands (selected, or written). */
+  readonly landing: number
+}
+
+/** The review rows that change an album gain, grouped by album. */
+function albumGainGroups(pendings: readonly PendingWrite[]): Map<number, PendingWrite[]> {
+  const groups = new Map<number, PendingWrite[]>()
+  for (const pending of pendings) {
+    const albumId = pending.replayGain?.albumId
+    if (albumId === undefined) continue
+    if (genericDiff(pending, 'replayGainAlbumGain')?.changed !== true) continue
+    const group = groups.get(albumId)
+    if (group === undefined) groups.set(albumId, [pending])
+    else group.push(pending)
+  }
+  return groups
+}
+
+/** The albums where some, but not all, rows' album gain lands. */
+function partialGroups(
+  pendings: readonly PendingWrite[],
+  lands: (pending: PendingWrite) => boolean
+): SplitAlbum[] {
+  const out: SplitAlbum[] = []
+  for (const [albumId, group] of albumGainGroups(pendings)) {
+    const landing = group.filter(lands).length
+    if (landing === 0 || landing === group.length) continue
+    const first = group[0]!
+    const title = first.album.current ?? first.album.proposed ?? `Album ${albumId}`
+    out.push({ albumId, title, total: group.length, landing })
+  }
+  return out
+}
+
+/**
+ * The albums the current selection splits — **W25-6**, R21. Some rows of the
+ * album have their album gain checked and some do not, so a flush would leave
+ * the album with two album gains. Staging is album-whole (Decision C), so a
+ * split only ever comes from the review: a deselected row, or a Decision D row
+ * left unchecked while the rest of its album goes.
+ *
+ * Nothing selected for an album is not a split: the files keep what they have.
+ */
+export function splitAlbums(
+  pendings: readonly PendingWrite[],
+  selection: SelectionMap
+): SplitAlbum[] {
+  return partialGroups(
+    pendings,
+    (pending) => selection.get(pending.trackId)?.has('replayGainAlbumGain') ?? false
+  )
+}
+
+/**
+ * The albums a finished flush left partial — **W25-6**, R21's apply summary.
+ * Computed against the batch as it was *sent* (the review reloads afterwards),
+ * an album gain lands where it was selected and its file came back written or
+ * skipped. A failure, a deselected row, or a file a cancelled flush never
+ * reached all leave that track behind. Album-atomic flush is deliberately not
+ * attempted: it would need multi-file rollback, which the writer does not do.
+ */
+export function partialAlbumsAfterApply(
+  pendings: readonly PendingWrite[],
+  selection: SelectionMap,
+  outcomes: readonly WritebackOutcome[]
+): SplitAlbum[] {
+  const status = new Map(outcomes.map((outcome) => [outcome.trackId, outcome.status]))
+  return partialGroups(pendings, (pending) => {
+    if (!(selection.get(pending.trackId)?.has('replayGainAlbumGain') ?? false)) return false
+    const outcome = status.get(pending.trackId)
+    return outcome === 'written' || outcome === 'skipped'
+  })
+}
+
+/** What a skipped album's reason means, for the stage notice. */
+export const STAGE_SKIP_LABELS: Record<ReplayGainStageSkipReason, string> = {
+  unmeasured: 'not fully measured yet',
+  failed: 'a track failed to measure',
+  'missing-album-gain': 'no album gain was finished',
+  'nothing-measured': 'already tagged, nothing measured',
+  'not-found': 'no longer in the library'
+}
+
+/**
+ * The one-line notice a "Stage measured ReplayGain" pass leaves — **W25-6**.
+ * Says what was staged and why albums were skipped, grouped by reason so a
+ * library of half-measured albums reads as one clause, not hundreds.
+ */
+export function stageNotice(result: ReplayGainStageResult): string {
+  const parts: string[] = []
+  if (result.stagedTracks === 0) parts.push('Nothing measured to stage')
+  else {
+    const tracks = `${result.stagedTracks} track${result.stagedTracks === 1 ? '' : 's'}`
+    const albums =
+      result.stagedAlbums > 0
+        ? ` across ${result.stagedAlbums} album${result.stagedAlbums === 1 ? '' : 's'}`
+        : ''
+    parts.push(`Staged ${tracks}${albums}`)
+  }
+  const byReason = new Map<ReplayGainStageSkipReason, number>()
+  for (const skip of result.skipped) byReason.set(skip.reason, (byReason.get(skip.reason) ?? 0) + 1)
+  for (const [reason, count] of byReason) {
+    parts.push(`${count} album${count === 1 ? '' : 's'} skipped: ${STAGE_SKIP_LABELS[reason]}`)
+  }
+  return parts.join(' · ')
 }
 
 /**

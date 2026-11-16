@@ -204,7 +204,8 @@ export const AUDIO_REPLAY_GAIN_FALLBACK_DB = defineSetting<number>({
  * True is what the app already does — the job runs when it is asked to — so the
  * default changes nothing. False makes the refusal explicit rather than leaving
  * an operator who does not want their library decoded to remember not to press
- * the button.
+ * Measure ReplayGain (W25-1's block at the top of Audio settings, and the
+ * palette's "Measure missing ReplayGain").
  *
  * Read in main, before any window exists, which is the case durable scope is for.
  */
@@ -216,7 +217,7 @@ export const AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING = defineSetting<boolean>({
   control: { kind: 'toggle' },
   category: 'audio',
   label: 'Analyze untagged tracks',
-  help: 'Allow the background job to measure ReplayGain for tracks that have no tag. Turning this off refuses the job; it never discards a measurement already taken.',
+  help: 'Lets Measure ReplayGain, at the top of Audio settings, decode tracks that have no tag to measure their loudness. Off refuses the job; it never discards a measurement already taken.',
   keywords: ['replaygain', 'analyse', 'analyze', 'scan', 'job', 'background'],
   order: 50
 })

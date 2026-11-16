@@ -10,6 +10,7 @@ import { beginRowDrag, endRowDrag, lazily } from '@renderer/panels/trackDrag'
 import { trackMenuItems } from '@renderer/panels/trackMenu'
 import { allSongsPlayParams } from '@renderer/panels/discoverShelves'
 import { editMetadataMenuItem } from '@renderer/panels/metadataMenu'
+import { useMeasureReplayGainMenu } from '@renderer/panels/replayGainMenu'
 import { useTrackActions } from '@renderer/panels/useTrackActions'
 import { useTrackActivation } from '@renderer/panels/useTrackActivation'
 import type {
@@ -52,6 +53,7 @@ const queue = useQueueCommandsStore()
 const addToPlaylist = useAddToPlaylistStore()
 const trackActions = useTrackActions()
 const focus = useFocusedHeaderStore()
+const measureReplayGainItem = useMeasureReplayGainMenu()
 
 /**
  * The ordering, shown only when its column is not.
@@ -147,8 +149,12 @@ const drag: TrackListDrag = {
 const menu: TrackListMenu = (index): ContextMenuItem[] => {
   const count = rowCount(index)
   const track = count === 1 ? trackList.rowAt(index) : undefined
+  // W25-7: a forced re-measure of the row or the selection. Tracks stay tracks —
+  // only an album menu expands to the whole album.
+  const trackIds = trackIdsFor(index)
+  const measure = measureReplayGainItem(async () => ({ trackIds: await trackIds() }))
   if (track) {
-    return trackMenuItems({
+    const items = trackMenuItems({
       play: () => playTrack(track, index),
       playNext: () => void targetFor(index).then(queue.playNext),
       addToQueue: () => void targetFor(index).then(queue.addToQueue),
@@ -159,6 +165,7 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
       trackInfo: trackActions.showInfo(track),
       editMetadata: trackActions.editTrack(track)
     })
+    return [...items, measure]
   }
   return [
     {
@@ -176,7 +183,8 @@ const menu: TrackListMenu = (index): ContextMenuItem[] => {
     // one row case would suggest a song title for a playlist.
     addToPlaylist.menuItem({ count, trackIds: trackIdsFor(index) }),
     { type: 'separator' },
-    editMetadataMenuItem(trackActions.editTracks(count, trackIdsFor(index)))
+    editMetadataMenuItem(trackActions.editTracks(count, trackIdsFor(index))),
+    measure
   ]
 }
 
@@ -196,6 +204,7 @@ const groupMenu: TrackListGroupMenu = (run): ContextMenuItem[] => {
   const count = run.group.trackCount
   const trackIds = lazily(() => trackList.idsInRange(run.firstOffset, run.firstOffset + count - 1))
   const album = run.group.title ?? 'Unknown album'
+  const albumId = run.group.albumId
   return [
     {
       label: queueCommandLabel('playNext', count),
@@ -210,7 +219,10 @@ const groupMenu: TrackListGroupMenu = (run): ContextMenuItem[] => {
     { type: 'separator' },
     addToPlaylist.menuItem({ count, trackIds, suggestedName: album }),
     { type: 'separator' },
-    editMetadataMenuItem(trackActions.editTracks(count, trackIds, album))
+    editMetadataMenuItem(trackActions.editTracks(count, trackIds, album)),
+    // W25-7: by album id, so main measures the whole album rather than the run
+    // the browse predicate left visible. The untagged run has no album to name.
+    ...(albumId === null ? [] : [measureReplayGainItem(async () => ({ albumIds: [albumId] }))])
   ]
 }
 
