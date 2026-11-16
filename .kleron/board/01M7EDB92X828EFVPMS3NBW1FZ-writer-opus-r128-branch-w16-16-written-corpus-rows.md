@@ -1,7 +1,7 @@
 ---
 taskId: 01M7EDB92X828EFVPMS3NBW1FZ
 title: 'Writer Opus R128_* branch + W16-16 written: corpus rows, then unhold'
-status: todo
+status: in-review
 priority: medium
 labels: []
 workstream: W25
@@ -11,7 +11,7 @@ dependsOn:
   - 01M7EDAVDD2BF7FYSMWK7W4WAA
 order: 30
 created: '2026-11-15T01:32:31.195Z'
-updated: '2026-11-15T01:32:31.195Z'
+updated: '2026-11-16T20:32:39.808Z'
 ---
 **Phase 2 — RG-5.** The write half of D37 **Decision E**, plus the corpus gate that unholds the fields. Depends on RG-2 (the shared Q7.8 conversion and the scanner read-back) and RG-4 (staging produces the rows that reach the writer).
 

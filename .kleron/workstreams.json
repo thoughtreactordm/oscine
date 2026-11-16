@@ -302,7 +302,7 @@
       "description": "Measure, review and write ReplayGain. Oscine's analyzer (src/main/replaygain/loudness.ts, ReplayGain 2.0 / EBU R128, two-worker ReplayGainJobService with checkpoint/cancel/resume) is complete, but no renderer code starts it and no value ever reaches the file: computed gains land in tracks.rg_* with rg_source='computed' and stay there. Design authority is the wiki page `oscine-replaygain`, which owns decision D37 (ReplayGain is measured on explicit request and reaches the file only through the existing W16 staged write-back review) and sub-decisions A-F, plus risks R20 (Opus header output gain) and R21 (album inconsistency through partial flush). Three phases: Phase 1 (W25-1) starts the measurement and fixes in-app loudness for untagged tracks on its own; Phase 2 (W25-2..6) stages computed values into track_tag_overrides and flushes them through the atomic per-file writer, including the Opus R128_* path (Decision E); Phase 3 (W25-7) adds forced re-measure and a selection context menu. Amends oscine-tag-writeback Decision F (readOnly means never-hand-edited, not never-written) rather than reopening D7/D28. Depends on W3 (the analyzer and audio graph), W16 (the write-back engine, atomic writer, review surface and corpus gate), W2 (scanner/metadata, R128 read-back) and W8 (the settings registry) for reuse and surface, not for permission. Does NOT write without the review, hand-edit gain/peak, support ReplayGain 1.0 / 89 dB, rip-time measurement, or a limiter.",
       "color": "amber",
       "order": 23,
-      "cardCounter": 7,
+      "cardCounter": 8,
       "dependsOn": [
         "W2",
         "W3",

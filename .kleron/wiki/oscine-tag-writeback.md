@@ -1,7 +1,7 @@
 ---
 title: Oscine — Tag Write-Back
 created: '2026-08-28T00:13:28.408Z'
-updated: '2026-09-24T00:00:00.000Z'
+updated: '2026-11-16T20:14:15.611Z'
 ---
 # Oscine — Tag Write-Back
 
@@ -248,13 +248,26 @@ they are today — round-tripped untouched, never edited.
   `retireWrittenOverrides`: a verified write proves `file == override`, so the rescan pass never
   needs to read these fields.
 
-**Decision F — read-only fields.** ReplayGain (track/album gain and peak) is shown, not edited:
-the app computes and writes it through its own path, and a hand-typed gain is a loudness bug.
-The **MusicBrainz ids are editable**, in an "Advanced" group rather than hidden — the disc lookup
-and a tagger fill them, and an operator correcting a mismatched release must be able to fix
-them. Excluded outright: `amazonId` and `musicIpId` (dead services), `dateTagged` (writer
-bookkeeping), `performersRole` (a per-performer structure, not a field), and the derived
-`first*`/`joined*` accessors. Pictures stay on the artwork path (Decisions A–C).
+**Decision F — read-only fields.** ReplayGain (track/album gain and peak) is shown, never
+hand-edited: a hand-typed gain is a loudness bug. Measured values reach the file through the
+staged review like any other correction, staged only by the ReplayGain service from
+`rg_source = 'computed'` rows (see [[oscine-replaygain]] D37). The **MusicBrainz ids are
+editable**, in an "Advanced" group rather than hidden — the disc lookup and a tagger fill them,
+and an operator correcting a mismatched release must be able to fix them. Excluded outright:
+`amazonId` and `musicIpId` (dead services), `dateTagged` (writer bookkeeping), `performersRole`
+(a per-performer structure, not a field), and the derived `first*`/`joined*` accessors. Pictures
+stay on the artwork path (Decisions A–C).
+
+*Amended 2026-11-16 by W25-3 (RG-3), under [[oscine-replaygain]] D37 Decision B — a rewording of
+this decision, not a reopening of D7 or D28.* The original text read "shown, not edited: the app
+computes and writes it through its own path". `readOnly` now means **never hand-edited**, not
+never written. In code that is two predicates in `src/shared/tagFields.ts`:
+`isEditableTagField` (admitted and not read-only) is the hand-edit gate, asked by the editor, the
+`tagOverrides.set` validator, `LibraryService.setTagOverrides` (the backstop) and MCP
+`stage_tag_changes`; `isFlushableTagField` (admitted only) is the write gate, asked by the
+engine, the review flush, the differ and the store's pending-write SQL. A third,
+`isShownTagField` (admitted, or read-only even while held), keeps ReplayGain displayed and
+prefilled while its fields are `held()` pending their W16-16 corpus rows (W25-5).
 
 **Decision G — multi-value.** Fields the library does not group on (composers, the sort lists)
 are written as native multi-value frames and edited as lists. **Artist and album artist stay

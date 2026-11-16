@@ -3,7 +3,7 @@ taskId: 01M7EDAVDD2BF7FYSMWK7W4WAA
 title: >-
   ReplayGainStagingService: stage computed values into track_tag_overrides
   (Decisions C, D, F)
-status: todo
+status: in-review
 priority: medium
 labels: []
 workstream: W25
@@ -12,7 +12,7 @@ dependsOn:
   - 01M7EDAF6X9BCSSQM1G94RJ6DK
 order: 29
 created: '2026-11-15T01:32:17.194Z'
-updated: '2026-11-15T01:32:17.194Z'
+updated: '2026-11-16T20:22:08.998Z'
 ---
 **Phase 2 — RG-4.** The main-process service that turns `rg_source = 'computed'` rows into `track_tag_overrides` rows. Depends on RG-3 (the write gate must admit staged ReplayGain keys first).
 
