@@ -8,6 +8,8 @@ export interface FieldCase {
   readonly kind: FieldCaseKind
   readonly readOnly: boolean
   readonly value: string | number | boolean | readonly string[]
+  /** Present on `real` cases only: how far a read-back may be from `value`. */
+  readonly tolerance?: number
   /** Present on `list` cases only: the ordered two-entry write. */
   readonly multi?: readonly string[]
 }
@@ -17,8 +19,7 @@ export const CLEAR_VALUE: Readonly<{
   list: readonly string[]
   int: number
   bool: boolean
+  real: number
 }>
 
 export const FIELD_CASES: readonly FieldCase[]
-
-export const REAL_TOLERANCE: number

@@ -102,7 +102,10 @@ describe('assertSetTagOverridesRequest', () => {
     bpm: true,
     compilation: true,
     conductor: true,
-    publisher: false
+    publisher: false,
+    // Admitted as if its corpus row were green: the hand-edit refusal must not
+    // lean on the hold (D37 Decision B).
+    replayGainTrackGain: true
   })
 
   it('accepts admitted fields and validates each value by kind', () => {
@@ -127,7 +130,7 @@ describe('assertSetTagOverridesRequest', () => {
     ).toThrow(OscineError)
   })
 
-  it('refuses read-only, grouped and unknown keys', () => {
+  it('refuses read-only keys even once admitted, and grouped and unknown keys', () => {
     expect(field('replayGainTrackGain').admitted).toBe(true)
     for (const patch of [{ replayGainTrackGain: -6 }, { title: 'x' }, { amazonId: 'B00' }]) {
       expect(() => assertSetTagOverridesRequest({ trackIds: [1], patch })).toThrow(OscineError)

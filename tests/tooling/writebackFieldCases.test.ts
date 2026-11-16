@@ -50,9 +50,20 @@ describe('writeback corpus field cases', () => {
     }
   })
 
-  it('define a clear value for every editable kind', () => {
-    for (const fieldCase of FIELD_CASES.filter((c) => !c.readOnly)) {
+  it('define a clear value for every kind the gate writes', () => {
+    // ReplayGain is read-only to the editor but written by the review (D37).
+    for (const fieldCase of FIELD_CASES) {
       expect(fieldCase.kind in CLEAR_VALUE).toBe(true)
+    }
+    // Apple's ReplayGain setter throws on `undefined`; `NaN` clears every family.
+    expect(CLEAR_VALUE.real).toBeNaN()
+  })
+
+  it('read ReplayGain back within the registry tolerance (Decision F)', () => {
+    for (const field of TAG_FIELDS) {
+      if (field.kind !== 'real') continue
+      const fieldCase = FIELD_CASES.find((c) => c.key === field.key)!
+      expect(fieldCase.tolerance).toBe(field.tolerance)
     }
   })
 })

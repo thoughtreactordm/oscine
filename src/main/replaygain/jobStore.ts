@@ -1,6 +1,12 @@
 import type Database from 'better-sqlite3'
 import { OscineError } from '@shared/errors'
-import type { ReplayGainJobProgress, ReplayGainJobState, ReplayGainSummary } from '@shared/library'
+import type {
+  ReplayGainJobProgress,
+  ReplayGainJobState,
+  ReplayGainStartRequest,
+  ReplayGainSummary
+} from '@shared/library'
+import { REPLAYGAIN_TAG_KEYS } from '@shared/tagFields'
 import { toAbsPath } from '../db/paths'
 import {
   gainFromHistogram,
@@ -14,6 +20,8 @@ export interface ReplayGainWorkItem {
   trackId: number
   title: string
   path: string | null
+  /** The job's `forced` flag: the result may overwrite a `'tag'` or `'computed'` value. */
+  forced: boolean
 }
 
 interface JobRow {
@@ -29,6 +37,9 @@ interface ProgressRow extends JobRow {
   failed: number
   pending: number
 }
+
+/** `IN (...)` over the four ReplayGain override keys, as literal SQL. */
+const RG_KEYS_SQL = REPLAYGAIN_TAG_KEYS.map((key) => `'${key}'`).join(', ')
 
 const PROGRESS_SQL = `
   SELECT j.id AS id, j.state AS state, j.created_at AS createdAt,
@@ -59,37 +70,67 @@ export class ReplayGainJobStore {
     })()
   }
 
-  createJob(): ReplayGainJobProgress {
-    const existing = this.db
-      .prepare(
-        "SELECT id FROM replaygain_jobs WHERE state IN ('running', 'cancelling', 'paused', 'cancelled') ORDER BY id DESC LIMIT 1"
-      )
-      .get() as { id: number } | undefined
-    if (existing) {
+  /**
+   * Queues a job. Unscoped (no ids) it covers the library; scoped, it covers the
+   * named tracks plus every track of the named albums (W25-7).
+   *
+   * Only the latest job can be resumed — it is the one every surface shows. An
+   * unscoped start refuses while that job is resumable, so a library-wide run is
+   * resumed rather than restarted. A scoped start is the operator asking for
+   * specific tracks now: it refuses only an active job, and supersedes a paused
+   * or canceled one by retiring it as canceled. Nothing measured is lost by
+   * that — finished tracks are already on `tracks`, and the next library-wide
+   * start re-queues whatever is still unmeasured.
+   */
+  createJob(request: ReplayGainStartRequest = {}): ReplayGainJobProgress {
+    const scoped = request.trackIds !== undefined || request.albumIds !== undefined
+    const forced = request.force === true
+    const latest = this.db
+      .prepare('SELECT id, state FROM replaygain_jobs ORDER BY id DESC LIMIT 1')
+      .get() as { id: number; state: ReplayGainJobState } | undefined
+    if (latest && (latest.state === 'running' || latest.state === 'cancelling')) {
+      throw new OscineError('conflict', 'A ReplayGain job is already running.')
+    }
+    const resumable = latest && (latest.state === 'paused' || latest.state === 'cancelled')
+    if (resumable && !scoped) {
       throw new OscineError(
         'conflict',
-        `ReplayGain job ${existing.id} can be resumed instead of starting another.`
+        `ReplayGain job ${latest.id} can be resumed instead of starting another.`
       )
     }
 
     const now = Date.now()
     const id = this.db.transaction(() => {
+      if (resumable && latest.state === 'paused') {
+        this.db
+          .prepare("UPDATE replaygain_jobs SET state = 'cancelled', updated_at = ? WHERE id = ?")
+          .run(now, latest.id)
+      }
       const jobId = Number(
         this.db
           .prepare(
-            "INSERT INTO replaygain_jobs (state, created_at, updated_at) VALUES ('running', ?, ?)"
+            "INSERT INTO replaygain_jobs (state, forced, created_at, updated_at) VALUES ('running', ?, ?, ?)"
           )
-          .run(now, now).lastInsertRowid
+          .run(forced ? 1 : 0, now, now).lastInsertRowid
       )
       this.db
         .prepare(
           `INSERT INTO replaygain_job_items (job_id, track_id, status)
-           SELECT ?, id, 'pending'
+           SELECT @jobId, id, 'pending'
            FROM tracks
-           WHERE rg_source IS NULL
+           WHERE (@forced = 1 OR rg_source IS NULL)
+             AND (@scoped = 0
+               OR id IN (SELECT value FROM json_each(@trackIds))
+               OR album_id IN (SELECT value FROM json_each(@albumIds)))
            ORDER BY id`
         )
-        .run(jobId)
+        .run({
+          jobId,
+          forced: forced ? 1 : 0,
+          scoped: scoped ? 1 : 0,
+          trackIds: JSON.stringify(request.trackIds ?? []),
+          albumIds: JSON.stringify(request.albumIds ?? [])
+        })
       return jobId
     })()
     return this.progress(id)
@@ -172,8 +213,9 @@ export class ReplayGainJobStore {
       const row = this.db
         .prepare(
           `SELECT i.track_id AS trackId, t.title AS title,
-                  r.path AS rootPath, t.rel_path AS relPath
+                  r.path AS rootPath, t.rel_path AS relPath, j.forced AS forced
            FROM replaygain_job_items i
+           JOIN replaygain_jobs j ON j.id = i.job_id
            JOIN tracks t ON t.id = i.track_id
            JOIN roots r ON r.id = t.root_id
            WHERE i.job_id = ? AND i.status = 'pending'
@@ -181,7 +223,14 @@ export class ReplayGainJobStore {
            LIMIT 1`
         )
         .get(jobId) as
-        { trackId: number; title: string | null; rootPath: string; relPath: string } | undefined
+        | {
+            trackId: number
+            title: string | null
+            rootPath: string
+            relPath: string
+            forced: number
+          }
+        | undefined
       if (!row) return null
       this.db
         .prepare(
@@ -192,23 +241,39 @@ export class ReplayGainJobStore {
         jobId,
         trackId: row.trackId,
         title: row.title ?? '',
-        path: toAbsPath(row.rootPath, row.relPath)
+        path: toAbsPath(row.rootPath, row.relPath),
+        forced: row.forced === 1
       }
     })()
   }
 
-  complete(item: ReplayGainWorkItem, result: ReplayGainAnalysis): void {
-    this.db.transaction(() => {
+  /**
+   * Checkpoints one finished track. Returns whether staged ReplayGain rows were
+   * dropped (Decision F), so the caller can tell the renderer.
+   */
+  complete(item: ReplayGainWorkItem, result: ReplayGainAnalysis): boolean {
+    return this.db.transaction(() => {
       // The guard is the tagged-value race rule. If a rescan found real tags
       // while analysis was running, the worker result loses without touching a
-      // byte of authoritative ReplayGain data.
-      this.db
+      // byte of authoritative ReplayGain data. A forced job (W25-7) is the
+      // operator asking for exactly that overwrite — in the database only.
+      const measured = this.db
         .prepare(
           `UPDATE tracks
            SET rg_track_gain = ?, rg_track_peak = ?, rg_source = 'computed'
-           WHERE id = ? AND rg_source IS NULL`
+           WHERE id = ? AND (? = 1 OR rg_source IS NULL)`
         )
-        .run(result.trackGainDb, result.trackPeak, item.trackId)
+        .run(result.trackGainDb, result.trackPeak, item.trackId, item.forced ? 1 : 0).changes
+      // Decision F: staged ReplayGain is a snapshot of the previous measurement.
+      // A new one lands with the old rows gone, so a review never offers it.
+      let cleared = 0
+      if (measured > 0) {
+        cleared = this.db
+          .prepare(
+            `DELETE FROM track_tag_overrides WHERE track_id = ? AND field IN (${RG_KEYS_SQL})`
+          )
+          .run(item.trackId).changes
+      }
       this.db
         .prepare(
           `UPDATE replaygain_job_items
@@ -217,6 +282,7 @@ export class ReplayGainJobStore {
         )
         .run(JSON.stringify(result.histogram), result.trackPeak, item.jobId, item.trackId)
       this.touch(item.jobId)
+      return cleared > 0
     })()
   }
 
@@ -240,7 +306,8 @@ export class ReplayGainJobStore {
     this.touch(item.jobId)
   }
 
-  finalizeAlbums(jobId: number): void {
+  /** Returns the tracks whose staged ReplayGain rows a re-finalized album dropped. */
+  finalizeAlbums(jobId: number): number[] {
     const albumIds = this.db
       .prepare(
         `SELECT DISTINCT t.album_id AS albumId
@@ -250,10 +317,10 @@ export class ReplayGainJobStore {
       )
       .all(jobId) as Array<{ albumId: number }>
 
-    for (const { albumId } of albumIds) this.finalizeAlbum(albumId)
+    return albumIds.flatMap(({ albumId }) => this.finalizeAlbum(albumId))
   }
 
-  private finalizeAlbum(albumId: number): void {
+  private finalizeAlbum(albumId: number): number[] {
     const rows = this.db
       .prepare(
         `SELECT t.id AS trackId, t.rg_source AS source,
@@ -285,7 +352,7 @@ export class ReplayGainJobStore {
           (row.source === 'computed' && row.histogram === null)
       )
     ) {
-      return
+      return []
     }
 
     const histograms: LoudnessHistogram[] = rows.map((row) => {
@@ -299,15 +366,29 @@ export class ReplayGainJobStore {
       return [[Math.round((-18 - row.trackGain!) * 10), durationBlocks]]
     })
     const albumGain = gainFromHistogram(mergeHistograms(histograms))
-    if (albumGain === null) return
+    if (albumGain === null) return []
     const albumPeak = Math.max(...rows.map((row) => row.trackPeak ?? 0))
-    this.db
-      .prepare(
-        `UPDATE tracks
-         SET rg_album_gain = ?, rg_album_peak = ?
-         WHERE album_id = ? AND rg_source = 'computed'`
-      )
-      .run(albumGain, albumPeak, albumId)
+    return this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE tracks
+           SET rg_album_gain = ?, rg_album_peak = ?
+           WHERE album_id = ? AND rg_source = 'computed'`
+        )
+        .run(albumGain, albumPeak, albumId)
+      // Decision F, album-wide: a re-finalized album gain makes every staged row
+      // of the album stale — the tagged tracks' filled-in album gain included —
+      // and Decision C stages albums whole, so the album is re-staged whole.
+      const cleared = this.db
+        .prepare(
+          `DELETE FROM track_tag_overrides
+           WHERE field IN (${RG_KEYS_SQL})
+             AND track_id IN (SELECT id FROM tracks WHERE album_id = ?)
+           RETURNING track_id AS trackId`
+        )
+        .all(albumId) as Array<{ trackId: number }>
+      return [...new Set(cleared.map((row) => row.trackId))]
+    })()
   }
 
   private touch(jobId: number): void {

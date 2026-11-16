@@ -146,6 +146,19 @@ export interface PendingWrite {
    * loads, by a join against the agent journal, not stored on the overrides.
    */
   readonly agent?: AgentProvenance
+  /**
+   * The album this row's staged ReplayGain album gain belongs to — **W25-6**,
+   * `oscine-replaygain` R21. Present only when the row changes the album gain
+   * and the track sits in an album, so the review can warn when a selection
+   * would leave that album with mixed album gains. Joined when the review
+   * loads, like {@link agent}.
+   */
+  readonly replayGain?: ReplayGainRowContext
+}
+
+/** A review row's ReplayGain grouping — **W25-6**. */
+export interface ReplayGainRowContext {
+  readonly albumId: number
 }
 
 /**

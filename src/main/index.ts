@@ -37,7 +37,11 @@ import { createLyricsNetworkService } from './library/lyrics/network'
 import { SqlitePlaylistService } from './library/playlists/service'
 import { registerTrackProtocol, registerTrackScheme } from './library/trackFiles'
 import { TagWritebackDiffer } from './library/writeback/differ'
-import { TagWritebackService, trackPathResolver } from './library/writeback/service'
+import {
+  TagWritebackService,
+  trackAlbumResolver,
+  trackPathResolver
+} from './library/writeback/service'
 import { createCdDrive } from './cdrip/drive'
 import { createCoverArtArchiveClient } from './artwork/coverArtArchive'
 import { createCoverSearchService } from './artwork/coverSearch'
@@ -939,7 +943,10 @@ if (!app.requestSingleInstanceLock()) {
       // W24-8: rows whose correction an agent changeset left are badged in the
       // review — a join against the journal at load time (D36.6). Late-bound:
       // the journal's entities are built below, from services built above.
-      provenance: (trackIds) => agentProvenance.forTracks(trackIds)
+      provenance: (trackIds) => agentProvenance.forTracks(trackIds),
+      // W25-6: the album a staged ReplayGain album gain belongs to, so the
+      // review can warn when a selection splits one (oscine-replaygain R21).
+      albumOf: trackAlbumResolver(db)
     })
 
     const journalEntities = createJournalEntities({ db, playlists, library, tags })

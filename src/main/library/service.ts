@@ -16,6 +16,8 @@ import type {
   ListTracksResult,
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
+  ReplayGainStageResult,
+  ReplayGainStartRequest,
   ReplayGainSummary,
   ScanSummary,
   TagFacet,
@@ -236,9 +238,19 @@ export interface LibraryService {
    * return value never crosses IPC.
    */
   resolveTrackPath(trackId: number): Promise<string | null>
-  startReplayGain(): Promise<ReplayGainJobProgress>
+  /**
+   * Queues a ReplayGain job — the whole library, or (W25-7) the named tracks
+   * and whole albums, optionally forced over existing values.
+   */
+  startReplayGain(request?: ReplayGainStartRequest): Promise<ReplayGainJobProgress>
   getReplayGainJob(): Promise<ReplayGainJobProgress | null>
   getReplayGainSummary(): Promise<ReplayGainSummary>
   cancelReplayGain(jobId: number): Promise<ReplayGainJobProgress>
   resumeReplayGain(jobId: number): Promise<ReplayGainJobProgress>
+  /**
+   * Stages computed ReplayGain into `track_tag_overrides` for the write-back
+   * review — **W25-4**, `oscine-replaygain` Decisions C, D, F. No `albumIds`
+   * means every eligible album plus every computed single.
+   */
+  stageComputedReplayGain(request: { albumIds?: readonly number[] }): Promise<ReplayGainStageResult>
 }

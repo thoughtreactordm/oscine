@@ -1,13 +1,21 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFile, mkdir, rm } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 
 import { parseFile } from 'music-metadata'
 import taglib from 'node-taglib-sharp'
 
-import { CLEAR_VALUE, FIELD_CASES, REAL_TOLERANCE } from './writeback-field-cases.mjs'
-import { readTagProperty, writeTagProperty } from './writeback-tag-access.mjs'
+import { CLEAR_VALUE, FIELD_CASES } from './writeback-field-cases.mjs'
+import {
+  OPUS_GAIN_SCOPES,
+  gainDbToR128Q78,
+  parseR128Q78,
+  r128Q78ToGainDb,
+  readTagProperty,
+  tagAccessContext,
+  writeTagProperty
+} from './writeback-tag-access.mjs'
 
 const {
   ByteVector,
@@ -19,7 +27,8 @@ const {
   Id3v2UserTextInformationFrame,
   Picture,
   PictureType,
-  TagTypes
+  TagTypes,
+  XiphComment
 } = taglib
 
 /**
@@ -583,6 +592,13 @@ function readerPictureBytes(picture) {
   return picture ? Buffer.from(picture.data) : null
 }
 
+/** The whole file's bytes, hashed — "nothing was written at all". */
+async function fileDigest(path) {
+  return createHash('sha256')
+    .update(await readFile(path))
+    .digest('hex')
+}
+
 /** Opens a file through taglib, runs `fn`, and always disposes the handle. */
 function withFile(path, fn) {
   const file = File.createFromPath(path)
@@ -616,7 +632,7 @@ function fieldValueMatches(fieldCase, actual, expected) {
     case 'list':
       return Array.isArray(actual) && arraysEqual(actual, expected)
     case 'real':
-      return typeof actual === 'number' && Math.abs(actual - expected) <= REAL_TOLERANCE
+      return typeof actual === 'number' && Math.abs(actual - expected) <= fieldCase.tolerance
     default:
       return false
   }
@@ -633,6 +649,9 @@ function fieldIsCleared(fieldCase, actual) {
       return actual === false
     case 'list':
       return Array.isArray(actual) && actual.length === 0
+    case 'real':
+      // taglib reads an absent ReplayGain frame as `NaN`.
+      return typeof actual === 'number' && Number.isNaN(actual)
     default:
       return false
   }
@@ -668,13 +687,53 @@ function groupedDrift(before, after) {
  * else moved" reference. JSON-serialised so lists compare by value and an absent
  * ReplayGain (`NaN`) compares equal to itself.
  */
-function fieldSnapshot(tag) {
+function fieldSnapshot(file) {
+  const context = tagAccessContext(file)
   return Object.fromEntries(
     FIELD_CASES.map((fieldCase) => [
       fieldCase.key,
-      JSON.stringify(readTagProperty(tag, fieldCase.taglib))
+      JSON.stringify(readTagProperty(file.tag, fieldCase.taglib, context))
     ])
   )
+}
+
+/** The ReplayGain peaks: R128 has none, so an Opus file is never given one (Decision E). */
+function isOpusRefused(codec, fieldCase) {
+  return codec === 'opus' && fieldCase.kind === 'real' && !(fieldCase.taglib in OPUS_GAIN_SCOPES)
+}
+
+/** A Vorbis-comment field's values as music-metadata reports them, upper-cased id. */
+function nativeVorbis(parsed, id) {
+  return (parsed.native?.vorbis ?? [])
+    .filter((tag) => String(tag.id).toUpperCase() === id)
+    .map((tag) => String(tag.value))
+}
+
+/**
+ * A ReplayGain field as the shipped reader sees it — the scanner's own path
+ * (`toReplayGain` in `src/main/library/metadata.ts`): on Opus the scope's
+ * `R128_*` gain from the Vorbis comments, Q7.8 → dB; everywhere else
+ * music-metadata's `common.replaygain_*`, gains in dB and peaks as a ratio.
+ */
+function readerReplayGain(parsed, codec, fieldCase) {
+  const scope = OPUS_GAIN_SCOPES[fieldCase.taglib]
+  if (codec === 'opus' && scope !== undefined) {
+    const q = parseR128Q78(nativeVorbis(parsed, scope.r128)[0])
+    return q === null ? undefined : r128Q78ToGainDb(q)
+  }
+  const common = parsed.common ?? {}
+  switch (fieldCase.key) {
+    case 'replayGainTrackGain':
+      return common.replaygain_track_gain?.dB
+    case 'replayGainAlbumGain':
+      return common.replaygain_album_gain?.dB
+    case 'replayGainTrackPeak':
+      return common.replaygain_track_peak?.ratio
+    case 'replayGainAlbumPeak':
+      return common.replaygain_album_peak?.ratio
+    default:
+      return undefined
+  }
 }
 
 /**
@@ -684,8 +743,12 @@ function fieldSnapshot(tag) {
  * reopened, so a value only counts once it has survived serialisation and a red
  * cell names the field that did the damage rather than whichever came last:
  *   - **set** — a copy of the corpus file gets one field, read back type-exact.
- *     Read-only ReplayGain fields are seeded the same way as `read:<field>`; an
- *     edit never sets or clears them.
+ *     The read-only ReplayGain fields are written too (RG-5, D37 Decision B:
+ *     never hand-edited, but staged and flushed), and each set and clear is also
+ *     read back through music-metadata the way the scanner reads it. On Opus a
+ *     gain goes as `R128_*` and must replace a file's `REPLAYGAIN_*` for that
+ *     scope (`opus-r128`); a peak must be refused with the file untouched
+ *     (`opus-not-written`) — R128 has no peak tag (Decision E).
  *   - **multi** (lists) and **clear** — a copy of the *populated* file (every
  *     field whose set was green, written together) gets one field rewritten with
  *     two ordered entries, or emptied.
@@ -706,7 +769,7 @@ async function verifyFieldWrites(checks, codec, path, tagType) {
   /** Writes one value to a copy of `source` and checks it landed alone. */
   async function writeAlone(source, fieldCase, name, value, landed) {
     const before = withFile(source, (file) => ({
-      fields: fieldSnapshot(file.tag),
+      fields: fieldSnapshot(file),
       grouped: groupedState(file.tag)
     }))
     await copyFile(source, scratch)
@@ -714,7 +777,12 @@ async function verifyFieldWrites(checks, codec, path, tagType) {
     let assignError = null
     withFile(scratch, (file) => {
       try {
-        writeTagProperty(file.tag, fieldCase.taglib, Array.isArray(value) ? [...value] : value)
+        writeTagProperty(
+          file.tag,
+          fieldCase.taglib,
+          Array.isArray(value) ? [...value] : value,
+          tagAccessContext(file)
+        )
       } catch (error) {
         assignError = errorMessage(error)
         return
@@ -727,8 +795,8 @@ async function verifyFieldWrites(checks, codec, path, tagType) {
     }
 
     return withFile(scratch, (file) => {
-      const actual = readTagProperty(file.tag, fieldCase.taglib)
-      const after = fieldSnapshot(file.tag)
+      const actual = readTagProperty(file.tag, fieldCase.taglib, tagAccessContext(file))
+      const after = fieldSnapshot(file)
       const collateral = FIELD_CASES.filter(
         (other) => other.key !== fieldCase.key && after[other.key] !== before.fields[other.key]
       ).map((other) => other.key)
@@ -750,35 +818,139 @@ async function verifyFieldWrites(checks, codec, path, tagType) {
     })
   }
 
+  /**
+   * RG-5's Opus peak cell: R128 has no peak tag, so the write must be refused
+   * with the file untouched — "peak not written" is the green outcome.
+   */
+  async function refusedAlone(fieldCase) {
+    await copyFile(path, scratch)
+    const before = await fileDigest(scratch)
+    let refused = false
+    withFile(scratch, (file) => {
+      try {
+        writeTagProperty(file.tag, fieldCase.taglib, fieldCase.value, tagAccessContext(file))
+      } catch {
+        refused = true
+        return
+      }
+      file.save()
+    })
+    const unchanged = before === (await fileDigest(scratch))
+    check(
+      checks,
+      codec,
+      `written:${fieldCase.key}:opus-not-written`,
+      refused && unchanged,
+      !refused ? 'the peak write was accepted' : 'the file changed'
+    )
+  }
+
+  /** The shipped reader's view of a just-written ReplayGain value (`scratch`). */
+  async function readerAgrees(fieldCase, name) {
+    const parsed = await parseFile(scratch)
+    const actual = readerReplayGain(parsed, codec, fieldCase)
+    check(
+      checks,
+      codec,
+      `reader:written:${fieldCase.key}:${name}`,
+      name === 'clear'
+        ? actual === undefined
+        : typeof actual === 'number' && Math.abs(actual - fieldCase.value) <= fieldCase.tolerance,
+      `music-metadata got ${describeValue(actual)}`
+    )
+    if (codec === 'opus' && name === 'set') {
+      const legacy = flattenNative(parsed)
+        .map((tag) => String(tag.id).toUpperCase())
+        .filter((id) => id.startsWith('REPLAYGAIN_'))
+      check(
+        checks,
+        codec,
+        `reader:written:${fieldCase.key}:opus-no-replaygain`,
+        legacy.length === 0,
+        `music-metadata still sees ${legacy.join(', ')}`
+      )
+    }
+  }
+
+  /**
+   * RG-5's Opus gain cell: a file born with the scope's `REPLAYGAIN_*` gain and
+   * peak (a foreign tagger's) gets the gain written; it must hold exactly the
+   * Q7.8 integer as `R128_*` and no `REPLAYGAIN_*` for that scope.
+   */
+  async function opusReplacesLegacy(fieldCase) {
+    const scope = OPUS_GAIN_SCOPES[fieldCase.taglib]
+    await copyFile(path, scratch)
+    withFile(scratch, (file) => {
+      const comment = file.tag.tags.find((leaf) => leaf instanceof XiphComment)
+      for (const legacy of scope.legacy) comment.setFieldAsStrings(legacy, '-1.00 dB')
+      file.save()
+    })
+    withFile(scratch, (file) => {
+      writeTagProperty(file.tag, fieldCase.taglib, fieldCase.value, tagAccessContext(file))
+      file.save()
+    })
+    withFile(scratch, (file) => {
+      const comments = file.tag.tags.filter((leaf) => leaf instanceof XiphComment)
+      const r128 = comments.flatMap((comment) => comment.getField(scope.r128))
+      const legacy = scope.legacy.filter((id) =>
+        comments.some((comment) => comment.getField(id).length > 0)
+      )
+      const want = String(gainDbToR128Q78(fieldCase.value))
+      check(
+        checks,
+        codec,
+        `written:${fieldCase.key}:opus-r128`,
+        r128.length === 1 && r128[0] === want && legacy.length === 0,
+        `${scope.r128}=${JSON.stringify(r128)} (want ${want}); left ${legacy.join(', ') || 'none'}`
+      )
+    })
+  }
+
   try {
     const green = []
     for (const fieldCase of FIELD_CASES) {
-      const name = fieldCase.readOnly ? `read:${fieldCase.key}` : `written:${fieldCase.key}:set`
-      const ok = await writeAlone(path, fieldCase, name, fieldCase.value, (actual) =>
-        fieldValueMatches(fieldCase, actual, fieldCase.value)
+      if (isOpusRefused(codec, fieldCase)) {
+        await refusedAlone(fieldCase)
+        continue
+      }
+      const ok = await writeAlone(
+        path,
+        fieldCase,
+        `written:${fieldCase.key}:set`,
+        fieldCase.value,
+        (actual) => fieldValueMatches(fieldCase, actual, fieldCase.value)
       )
+      if (fieldCase.kind === 'real') await readerAgrees(fieldCase, 'set')
       if (ok) green.push(fieldCase)
+    }
+    if (codec === 'opus') {
+      for (const fieldCase of FIELD_CASES.filter((c) => c.taglib in OPUS_GAIN_SCOPES)) {
+        await opusReplacesLegacy(fieldCase)
+      }
     }
 
     // The populated file: every green field at once, as a real multi-field flush.
     await copyFile(path, populated)
     withFile(populated, (file) => {
+      const context = tagAccessContext(file)
       for (const fieldCase of green) {
         writeTagProperty(
           file.tag,
           fieldCase.taglib,
-          fieldCase.kind === 'list' ? [...fieldCase.value] : fieldCase.value
+          fieldCase.kind === 'list' ? [...fieldCase.value] : fieldCase.value,
+          context
         )
       }
       file.save()
     })
     withFile(populated, (file) => {
+      const context = tagAccessContext(file)
       const wrong = green
         .filter(
           (fieldCase) =>
             !fieldValueMatches(
               fieldCase,
-              readTagProperty(file.tag, fieldCase.taglib),
+              readTagProperty(file.tag, fieldCase.taglib, context),
               fieldCase.value
             )
         )
@@ -795,7 +967,6 @@ async function verifyFieldWrites(checks, codec, path, tagType) {
     })
 
     for (const fieldCase of green) {
-      if (fieldCase.readOnly) continue
       if (fieldCase.kind === 'list') {
         await writeAlone(
           populated,
@@ -812,6 +983,7 @@ async function verifyFieldWrites(checks, codec, path, tagType) {
         CLEAR_VALUE[fieldCase.kind],
         (actual) => fieldIsCleared(fieldCase, actual)
       )
+      if (fieldCase.kind === 'real') await readerAgrees(fieldCase, 'clear')
     }
     return populated
   } finally {

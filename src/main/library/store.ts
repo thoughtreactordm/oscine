@@ -30,7 +30,7 @@ import { LIBRARY_COVERAGE_FIELDS } from '@shared/library'
 import { normalizeLabel, splitGenres } from '@shared/genre'
 import { artworkUrl } from '@shared/ipc'
 import type { OverrideEditState, OverrideField, OverridePatch } from '@shared/overrides'
-import { isEditableTagField, TAG_FIELDS } from '@shared/tagFields'
+import { isFlushableTagField, REPLAYGAIN_TAG_KEYS, TAG_FIELDS } from '@shared/tagFields'
 import type { GroupedWritebackField } from '@shared/tagWriteback'
 import type { FavoriteBias, RelatedAlbum } from '@shared/related'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
@@ -72,13 +72,22 @@ const WRITEBACK_TO_OVERRIDE_COLUMN: {
 
 /**
  * The generic keys a flush can write (W16-17), as an SQL `IN` list — the
- * registry's own identifiers, never input. A `track_tag_overrides` row under
- * any other key (held, read-only, or unknown to this build) is preserved but is
- * not a pending write, so it neither lists the track nor marks it modified.
+ * registry's own identifiers, never input. Admission decides, not read-only (D37
+ * Decision B): a staged ReplayGain row is a pending write once its field is
+ * admitted. A row under any other key (held, or unknown to this build) is
+ * preserved but is not a pending write, so it neither lists the track nor marks
+ * it modified.
  */
-const FLUSHABLE_TAG_FIELDS_SQL = TAG_FIELDS.filter(isEditableTagField)
+const FLUSHABLE_TAG_FIELDS_SQL = TAG_FIELDS.filter(isFlushableTagField)
   .map((field) => `'${field.key}'`)
   .join(', ')
+
+/**
+ * The ReplayGain registry keys as a SQL list — **W25-6**. Unlike the pending
+ * set above this is *not* filtered by flushability: a measured value staged
+ * while the fields are held is still staged, and the source label says so.
+ */
+const REPLAYGAIN_TAG_FIELDS_SQL = REPLAYGAIN_TAG_KEYS.map((key) => `'${key}'`).join(', ')
 
 /** True once no correction column on a `track_overrides` row is set. */
 const OVERRIDE_ROW_EMPTY =
@@ -475,7 +484,13 @@ export const TRACK_PROJECTION = `
   t.rg_track_peak AS rgTrackPeak,
   t.rg_album_gain AS rgAlbumGain,
   t.rg_album_peak AS rgAlbumPeak,
-  t.rg_source     AS rgSource
+  t.rg_source     AS rgSource,
+  -- W25-6: a measured value is staged for write-back. Read by the source
+  -- label ("measured — staged"), so it ignores the hold the pending set honours.
+  EXISTS (
+    SELECT 1 FROM track_tag_overrides rgo
+    WHERE rgo.track_id = t.id AND rgo.field IN (${REPLAYGAIN_TAG_FIELDS_SQL})
+  ) AS rgStaged
 `
 
 export interface TrackRow {
@@ -505,6 +520,8 @@ export interface TrackRow {
   rgAlbumGain: number | null
   rgAlbumPeak: number | null
   rgSource: 'tag' | 'computed' | null
+  /** 0 or 1 — a ReplayGain row is staged (W25-6). */
+  rgStaged: number
 }
 
 /**
@@ -2776,7 +2793,8 @@ export function toTrack(row: TrackRow): Track {
     rgTrackPeak: row.rgTrackPeak,
     rgAlbumGainDb: row.rgAlbumGain,
     rgAlbumPeak: row.rgAlbumPeak,
-    rgSource: row.rgSource
+    rgSource: row.rgSource,
+    rgStaged: row.rgStaged === 1
   }
 }
 

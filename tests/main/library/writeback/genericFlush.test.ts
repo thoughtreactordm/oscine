@@ -107,7 +107,7 @@ describe('generic corrections through the library service (synthesised files)', 
 
   it('does not list or mark a track whose only correction is not flushable', async () => {
     // The store builds its flushable-key SQL once, at load, so a pinned hold never
-    // reaches it; a read-only key goes through the same `isEditableTagField` filter.
+    // reaches it; ReplayGain is held in the registry, so its row is not pending yet.
     db.prepare(
       "INSERT INTO track_tag_overrides (track_id, field, value, updated_at) VALUES (?, 'replayGainTrackGain', '-3', 1)"
     ).run(trackId)

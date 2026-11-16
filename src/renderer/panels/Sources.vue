@@ -10,6 +10,7 @@ import GenreFacetList from '@renderer/panels/GenreFacetList.vue'
 import { panelSettingsSurface } from '@renderer/panels/settings/panelSettings'
 import PanelSettingsPopover from '@renderer/panels/settings/PanelSettingsPopover.vue'
 import { editMetadataMenuItem } from '@renderer/panels/metadataMenu'
+import { useMeasureReplayGainMenu } from '@renderer/panels/replayGainMenu'
 import { queueCommandLabel, queueIds } from '@renderer/playback/queueCommands'
 import { useSettings } from '@renderer/settings'
 import PaneResizer from '@renderer/shell/PaneResizer.vue'
@@ -72,6 +73,7 @@ const playlists = usePlaylistsStore()
 const trackList = useTrackListStore()
 const artistFavorites = useArtistFavorites()
 const trackEdit = useTrackEditStore()
+const measureReplayGainItem = useMeasureReplayGainMenu()
 
 /**
  * The Artists/Albums divide, dragged and remembered.
@@ -238,14 +240,19 @@ function facetPane<T extends { id: number }>(spec: FacetPaneSpec<T>) {
    * uses it: a set has no order, and the order the operator sees is the order
    * these tracks should land in.
    */
+  /** The facet ids a right-click is about — the selection, or the row alone. */
+  function facetIdsFor(index: number, item: T): () => Promise<readonly number[]> {
+    return spec.model.isSelectedAt(index)
+      ? () => spec.model.resolveSelection()
+      : () => Promise.resolve([item.id])
+  }
+
   function targetFor(index: number): AddTarget | null {
     const item = spec.model.rowAt(index)
     if (!item) return null
     const selected = spec.model.isSelectedAt(index)
     const count = selected ? Math.max(1, spec.model.selectionCount.value) : 1
-    const facetIds = selected
-      ? (): Promise<readonly number[]> => spec.model.resolveSelection()
-      : (): Promise<readonly number[]> => Promise.resolve([item.id])
+    const facetIds = facetIdsFor(index, item)
 
     return {
       count,
@@ -286,6 +293,14 @@ function facetPane<T extends { id: number }>(spec: FacetPaneSpec<T>) {
           )
       )
     ]
+
+    // W25-7: a forced re-measure of the album or album selection, sent as album
+    // ids so main measures each album whole (Decision C), not just its tracks
+    // that the browse predicate left visible.
+    if (spec.dimension === 'albumIds') {
+      const albumIds = facetIdsFor(index, item)
+      items.push(measureReplayGainItem(async () => ({ albumIds: await albumIds() })))
+    }
 
     // W19-6: assign an EQ preset to this album or artist. On the one row under
     // the pointer, not the selection — like the star, an assignment is a fact

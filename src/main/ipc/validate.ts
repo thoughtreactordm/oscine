@@ -138,6 +138,7 @@ import {
   MAX_TRACK_PAGE,
   MIN_SEARCH_LENGTH,
   type OrderTrackIdsQuery,
+  type ReplayGainStartRequest,
   type SortDirection,
   TRACK_SORT_COLUMNS,
   type TrackSortColumn
@@ -472,6 +473,57 @@ export function assertWritebackPreviewRequest(value: unknown): { trackIds: numbe
   for (const id of trackIds) assertPositiveInt(id, 'trackIds entry')
 
   return { trackIds: trackIds as number[] }
+}
+
+/** The most albums one ReplayGain staging request may name (W25-4). */
+const MAX_STAGE_REPLAYGAIN_ALBUMS = 50_000
+
+/**
+ * `library.stageComputedReplayGain` — an optional, capped, positive album-id
+ * list. Absent means every eligible album; an empty list stages nothing.
+ */
+export function assertStageComputedReplayGainRequest(value: unknown): { albumIds?: number[] } {
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['albumIds'])
+  if (raw.albumIds === undefined) return {}
+
+  const albumIds = raw.albumIds
+  if (!Array.isArray(albumIds)) invalid('albumIds must be an array.')
+  if (albumIds.length > MAX_STAGE_REPLAYGAIN_ALBUMS) {
+    invalid(`albumIds must not exceed ${MAX_STAGE_REPLAYGAIN_ALBUMS} entries.`)
+  }
+  for (const id of albumIds) assertPositiveInt(id, 'albumIds entry')
+  return { albumIds: albumIds as number[] }
+}
+
+/** The most tracks or albums one ReplayGain start may name (W25-7). */
+const MAX_START_REPLAYGAIN_IDS = 100_000
+
+/**
+ * `library.startReplayGain` — `null` or `{}` is the whole library; otherwise
+ * optional capped positive `trackIds` / `albumIds` and an optional boolean
+ * `force`. An empty list names nothing, which is a scoped job of nothing.
+ */
+export function assertStartReplayGainRequest(value: unknown): ReplayGainStartRequest {
+  if (value === null || value === undefined) return {}
+  const raw = assertRecord(value, 'request')
+  assertOnlyKeys(raw, ['trackIds', 'albumIds', 'force'])
+  const request: ReplayGainStartRequest = {}
+  for (const key of ['trackIds', 'albumIds'] as const) {
+    const ids = raw[key]
+    if (ids === undefined) continue
+    if (!Array.isArray(ids)) invalid(`${key} must be an array.`)
+    if (ids.length > MAX_START_REPLAYGAIN_IDS) {
+      invalid(`${key} must not exceed ${MAX_START_REPLAYGAIN_IDS} entries.`)
+    }
+    for (const id of ids) assertPositiveInt(id, `${key} entry`)
+    request[key] = ids as number[]
+  }
+  if (raw.force !== undefined) {
+    if (typeof raw.force !== 'boolean') invalid('force must be a boolean.')
+    request.force = raw.force
+  }
+  return request
 }
 
 /** One track's approved fields — a positive id and a non-empty, deduped field subset. */

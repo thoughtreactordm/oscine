@@ -300,17 +300,24 @@ export function buildReplayGainRows(
     rows.push({ key: 'rgAlbumPeak', label: 'Album peak', value: albumPeak })
   }
 
-  if (track.rgSource !== null && rows.length > 0) {
-    rows.push({
-      key: 'rgSource',
-      label: 'Source',
-      // D7: Oscine never writes tags, so a computed value lives in the
-      // database and the file still says nothing. Worth distinguishing.
-      value: track.rgSource === 'tag' ? 'File tags' : 'Computed by Oscine'
-    })
+  const source = replayGainSourceLabel(track)
+  if (source !== null && rows.length > 0) {
+    rows.push({ key: 'rgSource', label: 'Source', value: source })
   }
 
   return rows
+}
+
+/**
+ * Where a track's ReplayGain came from — **W25-6**, `oscine-replaygain`
+ * "Display". A measured value lives in the database until the operator flushes
+ * it through the staged review (D37), so "measured" alone would not say
+ * whether the file has it. `null` when there is no value to attribute.
+ */
+export function replayGainSourceLabel(track: Pick<Track, 'rgSource' | 'rgStaged'>): string | null {
+  if (track.rgSource === null) return null
+  if (track.rgSource === 'tag') return 'from file'
+  return track.rgStaged === true ? 'measured — staged' : 'measured — not in file'
 }
 
 export interface DecodePathReadout {

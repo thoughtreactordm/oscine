@@ -48,6 +48,12 @@ export interface TrackReplayGain {
   rgAlbumGainDb: number | null
   rgAlbumPeak: number | null
   rgSource: ReplayGainSource | null
+  /**
+   * Whether a measured value is staged for write-back — **W25-6**: a
+   * ReplayGain row stands in `track_tag_overrides`. Optional because only the
+   * library's track reads resolve it; absent reads as not staged.
+   */
+  rgStaged?: boolean
 }
 
 /**
@@ -654,6 +660,56 @@ export interface ReplayGainSummary {
   /** Of `missing`, the tracks the latest job failed to analyze. */
   failed: number
 }
+
+/**
+ * What `library.startReplayGain` measures — **W25-7** (RG-7).
+ *
+ * With neither `trackIds` nor `albumIds` the job covers the whole library, as
+ * the Measure control always has. Naming either scopes it to those tracks, and
+ * an album is always expanded to every track it has — never to the tracks a
+ * view happened to show — so Decision C's album-whole rule can still hold when
+ * the result is staged.
+ *
+ * `force` queues tracks whatever their `rg_source`. A forced result overwrites
+ * a `'tag'` or `'computed'` value in the database only; the file is untouched
+ * until it is staged and reviewed (D37). Unforced, only `rg_source IS NULL`
+ * tracks are queued.
+ */
+export interface ReplayGainStartRequest {
+  trackIds?: number[]
+  albumIds?: number[]
+  force?: boolean
+}
+
+/**
+ * Why `library.stageComputedReplayGain` left an album unstaged — **W25-4**,
+ * `oscine-replaygain` Decision C (albums are staged whole or not at all).
+ *
+ * - `unmeasured` — a track has no gain yet (`rg_source IS NULL`);
+ * - `failed` — the latest job could not analyze one of its tracks;
+ * - `missing-album-gain` — measured, but no single album gain was finalized;
+ * - `nothing-measured` — every track is tagged: there is nothing to stage;
+ * - `not-found` — no track carries that album id.
+ */
+export type ReplayGainStageSkipReason =
+  'unmeasured' | 'failed' | 'missing-album-gain' | 'nothing-measured' | 'not-found'
+
+/** What one staging pass did — counts, and each skipped album with its reason. */
+export interface ReplayGainStageResult {
+  /** Tracks that received at least one staged ReplayGain row. */
+  stagedTracks: number
+  /** Albums staged whole. Singles are counted in `stagedTracks` only. */
+  stagedAlbums: number
+  skipped: Array<{ albumId: number; reason: ReplayGainStageSkipReason }>
+}
+
+/**
+ * Decision D: a *tagged* track whose file album gain differs from the computed
+ * one by more than this many dB is still staged, but the review (RG-6) renders
+ * its row deselected so the operator opts in. Nothing stores that state — the
+ * review derives it by comparing the staged value against the file's.
+ */
+export const REPLAYGAIN_MIXED_ALBUM_DESELECT_DB = 0.1
 
 /**
  * Indexed fields an overview reports coverage for — the *effective* value, the
