@@ -16,7 +16,7 @@ import type {
   WritebackCodec,
   WritebackField
 } from '@shared/tagWriteback'
-import { applyTagFields } from './genericFields'
+import { applyTagFields, tagAccessContext } from './genericFields'
 
 /**
  * The per-codec tag writer — **W16-3**, design authority `oscine-tag-writeback`
@@ -42,8 +42,9 @@ import { applyTagFields } from './genericFields'
  *      never reach the container.
  *   2. **The field mapping.** {@link applyWritableTags} sets exactly the scalar
  *      fields the diff models, plus the artwork intent when it is not
- *      `unchanged`. Custom frames, ReplayGain and every other unmodelled tag
- *      survive the write untouched — the corpus's `preserved:*` checks. Album
+ *      `unchanged`. Custom frames, and ReplayGain unless a staged ReplayGain
+ *      field names it, survive the write untouched — the corpus's `preserved:*`
+ *      checks. Album
  *      artist is the same for a flush; only a rip, which authors the file,
  *      supplies it. Pictures follow Decision B: replace or clear only the front
  *      cover, leave the rest.
@@ -166,8 +167,9 @@ export function writtenGenreValue(genres: readonly GenreValue[]): string[] {
  * survive a scalar-only flush by construction. `set` / `clear` replace or remove
  * only the front-cover slot (Decision B). Album artist is likewise written only
  * when present on `desired`, and so is each generic field (W16-17) — only the
- * keys in `desired.fields`, through the registry's taglib property. ReplayGain
- * and any custom frame remain untouched.
+ * keys in `desired.fields`, through the registry's taglib property — on an Opus
+ * file, ReplayGain gains as `R128_*` (D37 Decision E). Any custom frame, and
+ * every ReplayGain key not in `desired.fields`, remains untouched.
  */
 export function applyWritableTags(file: TagFile, desired: WritableTags): void {
   const tag = file.tag
@@ -185,7 +187,7 @@ export function applyWritableTags(file: TagFile, desired: WritableTags): void {
   tag.track = desired.trackNo ?? 0
   tag.disc = desired.discNo ?? 0
   applyArtwork(tag, desired.artwork)
-  if (desired.fields !== undefined) applyTagFields(tag, desired.fields)
+  if (desired.fields !== undefined) applyTagFields(tag, desired.fields, tagAccessContext(file))
 }
 
 /**

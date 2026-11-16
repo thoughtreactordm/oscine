@@ -9,6 +9,7 @@ import { TagOverrideStore } from '../library/overrides/tagOverrides'
 
 interface TrackRow {
   id: number
+  codec: string | null
   source: 'tag' | 'computed' | null
   trackGain: number | null
   trackPeak: number | null
@@ -23,7 +24,7 @@ export interface ReplayGainStageOutcome extends ReplayGainStageResult {
 }
 
 const TRACK_COLUMNS = `
-  t.id AS id, t.rg_source AS source,
+  t.id AS id, t.codec AS codec, t.rg_source AS source,
   t.rg_track_gain AS trackGain, t.rg_track_peak AS trackPeak,
   t.rg_album_gain AS albumGain, t.rg_album_peak AS albumPeak,
   EXISTS (
@@ -49,6 +50,9 @@ const TRACK_COLUMNS = `
  *   {@link REPLAYGAIN_MIXED_ALBUM_DESELECT_DB} is staged too — the review shows
  *   it deselected. One within that margin is left alone. A tagged track's track
  *   gain is never staged.
+ * - **E — no Opus peaks.** R128 has no peak tag and the writer refuses one on
+ *   an Opus file, so an Opus track is staged gains only; a staged peak there
+ *   would fail its whole file at flush.
  * - **F — a snapshot.** Each staged album or single first drops its old
  *   ReplayGain rows, so re-staging replaces rather than accumulates; the job
  *   store deletes them when a track is re-measured.
@@ -137,12 +141,25 @@ export class ReplayGainStagingService {
   }
 }
 
+/** Decision E: R128 has no peak tag, so an Opus file never takes one. */
+function carriesPeak(row: TrackRow): boolean {
+  return row.codec !== 'opus'
+}
+
 /** A computed track's own gain and peak, or `null` when there is no gain. */
 function trackPatch(row: TrackRow): TagFieldPatch | null {
   if (row.source !== 'computed' || row.trackGain === null) return null
   return {
     replayGainTrackGain: row.trackGain,
-    ...(row.trackPeak !== null ? { replayGainTrackPeak: row.trackPeak } : {})
+    ...(row.trackPeak !== null && carriesPeak(row) ? { replayGainTrackPeak: row.trackPeak } : {})
+  }
+}
+
+/** The album's gain and peak as one track takes them. */
+function albumPatch(row: TrackRow, gain: number, peak: number | null): TagFieldPatch {
+  return {
+    replayGainAlbumGain: gain,
+    ...(peak !== null && carriesPeak(row) ? { replayGainAlbumPeak: peak } : {})
   }
 }
 
@@ -171,21 +188,17 @@ function planAlbum(rows: readonly TrackRow[]): AlbumPlan {
     return { reason: 'missing-album-gain' }
   }
 
-  const album: TagFieldPatch = {
-    replayGainAlbumGain: albumGain,
-    ...(albumPeak !== null ? { replayGainAlbumPeak: albumPeak } : {})
-  }
   const patches = new Map<number, TagFieldPatch>()
   for (const row of rows) {
     if (row.source === 'computed') {
-      patches.set(row.id, { ...trackPatch(row), ...album })
+      patches.set(row.id, { ...trackPatch(row), ...albumPatch(row, albumGain, albumPeak) })
     } else if (
       row.albumGain === null ||
       Math.abs(row.albumGain - albumGain) > REPLAYGAIN_MIXED_ALBUM_DESELECT_DB
     ) {
       // Tagged: fill a missing album gain, or stage a differing one for the
       // review to show deselected. Its track gain is the file's and stays.
-      patches.set(row.id, album)
+      patches.set(row.id, albumPatch(row, albumGain, albumPeak))
     }
   }
   return { patches }

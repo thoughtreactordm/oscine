@@ -32,6 +32,7 @@ function addTrack(
     peak?: number
     albumGain?: number
     albumPeak?: number
+    codec?: string
   } = {}
 ): number {
   return Number(
@@ -39,8 +40,8 @@ function addTrack(
       .prepare(
         `INSERT INTO tracks (
            root_id, rel_path, mtime, size, title, album_id,
-           rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, rg_source
-         ) VALUES (?, ?, 1, 7, ?, ?, ?, ?, ?, ?, ?)`
+           rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, rg_source, codec
+         ) VALUES (?, ?, 1, 7, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         rootId,
@@ -51,7 +52,8 @@ function addTrack(
         options.peak ?? null,
         options.albumGain ?? null,
         options.albumPeak ?? null,
-        options.source ?? null
+        options.source ?? null,
+        options.codec ?? null
       ).lastInsertRowid
   )
 }
@@ -239,6 +241,28 @@ describe('ReplayGainStagingService — Decision D (mixed albums)', () => {
     staging.stage()
 
     expect(staged(taggedId)).toEqual({})
+  })
+})
+
+describe('ReplayGainStagingService — Decision E (Opus)', () => {
+  it('stages an Opus track gains only: R128 has no peak tag', () => {
+    const albumId = addAlbum('Opus')
+    const computed = { albumId, source: 'computed' as const, albumGain: -7.5, albumPeak: 0.97 }
+    const opus = addTrack('a.opus', { ...computed, gain: -7, peak: 0.9, codec: 'opus' })
+    const flac = addTrack('b.flac', { ...computed, gain: -8, peak: 0.97, codec: 'flac' })
+    const tagged = addTrack('c.opus', { albumId, source: 'tag', gain: -6, codec: 'opus' })
+    const single = addTrack('d.opus', { source: 'computed', gain: -5, peak: 0.8, codec: 'opus' })
+
+    expect(staging.stage()).toMatchObject({ stagedAlbums: 1, stagedTracks: 4 })
+    expect(staged(opus)).toEqual({ replayGainTrackGain: -7, replayGainAlbumGain: -7.5 })
+    expect(staged(flac)).toEqual({
+      replayGainTrackGain: -8,
+      replayGainTrackPeak: 0.97,
+      replayGainAlbumGain: -7.5,
+      replayGainAlbumPeak: 0.97
+    })
+    expect(staged(tagged)).toEqual({ replayGainAlbumGain: -7.5 })
+    expect(staged(single)).toEqual({ replayGainTrackGain: -5 })
   })
 })
 

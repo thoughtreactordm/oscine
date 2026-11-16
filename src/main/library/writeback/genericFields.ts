@@ -4,9 +4,12 @@ import {
   Id3v2FrameClassType,
   Id3v2Tag,
   Mpeg4AppleTag,
+  OggOpusCodec,
   File as TagFile,
+  XiphComment,
   type Tag
 } from 'node-taglib-sharp'
+import { gainDbToR128Q78, parseR128Q78, r128Q78ToGainDb } from '@shared/audio/r128'
 import {
   isFlushableTagField,
   tagField,
@@ -153,14 +156,130 @@ function writeSplitId(property: string): (tag: Tag, value: unknown) => void {
 }
 
 /**
+ * What an accessor needs to know about the file beyond its tag. Only one thing so
+ * far: whether the Ogg stream is **Opus** — a Xiph comment cannot tell, and an
+ * Opus file in an `.ogg` is still Opus, so this comes from the decoded codec,
+ * never the extension.
+ */
+export interface TagAccessContext {
+  readonly opus: boolean
+}
+
+/** Every non-Opus file, and any caller that has only a tag. */
+export const PLAIN_TAG_CONTEXT: TagAccessContext = Object.freeze({ opus: false })
+
+/** The access context of an open file. */
+export function tagAccessContext(file: TagFile): TagAccessContext {
+  const codecs = file.properties?.codecs ?? []
+  return { opus: codecs.some((codec) => codec instanceof OggOpusCodec) }
+}
+
+/**
+ * The Opus ReplayGain scopes — **W25-5 (RG-5)**, `oscine-replaygain` D37
+ * Decision E. RFC 7845 §5.2.1 gives Opus `R128_TRACK_GAIN` / `R128_ALBUM_GAIN`
+ * (Q7.8 integer, −23 LUFS reference, applied on top of the header output gain)
+ * and no peak tag. node-taglib-sharp's `XiphComment` writes `REPLAYGAIN_*` on
+ * any Ogg, which other Opus players ignore or double-apply, so an Opus gain goes
+ * through the raw field instead, and the same scope's `REPLAYGAIN_*` gain and
+ * peak are removed in the same write.
+ */
+const OPUS_GAIN_SCOPES: Readonly<Record<string, { r128: string; legacy: readonly string[] }>> = {
+  replayGainTrackGain: {
+    r128: 'R128_TRACK_GAIN',
+    legacy: ['REPLAYGAIN_TRACK_GAIN', 'REPLAYGAIN_TRACK_PEAK']
+  },
+  replayGainAlbumGain: {
+    r128: 'R128_ALBUM_GAIN',
+    legacy: ['REPLAYGAIN_ALBUM_GAIN', 'REPLAYGAIN_ALBUM_PEAK']
+  }
+}
+
+/** The ReplayGain peaks: R128 has no peak tag, so an Opus file is never given one. */
+const OPUS_UNWRITABLE = new Set(['replayGainTrackPeak', 'replayGainAlbumPeak'])
+
+function xiphComments(tag: Tag): XiphComment[] {
+  return leafTags(tag).filter((leaf): leaf is XiphComment => leaf instanceof XiphComment)
+}
+
+/**
+ * An Opus gain: the scope's `R128_*` as ReplayGain 2.0 dB when it parses, else
+ * the `REPLAYGAIN_*` a foreign tagger left — the scanner's precedence (RG-2), so
+ * the editor, the diff and the verify see what a rescan will.
+ */
+function readOpusGain(property: string): (tag: Tag) => unknown {
+  const scope = OPUS_GAIN_SCOPES[property]!
+  return (tag) => {
+    for (const comment of xiphComments(tag)) {
+      const q = parseR128Q78(comment.getFieldFirstValue(scope.r128) ?? '')
+      if (q !== null) return r128Q78ToGainDb(q)
+    }
+    return (tag as unknown as TagProperties)[property]
+  }
+}
+
+/**
+ * Writes an Opus gain as `R128_*` on the first comment (the one an Ogg tag's own
+ * setters write), after removing the scope's `R128_*` and `REPLAYGAIN_*` from
+ * every comment. A clear (`undefined`, `null`, `NaN`) is the removal alone.
+ */
+function writeOpusGain(property: string): (tag: Tag, value: unknown) => void {
+  const scope = OPUS_GAIN_SCOPES[property]!
+  return (tag, value) => {
+    const comments = xiphComments(tag)
+    if (comments.length === 0) throw new Error(`no Xiph comment to write ${scope.r128} into`)
+    const cleared = value === undefined || value === null || Number.isNaN(value)
+    if (!cleared && typeof value !== 'number') {
+      throw new TypeError(`${property} must be a number, got ${typeof value}`)
+    }
+    // Before any mutation: a gain Q7.8 cannot express throws with the file untouched.
+    const text = cleared ? null : String(gainDbToR128Q78(value as number))
+    for (const comment of comments) {
+      comment.removeField(scope.r128)
+      for (const legacy of scope.legacy) comment.removeField(legacy)
+    }
+    if (text !== null) comments[0]!.setFieldAsStrings(scope.r128, text)
+  }
+}
+
+/** An Opus peak: never written (R128 has none). Read as the file holds it. */
+function refuseOpusPeak(property: string): (tag: Tag, value: unknown) => void {
+  return () => {
+    throw new Error(`refusing ${property} on Opus: R128 has no peak tag (D37 Decision E)`)
+  }
+}
+
+interface PropertyAccess {
+  read(tag: Tag, context: TagAccessContext): unknown
+  write(tag: Tag, value: unknown, context: TagAccessContext): void
+}
+
+/** The plain `Tag` property assignment. */
+function plainWrite(property: string): (tag: Tag, value: unknown) => void {
+  return (tag, value) => {
+    ;(tag as unknown as TagProperties)[property] = value
+  }
+}
+
+/** Plain on every codec but Opus, where `opus` decides. */
+function opusAware(
+  property: string,
+  opus: { read(tag: Tag): unknown; write(tag: Tag, value: unknown): void }
+): PropertyAccess {
+  const read = plainRead(property)
+  const write = plainWrite(property)
+  return {
+    read: (tag, context) => (context.opus ? opus.read(tag) : read(tag)),
+    write: (tag, value, context) => (context.opus ? opus.write(tag, value) : write(tag, value))
+  }
+}
+
+/**
  * The registry properties whose portable accessor is not safe to go through, and
  * what to use instead. Everything else is read and assigned as the plain `Tag`
  * property. `scripts/lib/writeback-tag-access.mjs` mirrors this for the W16-16
  * corpus gate, and `tests/tooling/writebackTagAccess.test.ts` pins the two.
  */
-const PROPERTY_ACCESS: Readonly<
-  Record<string, { read(tag: Tag): unknown; write(tag: Tag, value: unknown): void }>
-> = {
+const PROPERTY_ACCESS: Readonly<Record<string, PropertyAccess>> = {
   comment: { read: readComment, write: writeComment },
   musicBrainzArtistId: {
     read: plainRead('musicBrainzArtistId'),
@@ -169,19 +288,46 @@ const PROPERTY_ACCESS: Readonly<
   musicBrainzReleaseArtistId: {
     read: plainRead('musicBrainzReleaseArtistId'),
     write: writeSplitId('musicBrainzReleaseArtistId')
-  }
+  },
+  replayGainTrackGain: opusAware('replayGainTrackGain', {
+    read: readOpusGain('replayGainTrackGain'),
+    write: writeOpusGain('replayGainTrackGain')
+  }),
+  replayGainAlbumGain: opusAware('replayGainAlbumGain', {
+    read: readOpusGain('replayGainAlbumGain'),
+    write: writeOpusGain('replayGainAlbumGain')
+  }),
+  replayGainTrackPeak: opusAware('replayGainTrackPeak', {
+    read: plainRead('replayGainTrackPeak'),
+    write: refuseOpusPeak('replayGainTrackPeak')
+  }),
+  replayGainAlbumPeak: opusAware('replayGainAlbumPeak', {
+    read: plainRead('replayGainAlbumPeak'),
+    write: refuseOpusPeak('replayGainAlbumPeak')
+  })
 }
 
 /** A registry property's raw value, through its safe accessor. */
-export function readTagProperty(tag: Tag, property: string): unknown {
+export function readTagProperty(
+  tag: Tag,
+  property: string,
+  context: TagAccessContext = PLAIN_TAG_CONTEXT
+): unknown {
   const access = PROPERTY_ACCESS[property]
-  return access !== undefined ? access.read(tag) : (tag as unknown as TagProperties)[property]
+  return access !== undefined
+    ? access.read(tag, context)
+    : (tag as unknown as TagProperties)[property]
 }
 
 /** Assigns a registry property's raw value, through its safe accessor. */
-export function writeTagProperty(tag: Tag, property: string, value: unknown): void {
+export function writeTagProperty(
+  tag: Tag,
+  property: string,
+  value: unknown,
+  context: TagAccessContext = PLAIN_TAG_CONTEXT
+): void {
   const access = PROPERTY_ACCESS[property]
-  if (access !== undefined) access.write(tag, value)
+  if (access !== undefined) access.write(tag, value, context)
   else (tag as unknown as TagProperties)[property] = value
 }
 
@@ -228,23 +374,24 @@ function clearedValue(field: TagFieldDef): unknown {
     case 'bool':
       return false
     case 'real':
-      // Only the ReplayGain fields are `real`, and they stay held until RG-5's
-      // corpus rows prove this clear shape on every codec (taglib's Xiph setter
-      // removes the frame on undefined/null/NaN; the others are unproven).
-      return undefined
+      // `NaN`, not `undefined`: node-taglib-sharp's Apple ReplayGain setters test
+      // `Number.isNaN` and then call `toFixed`, so `undefined` throws on MP4. Every
+      // family removes the frame on `NaN` (RG-5's `written:<field>:clear` rows).
+      return Number.NaN
   }
 }
 
 /** Every named field's current value on an open tag, canonicalised. */
 export function readTagFieldsFromTag(
   tag: Tag,
-  keys: readonly TagFieldKey[]
+  keys: readonly TagFieldKey[],
+  context: TagAccessContext = PLAIN_TAG_CONTEXT
 ): Map<TagFieldKey, TagFieldValue | null> {
   const values = new Map<TagFieldKey, TagFieldValue | null>()
   for (const key of keys) {
     const field = tagField(key)
     if (field === undefined) continue
-    values.set(key, canonicalTagValue(field, readTagProperty(tag, field.taglib)))
+    values.set(key, canonicalTagValue(field, readTagProperty(tag, field.taglib, context)))
   }
   return values
 }
@@ -253,7 +400,7 @@ export function readTagFieldsFromTag(
 export const readTagFields: TagFieldReader = async (absPath, keys) => {
   const file = TagFile.createFromPath(absPath)
   try {
-    return readTagFieldsFromTag(file.tag, keys)
+    return readTagFieldsFromTag(file.tag, keys, tagAccessContext(file))
   } finally {
     file.dispose()
   }
@@ -279,25 +426,71 @@ export function refusedTagField(fields: Iterable<string>): string | null {
 }
 
 /**
+ * **R20 / OQ1 — the Opus write hold.** Whether an Opus `R128_*` gain we
+ * computed may reach a file. `false` until the header-output-gain question is
+ * settled against `rsgain` with a non-zero-output-gain fixture: `R128_*` is
+ * applied *on top of* the header gain, so an analyzer that measured the stream
+ * without it would put every written gain off by exactly that header gain. Today
+ * the question is also moot — the worker's decoder rejects Opus outright (RG-2),
+ * so no computed Opus gain exists to write. This is separate from the per-field
+ * {@link isFlushableTagField} hold: lifting the ReplayGain fields for FLAC, MP3,
+ * Vorbis and AAC must not lift it for Opus.
+ */
+export const OPUS_R128_WRITE_CONFIRMED = false
+
+/**
+ * The first key in `fields` that may not be written to an Opus file, with why,
+ * or `null`. A peak never may (R128 has no peak tag — Decision E); a gain may
+ * not while {@link OPUS_R128_WRITE_CONFIRMED} is `false`. Like a held key, a
+ * refused key fails the file rather than being dropped from the write.
+ */
+export function refusedOpusTagField(
+  fields: Iterable<string>,
+  context: TagAccessContext
+): { key: string; reason: string } | null {
+  if (!context.opus) return null
+  for (const key of fields) {
+    const taglib = tagField(key)?.taglib
+    if (taglib === undefined) continue
+    if (OPUS_UNWRITABLE.has(taglib)) {
+      return { key, reason: 'R128 has no peak tag, so an Opus file carries none' }
+    }
+    if (OPUS_GAIN_SCOPES[taglib] !== undefined && !OPUS_R128_WRITE_CONFIRMED) {
+      return { key, reason: 'Opus R128 writes are held until R20 is confirmed against rsgain' }
+    }
+  }
+  return null
+}
+
+/**
  * Sets exactly the generic fields present in `fields`, each through its registry
  * property; a key absent from the patch is never assigned, so the file's frame
  * for it survives the write untouched — the same contract album artist has had
  * since `c9ddc5d`. A value sets the field (a list as a native multi-value frame,
  * Decision G); `null` assigns the kind's cleared shape.
  *
- * Throws on a key that is not flushable. The engine refuses such a write before
- * the file is opened; this is the backstop for any other caller.
+ * Throws on a key that is not flushable, or not writable to this file's codec
+ * ({@link refusedOpusTagField}). The engine refuses a non-flushable key before
+ * the file is opened; this is the backstop for any other caller, and the only
+ * gate for the Opus refusals, which need the opened file to know its codec.
  */
-export function applyTagFields(tag: Tag, fields: TagFieldPatch): void {
+export function applyTagFields(
+  tag: Tag,
+  fields: TagFieldPatch,
+  context: TagAccessContext = PLAIN_TAG_CONTEXT
+): void {
   const refused = refusedTagField(Object.keys(fields))
   if (refused !== null) throw new Error(`refusing tag field ${refused}: not flushable`)
+  const opus = refusedOpusTagField(Object.keys(fields), context)
+  if (opus !== null) throw new Error(`refusing tag field ${opus.key}: ${opus.reason}`)
 
   for (const [key, value] of Object.entries(fields) as Array<[string, TagFieldValue | null]>) {
     const field = tagField(key) as TagFieldDef
     writeTagProperty(
       tag,
       field.taglib,
-      value === null ? clearedValue(field) : Array.isArray(value) ? [...value] : value
+      value === null ? clearedValue(field) : Array.isArray(value) ? [...value] : value,
+      context
     )
   }
 }

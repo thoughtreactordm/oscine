@@ -250,8 +250,10 @@ export const TAG_FIELDS = [
   text('releaseType', 'Release type', 'advanced', 'musicBrainzReleaseType'),
   text('releaseCountry', 'Release country', 'advanced', 'musicBrainzReleaseCountry'),
   // Read-only — never hand-edited; measured values are staged by the ReplayGain
-  // service and flushed through the review (D37 Decision B). Held until their
-  // W16-16 corpus rows exist and are green on all five codecs (W25-5, RG-5).
+  // service and flushed through the review (D37 Decision B). Their W16-16
+  // `written:` rows exist (RG-5) and are green on Linux; held until the Windows
+  // run is green too. Unholding does not unhold Opus: R20 holds that separately
+  // (OPUS_R128_WRITE_CONFIRMED in main/library/writeback/genericFields.ts).
   held(
     replayGain(
       'replayGainTrackGain',

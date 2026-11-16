@@ -24,7 +24,10 @@ export const CLEAR_VALUE = Object.freeze({
   text: undefined,
   list: Object.freeze([]),
   int: 0,
-  bool: false
+  bool: false,
+  // Not `undefined`: node-taglib-sharp's Apple ReplayGain setters call `toFixed`
+  // on anything that is not `NaN`, so `undefined` throws on MP4 (RG-5).
+  real: Number.NaN
 })
 
 function text(key, taglib, value) {
@@ -51,9 +54,15 @@ function list(key, taglib, value, multi) {
   })
 }
 
-/** Read-only (Decision F): seeded and read back, never set or cleared by an edit. */
-function real(key, taglib, value) {
-  return Object.freeze({ key, taglib, kind: 'real', readOnly: true, value })
+/**
+ * Read-only (Decision F) — never hand-edited — but written: the ReplayGain
+ * staging service's rows reach the file through the review (D37 Decision B),
+ * so each is set and cleared like any field (`written:<field>:*`, RG-5).
+ * `tolerance` mirrors the registry's: gains are written to two decimals (and
+ * Opus's Q7.8 to 1/256 dB), peaks to six.
+ */
+function real(key, taglib, value, tolerance) {
+  return Object.freeze({ key, taglib, kind: 'real', readOnly: true, value, tolerance })
 }
 
 export const FIELD_CASES = Object.freeze([
@@ -111,11 +120,10 @@ export const FIELD_CASES = Object.freeze([
   text('releaseStatus', 'musicBrainzReleaseStatus', 'official'),
   text('releaseType', 'musicBrainzReleaseType', 'album'),
   text('releaseCountry', 'musicBrainzReleaseCountry', 'GB'),
-  real('replayGainTrackGain', 'replayGainTrackGain', -7.25),
-  real('replayGainTrackPeak', 'replayGainTrackPeak', 0.988),
-  real('replayGainAlbumGain', 'replayGainAlbumGain', -6.5),
-  real('replayGainAlbumPeak', 'replayGainAlbumPeak', 0.995)
+  // Gains off the Q7.8 grid, so Opus's rounding to 1/256 dB is exercised; peaks
+  // with six significant decimals, so a writer that kept fewer would be caught.
+  real('replayGainTrackGain', 'replayGainTrackGain', -7.23, 0.005),
+  real('replayGainTrackPeak', 'replayGainTrackPeak', 0.987654, 1e-6),
+  real('replayGainAlbumGain', 'replayGainAlbumGain', -6.51, 0.005),
+  real('replayGainAlbumPeak', 'replayGainAlbumPeak', 0.995123, 1e-6)
 ])
-
-/** How close a read-back ReplayGain value must be: taglib formats to two places. */
-export const REAL_TOLERANCE = 0.005
