@@ -115,6 +115,7 @@ export const library = {
   getTrackFileUrl: (trackId: number) => unwrap(window.oscine.library.getTrackFileUrl(trackId)),
   startReplayGain: () => unwrap(window.oscine.library.startReplayGain()),
   getReplayGainJob: () => unwrap(window.oscine.library.getReplayGainJob()),
+  getReplayGainSummary: () => unwrap(window.oscine.library.getReplayGainSummary()),
   cancelReplayGain: (jobId: number) => unwrap(window.oscine.library.cancelReplayGain(jobId)),
   resumeReplayGain: (jobId: number) => unwrap(window.oscine.library.resumeReplayGain(jobId)),
   /** Returns an unsubscribe function. Call it on unmount. */

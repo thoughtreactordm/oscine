@@ -72,6 +72,7 @@ import type {
   ListTracksResult,
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
+  ReplayGainSummary,
   ScanProgress,
   ScanSummary,
   TagFacet,
@@ -361,6 +362,11 @@ export interface IpcContract {
   'lyrics.get': { request: { trackId: number }; response: LyricsDocument | null }
   'library.startReplayGain': { request: null; response: ReplayGainJobProgress }
   'library.getReplayGainJob': { request: null; response: ReplayGainJobProgress | null }
+  /**
+   * W25-1: tagged / computed / missing / failed counts over `tracks`, for the
+   * Measure control and the post-scan nudge. Counts only — no track identity.
+   */
+  'library.getReplayGainSummary': { request: null; response: ReplayGainSummary }
   'library.cancelReplayGain': {
     request: { jobId: number }
     response: ReplayGainJobProgress
@@ -1614,6 +1620,7 @@ export const IPC_CHANNELS = [
   'lyrics.get',
   'library.startReplayGain',
   'library.getReplayGainJob',
+  'library.getReplayGainSummary',
   'library.cancelReplayGain',
   'library.resumeReplayGain',
   'overrides.getEditState',

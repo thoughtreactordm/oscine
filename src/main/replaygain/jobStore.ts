@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 import { OscineError } from '@shared/errors'
-import type { ReplayGainJobProgress, ReplayGainJobState } from '@shared/library'
+import type { ReplayGainJobProgress, ReplayGainJobState, ReplayGainSummary } from '@shared/library'
 import { toAbsPath } from '../db/paths'
 import {
   gainFromHistogram,
@@ -100,6 +100,37 @@ export class ReplayGainJobStore {
       .prepare(`${PROGRESS_SQL} GROUP BY j.id ORDER BY j.id DESC LIMIT 1`)
       .get() as ProgressRow | undefined
     return row ? toProgress(row) : null
+  }
+
+  /**
+   * Library-wide counts for the Measure control.
+   *
+   * One pass over `tracks` for the three buckets, and the failure count is
+   * read against the latest job only — `createJob` re-queues every untagged
+   * track, so an older job's failure has already been retried or superseded.
+   * The `rg_source IS NULL` join drops a failure a rescan has since resolved
+   * with a real tag.
+   */
+  summary(): ReplayGainSummary {
+    const buckets = this.db
+      .prepare(
+        `SELECT coalesce(sum(rg_source = 'tag'), 0) AS tagged,
+                coalesce(sum(rg_source = 'computed'), 0) AS computed,
+                coalesce(sum(rg_source IS NULL), 0) AS missing
+         FROM tracks`
+      )
+      .get() as { tagged: number; computed: number; missing: number }
+    const failed = this.db
+      .prepare(
+        `SELECT count(*) AS n
+         FROM replaygain_job_items i
+         JOIN tracks t ON t.id = i.track_id
+         WHERE i.job_id = (SELECT max(id) FROM replaygain_jobs)
+           AND i.status = 'failed'
+           AND t.rg_source IS NULL`
+      )
+      .get() as { n: number }
+    return { ...buckets, failed: failed.n }
   }
 
   progress(jobId: number, currentTitle: string | null = null): ReplayGainJobProgress {

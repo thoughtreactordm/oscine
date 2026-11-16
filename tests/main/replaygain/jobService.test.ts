@@ -6,6 +6,7 @@ import { openDatabase } from '../../../src/main/db'
 import type { ReplayGainAnalyzer } from '../../../src/main/replaygain/analyzer'
 import { ReplayGainJobService } from '../../../src/main/replaygain/jobService'
 import type { ReplayGainAnalysis } from '../../../src/main/replaygain/loudness'
+import type { ReplayGainJobProgress } from '../../../src/shared/library'
 
 let dir: string
 let databasePath: string
@@ -342,6 +343,162 @@ describe('ReplayGainJobService', () => {
       const job = service(() => analyzer(async () => result()))
 
       await expect(job.start()).resolves.toMatchObject({ total: 1 })
+    })
+  })
+
+  /**
+   * W25-1: the stream a UI subscribes to. Per-track events are coalesced in
+   * main; state transitions are not, because they are what a Cancel or Resume
+   * control is waiting on.
+   */
+  describe('progress throttling', () => {
+    function recording(
+      createAnalyzer: () => ReplayGainAnalyzer,
+      progressIntervalMs: number
+    ): { job: ReplayGainJobService; events: ReplayGainJobProgress[] } {
+      const events: ReplayGainJobProgress[] = []
+      const job = new ReplayGainJobService({
+        db,
+        onProgress: (progress) => events.push(progress),
+        createAnalyzer,
+        progressIntervalMs
+      })
+      services.push(job)
+      return { job, events }
+    }
+
+    it('coalesces per-track events and always delivers the terminal one', async () => {
+      for (let index = 0; index < 40; index++) addTrack(`${index}.flac`)
+      const { job, events } = recording(() => analyzer(async () => result()), 60_000)
+
+      await job.start()
+      await waitFor(job, (state) => state?.state === 'completed')
+
+      // Forty tracks would be eighty unthrottled events (claim + checkpoint).
+      expect(events.length).toBeLessThanOrEqual(4)
+      expect(events.at(-1)).toMatchObject({ state: 'completed', completed: 40, done: true })
+      expect(events.at(-1)?.currentTitle).toBeNull()
+    })
+
+    it('sends a trailing event so the last count of a burst is not dropped', async () => {
+      addTrack('a.flac')
+      addTrack('b.flac')
+      let release: () => void = () => {}
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const { job, events } = recording(
+        () =>
+          analyzer(async (path) => {
+            if (basename(path) === 'b.flac') await gate
+            return result()
+          }),
+        20
+      )
+
+      await job.start()
+      // a.flac checkpoints inside the window; only the trailing event reports it.
+      const deadline = Date.now() + 5_000
+      while (!events.some((event) => event.state === 'running' && event.completed === 1)) {
+        if (Date.now() >= deadline) throw new Error('No trailing progress event.')
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+      const trailing = events.find((event) => event.completed === 1)
+      expect(trailing?.currentTitle).not.toBeNull()
+      release()
+      await waitFor(job, (state) => state?.state === 'completed')
+    })
+
+    it('never holds back a cancel behind the throttle', async () => {
+      addTrack('one.flac')
+      addTrack('two.flac')
+      const { job, events } = recording(
+        () =>
+          analyzer(
+            (_path, signal) =>
+              new Promise((_resolve, reject) => {
+                signal.addEventListener('abort', () => reject(new Error('cancelled')), {
+                  once: true
+                })
+              })
+          ),
+        60_000
+      )
+
+      const started = await job.start()
+      await job.cancel(started.jobId)
+
+      const states = events.map((event) => event.state)
+      expect(states).toContain('cancelling')
+      expect(states.at(-1)).toBe('cancelled')
+      expect(events.at(-1)?.currentTitle).toBeNull()
+    })
+  })
+
+  describe('summary', () => {
+    it('counts tagged, computed and missing over tracks', async () => {
+      addTrack('tagged.flac', { source: 'tag', gain: -7, peak: 0.9 })
+      addTrack('measured.flac', { source: 'computed', gain: -5, peak: 0.8 })
+      addTrack('bare-1.flac')
+      addTrack('bare-2.flac')
+      const job = service(() => analyzer(async () => result()))
+
+      expect(await job.summary()).toEqual({ tagged: 1, computed: 1, missing: 2, failed: 0 })
+    })
+
+    it('reports failures from the latest job only, as a subset of missing', async () => {
+      addTrack('good.flac')
+      addTrack('bad.flac')
+      let failBad = true
+      const job = service(() =>
+        analyzer(async (path) => {
+          if (basename(path) === 'bad.flac' && failBad) throw new Error('cannot decode')
+          return result()
+        })
+      )
+
+      await job.start()
+      await waitFor(job, (state) => state?.state === 'completed')
+      expect(await job.summary()).toEqual({ tagged: 0, computed: 1, missing: 1, failed: 1 })
+
+      failBad = false
+      const retry = await job.start()
+      await waitFor(job, (state) => state?.jobId === retry.jobId && state.state === 'completed')
+      expect(await job.summary()).toEqual({ tagged: 0, computed: 2, missing: 0, failed: 0 })
+    })
+
+    it('drops a failure a rescan has since resolved with a real tag', async () => {
+      const bad = addTrack('bad.flac')
+      const job = service(() =>
+        analyzer(async () => {
+          throw new Error('cannot decode')
+        })
+      )
+      await job.start()
+      await waitFor(job, (state) => state?.state === 'completed')
+
+      db.prepare(
+        "UPDATE tracks SET rg_source = 'tag', rg_track_gain = -6, rg_track_peak = 0.9 WHERE id = ?"
+      ).run(bad)
+
+      expect(await job.summary()).toEqual({ tagged: 1, computed: 0, missing: 0, failed: 0 })
+    })
+
+    it('never sees a podcast episode (OQ3: episodes are not rows in tracks)', async () => {
+      addTrack('song.flac')
+      const podcastId = Number(
+        db
+          .prepare('INSERT INTO podcasts (feed_url, title, subscribed_at) VALUES (?, ?, ?)')
+          .run('https://example.invalid/feed.xml', 'Show', Date.now()).lastInsertRowid
+      )
+      db.prepare(
+        `INSERT INTO episodes (podcast_id, guid, title, enclosure_url, rel_path, downloaded_at)
+         VALUES (?, 'ep-1', 'Episode', 'https://example.invalid/ep.mp3', 'show/ep.mp3', ?)`
+      ).run(podcastId, Date.now())
+      const job = service(() => analyzer(async () => result()))
+
+      expect(await job.summary()).toEqual({ tagged: 0, computed: 0, missing: 1, failed: 0 })
+      expect((await job.start()).total).toBe(1)
     })
   })
 })

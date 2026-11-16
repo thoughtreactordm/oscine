@@ -632,6 +632,30 @@ export interface ReplayGainJobProgress {
 }
 
 /**
+ * Where the library stands on ReplayGain, for the Measure control and the
+ * post-scan nudge (W25-1).
+ *
+ * `tagged + computed + missing` is every row in `tracks`. `failed` is a subset
+ * of `missing`, not a fourth bucket: the untagged tracks the most recent job
+ * tried and could not decode. A fresh job retries them, so a failure is only
+ * meaningful against the latest attempt.
+ *
+ * Podcast episodes are not counted, and that is structural rather than a
+ * filter: an episode is never a row in `tracks` (fermata-design D16), so
+ * neither this summary nor the job's `createJob` can see one.
+ */
+export interface ReplayGainSummary {
+  /** `rg_source = 'tag'` — measured by whatever wrote the file. */
+  tagged: number
+  /** `rg_source = 'computed'` — measured by Oscine. */
+  computed: number
+  /** `rg_source IS NULL` — what a job would queue. */
+  missing: number
+  /** Of `missing`, the tracks the latest job failed to analyze. */
+  failed: number
+}
+
+/**
  * Indexed fields an overview reports coverage for — the *effective* value, the
  * file's own with any standing correction applied. Generic registry fields
  * (`tagFields.ts`) are not indexed, so they cannot be counted without reading

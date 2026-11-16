@@ -16,6 +16,7 @@ import type {
   ListTracksResult,
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
+  ReplayGainSummary,
   ScanSummary,
   TagFacet,
   Track,
@@ -237,6 +238,7 @@ export interface LibraryService {
   resolveTrackPath(trackId: number): Promise<string | null>
   startReplayGain(): Promise<ReplayGainJobProgress>
   getReplayGainJob(): Promise<ReplayGainJobProgress | null>
+  getReplayGainSummary(): Promise<ReplayGainSummary>
   cancelReplayGain(jobId: number): Promise<ReplayGainJobProgress>
   resumeReplayGain(jobId: number): Promise<ReplayGainJobProgress>
 }

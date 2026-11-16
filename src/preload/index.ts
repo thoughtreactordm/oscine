@@ -187,6 +187,7 @@ const api = {
     getTrackFileUrl: (trackId: number) => request('library.getTrackFileUrl', { trackId }),
     startReplayGain: () => request('library.startReplayGain', null),
     getReplayGainJob: () => request('library.getReplayGainJob', null),
+    getReplayGainSummary: () => request('library.getReplayGainSummary', null),
     cancelReplayGain: (jobId: number) => request('library.cancelReplayGain', { jobId }),
     resumeReplayGain: (jobId: number) => request('library.resumeReplayGain', { jobId }),
     onScanProgress: (listener: (progress: ScanProgress) => void) =>

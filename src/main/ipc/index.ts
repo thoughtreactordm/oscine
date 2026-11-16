@@ -319,6 +319,8 @@ export function registerIpcHandlers(
 
   handle('library.getReplayGainJob', () => library.getReplayGainJob())
 
+  handle('library.getReplayGainSummary', () => library.getReplayGainSummary())
+
   handle('library.cancelReplayGain', (request) => {
     const { jobId } = assertRecord(request, 'request')
     return library.cancelReplayGain(assertPositiveInt(jobId, 'jobId'))

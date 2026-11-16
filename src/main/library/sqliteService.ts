@@ -24,6 +24,7 @@ import {
   type ListTracksResult,
   type OrderTrackIdsQuery,
   type ReplayGainJobProgress,
+  type ReplayGainSummary,
   type ScanProgress,
   type ScanSummary,
   type TagFacet,
@@ -758,6 +759,10 @@ export class SqliteLibraryService implements LibraryService {
 
   async getReplayGainJob(): Promise<ReplayGainJobProgress | null> {
     return this.replayGain.get()
+  }
+
+  async getReplayGainSummary(): Promise<ReplayGainSummary> {
+    return this.replayGain.summary()
   }
 
   async cancelReplayGain(jobId: number): Promise<ReplayGainJobProgress> {
