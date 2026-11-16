@@ -63,7 +63,13 @@ interface TagFieldBase {
   readonly group: TagFieldGroup
   /** The node-taglib-sharp `Tag` property this field reads and writes through. */
   readonly taglib: string
-  /** Shown, never edited or written (Decision F — ReplayGain). */
+  /**
+   * Shown, never hand-edited (Decision F, amended by `oscine-replaygain` D37
+   * Decision B — ReplayGain). Not "never written": a read-only field reaches the
+   * file through the staged review like any correction, but only the ReplayGain
+   * staging service may put a row under its key. Every hand-edit entry point
+   * refuses it through {@link isEditableTagField}.
+   */
   readonly readOnly: boolean
   /**
    * Whether the field is offered at all (Decision D): `true` only while the
@@ -157,11 +163,10 @@ function replayGain<K extends string>(
 }
 
 /**
- * Holds a field out of the editor and IPC because one of its W16-16 corpus cells
- * is red (Decision D). Each use names the triage card that owns the red cell;
- * lift the hold only once that card's fix turns the whole row green.
+ * Holds a field out of the editor, IPC and the flush because one of its W16-16
+ * corpus cells is red or missing (Decision D). Each use names the triage card
+ * that owns the cell; lift the hold only once that card turns the whole row green.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- no field is held today; the next red cell uses it
 function held<F extends TagFieldDef>(field: F): F {
   return { ...field, admitted: false }
 }
@@ -222,11 +227,13 @@ export const TAG_FIELDS = [
   text('releaseStatus', 'Release status', 'advanced', 'musicBrainzReleaseStatus'),
   text('releaseType', 'Release type', 'advanced', 'musicBrainzReleaseType'),
   text('releaseCountry', 'Release country', 'advanced', 'musicBrainzReleaseCountry'),
-  // Read-only — the app computes and writes ReplayGain through its own path.
-  replayGain('replayGainTrackGain', 'Track gain', 'replayGainTrackGain'),
-  replayGain('replayGainTrackPeak', 'Track peak', 'replayGainTrackPeak'),
-  replayGain('replayGainAlbumGain', 'Album gain', 'replayGainAlbumGain'),
-  replayGain('replayGainAlbumPeak', 'Album peak', 'replayGainAlbumPeak')
+  // Read-only — never hand-edited; measured values are staged by the ReplayGain
+  // service and flushed through the review (D37 Decision B). Held until their
+  // W16-16 corpus rows exist and are green on all five codecs (W25-5, RG-5).
+  held(replayGain('replayGainTrackGain', 'Track gain', 'replayGainTrackGain')),
+  held(replayGain('replayGainTrackPeak', 'Track peak', 'replayGainTrackPeak')),
+  held(replayGain('replayGainAlbumGain', 'Album gain', 'replayGainAlbumGain')),
+  held(replayGain('replayGainAlbumPeak', 'Album peak', 'replayGainAlbumPeak'))
 ] as const satisfies readonly TagFieldDef[]
 
 /** A generic field's registry key — also its persisted `field` column value. */
@@ -247,11 +254,34 @@ export function isTagFieldKey(key: string): key is TagFieldKey {
 }
 
 /**
- * Whether a field may be edited: admitted by its corpus check and not
- * read-only. The IPC validator and the editor both ask this one question.
+ * Whether a field may be *hand*-edited: admitted by its corpus check and not
+ * read-only. Every hand-edit entry point asks this one question — the editor,
+ * the `tagOverrides.set` validator, `LibraryService.setTagOverrides` and MCP
+ * `stage_tag_changes` — so a hand-typed ReplayGain value is refused everywhere.
  */
 export function isEditableTagField(field: TagFieldDef): boolean {
   return field.admitted && !field.readOnly
+}
+
+/**
+ * Whether a correction under this field may reach a file — the write gate the
+ * differ, the review's flush and the engine share. Admission alone (D37
+ * Decision B): `readOnly` governs who may stage a row, not whether a staged row
+ * is written, so a read-only field's rows can only come from the ReplayGain
+ * staging service and are flushed like any other once the corpus admits it.
+ */
+export function isFlushableTagField(field: TagFieldDef): boolean {
+  return field.admitted
+}
+
+/**
+ * Whether the editor and Track Info show a field and its prefill reads it:
+ * every admitted field, plus the read-only ones even while held. A hold keeps a
+ * field from being *written*; reading and displaying ReplayGain is safe, and
+ * Decision F says it is shown.
+ */
+export function isShownTagField(field: TagFieldDef): boolean {
+  return field.admitted || field.readOnly
 }
 
 /** Equality by value — lists compare element-wise, in order. */
@@ -278,9 +308,9 @@ export type TagFieldPatch = Readonly<Partial<Record<TagFieldKey, TagFieldValue |
  */
 export const MAX_TAG_FIELD_PREFILL_TRACKS = 1000
 
-/** The fields a prefill reads: every admitted one, the read-only ReplayGain included. */
+/** The fields a prefill reads: every shown one, the read-only ReplayGain included. */
 export function prefillTagFieldKeys(): TagFieldKey[] {
-  return TAG_FIELDS.filter((field) => field.admitted).map((field) => field.key as TagFieldKey)
+  return TAG_FIELDS.filter(isShownTagField).map((field) => field.key as TagFieldKey)
 }
 
 /**

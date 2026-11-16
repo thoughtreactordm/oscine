@@ -8,7 +8,7 @@ import {
   type Tag
 } from 'node-taglib-sharp'
 import {
-  isEditableTagField,
+  isFlushableTagField,
   tagField,
   tagValuesEqual,
   type TagFieldDef,
@@ -228,7 +228,9 @@ function clearedValue(field: TagFieldDef): unknown {
     case 'bool':
       return false
     case 'real':
-      // Unreachable for a write: `real` fields are read-only and refused first.
+      // Only the ReplayGain fields are `real`, and they stay held until RG-5's
+      // corpus rows prove this clear shape on every codec (taglib's Xiph setter
+      // removes the frame on undefined/null/NaN; the others are unproven).
       return undefined
   }
 }
@@ -261,15 +263,17 @@ export const readTagFields: TagFieldReader = async (absPath, keys) => {
  * The first key in `fields` the write-back may not flush, or `null` when every
  * key is flushable.
  *
- * Flushable means known to the registry, admitted by its W16-16 corpus row, and
- * not read-only — the same {@link isEditableTagField} question the IPC and the
- * editor ask. The engine asks it again because hiding a field in the UI is not
- * the guarantee: a held field whose round-trip is red must never reach a file.
+ * Flushable means known to the registry and admitted by its W16-16 corpus row
+ * ({@link isFlushableTagField}). Read-only is *not* refused here (D37 Decision
+ * B): who may stage a ReplayGain row is the hand-edit entry points' question,
+ * not the writer's. The engine asks this again because hiding a field in the UI
+ * is not the guarantee: a held field whose round-trip is red must never reach a
+ * file.
  */
 export function refusedTagField(fields: Iterable<string>): string | null {
   for (const key of fields) {
     const field = tagField(key)
-    if (field === undefined || !isEditableTagField(field)) return key
+    if (field === undefined || !isFlushableTagField(field)) return key
   }
   return null
 }

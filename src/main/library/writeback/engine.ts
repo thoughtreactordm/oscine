@@ -305,8 +305,9 @@ export async function writeTags(
     }
   }
 
-  // A generic field that is held or read-only never reaches a file, whatever the
-  // caller asked for (Decision D): refused here, before a byte is at risk.
+  // A held generic field never reaches a file, whatever the caller asked for
+  // (Decision D): refused here, before a byte is at risk. Read-only is not a
+  // write refusal (D37 Decision B) — the hand-edit entry points own that.
   const genericKeys = Object.keys(desired.fields ?? {}) as TagFieldKey[]
   const refused = refusedTagField(genericKeys)
   if (refused !== null) {

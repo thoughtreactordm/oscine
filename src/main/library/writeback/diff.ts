@@ -206,8 +206,10 @@ function artworkDiff(
 /**
  * The generic keys a track's corrections name that the flush may write — the
  * set the differ reads from the file and {@link computePendingWrite} diffs, in
- * registry order. A correction under a held or read-only key is left standing
- * and out of the review: it is not a pending write until its field is admitted.
+ * registry order. A correction under a held key is left standing and out of
+ * the review: it is not a pending write until its field is admitted. Read-only
+ * keys are not excluded (D37 Decision B): their rows come only from ReplayGain
+ * staging and are reviewed like any other correction.
  */
 export function flushableOverrideKeys(overrides: TagOverrideMap | undefined): TagFieldKey[] {
   if (overrides === undefined || overrides.size === 0) return []

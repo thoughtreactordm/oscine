@@ -30,7 +30,7 @@ import { LIBRARY_COVERAGE_FIELDS } from '@shared/library'
 import { normalizeLabel, splitGenres } from '@shared/genre'
 import { artworkUrl } from '@shared/ipc'
 import type { OverrideEditState, OverrideField, OverridePatch } from '@shared/overrides'
-import { isEditableTagField, TAG_FIELDS } from '@shared/tagFields'
+import { isFlushableTagField, TAG_FIELDS } from '@shared/tagFields'
 import type { GroupedWritebackField } from '@shared/tagWriteback'
 import type { FavoriteBias, RelatedAlbum } from '@shared/related'
 import { relateRoots, toAbsPath, type RootRelation } from '../db/paths'
@@ -72,11 +72,13 @@ const WRITEBACK_TO_OVERRIDE_COLUMN: {
 
 /**
  * The generic keys a flush can write (W16-17), as an SQL `IN` list — the
- * registry's own identifiers, never input. A `track_tag_overrides` row under
- * any other key (held, read-only, or unknown to this build) is preserved but is
- * not a pending write, so it neither lists the track nor marks it modified.
+ * registry's own identifiers, never input. Admission decides, not read-only (D37
+ * Decision B): a staged ReplayGain row is a pending write once its field is
+ * admitted. A row under any other key (held, or unknown to this build) is
+ * preserved but is not a pending write, so it neither lists the track nor marks
+ * it modified.
  */
-const FLUSHABLE_TAG_FIELDS_SQL = TAG_FIELDS.filter(isEditableTagField)
+const FLUSHABLE_TAG_FIELDS_SQL = TAG_FIELDS.filter(isFlushableTagField)
   .map((field) => `'${field.key}'`)
   .join(', ')
 

@@ -267,7 +267,7 @@ export class TagWritebackService {
   private async flushOne(selection: WritebackSelection): Promise<WritebackOutcome> {
     const { trackId } = selection
 
-    // A held or read-only generic key is refused for the whole file, not dropped:
+    // A held generic key is refused for the whole file, not dropped:
     // dropping it could leave the rest a no-op, and a skipped file retires its
     // selected fields — which would delete a correction that was never written.
     const refused = refusedTagField(

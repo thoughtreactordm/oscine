@@ -44,7 +44,9 @@ import {
   type OverridePatch
 } from '@shared/overrides'
 import {
+  isEditableTagField,
   prefillTagFieldKeys,
+  tagField,
   type TagFieldEditState,
   type TagFieldKey,
   type TagFieldPatch
@@ -500,6 +502,16 @@ export class SqliteLibraryService implements LibraryService {
     trackIds: readonly number[]
     patch: TagFieldPatch
   }): Promise<void> {
+    // The hand-edit sink `tagOverrides.set` and MCP `stage_tag_changes` share.
+    // Both validate first; this is the backstop that keeps a hand-typed gain out
+    // of `track_tag_overrides` whoever calls it (D37 Decision B). ReplayGain
+    // staging writes through its own path, never this one.
+    for (const key of Object.keys(request.patch)) {
+      const field = tagField(key)
+      if (field === undefined || !isEditableTagField(field)) {
+        throw new OscineError('invalid-request', `${key} is not a hand-editable tag field.`)
+      }
+    }
     this.tagOverrides.set(request.trackIds, request.patch, Date.now())
     if (Object.keys(request.patch).length > 0) {
       this.changes.notify({ tagOverrides: request.trackIds })
