@@ -73,6 +73,7 @@ import type {
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
   ReplayGainStageResult,
+  ReplayGainStartRequest,
   ReplayGainSummary,
   ScanProgress,
   ScanSummary,
@@ -361,7 +362,14 @@ export interface IpcContract {
    * per the invariant, so this is where the resolution happens.
    */
   'lyrics.get': { request: { trackId: number }; response: LyricsDocument | null }
-  'library.startReplayGain': { request: null; response: ReplayGainJobProgress }
+  /**
+   * Queues a ReplayGain job. `null` (or `{}`) is the whole library; W25-7 adds
+   * a scope of tracks and whole albums, and `force` over existing values.
+   */
+  'library.startReplayGain': {
+    request: ReplayGainStartRequest | null
+    response: ReplayGainJobProgress
+  }
   'library.getReplayGainJob': { request: null; response: ReplayGainJobProgress | null }
   /**
    * W25-1: tagged / computed / missing / failed counts over `tracks`, for the

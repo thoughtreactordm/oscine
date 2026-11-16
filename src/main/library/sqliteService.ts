@@ -25,6 +25,7 @@ import {
   type OrderTrackIdsQuery,
   type ReplayGainJobProgress,
   type ReplayGainStageResult,
+  type ReplayGainStartRequest,
   type ReplayGainSummary,
   type ScanProgress,
   type ScanSummary,
@@ -285,6 +286,7 @@ export class SqliteLibraryService implements LibraryService {
     this.replayGain = new ReplayGainJobService({
       db: deps.db,
       onProgress: deps.onReplayGainProgress ?? (() => {}),
+      onStagedCleared: (trackIds) => this.changes.notify({ tagOverrides: trackIds }),
       ...(deps.createReplayGainAnalyzer ? { createAnalyzer: deps.createReplayGainAnalyzer } : {}),
       ...(deps.canComputeReplayGain ? { canCompute: deps.canComputeReplayGain } : {})
     })
@@ -791,8 +793,8 @@ export class SqliteLibraryService implements LibraryService {
     return this.store.resolveTrackPath(trackId)
   }
 
-  async startReplayGain(): Promise<ReplayGainJobProgress> {
-    return this.replayGain.start()
+  async startReplayGain(request: ReplayGainStartRequest = {}): Promise<ReplayGainJobProgress> {
+    return this.replayGain.start(request)
   }
 
   async getReplayGainJob(): Promise<ReplayGainJobProgress | null> {

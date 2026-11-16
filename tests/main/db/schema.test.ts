@@ -83,7 +83,8 @@ describe('openDatabase', () => {
         'track-scan-facts',
         'mcp-views',
         'agent-journal',
-        'smart-playlists'
+        'smart-playlists',
+        'replaygain-forced-jobs'
       ])
       expect(db.pragma('user_version', { simple: true })).toBe(HEAD)
     } finally {
@@ -145,7 +146,8 @@ describe('openDatabase', () => {
         'track-scan-facts',
         'mcp-views',
         'agent-journal',
-        'smart-playlists'
+        'smart-playlists',
+        'replaygain-forced-jobs'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -196,7 +198,8 @@ describe('openDatabase', () => {
         'track-scan-facts',
         'mcp-views',
         'agent-journal',
-        'smart-playlists'
+        'smart-playlists',
+        'replaygain-forced-jobs'
       ])
       expect(
         db.prepare("SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH 'hemian'").get()
@@ -812,7 +815,8 @@ describe('migration 023 rip sessions', () => {
         'track-scan-facts',
         'mcp-views',
         'agent-journal',
-        'smart-playlists'
+        'smart-playlists',
+        'replaygain-forced-jobs'
       ])
       expect(db.prepare('SELECT id FROM tracks').get()).toEqual({ id: seeded.trackId })
     } finally {
@@ -842,7 +846,8 @@ describe('migration 025 track_overrides.album_artist_name (W16-14)', () => {
         'track-scan-facts',
         'mcp-views',
         'agent-journal',
-        'smart-playlists'
+        'smart-playlists',
+        'replaygain-forced-jobs'
       ])
       expect(
         db
@@ -875,7 +880,8 @@ describe('migration 026 track_tag_overrides (W16-15)', () => {
         'track-scan-facts',
         'mcp-views',
         'agent-journal',
-        'smart-playlists'
+        'smart-playlists',
+        'replaygain-forced-jobs'
       ])
       expect(db.prepare('SELECT count(*) AS n FROM track_tag_overrides').get()).toEqual({ n: 0 })
       expect(
@@ -918,7 +924,8 @@ describe('migration 027 album year order', () => {
         'track-scan-facts',
         'mcp-views',
         'agent-journal',
-        'smart-playlists'
+        'smart-playlists',
+        'replaygain-forced-jobs'
       ])
       expect(db.prepare('SELECT title, year FROM albums').all()).toEqual([
         { title: 'Kind of Blue', year: 1959 }
@@ -960,7 +967,8 @@ describe('migration 028 track scan facts', () => {
         'track-scan-facts',
         'mcp-views',
         'agent-journal',
-        'smart-playlists'
+        'smart-playlists',
+        'replaygain-forced-jobs'
       ])
       expect(db.prepare('SELECT tag_album_artist, tag_year FROM tracks').all()).toEqual([
         { tag_album_artist: null, tag_year: null }
@@ -1012,7 +1020,10 @@ describe('migration 031 smart playlists (W24-9)', () => {
 
     const { db, migration } = openDatabase(file)
     try {
-      expect(migration.applied.map((step) => step.name)).toEqual(['smart-playlists'])
+      expect(migration.applied.map((step) => step.name)).toEqual([
+        'smart-playlists',
+        'replaygain-forced-jobs'
+      ])
       expect(
         db
           .prepare(
@@ -1054,6 +1065,31 @@ describe('migration 031 smart playlists (W24-9)', () => {
       ])
       db.prepare('DELETE FROM tracks WHERE id = ?').run(trackId)
       expect(db.prepare('SELECT count(*) AS n FROM playlist_exclusions').get()).toEqual({ n: 0 })
+    } finally {
+      db.close()
+    }
+  })
+})
+
+describe('migration 032 forced ReplayGain jobs (W25-7)', () => {
+  it('marks every existing job unforced and refuses anything but 0 or 1', () => {
+    const old = new Database(file)
+    migrate(old, MIGRATIONS.slice(0, 31))
+    old
+      .prepare(
+        "INSERT INTO replaygain_jobs (state, created_at, updated_at) VALUES ('paused', 1, 1)"
+      )
+      .run()
+    old.close()
+
+    const { db, migration } = openDatabase(file)
+    try {
+      expect(migration.applied.map((step) => step.name)).toEqual(['replaygain-forced-jobs'])
+      expect(db.prepare('SELECT state, forced FROM replaygain_jobs').get()).toEqual({
+        state: 'paused',
+        forced: 0
+      })
+      expect(() => db.prepare('UPDATE replaygain_jobs SET forced = 2').run()).toThrow(/CHECK/)
     } finally {
       db.close()
     }

@@ -3,6 +3,7 @@ import {
   COMPUTE_OFF_REASON,
   formatCount,
   measureOutcomeMessage,
+  scopeIsEmpty,
   measureVerb,
   measureView,
   nudgeFor,
@@ -203,5 +204,18 @@ describe('measureOutcomeMessage', () => {
     )
     expect(measureOutcomeMessage({ kind: 'running' })).toBe('ReplayGain is already being measured')
     expect(measureOutcomeMessage({ kind: 'nothing' })).toBe('Every track already has ReplayGain')
+  })
+})
+
+describe('selection measure (W25-7)', () => {
+  it('treats a scope naming nothing as empty', () => {
+    expect(scopeIsEmpty({})).toBe(true)
+    expect(scopeIsEmpty({ trackIds: [], albumIds: [] })).toBe(true)
+    expect(scopeIsEmpty({ trackIds: [1] })).toBe(false)
+    expect(scopeIsEmpty({ albumIds: [4] })).toBe(false)
+  })
+
+  it('says so when a selection resolved to no tracks', () => {
+    expect(measureOutcomeMessage({ kind: 'empty' })).toBe('Nothing to measure in that selection')
   })
 })

@@ -1,6 +1,10 @@
 import type Database from 'better-sqlite3'
 import { OscineError } from '@shared/errors'
-import type { ReplayGainJobProgress, ReplayGainSummary } from '@shared/library'
+import type {
+  ReplayGainJobProgress,
+  ReplayGainStartRequest,
+  ReplayGainSummary
+} from '@shared/library'
 import { WorkerReplayGainAnalyzer, type ReplayGainAnalyzer } from './analyzer'
 import { ReplayGainJobStore, type ReplayGainWorkItem } from './jobStore'
 
@@ -35,6 +39,12 @@ export interface ReplayGainJobDeps {
    * without a settings service wants.
    */
   canCompute?: () => boolean
+  /**
+   * Staged ReplayGain rows a new measurement dropped (Decision F), so the
+   * renderer's review and editor can re-read them. Called after the delete has
+   * committed; omitted means nobody is listening.
+   */
+  onStagedCleared?: (trackIds: number[]) => void
   /** Injectable so tests can drive the progress throttle deterministically. */
   progressIntervalMs?: number
   now?: () => number
@@ -61,9 +71,9 @@ export class ReplayGainJobService {
     this.now = deps.now ?? Date.now
   }
 
-  async start(): Promise<ReplayGainJobProgress> {
+  async start(request: ReplayGainStartRequest = {}): Promise<ReplayGainJobProgress> {
     this.assertComputeAllowed()
-    const progress = this.store.createJob()
+    const progress = this.store.createJob(request)
     if (progress.total === 0) {
       this.store.setState(progress.jobId, 'completed')
       return this.emit(progress.jobId)
@@ -163,7 +173,7 @@ export class ReplayGainJobService {
       if (signal.aborted || this.store.state(jobId) === 'cancelling') {
         this.store.setState(jobId, 'cancelled')
       } else {
-        this.store.finalizeAlbums(jobId)
+        this.notifyCleared(this.store.finalizeAlbums(jobId))
         this.store.setState(jobId, 'completed')
       }
       this.currentTitle = null
@@ -201,7 +211,7 @@ export class ReplayGainJobService {
       const result = await analyzer.analyze(item.path, signal)
       // A finished unit is checkpointed even when cancellation arrived during
       // its final DSP instruction. This is the track-sized durability promise.
-      this.store.complete(item, result)
+      if (this.store.complete(item, result)) this.notifyCleared([item.trackId])
     } catch (error) {
       if (signal.aborted) {
         if (!this.closing) this.store.returnToPending(item)
@@ -250,6 +260,10 @@ export class ReplayGainJobService {
     if (!this.trailing) return
     clearTimeout(this.trailing.timer)
     this.trailing = null
+  }
+
+  private notifyCleared(trackIds: number[]): void {
+    if (trackIds.length > 0) this.deps.onStagedCleared?.(trackIds)
   }
 
   /** Only a job that is working on something has a current track to name. */

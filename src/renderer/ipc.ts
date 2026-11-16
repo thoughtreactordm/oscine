@@ -12,6 +12,7 @@ import type {
   LibraryNotice,
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
+  ReplayGainStartRequest,
   ScanProgress
 } from '@shared/library'
 import type {
@@ -113,7 +114,8 @@ export const library = {
   getTrackFormatDetail: (trackId: number) =>
     unwrap(window.oscine.library.getTrackFormatDetail(trackId)),
   getTrackFileUrl: (trackId: number) => unwrap(window.oscine.library.getTrackFileUrl(trackId)),
-  startReplayGain: () => unwrap(window.oscine.library.startReplayGain()),
+  startReplayGain: (scope?: ReplayGainStartRequest) =>
+    unwrap(window.oscine.library.startReplayGain(scope)),
   getReplayGainJob: () => unwrap(window.oscine.library.getReplayGainJob()),
   getReplayGainSummary: () => unwrap(window.oscine.library.getReplayGainSummary()),
   cancelReplayGain: (jobId: number) => unwrap(window.oscine.library.cancelReplayGain(jobId)),

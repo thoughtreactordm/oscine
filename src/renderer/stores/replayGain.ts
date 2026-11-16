@@ -5,13 +5,19 @@ import {
   jobIsActive,
   measureVerb,
   nudgeFor,
+  scopeIsEmpty,
   type MeasureOutcome,
-  type Nudge
+  type Nudge,
+  type ReplayGainScope
 } from '@renderer/replaygain/measureModel'
 import { useSettings } from '@renderer/settings'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { AUDIO_REPLAY_GAIN_COMPUTE_WHEN_MISSING } from '@shared/settings'
-import type { ReplayGainJobProgress, ReplayGainSummary } from '@shared/library'
+import type {
+  ReplayGainJobProgress,
+  ReplayGainStartRequest,
+  ReplayGainSummary
+} from '@shared/library'
 
 /**
  * How often the library-wide counts are re-read while a job is running.
@@ -112,8 +118,8 @@ export const useReplayGainStore = defineStore('replayGain', () => {
     }
   }
 
-  function startJob(): Promise<ReplayGainJobProgress> {
-    return run(() => library.startReplayGain())
+  function startJob(request?: ReplayGainStartRequest): Promise<ReplayGainJobProgress> {
+    return run(() => library.startReplayGain(request))
   }
 
   function resumeJob(): Promise<ReplayGainJobProgress> {
@@ -143,6 +149,27 @@ export const useReplayGainStore = defineStore('replayGain', () => {
     }
     const progress = await startJob()
     return progress.total === 0 ? { kind: 'nothing' } : { kind: 'started', total: progress.total }
+  }
+
+  /**
+   * W25-7: a forced re-measure of a selection, from a library context menu.
+   *
+   * Starts a scoped job rather than resuming one — main lets a scoped start
+   * supersede a paused or canceled job, because the operator has just named
+   * what they want measured now. Only a job that is actually running refuses
+   * it, and that is reported as `running` rather than as an error, like the
+   * palette's verb.
+   */
+  async function measureSelection(scope: ReplayGainScope): Promise<MeasureOutcome> {
+    if (scopeIsEmpty(scope)) return { kind: 'empty' }
+    if (!job.value) await refresh()
+    if (jobIsActive(job.value)) return { kind: 'running' }
+    const progress = await startJob({
+      ...(scope.trackIds ? { trackIds: [...scope.trackIds] } : {}),
+      ...(scope.albumIds ? { albumIds: [...scope.albumIds] } : {}),
+      force: true
+    })
+    return progress.total === 0 ? { kind: 'empty' } : { kind: 'started', total: progress.total }
   }
 
   /**
@@ -198,6 +225,7 @@ export const useReplayGainStore = defineStore('replayGain', () => {
     resumeJob,
     cancelJob,
     measure,
+    measureSelection,
     nudgeAfterScan,
     start,
     stop

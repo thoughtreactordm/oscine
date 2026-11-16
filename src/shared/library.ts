@@ -662,6 +662,26 @@ export interface ReplayGainSummary {
 }
 
 /**
+ * What `library.startReplayGain` measures — **W25-7** (RG-7).
+ *
+ * With neither `trackIds` nor `albumIds` the job covers the whole library, as
+ * the Measure control always has. Naming either scopes it to those tracks, and
+ * an album is always expanded to every track it has — never to the tracks a
+ * view happened to show — so Decision C's album-whole rule can still hold when
+ * the result is staged.
+ *
+ * `force` queues tracks whatever their `rg_source`. A forced result overwrites
+ * a `'tag'` or `'computed'` value in the database only; the file is untouched
+ * until it is staged and reviewed (D37). Unforced, only `rg_source IS NULL`
+ * tracks are queued.
+ */
+export interface ReplayGainStartRequest {
+  trackIds?: number[]
+  albumIds?: number[]
+  force?: boolean
+}
+
+/**
  * Why `library.stageComputedReplayGain` left an album unstaged — **W25-4**,
  * `oscine-replaygain` Decision C (albums are staged whole or not at all).
  *

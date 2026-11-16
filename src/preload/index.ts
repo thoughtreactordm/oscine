@@ -20,6 +20,7 @@ import type {
   LibraryNotice,
   OrderTrackIdsQuery,
   ReplayGainJobProgress,
+  ReplayGainStartRequest,
   ScanProgress
 } from '@shared/library'
 import type { DiscoverRecipeId } from '@shared/discover'
@@ -185,7 +186,8 @@ const api = {
     getLyrics: (trackId: number) => request('lyrics.get', { trackId }),
     /** Opaque `oscine://` URL for the track's bytes. Never a filesystem path. */
     getTrackFileUrl: (trackId: number) => request('library.getTrackFileUrl', { trackId }),
-    startReplayGain: () => request('library.startReplayGain', null),
+    startReplayGain: (scope?: ReplayGainStartRequest) =>
+      request('library.startReplayGain', scope ?? null),
     getReplayGainJob: () => request('library.getReplayGainJob', null),
     getReplayGainSummary: () => request('library.getReplayGainSummary', null),
     cancelReplayGain: (jobId: number) => request('library.cancelReplayGain', { jobId }),

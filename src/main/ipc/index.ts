@@ -38,6 +38,7 @@ import {
   assertWritebackApplyRequest,
   assertWritebackPreviewRequest,
   assertStageComputedReplayGainRequest,
+  assertStartReplayGainRequest,
   assertOverrideEditStateRequest,
   assertSetOverridesRequest,
   assertSetTagOverridesRequest,
@@ -316,7 +317,9 @@ export function registerIpcHandlers(
     return trackUrl(id)
   })
 
-  handle('library.startReplayGain', () => library.startReplayGain())
+  handle('library.startReplayGain', (request) =>
+    library.startReplayGain(assertStartReplayGainRequest(request))
+  )
 
   handle('library.getReplayGainJob', () => library.getReplayGainJob())
 

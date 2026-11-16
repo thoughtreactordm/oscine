@@ -197,6 +197,22 @@ export type MeasureOutcome =
   | { kind: 'resumed'; pending: number }
   | { kind: 'running' }
   | { kind: 'nothing' }
+  /** A selection measure (W25-7) whose selection resolved to no tracks. */
+  | { kind: 'empty' }
+
+/**
+ * What a context-menu "Measure ReplayGain" names (W25-7): tracks, and albums
+ * that main expands to every track they have.
+ */
+export interface ReplayGainScope {
+  trackIds?: readonly number[]
+  albumIds?: readonly number[]
+}
+
+/** Whether a scope names anything at all — an empty one never reaches main. */
+export function scopeIsEmpty(scope: ReplayGainScope): boolean {
+  return (scope.trackIds?.length ?? 0) === 0 && (scope.albumIds?.length ?? 0) === 0
+}
 
 /** The toast after a start from somewhere other than the control itself. */
 export function measureOutcomeMessage(outcome: MeasureOutcome): string {
@@ -209,6 +225,8 @@ export function measureOutcomeMessage(outcome: MeasureOutcome): string {
       return 'ReplayGain is already being measured'
     case 'nothing':
       return 'Every track already has ReplayGain'
+    case 'empty':
+      return 'Nothing to measure in that selection'
   }
 }
 
