@@ -271,6 +271,76 @@ describe('toTrackTags', () => {
     expect(toTrackTags(parsed({})).replayGain).toBeNull()
   })
 
+  describe('Opus R128_* gains', () => {
+    function withVorbis(
+      codec: string,
+      comments: Array<[string, unknown]>,
+      common: object = {}
+    ): IAudioMetadata {
+      return {
+        common,
+        format: { container: 'Ogg', codec },
+        native: { vorbis: comments.map(([id, value]) => ({ id, value })) },
+        quality: { warnings: [] }
+      } as unknown as IAudioMetadata
+    }
+
+    it('reads R128_TRACK_GAIN and R128_ALBUM_GAIN as ReplayGain 2.0 dB', () => {
+      const tags = toTrackTags(
+        withVorbis('Opus', [
+          ['R128_TRACK_GAIN', '-2560'],
+          ['R128_ALBUM_GAIN', '-1792']
+        ])
+      )
+
+      expect(tags.codec).toBe('opus')
+      expect(tags.replayGain).toEqual({
+        trackGainDb: -5,
+        trackPeak: null,
+        albumGainDb: -2,
+        albumPeak: null
+      })
+    })
+
+    it('matches the field name case-insensitively', () => {
+      const tags = toTrackTags(withVorbis('Opus', [['r128_track_gain', '0']]))
+      expect(tags.replayGain?.trackGainDb).toBe(5)
+    })
+
+    it('prefers R128 gain over REPLAYGAIN_* but keeps the REPLAYGAIN peak', () => {
+      const tags = toTrackTags(
+        withVorbis('Opus', [['R128_TRACK_GAIN', '256']], {
+          replaygain_track_gain: { dB: -9, ratio: 0.126 },
+          replaygain_track_peak: { dB: -0.5, ratio: 0.944 },
+          replaygain_album_gain: { dB: -8, ratio: 0.158 }
+        })
+      )
+
+      expect(tags.replayGain).toEqual({
+        trackGainDb: 6,
+        trackPeak: 0.944,
+        albumGainDb: -8,
+        albumPeak: null
+      })
+    })
+
+    it('reads a malformed R128 value as absent', () => {
+      const tags = toTrackTags(
+        withVorbis('Opus', [
+          ['R128_TRACK_GAIN', '-3.5 dB'],
+          ['R128_ALBUM_GAIN', '99999']
+        ])
+      )
+      expect(tags.replayGain).toBeNull()
+    })
+
+    it('ignores R128_* on a codec other than Opus', () => {
+      const tags = toTrackTags(withVorbis('Vorbis I', [['R128_TRACK_GAIN', '-2560']]))
+      expect(tags.codec).toBe('vorbis')
+      expect(tags.replayGain).toBeNull()
+    })
+  })
+
   it('treats blank and whitespace-only tags as absent', () => {
     const tags = toTrackTags(parsed({ title: '   ', artist: '', album: '  Geogaddi  ' }))
 

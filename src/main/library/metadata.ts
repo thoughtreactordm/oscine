@@ -1,6 +1,7 @@
 import { parseFile } from 'music-metadata'
 import type { IAudioMetadata, ILyricsTag, ITag } from 'music-metadata'
 import type { BitrateMode, TrackFormatDetail } from '@shared/library'
+import { parseR128Q78, r128Q78ToGainDb } from '@shared/audio/r128'
 
 /**
  * The `music-metadata` adapter.
@@ -37,7 +38,7 @@ export interface TrackTags {
   bitDepth: number | null
   /** The first named genre, or `null`. See `primaryGenre`. */
   genre: string | null
-  /** `null` when the file carries no `REPLAYGAIN_*` tags at all. */
+  /** `null` when the file carries no `REPLAYGAIN_*` (or, on Opus, `R128_*`) tags at all. */
   replayGain: ReplayGain | null
   /**
    * The file's embedded lyrics as raw text, or `null` — W17's tier-2 source.
@@ -273,14 +274,49 @@ function nativeLyricText(value: ITag['value']): string | null {
   return null
 }
 
-function toReplayGain(common: IAudioMetadata['common']): ReplayGain | null {
+/**
+ * The file's ReplayGain, in ReplayGain 2.0 decibels and linear peaks.
+ *
+ * Opus is the exception: RFC 7845 §5.2.1 gives it `R128_TRACK_GAIN` /
+ * `R128_ALBUM_GAIN` (Q7.8, relative to −23 LUFS) instead of `REPLAYGAIN_*`, and
+ * music-metadata does not map them, so they are read from the native Vorbis
+ * comments here. On an Opus file an `R128_*` gain wins over a `REPLAYGAIN_*`
+ * one for the same scope — it is the tag the format defines and the one
+ * `opusenc`, `rsgain` and our own write-back (D37 Decision E) produce. R128 has
+ * no peak, so peaks still come from `REPLAYGAIN_*` when a file carries them.
+ * Other codecs ignore `R128_*`: it is meaningless outside Opus.
+ */
+function toReplayGain(metadata: IAudioMetadata, codec: string | null): ReplayGain | null {
+  const { common } = metadata
+  const r128 = codec === 'opus' ? opusR128(metadata.native) : null
   const gain: ReplayGain = {
-    trackGainDb: finite(common.replaygain_track_gain?.dB),
+    trackGainDb: r128?.trackGainDb ?? finite(common.replaygain_track_gain?.dB),
     trackPeak: finite(common.replaygain_track_peak?.ratio),
-    albumGainDb: finite(common.replaygain_album_gain?.dB),
+    albumGainDb: r128?.albumGainDb ?? finite(common.replaygain_album_gain?.dB),
     albumPeak: finite(common.replaygain_album_peak?.ratio)
   }
   return Object.values(gain).some((value) => value !== null) ? gain : null
+}
+
+/** `R128_*` gains from an Opus file's Vorbis comments, as ReplayGain 2.0 dB. */
+function opusR128(native: IAudioMetadata['native']): {
+  trackGainDb: number | null
+  albumGainDb: number | null
+} {
+  let trackGainDb: number | null = null
+  let albumGainDb: number | null = null
+  for (const tag of native.vorbis ?? []) {
+    if (typeof tag.value !== 'string') continue
+    // Vorbis comment field names are case-insensitive (Vorbis I §5.2.1).
+    const id = tag.id.toUpperCase()
+    if (id !== 'R128_TRACK_GAIN' && id !== 'R128_ALBUM_GAIN') continue
+    const q = parseR128Q78(tag.value)
+    if (q === null) continue
+    // First valid value wins, matching how the common mapper treats repeats.
+    if (id === 'R128_TRACK_GAIN') trackGainDb ??= r128Q78ToGainDb(q)
+    else albumGainDb ??= r128Q78ToGainDb(q)
+  }
+  return { trackGainDb, albumGainDb }
 }
 
 /**
@@ -292,6 +328,7 @@ function toReplayGain(common: IAudioMetadata['common']): ReplayGain | null {
 export function toTrackTags(metadata: IAudioMetadata): TrackTags {
   const { common, format } = metadata
   const duration = finite(format.duration)
+  const codec = normaliseCodec(format.codec, format.container)
 
   return {
     title: text(common.title),
@@ -302,12 +339,12 @@ export function toTrackTags(metadata: IAudioMetadata): TrackTags {
     discNo: positiveInt(common.disk?.no),
     year: releaseYear(metadata),
     durationMs: duration === null ? null : Math.round(duration * 1000),
-    codec: normaliseCodec(format.codec, format.container),
+    codec,
     sampleRate: positiveInt(format.sampleRate),
     channels: positiveInt(format.numberOfChannels),
     bitDepth: positiveInt(format.bitsPerSample),
     genre: primaryGenre(common.genre),
-    replayGain: toReplayGain(common),
+    replayGain: toReplayGain(metadata, codec),
     lyrics: extractLyrics(metadata)
   }
 }
