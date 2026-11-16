@@ -20,6 +20,15 @@ import { checkMcpRequest } from './requestGuard'
  * transport — and every later request names it in `mcp-session-id`. Sessions
  * are kept here so W24-2 can end them all when the operator turns access off
  * or regenerates the token, and so D36.10 has something to list.
+ *
+ * A session ends when its client sends `DELETE`, but most clients never do —
+ * an agent CLI exits or is killed and its session would sit here forever,
+ * inflating the connected count until `MCP_MAX_SESSIONS` locks everyone out.
+ * So a session with no request in flight (an open GET event stream counts as
+ * one) that has been quiet for `idleTimeoutMs` is ended by a periodic sweep,
+ * and a full table evicts its longest-quiet such session rather than refusing.
+ * A client that comes back afterwards gets 404 and, per the spec,
+ * re-initializes.
  */
 export const MCP_HOST = AGENT_SERVER_HOST
 export const MCP_PATH = AGENT_SERVER_PATH
@@ -29,6 +38,12 @@ export const MCP_MAX_BODY_BYTES = 1024 * 1024
 
 /** A runaway client opening sessions in a loop must not grow this without end. */
 export const MCP_MAX_SESSIONS = 16
+
+/** How long a session with nothing in flight may stay quiet before it is ended. */
+export const MCP_SESSION_IDLE_MS = 10 * 60_000
+
+/** How often idle sessions are looked for. */
+export const MCP_SESSION_SWEEP_MS = 60_000
 
 export interface McpHttpServerOptions {
   /** `0` asks the OS for a free port — tests only; the app passes a fixed one. */
@@ -40,6 +55,10 @@ export interface McpHttpServerOptions {
   /** A session opened, finished initializing (its client name is now known), or ended. */
   onSessionsChanged?: () => void
   now?: () => number
+  /** Defaults to `MCP_SESSION_IDLE_MS`. */
+  idleTimeoutMs?: number
+  /** Defaults to `MCP_SESSION_SWEEP_MS`. */
+  sweepIntervalMs?: number
 }
 
 export interface McpHttpServer {
@@ -63,6 +82,10 @@ interface Session {
   transport: StreamableHTTPServerTransport
   server: McpServer
   connectedAt: number
+  /** When a request to it last started or finished. */
+  lastSeenAt: number
+  /** Responses still open — a held GET event stream keeps this above zero. */
+  inFlight: number
 }
 
 export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServer {
@@ -73,12 +96,63 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   const changed = options.onSessionsChanged ?? (() => {})
   const now = options.now ?? Date.now
   let token = options.token
+  const idleTimeoutMs = options.idleTimeoutMs ?? MCP_SESSION_IDLE_MS
+  const sweepIntervalMs = options.sweepIntervalMs ?? MCP_SESSION_SWEEP_MS
+  let sweepTimer: ReturnType<typeof setInterval> | null = null
 
   async function endSessions(): Promise<void> {
     const open = [...sessions.values()]
     sessions.clear()
     if (open.length > 0) changed()
     await Promise.allSettled(open.map((session) => session.server.close()))
+  }
+
+  /** Ends sessions without a `DELETE`: the server's `onclose` still ends the journal. */
+  async function evict(ids: string[]): Promise<void> {
+    const ended: Session[] = []
+    for (const id of ids) {
+      const session = sessions.get(id)
+      if (!session) continue
+      sessions.delete(id)
+      ended.push(session)
+    }
+    if (ended.length === 0) return
+    changed()
+    const results = await Promise.allSettled(ended.map((session) => session.server.close()))
+    for (const result of results) if (result.status === 'rejected') report(result.reason)
+  }
+
+  function sweepIdle(): Promise<void> {
+    const t = now()
+    const idle = [...sessions.entries()]
+      .filter(([, session]) => session.inFlight === 0 && t - session.lastSeenAt >= idleTimeoutMs)
+      .map(([id]) => id)
+    return evict(idle)
+  }
+
+  /** The longest-quiet session with nothing in flight, if there is one. */
+  function quietest(): string | undefined {
+    let found: [string, Session] | undefined
+    for (const entry of sessions) {
+      if (entry[1].inFlight > 0) continue
+      if (!found || entry[1].lastSeenAt < found[1].lastSeenAt) found = entry
+    }
+    return found?.[0]
+  }
+
+  function route(
+    session: Session,
+    req: IncomingMessage,
+    res: ServerResponse,
+    body?: unknown
+  ): Promise<void> {
+    session.inFlight += 1
+    session.lastSeenAt = now()
+    res.once('close', () => {
+      session.inFlight -= 1
+      session.lastSeenAt = now()
+    })
+    return session.transport.handleRequest(req, res, body)
   }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -101,22 +175,25 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
       if (sessionId !== undefined) {
         const session = sessions.get(sessionId)
         if (!session) return sendRpcError(res, 404, -32001, 'Session not found')
-        return session.transport.handleRequest(req, res, body.value)
+        return route(session, req, res, body.value)
       }
       if (!isInitializeRequest(body.value)) {
         return sendRpcError(res, 400, -32000, 'No session: send initialize first')
       }
+      if (sessions.size >= MCP_MAX_SESSIONS) await sweepIdle()
       if (sessions.size >= MCP_MAX_SESSIONS) {
-        return sendRpcError(res, 503, -32000, 'Too many open sessions')
+        const id = quietest()
+        if (id === undefined) return sendRpcError(res, 503, -32000, 'Too many open sessions')
+        await evict([id])
       }
       const session = openSession()
-      return session.transport.handleRequest(req, res, body.value)
+      return route(session, req, res, body.value)
     }
 
     if (req.method === 'GET' || req.method === 'DELETE') {
       const session = sessionId === undefined ? undefined : sessions.get(sessionId)
       if (!session) return sendRpcError(res, 404, -32001, 'Session not found')
-      return session.transport.handleRequest(req, res)
+      return route(session, req, res)
     }
 
     sendJson(res, 405, { error: 'Method not allowed' }, { allow: 'GET, POST, DELETE' })
@@ -131,7 +208,14 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
         changed()
       }
     })
-    const session: Session = { transport, server, connectedAt: now() }
+    const opened = now()
+    const session: Session = {
+      transport,
+      server,
+      connectedAt: opened,
+      lastSeenAt: opened,
+      inFlight: 0
+    }
     transport.onclose = () => {
       const id = transport.sessionId
       if (id !== undefined && sessions.get(id) === session) {
@@ -167,6 +251,8 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
           server.on('error', report)
           boundPort = (server.address() as AddressInfo).port
           http = server
+          sweepTimer = setInterval(() => void sweepIdle(), sweepIntervalMs)
+          sweepTimer.unref()
           resolve(boundPort)
         })
       })
@@ -175,6 +261,8 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     async close() {
       const server = http
       http = null
+      if (sweepTimer) clearInterval(sweepTimer)
+      sweepTimer = null
       await endSessions()
       if (!server) return
       await new Promise<void>((resolve) => {
