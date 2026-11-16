@@ -13,6 +13,7 @@ import { shellTabs } from '@renderer/shell/routes'
 import { useGlobalShortcuts } from '@renderer/shell/useGlobalShortcuts'
 import { useIdleAutoShow } from '@renderer/shell/useIdleAutoShow'
 import { useStageTransport } from '@renderer/shell/useStageTransport'
+import { useReplayGainNudge } from '@renderer/shell/useReplayGainNudge'
 import { useContainerHeight, useContainerWidth } from '@renderer/shell/useContainerWidth'
 import { useZenMode } from '@renderer/shell/useZenMode'
 import { SHELL_BAND_PANE, SIDEBAR_PANE, SIDEBAR_REFLOW_BELOW } from '@renderer/shell/shellLayout'
@@ -26,6 +27,7 @@ import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { useOnboardingStore } from '@renderer/stores/onboarding'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { usePlaylistsStore } from '@renderer/stores/playlists'
+import { useReplayGainStore } from '@renderer/stores/replayGain'
 import { useShellStore } from '@renderer/stores/shell'
 import { useTunedeckStore } from '@renderer/stores/tunedeck'
 import { useZenStore } from '@renderer/stores/zen'
@@ -58,6 +60,10 @@ const route = useRoute()
 const router = useRouter()
 const roots = useLibraryRootsStore()
 const libraryChanges = useLibraryChangesStore()
+// W25-1: the ReplayGain job reports while Settings is closed, and a finished
+// scan may owe the operator a nudge — both outlive any one tab.
+const replayGain = useReplayGainStore()
+useReplayGainNudge()
 const playback = usePlaybackStore()
 const playlists = usePlaylistsStore()
 const shell = useShellStore()
@@ -286,6 +292,7 @@ onMounted(() => {
   roots.start()
   // Writes made outside this window — an agent, a dev command (D36.9).
   libraryChanges.start()
+  replayGain.start()
   void playlists.refresh()
   // After hydration, not before: until `settings.getAll` lands the surface
   // holds the done-key's default (`false`) and would open the wizard on every
@@ -300,6 +307,7 @@ onMounted(() => {
 onUnmounted(() => {
   roots.stop()
   libraryChanges.stop()
+  replayGain.stop()
   playback.dispose()
 })
 </script>
