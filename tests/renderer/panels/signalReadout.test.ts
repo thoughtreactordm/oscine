@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildFormatRows,
   buildReplayGainRows,
+  replayGainSourceLabel,
   describeDecodePath,
   describeLoudness,
   formatBitrate,
@@ -253,7 +254,27 @@ describe('loudness', () => {
     const rows = buildReplayGainRows(subject, readout.applied)
     expect(rowValue(rows, 'rgTrack')).toBe('−7.10 dB')
     expect(rows.find((row) => row.key === 'rgTrack')?.note).toBeUndefined()
-    expect(rowValue(rows, 'rgSource')).toBe('Computed by Oscine')
+    expect(rowValue(rows, 'rgSource')).toBe('measured — not in file')
+  })
+})
+
+describe('ReplayGain source label (W25-6)', () => {
+  it('says where the value came from', () => {
+    expect(replayGainSourceLabel({ rgSource: 'tag' })).toBe('from file')
+    expect(replayGainSourceLabel({ rgSource: 'tag', rgStaged: true })).toBe('from file')
+    expect(replayGainSourceLabel({ rgSource: 'computed' })).toBe('measured — not in file')
+    expect(replayGainSourceLabel({ rgSource: 'computed', rgStaged: false })).toBe(
+      'measured — not in file'
+    )
+    expect(replayGainSourceLabel({ rgSource: 'computed', rgStaged: true })).toBe(
+      'measured — staged'
+    )
+    expect(replayGainSourceLabel({ rgSource: null })).toBeNull()
+  })
+
+  it('labels the readout row', () => {
+    const subject = track({ rgTrackGainDb: -6, rgSource: 'computed', rgStaged: true })
+    expect(rowValue(buildReplayGainRows(subject, 'track'), 'rgSource')).toBe('measured — staged')
   })
 })
 

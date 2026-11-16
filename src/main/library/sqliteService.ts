@@ -47,6 +47,7 @@ import {
 import {
   isEditableTagField,
   prefillTagFieldKeys,
+  REPLAYGAIN_TAG_KEYS,
   tagField,
   type TagFieldEditState,
   type TagFieldKey,
@@ -84,6 +85,7 @@ import type { LibraryService } from './service'
 import type { ReplayGainAnalyzer } from '../replaygain/analyzer'
 import { ReplayGainJobService } from '../replaygain/jobService'
 import { ReplayGainStagingService } from '../replaygain/staging'
+import { applyFlushedReplayGain } from '../replaygain/afterFlush'
 import { ingestRippedTracks } from '../cdrip/ingest'
 import { toRelPath } from '../db/paths'
 import { NO_LIBRARY_CHANGES, type LibraryChangeNotifier } from './changes'
@@ -555,11 +557,31 @@ export class SqliteLibraryService implements LibraryService {
     const generic = fields.filter((field): field is TagFieldKey => !isGroupedWritebackField(field))
     this.store.retireWrittenOverrides(trackId, grouped, Date.now())
     this.tagOverrides.revert([trackId], generic)
+    // W25-6 (oscine-replaygain OQ5): a flush does not re-index, so a written
+    // ReplayGain value is re-read here and the track takes what the file holds.
+    if (generic.some((field) => (REPLAYGAIN_TAG_KEYS as readonly string[]).includes(field))) {
+      await this.refreshReplayGainFromFile(trackId)
+    }
     this.changes.notify({
       ...(grouped.length > 0 ? { overrides: [trackId] } : {}),
       ...(generic.length > 0 ? { tagOverrides: [trackId] } : {})
     })
     if (fields.includes('artwork')) await this.gcArtworkOriginals()
+  }
+
+  /**
+   * Re-reads a just-flushed file's ReplayGain into the track row (W25-6). A
+   * file that cannot be read keeps the row as it was: the write was verified,
+   * and the next scan reads it anyway.
+   */
+  private async refreshReplayGainFromFile(trackId: number): Promise<void> {
+    const absPath = this.store.resolveTrackPath(trackId)
+    if (absPath === null) return
+    try {
+      applyFlushedReplayGain(this.deps.db, trackId, (await this.readMetadata(absPath)).replayGain)
+    } catch (error) {
+      console.warn(`[writeback] track ${trackId} ReplayGain re-read failed:`, error)
+    }
   }
 
   /** Releases originals no live artwork override still names (R8). */

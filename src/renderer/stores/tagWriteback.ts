@@ -7,7 +7,11 @@ import type {
   WritebackProgress,
   WritebackReport
 } from '@shared/tagWriteback'
-import { overrides as overridesBridge, tagWriteback as bridge } from '@renderer/ipc'
+import {
+  library as libraryBridge,
+  overrides as overridesBridge,
+  tagWriteback as bridge
+} from '@renderer/ipc'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import {
   buildSelections,
@@ -16,8 +20,12 @@ import {
   initialSelection,
   isAgentRow,
   overallState,
+  partialAlbumsAfterApply,
   selectionSummary,
+  splitAlbums,
+  stageNotice,
   type CheckState,
+  type SplitAlbum,
   type ProvenanceFilter,
   type SelectionMap
 } from '@renderer/panels/tools/tagWritebackModel'
@@ -40,6 +48,11 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
   const report = ref<WritebackReport | null>(null)
   /** Every row, or only the agent-staged ones (W24-8, D36.6). */
   const provenanceFilter = ref<ProvenanceFilter>('all')
+  /** The last "Stage measured ReplayGain" pass, as one line (W25-6). */
+  const stageMessage = ref<string | null>(null)
+  const staging = ref(false)
+  /** Albums the last flush left with mixed album gains (W25-6, R21). */
+  const partialAlbums = ref<SplitAlbum[]>([])
 
   const libraryRoots = useLibraryRootsStore()
 
@@ -60,6 +73,8 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
   )
   const headerState = computed<CheckState>(() => overallState(visibleWrites.value, selection.value))
   const hasChanges = computed(() => pendingWrites.value.length > 0)
+  /** Albums the current selection would split (W25-6, R21). */
+  const splitWarnings = computed(() => splitAlbums(pendingWrites.value, selection.value))
   const canApply = computed(() => status.value !== 'applying' && summary.value.tracks > 0)
   const outcomeByTrack = computed(() => {
     const map = new Map<number, WritebackOutcome>()
@@ -88,6 +103,7 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
     errorMessage.value = null
     report.value = null
     progress.value = null
+    partialAlbums.value = []
     pendingWrites.value = []
     selection.value = new Map()
     try {
@@ -101,6 +117,29 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
       status.value = 'error'
       errorMessage.value = error instanceof Error ? error.message : 'Could not build the review.'
     }
+  }
+
+  /**
+   * Stages every finished measurement into the correction layer, then reloads
+   * the review — **W25-6**, `oscine-replaygain` D37. Main applies Decisions C
+   * (whole albums), D (fill gaps) and E (no Opus peaks). The rows land in the
+   * same review as any correction, and nothing reaches a file until Apply.
+   */
+  async function stageReplayGain(): Promise<void> {
+    if (status.value === 'applying' || staging.value) return
+    staging.value = true
+    stageMessage.value = null
+    try {
+      stageMessage.value = stageNotice(await libraryBridge.stageComputedReplayGain())
+    } catch (error) {
+      stageMessage.value =
+        error instanceof Error ? error.message : 'Could not stage measured ReplayGain.'
+      return
+    } finally {
+      staging.value = false
+    }
+    libraryRoots.markChanged()
+    await reviewPending()
   }
 
   function setField(trackId: number, field: WritebackField, on: boolean): void {
@@ -142,11 +181,21 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
     if (!canApply.value) return
     const selections = buildSelections(pendingWrites.value, selection.value)
     if (selections.length === 0) return
+    // R21: the partial-album summary is judged against the batch as sent, so
+    // hold it before the reload below replaces the rows and the selection.
+    const sentWrites = pendingWrites.value
+    const sentSelection = selection.value
+    partialAlbums.value = []
     status.value = 'applying'
     report.value = null
     progress.value = { done: 0, total: selections.length, written: 0, skipped: 0, failed: 0 }
     try {
       report.value = await bridge.apply(selections)
+      partialAlbums.value = partialAlbumsAfterApply(
+        sentWrites,
+        sentSelection,
+        report.value.outcomes
+      )
       status.value = 'done'
       // Written and skipped tracks have had their overrides retired in main, so
       // they leave the pending list; failures keep theirs. Refetch to drop them
@@ -192,6 +241,8 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
     progress.value = null
     report.value = null
     provenanceFilter.value = 'all'
+    stageMessage.value = null
+    partialAlbums.value = []
     reviewSeq += 1
   }
 
@@ -216,6 +267,11 @@ export const useTagWritebackStore = defineStore('tagWriteback', () => {
     hasChanges,
     canApply,
     outcomeByTrack,
+    splitWarnings,
+    partialAlbums,
+    stageMessage,
+    staging,
+    stageReplayGain,
     reviewPending,
     setField,
     toggleField,

@@ -90,6 +90,13 @@ export interface TagWritebackServiceDeps {
    * the agent journal as the review loads. Absent, no row carries `agent`.
    */
   readonly provenance?: (trackIds: readonly number[]) => ReadonlyMap<number, AgentProvenance>
+  /**
+   * The album each loaded row belongs to (W25-6, `oscine-replaygain` R21),
+   * asked only for rows whose staged ReplayGain album gain changes the file,
+   * so the review can warn when a selection splits an album. Absent, no row
+   * carries `replayGain`.
+   */
+  readonly albumOf?: (trackIds: readonly number[]) => ReadonlyMap<number, number>
   /** Clock for progress throttling. Defaults to `Date.now`. */
   readonly now?: () => number
   /** Minimum gap between progress emissions, in ms. Defaults to 50. */
@@ -120,6 +127,29 @@ export function trackPathResolver(db: Database.Database): (trackId: number) => s
   }
 }
 
+/**
+ * Builds the review's `trackId -> albumId` lookup (W25-6, R21) over a database.
+ * One statement for the whole set through `json_each`, so a large review does
+ * not bind a parameter per id. Singles have no album and are left out.
+ */
+export function trackAlbumResolver(
+  db: Database.Database
+): (trackIds: readonly number[]) => ReadonlyMap<number, number> {
+  const statement = db.prepare(`
+    SELECT t.id AS trackId, t.album_id AS albumId
+    FROM json_each(?) j
+    JOIN tracks t ON t.id = j.value
+    WHERE t.album_id IS NOT NULL
+  `)
+  return (trackIds) => {
+    const rows = statement.all(JSON.stringify(trackIds)) as Array<{
+      trackId: number
+      albumId: number
+    }>
+    return new Map(rows.map((row) => [row.trackId, row.albumId]))
+  }
+}
+
 export class TagWritebackService {
   private readonly differ: PendingWriteSource
   private readonly resolvePath: (trackId: number) => string | null
@@ -137,6 +167,7 @@ export class TagWritebackService {
   private readonly provenance?: (
     trackIds: readonly number[]
   ) => ReadonlyMap<number, AgentProvenance>
+  private readonly albumOf?: (trackIds: readonly number[]) => ReadonlyMap<number, number>
 
   /** Set for the lifetime of one flush; its `aborted` flag is what cancel flips. */
   private inFlight: { aborted: boolean } | null = null
@@ -153,6 +184,7 @@ export class TagWritebackService {
     this.throttleMs = deps.throttleMs ?? PROGRESS_THROTTLE_MS
     this.batch = deps.batch ?? ((fn) => fn())
     this.provenance = deps.provenance
+    this.albumOf = deps.albumOf
   }
 
   /**
@@ -186,11 +218,24 @@ export class TagWritebackService {
       }
       if (pending !== null && pending.hasChanges) out.push(pending)
     }
-    if (this.provenance === undefined || out.length === 0) return out
-    const agent = this.provenance(out.map((pending) => pending.trackId))
+    if (out.length === 0) return out
+    const agent = this.provenance?.(out.map((pending) => pending.trackId))
+    const rgIds = out
+      .filter((pending) => pending.fields.replayGainAlbumGain?.changed === true)
+      .map((pending) => pending.trackId)
+    const albums = this.albumOf !== undefined && rgIds.length > 0 ? this.albumOf(rgIds) : undefined
+    if (agent === undefined && albums === undefined) return out
     return out.map((pending) => {
-      const found = agent.get(pending.trackId)
-      return found === undefined ? pending : { ...pending, agent: found }
+      const found = agent?.get(pending.trackId)
+      const albumId = pending.fields.replayGainAlbumGain?.changed
+        ? albums?.get(pending.trackId)
+        : undefined
+      if (found === undefined && albumId === undefined) return pending
+      return {
+        ...pending,
+        ...(found === undefined ? {} : { agent: found }),
+        ...(albumId === undefined ? {} : { replayGain: { albumId } })
+      }
     })
   }
 

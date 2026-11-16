@@ -156,6 +156,33 @@ describe('TagWritebackService.preview', () => {
 
     expect(preview.map((p) => p.trackId)).toEqual([2])
   })
+
+  it('tags only rows that change an album gain with their album (W25-6, R21)', async () => {
+    const script = new Map<number, PendingWrite | null | 'throw'>([
+      [1, makePending(1, { fields: { replayGainAlbumGain: changed<number>(null, -7) } })],
+      [2, makePending(2, { fields: { replayGainTrackGain: changed<number>(null, -6) } })],
+      [3, makePending(3, { fields: { replayGainAlbumGain: changed<number>(null, -7) } })]
+    ])
+    const { source } = differFrom(script)
+    const asked: number[][] = []
+    const service = new TagWritebackService({
+      differ: source,
+      resolvePath: resolveSimple,
+      albumOf: (ids) => {
+        asked.push([...ids])
+        // Track 3 is a single: no album.
+        return new Map([
+          [1, 10],
+          [2, 10]
+        ])
+      }
+    })
+
+    const preview = await service.preview([1, 2, 3])
+
+    expect(asked).toEqual([[1, 3]])
+    expect(preview.map((p) => p.replayGain)).toEqual([{ albumId: 10 }, undefined, undefined])
+  })
 })
 
 describe('TagWritebackService.apply — selection', () => {

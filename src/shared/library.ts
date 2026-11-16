@@ -48,6 +48,12 @@ export interface TrackReplayGain {
   rgAlbumGainDb: number | null
   rgAlbumPeak: number | null
   rgSource: ReplayGainSource | null
+  /**
+   * Whether a measured value is staged for write-back — **W25-6**: a
+   * ReplayGain row stands in `track_tag_overrides`. Optional because only the
+   * library's track reads resolve it; absent reads as not staged.
+   */
+  rgStaged?: boolean
 }
 
 /**

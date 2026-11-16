@@ -18,7 +18,11 @@ import {
   fieldText,
   formatArtwork,
   initialSelection,
+  isMixedAlbumOverwrite,
   overallState,
+  partialAlbumsAfterApply,
+  splitAlbums,
+  stageNotice,
   rowLabel,
   reviewColumns,
   rowState,
@@ -295,5 +299,190 @@ describe('agent provenance (W24-8)', () => {
       'Staged by an agent (changesets #4, #7): Album artist, Conductor'
     )
     expect(agentBadgeTitle(operator)).toBe('')
+  })
+})
+
+/**
+ * W25-6 — the ReplayGain half of the review (oscine-replaygain D37): Decision D
+ * rows start unchecked, and R21 warns when a selection or a flush leaves an
+ * album with mixed album gains.
+ */
+describe('ReplayGain review (W25-6)', () => {
+  /** A row staging an album gain (and peak), optionally a track gain too. */
+  function rgRow(
+    trackId: number,
+    opts: {
+      albumId?: number
+      album?: string
+      fileAlbumGain?: number | null
+      albumGain?: number
+      trackGain?: boolean
+    } = {}
+  ): PendingWrite {
+    const base = pending(trackId, {
+      album: unchanged(opts.album ?? 'Album'),
+      fields: {
+        replayGainAlbumGain: changed<number>(opts.fileAlbumGain ?? null, opts.albumGain ?? -7.5),
+        replayGainAlbumPeak: changed<number>(null, 0.98),
+        ...(opts.trackGain ? { replayGainTrackGain: changed<number>(null, -6.2) } : {})
+      }
+    })
+    return {
+      ...base,
+      hasChanges: true,
+      ...(opts.albumId === undefined ? {} : { replayGain: { albumId: opts.albumId } })
+    }
+  }
+
+  describe('Decision D: differing album gains start deselected', () => {
+    it('leaves a file album gain more than 0.1 dB away unchecked', () => {
+      const row = rgRow(1, { fileAlbumGain: -6.0, albumGain: -7.5 })
+      expect(isMixedAlbumOverwrite(row)).toBe(true)
+      const selection = initialSelection([row])
+      expect([...selection.get(1)!]).toEqual([])
+      expect(rowState(row, selection)).toBe('none')
+      expect(buildSelections([row], selection)).toEqual([])
+    })
+
+    it('keeps the rest of the row checked', () => {
+      const row = rgRow(1, { fileAlbumGain: -6.0, trackGain: true })
+      expect([...initialSelection([row]).get(1)!]).toEqual(['replayGainTrackGain'])
+    })
+
+    it('checks a gap fill (the file has no album gain)', () => {
+      const row = rgRow(1, { fileAlbumGain: null })
+      expect(isMixedAlbumOverwrite(row)).toBe(false)
+      expect([...initialSelection([row]).get(1)!].sort()).toEqual([
+        'replayGainAlbumGain',
+        'replayGainAlbumPeak'
+      ])
+    })
+
+    it('treats exactly 0.1 dB as within the margin', () => {
+      expect(isMixedAlbumOverwrite(rgRow(1, { fileAlbumGain: -7.4, albumGain: -7.5 }))).toBe(false)
+    })
+
+    it('ignores rows that do not touch the album gain', () => {
+      expect(isMixedAlbumOverwrite(pending(1, { title: changed('a', 'b') }))).toBe(false)
+    })
+  })
+
+  describe('split-album warning (R21)', () => {
+    const rows = [
+      rgRow(1, { albumId: 10, album: 'Kid A', trackGain: true }),
+      rgRow(2, { albumId: 10, album: 'Kid A', trackGain: true }),
+      rgRow(3, { albumId: 10, album: 'Kid A', fileAlbumGain: -5.0 }),
+      rgRow(4, { albumId: 20, album: 'Amnesiac', trackGain: true }),
+      rgRow(5, { albumId: 20, album: 'Amnesiac', trackGain: true })
+    ]
+
+    it('warns about the album a Decision D row splits by default', () => {
+      expect(splitAlbums(rows, initialSelection(rows))).toEqual([
+        { albumId: 10, title: 'Kid A', total: 3, landing: 2 }
+      ])
+    })
+
+    it('clears once the Decision D row is opted in', () => {
+      const selection = initialSelection(rows)
+      selection.get(3)!.add('replayGainAlbumGain')
+      expect(splitAlbums(rows, selection)).toEqual([])
+    })
+
+    it('warns when the operator deselects one row of an album', () => {
+      const selection = initialSelection(rows)
+      selection.get(3)!.add('replayGainAlbumGain')
+      selection.get(5)!.delete('replayGainAlbumGain')
+      expect(splitAlbums(rows, selection).map((album) => album.albumId)).toEqual([20])
+    })
+
+    it('does not warn when a whole album is left out', () => {
+      const selection = initialSelection(rows)
+      for (const id of [1, 2]) selection.get(id)!.clear()
+      expect(splitAlbums(rows, selection)).toEqual([])
+    })
+
+    it('does not warn for a track gain deselected on its own', () => {
+      const selection = initialSelection(rows)
+      selection.get(3)!.add('replayGainAlbumGain')
+      selection.get(4)!.delete('replayGainTrackGain')
+      expect(splitAlbums(rows, selection)).toEqual([])
+    })
+
+    it('ignores rows with no album (singles)', () => {
+      const singles = [rgRow(1, { trackGain: true }), rgRow(2, { fileAlbumGain: -3 })]
+      expect(splitAlbums(singles, initialSelection(singles))).toEqual([])
+    })
+  })
+
+  describe('albums left partial after apply (R21)', () => {
+    const rows = [
+      rgRow(1, { albumId: 10, album: 'Kid A' }),
+      rgRow(2, { albumId: 10, album: 'Kid A' }),
+      rgRow(3, { albumId: 20, album: 'Amnesiac' }),
+      rgRow(4, { albumId: 20, album: 'Amnesiac' })
+    ]
+
+    it('lists an album where one file failed', () => {
+      const partial = partialAlbumsAfterApply(rows, initialSelection(rows), [
+        { trackId: 1, status: 'written' },
+        { trackId: 2, status: 'failed', code: 'write-failed' },
+        { trackId: 3, status: 'written' },
+        { trackId: 4, status: 'skipped' }
+      ])
+      expect(partial).toEqual([{ albumId: 10, title: 'Kid A', total: 2, landing: 1 }])
+    })
+
+    it('counts a file a cancelled flush never reached as left behind', () => {
+      const partial = partialAlbumsAfterApply(rows, initialSelection(rows), [
+        { trackId: 1, status: 'written' },
+        { trackId: 2, status: 'written' },
+        { trackId: 3, status: 'written' }
+      ])
+      expect(partial.map((album) => album.albumId)).toEqual([20])
+    })
+
+    it('counts a deselected row as left behind', () => {
+      const selection = initialSelection(rows)
+      selection.get(4)!.clear()
+      const partial = partialAlbumsAfterApply(rows, selection, [
+        { trackId: 1, status: 'written' },
+        { trackId: 2, status: 'written' },
+        { trackId: 3, status: 'written' }
+      ])
+      expect(partial.map((album) => album.albumId)).toEqual([20])
+    })
+
+    it('is empty when every album lands whole', () => {
+      const outcomes = rows.map((row) => ({ trackId: row.trackId, status: 'written' as const }))
+      expect(partialAlbumsAfterApply(rows, initialSelection(rows), outcomes)).toEqual([])
+    })
+  })
+
+  describe('stageNotice', () => {
+    it('summarises what was staged and groups skips by reason', () => {
+      expect(
+        stageNotice({
+          stagedTracks: 12,
+          stagedAlbums: 1,
+          skipped: [
+            { albumId: 1, reason: 'unmeasured' },
+            { albumId: 2, reason: 'unmeasured' },
+            { albumId: 3, reason: 'failed' }
+          ]
+        })
+      ).toBe(
+        'Staged 12 tracks across 1 album · 2 albums skipped: not fully measured yet · 1 album skipped: a track failed to measure'
+      )
+    })
+
+    it('says when there was nothing to stage', () => {
+      expect(stageNotice({ stagedTracks: 0, stagedAlbums: 0, skipped: [] })).toBe(
+        'Nothing measured to stage'
+      )
+    })
+
+    it('omits the album clause for singles only', () => {
+      expect(stageNotice({ stagedTracks: 1, stagedAlbums: 0, skipped: [] })).toBe('Staged 1 track')
+    })
   })
 })
