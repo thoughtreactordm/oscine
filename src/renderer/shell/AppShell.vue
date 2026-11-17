@@ -480,7 +480,10 @@ onUnmounted(() => {
       and with the merge off, the bar is here as it always was.
     -->
     <Transition name="player-rise">
-      <div v-if="!stageOwnsTransport" class="min-h-0 border-t border-default bg-default">
+      <div
+        v-if="!stageOwnsTransport"
+        class="flex min-h-0 flex-col border-t border-default bg-default"
+      >
         <NowPlaying />
       </div>
     </Transition>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { usePlaybackStore } from '@renderer/stores/playback'
+import { formatTime } from './seekTime'
 
 /**
  * Previous / play-pause / next, with the elapsed and total time stacked above —
@@ -11,12 +12,6 @@ import { usePlaybackStore } from '@renderer/stores/playback'
  * container the parent drops this into.
  */
 const playback = usePlaybackStore()
-
-function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
-  const total = Math.floor(seconds)
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
-}
 </script>
 
 <template>

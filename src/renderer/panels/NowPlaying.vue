@@ -97,7 +97,7 @@ const barBody = computed(() =>
   <UCard
     as="footer"
     variant="soft"
-    class="relative isolate h-full min-h-0 overflow-hidden rounded-none ring-0"
+    class="relative isolate min-h-0 flex-1 overflow-hidden rounded-none ring-0"
     :ui="{ body: barBody }"
     aria-label="Now playing"
   >
