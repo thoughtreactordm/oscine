@@ -28,6 +28,10 @@ import {
 import { createPaletteSearch } from '@renderer/shell/paletteSearch'
 import { buildSettingsCommands } from '@renderer/shell/settingsCommands'
 import { shellTabs } from '@renderer/shell/routes'
+import { buildToolCommands } from '@renderer/shell/toolCommands'
+import { useToolsMenu } from '@renderer/shell/useToolsMenu'
+import { useEqualizerStore } from '@renderer/stores/equalizer'
+import { useToolsStore } from '@renderer/stores/tools'
 import { useOnboardingStore } from '@renderer/stores/onboarding'
 import { usePaletteStore } from '@renderer/stores/palette'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -71,6 +75,9 @@ const settingsNav = useSettingsNavStore()
 const zen = useZenStore()
 const visualizer = useVisualizerStore()
 const replayGain = useReplayGainStore()
+const tools = useToolsStore()
+const equalizer = useEqualizerStore()
+const toolsMenu = useToolsMenu()
 const toast = useToast()
 
 const search = createPaletteSearch({ query: searchIpc.query })
@@ -176,6 +183,24 @@ const replayGainCommands = buildReplayGainCommands({
   close
 })
 
+/**
+ * Each tool by name, the EQ's master switch and one entry per saved preset.
+ * Computed rather than built once: presets are settings-backed and change while
+ * the palette is mounted, and the toggle's label reads the current state.
+ */
+const toolCommands = computed(() =>
+  buildToolCommands({
+    tools: tools.tools,
+    presets: equalizer.presets,
+    equalizerEnabled: equalizer.enabled,
+    openTool: toolsMenu.openTool,
+    switchPreset: toolsMenu.switchPreset,
+    toggleEqualizer: toolsMenu.toggleEqualizer,
+    notify,
+    close
+  })
+)
+
 const settingCommands = buildSettingsCommands({
   get: (key) => settings.get(key),
   set: (key, value) => settings.set(key, value),
@@ -251,7 +276,13 @@ const groups = computed<CommandPaletteGroup[]>(() => {
   // them, so a keystroke of entities is never buried under every command.
   if (mode === 'action' || (mode === 'blended' && text.length > 0)) {
     const items = matchCommands(
-      [...actionCommands, ...visualizerCommands, ...replayGainCommands, ...onboardingCommands],
+      [
+        ...actionCommands,
+        ...toolCommands.value,
+        ...visualizerCommands,
+        ...replayGainCommands,
+        ...onboardingCommands
+      ],
       text
     )
     if (items.length > 0) {
