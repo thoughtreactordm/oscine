@@ -17,6 +17,7 @@ import { overviewOnlyTools } from './fakeTools'
  */
 const TOKEN = 'test-token'
 const IDLE_MS = 60_000
+const GRACE_MS = 5_000
 
 const OVERVIEW: LibraryOverview = {
   tracks: 0,
@@ -57,6 +58,7 @@ describe('agent MCP session eviction', () => {
       token: TOKEN,
       now: () => clock,
       idleTimeoutMs: IDLE_MS,
+      streamGraceMs: GRACE_MS,
       sweepIntervalMs: 10,
       createServer: () => {
         const server = createAgentMcpServer(overviewOnlyTools(OVERVIEW), '0.0.0-test')
@@ -88,14 +90,11 @@ describe('agent MCP session eviction', () => {
     http = null
   })
 
-  it('ends a session whose client went away without a DELETE once it has been quiet', async () => {
+  it('ends a streaming session soon after its client went away without a DELETE', async () => {
     const port = await start()
     const client = await connect(port)
     await client.listTools()
-    expect(http!.sessionCount()).toBe(1)
-
-    // Not long enough yet: the sweep leaves it.
-    clock += IDLE_MS - 1
+    // The SDK client opens its GET event stream once initialized.
     await new Promise((resolve) => setTimeout(resolve, 40))
     expect(http!.sessionCount()).toBe(1)
 
@@ -105,9 +104,48 @@ describe('agent MCP session eviction', () => {
     // is what counts as the last activity.
     await new Promise((resolve) => setTimeout(resolve, 40))
     expect(http!.sessionCount()).toBe(1)
-    clock += IDLE_MS
+
+    // Inside the grace a reconnect could still come: the sweep leaves it.
+    clock += GRACE_MS - 1
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(http!.sessionCount()).toBe(1)
+
+    // Past the grace, long before the idle timeout, it is gone.
+    clock += 1
     await vi.waitFor(() => expect(http!.sessionCount()).toBe(0))
     expect(serversClosed).toBe(1)
+  })
+
+  it('holds a session that never streamed to the full idle timeout', async () => {
+    const port = await start()
+    // A raw initialize with no GET afterwards: a client that only POSTs.
+    const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream'
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-03-26',
+          capabilities: {},
+          clientInfo: { name: 'post-only', version: '0' }
+        }
+      })
+    })
+    await response.text()
+    expect(http!.sessionCount()).toBe(1)
+
+    clock += GRACE_MS * 2
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(http!.sessionCount()).toBe(1)
+
+    clock += IDLE_MS
+    await vi.waitFor(() => expect(http!.sessionCount()).toBe(0))
   })
 
   it('keeps a quiet session that still holds a request open', async () => {

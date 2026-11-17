@@ -27,6 +27,13 @@ import { checkMcpRequest } from './requestGuard'
  * So a session with no request in flight (an open GET event stream counts as
  * one) that has been quiet for `idleTimeoutMs` is ended by a periodic sweep,
  * and a full table evicts its longest-quiet such session rather than refusing.
+ *
+ * A client that has held a GET event stream is judged faster. Streaming clients
+ * (the SDK's, so every agent CLI built on it) keep that stream open for as long
+ * as they live and reopen it within a second or two if it drops, so a session
+ * whose stream closed and stayed closed for `streamGraceMs` has no client left.
+ * Without this, every short-lived agent process — and an orchestrator spawns
+ * many — stayed "connected" for the full idle timeout, and the count only rose.
  * A client that comes back afterwards gets 404 and, per the spec,
  * re-initializes.
  */
@@ -42,8 +49,14 @@ export const MCP_MAX_SESSIONS = 16
 /** How long a session with nothing in flight may stay quiet before it is ended. */
 export const MCP_SESSION_IDLE_MS = 10 * 60_000
 
+/**
+ * How long a session that has streamed may sit with its stream closed before it
+ * is ended — comfortably longer than an SDK client's stream reconnect backoff.
+ */
+export const MCP_STREAM_GRACE_MS = 30_000
+
 /** How often idle sessions are looked for. */
-export const MCP_SESSION_SWEEP_MS = 60_000
+export const MCP_SESSION_SWEEP_MS = 10_000
 
 export interface McpHttpServerOptions {
   /** `0` asks the OS for a free port — tests only; the app passes a fixed one. */
@@ -57,6 +70,8 @@ export interface McpHttpServerOptions {
   now?: () => number
   /** Defaults to `MCP_SESSION_IDLE_MS`. */
   idleTimeoutMs?: number
+  /** Defaults to `MCP_STREAM_GRACE_MS`. */
+  streamGraceMs?: number
   /** Defaults to `MCP_SESSION_SWEEP_MS`. */
   sweepIntervalMs?: number
 }
@@ -86,6 +101,8 @@ interface Session {
   lastSeenAt: number
   /** Responses still open — a held GET event stream keeps this above zero. */
   inFlight: number
+  /** It has opened a GET event stream, so a closed one means its client is gone. */
+  streamed: boolean
 }
 
 export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServer {
@@ -97,6 +114,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   const now = options.now ?? Date.now
   let token = options.token
   const idleTimeoutMs = options.idleTimeoutMs ?? MCP_SESSION_IDLE_MS
+  const streamGraceMs = options.streamGraceMs ?? MCP_STREAM_GRACE_MS
   const sweepIntervalMs = options.sweepIntervalMs ?? MCP_SESSION_SWEEP_MS
   let sweepTimer: ReturnType<typeof setInterval> | null = null
 
@@ -125,7 +143,11 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   function sweepIdle(): Promise<void> {
     const t = now()
     const idle = [...sessions.entries()]
-      .filter(([, session]) => session.inFlight === 0 && t - session.lastSeenAt >= idleTimeoutMs)
+      .filter(
+        ([, session]) =>
+          session.inFlight === 0 &&
+          t - session.lastSeenAt >= (session.streamed ? streamGraceMs : idleTimeoutMs)
+      )
       .map(([id]) => id)
     return evict(idle)
   }
@@ -148,6 +170,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   ): Promise<void> {
     session.inFlight += 1
     session.lastSeenAt = now()
+    if (req.method === 'GET') session.streamed = true
     res.once('close', () => {
       session.inFlight -= 1
       session.lastSeenAt = now()
@@ -214,7 +237,8 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
       server,
       connectedAt: opened,
       lastSeenAt: opened,
-      inFlight: 0
+      inFlight: 0,
+      streamed: false
     }
     transport.onclose = () => {
       const id = transport.sessionId
