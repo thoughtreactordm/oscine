@@ -377,6 +377,56 @@ function onHostRetired(): void {
 }
 
 /**
+ * Whether the current track turned out to have nothing to read — no lyrics on
+ * disk or online, or an instrumental marker. Sticky across a load: it only moves
+ * once a lookup settles, so a track change does not flash the column out and back
+ * in while the next document is fetched. A failed lookup is not "empty"; the pane
+ * keeps its Try again.
+ */
+const lyricsEmpty = ref(false)
+watch(
+  () => [lyrics.document, lyrics.loading, lyrics.failed] as const,
+  ([doc, loading, failed]) => {
+    if (loading) return
+    lyricsEmpty.value = !failed && (doc === null || doc.instrumental || doc.lines.length === 0)
+  },
+  { immediate: true }
+)
+
+/**
+ * Whether the lyrics column is actually laid out. Off the visualizer it follows
+ * the toggle, so the pane's own "No lyrics" state still answers the question. In
+ * the visualizer layout a column that only says "No lyrics" would take half the
+ * stage from the effect and squeeze the caption card, so it stands down until
+ * there is something to read — the toggle stays on and brings it back.
+ */
+const lyricsInLayout = computed(() => showLyrics.value && !(layoutOn.value && lyricsEmpty.value))
+
+// The pane loads lyrics for the playing track while it is mounted. Stood down, it
+// cannot — so the stage asks on its behalf, or a track that does have words would
+// never bring the column back. Only while the pane is down, so a mounted pane is
+// never raced into a second fetch of the same track.
+watch(
+  () => [playback.nowPlaying?.id ?? null, showLyrics.value] as const,
+  ([id, shown]) => {
+    if (id !== null && shown && !lyricsInLayout.value && lyrics.trackId !== id) {
+      void lyrics.load(id)
+    }
+  }
+)
+
+/**
+ * Below this stage width the visualizer layout cannot fit the caption card and a
+ * lyrics column side by side — the card is capped at half the row and its art,
+ * padding and tapered edge leave the caption a sliver — so the card goes on top
+ * at full width and the lyrics take the column under it.
+ */
+const VISUALIZER_STACK_WIDTH = 1200
+const stackLyrics = computed(
+  () => layoutOn.value && lyricsInLayout.value && stageWidth.value < VISUALIZER_STACK_WIDTH
+)
+
+/**
  * How the shown document was resolved, said quietly and inline with the toggle
  * rather than floating at the foot of the pane. The pane is an island; the stage
  * owns the show/hide control, so the provenance that reads as a caption on it
@@ -496,6 +546,7 @@ const byline = computed(() => {
       'stage-visualizer': layoutOn,
       'stage-scrim-opaque': highContrast
     }"
+    :style="{ '--stage-u': `${stageWidth / 100}px` }"
     aria-label="Now playing"
     @pointermove="onStagePointerMove"
     @pointerleave="onStagePointerLeave"
@@ -691,7 +742,7 @@ const byline = computed(() => {
     <div
       ref="bodyRef"
       class="stage-body relative flex h-full min-h-0 w-full flex-col p-4 sm:p-8"
-      :class="{ 'stage-has-lyrics': showLyrics }"
+      :class="{ 'stage-has-lyrics': lyricsInLayout, 'stage-stacked': stackLyrics }"
       :style="{ paddingBottom: contentBottomReserve }"
     >
       <!--
@@ -756,7 +807,7 @@ const byline = computed(() => {
         <p v-else class="shrink-0 text-sm text-dimmed">Nothing playing</p>
       </div>
 
-      <LyricsPane v-if="showLyrics" class="stage-lyrics" />
+      <LyricsPane v-if="lyricsInLayout" class="stage-lyrics" />
     </div>
 
     <!--
@@ -981,7 +1032,7 @@ section {
   --stage-panel-feather: 2.5rem;
   --stage-panel-feather-x: 2rem;
   /* The card's right edge tapers longer and softer than its left; lyrics reset it below. */
-  --stage-panel-feather-right: 9rem;
+  --stage-panel-feather-right: var(--stage-card-taper);
   --stage-panel-hint-right: 0.7;
   --ui-text: var(--oscine-on-scrim);
   --ui-text-toned: color-mix(in oklab, var(--oscine-on-scrim) 85%, transparent);
@@ -1052,6 +1103,16 @@ section {
   border: 1px solid var(--ui-border);
 }
 
+/*
+ * The visualizer cluster sizes from the stage's own width — `--stage-u`, 1% of
+ * the section as measured by `useElementSize` — not the window's: with the
+ * Tunedeck open, or the window snapped to half a monitor, the stage is a fraction
+ * of `100vw`, and `vw`-sized type stayed at full size there. Not a container
+ * query either: the body is the only box to hang one on, and beside lyrics it
+ * carries a ~680px left padding reserve, which `cqi` (content box) subtracts —
+ * so everything sized from it came out ~40% small.
+ */
+
 .stage-visualizer .stage-content {
   position: absolute;
   /* On the body's own padding line, so the cluster's top aligns with the lyrics column's. */
@@ -1061,24 +1122,34 @@ section {
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
-  gap: 2.5rem;
+  gap: clamp(1rem, calc(2.5 * var(--stage-u)), 2.5rem);
   border-radius: 1.75rem;
   width: auto;
   max-width: var(--stage-cluster-width);
   /*
+   * Everything around the caption scales with the stage, not just the type. At
+   * fixed sizes (12rem of right padding, 3rem left, a 2.5rem gap) the chrome alone
+   * took ~280px, which on a narrow stage beside lyrics left the caption a sliver.
+   * The right taper is the long soft edge the scrim fades out over.
+   */
+  --stage-card-taper: clamp(3rem, calc(9 * var(--stage-u)), 9rem);
+  /*
    * Clear of the feathered edges, so the art and caption sit on the solid middle.
    * The right side runs long, so the caption breathes out into the longer taper.
    */
-  padding: 2.5rem 12rem 2.5rem 3rem;
+  padding: clamp(1.25rem, calc(3 * var(--stage-u)), 2.5rem)
+    calc(var(--stage-card-taper) + clamp(1.5rem, calc(3 * var(--stage-u)), 3rem))
+    clamp(1.25rem, calc(3 * var(--stage-u)), 2.5rem)
+    clamp(2.25rem, calc(3.5 * var(--stage-u)), 3rem);
 }
 
 .stage-visualizer .stage-art {
   flex-shrink: 0;
   /*
-   * 9rem on a roomy stage, shrinking with the window so a narrow one (the
+   * 9rem on a roomy stage, shrinking with the stage so a narrow one (the
    * 720px floor, Tunedeck open) still leaves the caption a readable width.
    */
-  width: clamp(5rem, 11vw, 9rem);
+  width: clamp(5rem, calc(11 * var(--stage-u)), 9rem);
   border-radius: 1rem;
   box-shadow: none;
 }
@@ -1098,12 +1169,12 @@ section {
 }
 
 .stage-visualizer .stage-caption h2 {
-  font-size: 2rem;
+  font-size: clamp(1.25rem, calc(2.8 * var(--stage-u)), 2.125rem);
   line-height: 1.2;
 }
 
 .stage-visualizer .stage-caption p {
-  font-size: 1.625rem;
+  font-size: clamp(0.9375rem, calc(1.9 * var(--stage-u)), 1.375rem);
 }
 
 /*
@@ -1121,6 +1192,36 @@ section {
 .stage-visualizer .stage-lyrics {
   /* The sides clear the side feather so lines are never read through the fade. */
   padding: 1rem 3rem;
+}
+
+/*
+ * A stage too narrow for the card and a lyrics column side by side (the
+ * half-monitor window, or the Tunedeck open — `stackLyrics`): the card leaves the
+ * corner for the top of the column, at full width, and the lyrics take the height
+ * under it. The card returns to the flow so the lyrics start below it rather than
+ * reserving a guessed height.
+ */
+.stage-visualizer .stage-has-lyrics.stage-stacked {
+  --stage-cluster-width: 100%;
+  flex-direction: column;
+  justify-content: flex-start;
+  /* Lyrics on the card's left edge, so the column reads as one stack. */
+  align-items: flex-start;
+  /* Back to the body's own padding line; the side-by-side reserve does not apply. */
+  padding-left: 2rem;
+}
+
+.stage-visualizer .stage-stacked .stage-content {
+  position: relative;
+  top: auto;
+  left: auto;
+  align-self: flex-start;
+  flex: none;
+}
+
+.stage-visualizer .stage-stacked .stage-lyrics {
+  flex: 1 1 0;
+  width: 100%;
 }
 
 /*
