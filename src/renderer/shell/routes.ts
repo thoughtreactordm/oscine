@@ -104,6 +104,25 @@ const TABS: ShellTab[] = [
     view: StageView
   },
   /**
+   * Tools — W16-6's home for library-wide operations that are not places within
+   * the library, starting with the tag write-back review. Trailing, with Stats
+   * and Settings, for the same reason they are: a utility about the library, not
+   * a destination in it. Its rail is the shelf the next tool lands on.
+   *
+   * First of the trailing group, ahead of Stats: it is the one the row draws as a
+   * split button (`ShellTabs`), with a dropdown straight to each tool and the EQ
+   * presets, so it sits nearest the primary tabs where it is easiest to hit.
+   */
+  {
+    name: 'tools',
+    path: 'tools',
+    label: 'Tools',
+    icon: 'i-tabler-tools',
+    view: ToolsView,
+    sidebar: ToolsRail,
+    trailing: true
+  },
+  /**
    * The Stats dashboard — W10-12's "top-level destination", which is a tab.
    *
    * No sidebar, like Now Playing: its one control is a range that scopes the
@@ -119,21 +138,6 @@ const TABS: ShellTab[] = [
     label: 'Stats',
     icon: 'i-tabler-chart-histogram',
     view: StatsView,
-    trailing: true
-  },
-  /**
-   * Tools — W16-6's home for library-wide operations that are not places within
-   * the library, starting with the tag write-back review. Trailing, with Stats
-   * and Settings, for the same reason they are: a utility about the library, not
-   * a destination in it. Its rail is the shelf the next tool lands on.
-   */
-  {
-    name: 'tools',
-    path: 'tools',
-    label: 'Tools',
-    icon: 'i-tabler-tools',
-    view: ToolsView,
-    sidebar: ToolsRail,
     trailing: true
   },
   {

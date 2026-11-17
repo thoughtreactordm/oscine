@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { shellTabs } from '@renderer/shell/routes'
+import { useToolsMenu } from '@renderer/shell/useToolsMenu'
 import { usePlaybackStore } from '@renderer/stores/playback'
 import { useShellStore } from '@renderer/stores/shell'
 
@@ -43,6 +44,14 @@ const leadingTabs = computed(() =>
   shellTabs.filter((tab) => !tab.trailing && isTabVisible(tab.name))
 )
 const trailingTabs = computed(() => shellTabs.filter((tab) => tab.trailing))
+
+/**
+ * The Tools tab is a split button: the icon goes to the tab as any other does,
+ * the chevron beside it opens the title bar's Tools menu — each tool by name and
+ * the EQ presets — so a tool is one click from anywhere rather than a tab and a
+ * rail away. One builder feeds both menus (`toolsMenu.ts`).
+ */
+const toolsMenu = useToolsMenu().items
 </script>
 
 <template>
@@ -76,26 +85,62 @@ const trailingTabs = computed(() => shellTabs.filter((tab) => tab.trailing))
 
     <!--
       The trailing utilities, right-aligned and set off with a divider. Icon-only
-      always (§3): Stats, Tools and Settings are library-wide verbs, not places,
+      always (§3): Tools, Stats and Settings are library-wide verbs, not places,
       so they carry the smallest footprint the row allows and lean on the tooltip
       for their name — which is what leaves the leading tabs room to keep theirs.
+      Tools alone is a split button; see `toolsMenu` above.
     -->
     <div class="ml-auto flex h-full items-center gap-1 border-l border-default pl-2">
-      <UTooltip v-for="tab in trailingTabs" :key="tab.name" :text="tab.label">
-        <UButton
-          :icon="tab.icon"
-          size="xs"
-          variant="ghost"
-          square
-          :color="shell.activeTab === tab.name ? 'primary' : 'neutral'"
-          class="h-full rounded-none border-b-2 px-2.5 text-sm tracking-wide"
-          :class="shell.activeTab === tab.name ? 'border-primary' : 'border-transparent'"
-          :ui="{ leadingIcon: shell.activeTab === tab.name ? '' : 'opacity-50' }"
-          :aria-pressed="shell.activeTab === tab.name"
-          :aria-label="tab.label"
-          @click="router.push({ name: tab.name })"
-        />
-      </UTooltip>
+      <template v-for="tab in trailingTabs" :key="tab.name">
+        <div v-if="tab.name === 'tools'" class="flex h-full items-stretch">
+          <UTooltip :text="tab.label">
+            <UButton
+              :icon="tab.icon"
+              size="xs"
+              variant="ghost"
+              square
+              :color="shell.activeTab === tab.name ? 'primary' : 'neutral'"
+              class="h-full rounded-none border-b-2 pr-1 pl-2.5 text-sm tracking-wide"
+              :class="shell.activeTab === tab.name ? 'border-primary' : 'border-transparent'"
+              :ui="{ leadingIcon: shell.activeTab === tab.name ? '' : 'opacity-50' }"
+              :aria-pressed="shell.activeTab === tab.name"
+              :aria-label="tab.label"
+              @click="router.push({ name: tab.name })"
+            />
+          </UTooltip>
+          <UDropdownMenu
+            :items="toolsMenu"
+            :content="{ align: 'end', sideOffset: 0 }"
+            :ui="{ content: 'min-w-52' }"
+          >
+            <UButton
+              icon="i-tabler-chevron-down"
+              size="xs"
+              variant="ghost"
+              :color="shell.activeTab === tab.name ? 'primary' : 'neutral'"
+              class="h-full rounded-none border-b-2 px-0.5"
+              :class="shell.activeTab === tab.name ? 'border-primary' : 'border-transparent'"
+              :ui="{ leadingIcon: 'size-3 opacity-60' }"
+              aria-label="Tools menu"
+            />
+          </UDropdownMenu>
+        </div>
+        <UTooltip v-else :text="tab.label">
+          <UButton
+            :icon="tab.icon"
+            size="xs"
+            variant="ghost"
+            square
+            :color="shell.activeTab === tab.name ? 'primary' : 'neutral'"
+            class="h-full rounded-none border-b-2 px-2.5 text-sm tracking-wide"
+            :class="shell.activeTab === tab.name ? 'border-primary' : 'border-transparent'"
+            :ui="{ leadingIcon: shell.activeTab === tab.name ? '' : 'opacity-50' }"
+            :aria-pressed="shell.activeTab === tab.name"
+            :aria-label="tab.label"
+            @click="router.push({ name: tab.name })"
+          />
+        </UTooltip>
+      </template>
     </div>
   </nav>
 </template>

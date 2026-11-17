@@ -8,6 +8,7 @@ import AgentAccessIndicator from '@renderer/panels/AgentAccessIndicator.vue'
 import AppLogo from '@renderer/shell/AppLogo.vue'
 import { SHORTCUTS, type ShortcutCategory } from '@renderer/shell/globalShortcuts'
 import { shellTabs } from '@renderer/shell/routes'
+import { useToolsMenu } from '@renderer/shell/useToolsMenu'
 import { useLibraryRootsStore } from '@renderer/stores/libraryRoots'
 import { usePaletteStore } from '@renderer/stores/palette'
 import { usePlaybackStore } from '@renderer/stores/playback'
@@ -329,6 +330,13 @@ const viewItems = computed<DropdownMenuItem[][]>(() => [
 ])
 
 /**
+ * Tools — every tool by name, then the equalizer's switch and presets. The same
+ * builder feeds the dropdown half of the tab row's Tools split button, so the
+ * two menus are one list (see `toolsMenu.ts`).
+ */
+const toolsItems = useToolsMenu().items
+
+/**
  * Help — About, the two outward links, then the Open Source credits.
  *
  * `How to Use` sits above `GitHub` because it is what someone opening Help
@@ -375,10 +383,10 @@ const helpItems = computed<DropdownMenuItem[][]>(() => [
 ])
 
 /**
- * The four menus, folded into one when the chrome is too narrow to lay them out
+ * The five menus, folded into one when the chrome is too narrow to lay them out
  * (§5). Each becomes a submenu carrying its own groups, so nothing is lost — the
- * bar just spends one button's width instead of four. The overflow trigger and
- * the four inline buttons are both always rendered; a container query shows one
+ * bar just spends one button's width instead of five. The overflow trigger and
+ * the five inline buttons are both always rendered; a container query shows one
  * and hides the other, so there is no width measurement to keep in step.
  */
 function flattenGroups(groups: DropdownMenuItem[][]): DropdownMenuItem[] {
@@ -396,6 +404,7 @@ const overflowItems = computed<DropdownMenuItem[][]>(() => [
       children: flattenGroups(playbackItems.value)
     },
     { label: 'View', icon: 'i-tabler-layout-2', children: flattenGroups(viewItems.value) },
+    { label: 'Tools', icon: 'i-tabler-tools', children: flattenGroups(toolsItems.value) },
     { label: 'Help', icon: 'i-tabler-help-circle', children: flattenGroups(helpItems.value) }
   ]
 ])
@@ -481,6 +490,16 @@ async function toggleMaximize(): Promise<void> {
       <UDropdownMenu :items="viewItems" :content="{ align: 'start', sideOffset: 0 }" :ui="menuUi">
         <UButton
           label="View"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          class="h-full rounded-none px-2.5 text-xs"
+        />
+      </UDropdownMenu>
+
+      <UDropdownMenu :items="toolsItems" :content="{ align: 'start', sideOffset: 0 }" :ui="menuUi">
+        <UButton
+          label="Tools"
           color="neutral"
           variant="ghost"
           size="xs"
@@ -721,7 +740,7 @@ async function toggleMaximize(): Promise<void> {
  * keyed to the bar's own width, not the viewport's:
  *   - the wordmark goes first — the mark still says which app this is;
  *   - then the search box, whose job the palette shortcut already does;
- *   - then the four menus fold into one `☰`, so a bare-minimum window still
+ *   - then the five menus fold into one `☰`, so a bare-minimum window still
  *     reaches every one of them.
  * The window controls never move: they are the last thing that may leave, and on
  * a frameless window they are the only way to close it.
@@ -738,19 +757,19 @@ async function toggleMaximize(): Promise<void> {
   display: none;
 }
 
-@container (max-width: 760px) {
+@container (max-width: 810px) {
   .app-wordmark {
     display: none;
   }
 }
 
-@container (max-width: 720px) {
+@container (max-width: 770px) {
   .app-search {
     display: none;
   }
 }
 
-@container (max-width: 680px) {
+@container (max-width: 730px) {
   .app-menubar {
     display: none;
   }
