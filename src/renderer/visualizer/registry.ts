@@ -13,7 +13,10 @@ import { RAINFALL } from './effects/rainfall'
 import { GROOVE } from './effects/groove'
 import { MURMURATION } from './effects/murmuration'
 import { GL_WASH_TEST } from './effects/glWashTest'
+import { createPhase, PHASE_KNOBS } from './effects/phase'
 import { availableOf } from './glSession'
+import { stereoSupported, withStereoSupport } from './stereoFeed'
+import { usePlaybackStore } from '@renderer/stores/playback'
 
 /** W23-7: a radial spectrum ringing a disc of the cover. */
 const HALO: VisualizerEffect = {
@@ -46,6 +49,17 @@ const GYRE: VisualizerEffect = {
   create: create2D(createGyre, 'Gyre')
 }
 
+/** W23-14: an X/Y scope of left against right — the one stereo effect. */
+const PHASE: VisualizerEffect = {
+  id: 'phase',
+  label: 'Phase',
+  surface: '2d',
+  needs: { stereo: true },
+  emergence: 'overlay',
+  params: PHASE_KNOBS,
+  create: create2D(createPhase, 'Phase')
+}
+
 /**
  * The stage's effects, in display order — **D35.1**.
  *
@@ -68,6 +82,7 @@ export const VISUALIZER_EFFECTS: readonly VisualizerEffect[] = [
   RAINFALL,
   GROOVE,
   MURMURATION,
+  PHASE,
   // W23-8's tier check, dev builds only (`effects/glWashTest.ts`).
   ...(import.meta.env.DEV && import.meta.env.VITE_VISUALIZER_GL_TEST === '1' ? [GL_WASH_TEST] : [])
 ]
@@ -79,7 +94,22 @@ export const VISUALIZER_EFFECTS: readonly VisualizerEffect[] = [
  * one effect whose shaders failed. Next/previous, the cycle and the palette all
  * read this, not the array, and reading it in a `computed` tracks the tier.
  * The probe runs on the first ask, and only if a WebGL effect is registered.
+ *
+ * A `needs.stereo` effect is left out too when the playback surface has no
+ * stereo tap (D35.10): unavailable rather than a scope that never draws.
  */
 export function availableEffects(): readonly VisualizerEffect[] {
-  return availableOf(VISUALIZER_EFFECTS)
+  const tier = availableOf(VISUALIZER_EFFECTS)
+  const stereo = stereoSupported(usePlaybackStore())
+  // The same array while nothing changes, as `availableOf` promises.
+  if (tier !== stereoCache.tier || stereo !== stereoCache.stereo) {
+    stereoCache = { tier, stereo, result: withStereoSupport(tier, stereo) }
+  }
+  return stereoCache.result
 }
+
+let stereoCache: {
+  tier: readonly VisualizerEffect[] | null
+  stereo: boolean
+  result: readonly VisualizerEffect[]
+} = { tier: null, stereo: false, result: [] }

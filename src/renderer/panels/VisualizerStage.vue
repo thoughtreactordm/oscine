@@ -47,6 +47,7 @@ import {
   renderProfile
 } from '@renderer/visualizer/qualityBudget'
 import { resolveParams, writeParams } from '@renderer/visualizer/params'
+import { createStereoFeed } from '@renderer/visualizer/stereoFeed'
 import { availableEffects } from '@renderer/visualizer/registry'
 import {
   createStageTransition,
@@ -197,8 +198,16 @@ const stage: { -readonly [K in keyof StageInputs]: StageInputs[K] } = {
   emergence: 0,
   intensity: 1,
   wash: null,
-  cover: null
+  cover: null,
+  stereo: null
 }
+/**
+ * The engine's stereo tap, held open only while the instantiated effect
+ * declares `needs.stereo` (D35.10): `createInstance` subscribes, and
+ * `disposeInstance` — on a switch away, a surface change or unmount — releases,
+ * so the engine's splitter and analysers exist only while Phase is showing.
+ */
+const stereoFeed = createStereoFeed(playback)
 
 /** `style.opacity` strings at 1/100 steps, so setting it per frame builds nothing. */
 const OPACITY_STEPS = 100
@@ -513,6 +522,8 @@ function onContextLost(event: Event): void {
 
 function disposeInstance(): void {
   instance?.dispose()
+  stereoFeed.sync(null)
+  stage.stereo = null
   instance = null
   instanceEffect = null
   instanceParams = {}
@@ -551,6 +562,7 @@ function createInstance(): void {
     governor.reset()
   }
   instanceEffect = next
+  stereoFeed.sync(next)
   analysis.restartClock()
   measure()
 }
@@ -722,6 +734,7 @@ function runFrame(now: number): void {
     const audio = guard.shape(analysis.update(read, dt), dt)
     stage.intensity = guard.intensity
     stage.cover = instanceEffect.needs?.cover ? covers : null
+    stage.stereo = stereoFeed.read()
     if (gl) {
       drawGl(current, instanceEffect, audio, colours, dt)
     } else {

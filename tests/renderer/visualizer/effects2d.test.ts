@@ -10,6 +10,7 @@ import { createHalo } from '../../../src/renderer/visualizer/effects/halo'
 import { createDrive, spectralCentroid } from '../../../src/renderer/visualizer/effects/drive'
 import { createGyre, ringLevel } from '../../../src/renderer/visualizer/effects/gyre'
 import { createSilk } from '../../../src/renderer/visualizer/effects/silk'
+import { createPhase, mapPhasePoints } from '../../../src/renderer/visualizer/effects/phase'
 import { triggerIndex } from '../../../src/renderer/visualizer/effects/waveform'
 import { PALETTE_SLOT_COUNT, type Palette } from '../../../src/renderer/visualizer/palette'
 
@@ -220,6 +221,7 @@ interface MutableStage {
   intensity: number
   wash: { source: FakeImage; scale: number } | null
   cover: { current: Slot; previous: Slot | null; mix: number } | null
+  stereo: { left: Float32Array; right: Float32Array; live: boolean } | null
 }
 
 const WASH = image('wash', 1280, 720)
@@ -229,8 +231,23 @@ function makeStage(): MutableStage {
     emergence: 1,
     intensity: 1,
     wash: { source: WASH, scale: 1.25 },
-    cover: { current: slot('a', 640, 640), previous: null, mix: 1 }
+    cover: { current: slot('a', 640, 640), previous: null, mix: 1 },
+    stereo: { left: new Float32Array(1024), right: new Float32Array(1024), live: true }
   }
+}
+
+/** A widening stereo field: the right channel drifts out of phase with the left. */
+function animateStereo(stage: MutableStage, timeSec: number): void {
+  const stereo = stage.stereo
+  if (!stereo) return
+  const spread = timeSec * 0.8
+  for (let index = 0; index < stereo.left.length; index++) {
+    const angle = (index / 1024) * Math.PI * 2 * 5 + timeSec * 6
+    stereo.left[index] = 0.4 * Math.sin(angle)
+    stereo.right[index] = 0.3 * Math.sin(angle + spread)
+  }
+  // Now and then nothing is audible: the read answers false.
+  stereo.live = Math.floor(timeSec * 2) % 7 !== 3
 }
 
 type Core = (
@@ -241,7 +258,8 @@ type Core = (
 const CORES: readonly (readonly [string, Core])[] = [
   ['Halo', createHalo],
   ['Gyre', createGyre],
-  ['Silk', createSilk]
+  ['Silk', createSilk],
+  ['Phase', createPhase]
 ]
 const QUALITIES: readonly Quality2D[] = ['low', 'auto', 'high']
 /** 144 Hz, 60 Hz, a capped low-quality rate, and the 0.1 s clamp. */
@@ -263,6 +281,7 @@ function run(
     const dt = DTS[n % DTS.length]
     time += dt
     animate(frame, time, dt)
+    animateStereo(stage, time)
     // A track change every 100 frames, crossfading over the next 30.
     if (stage.cover) {
       const cycle = n % 100
@@ -307,7 +326,13 @@ describe('the 2D effects (W23-7)', () => {
       const ctx = new RecordingContext()
       const effect = core(ctx, 'auto')
       const frame = makeFrame()
-      const stage: MutableStage = { emergence: 1, intensity: 1, wash: null, cover: null }
+      const stage: MutableStage = {
+        emergence: 1,
+        intensity: 1,
+        wash: null,
+        cover: null,
+        stereo: null
+      }
       effect.resize(0, 0)
       for (let n = 0; n < 50; n++) {
         animate(frame, n / 60, 1 / 60)
@@ -497,5 +522,111 @@ describe('the drive', () => {
     expect(spectralCentroid(dark)).toBeLessThan(0.15)
     expect(spectralCentroid(bright)).toBeGreaterThan(0.8)
     expect(spectralCentroid(new Float32Array(ANALYSIS_BANDS))).toBe(0.5)
+  })
+})
+
+describe('Phase (W23-14)', () => {
+  const N = 64
+  function sine(amplitude: number, sign = 1): Float32Array {
+    return Float32Array.from({ length: N }, (_, n) => sign * amplitude * Math.sin((n / N) * 6.283))
+  }
+  function map(left: Float32Array, right: Float32Array): number[] {
+    const out = new Float32Array(N * 2)
+    const count = mapPhasePoints(left, right, 1, out)
+    expect(count).toBe(N)
+    return Array.from(out)
+  }
+
+  it('maps a mono sine onto a vertical line', () => {
+    const points = map(sine(0.8), sine(0.8))
+    let tallest = 0
+    for (let n = 0; n < N; n++) {
+      expect(points[n * 2]).toBeCloseTo(0, 6)
+      tallest = Math.max(tallest, Math.abs(points[n * 2 + 1]))
+    }
+    expect(tallest).toBeGreaterThan(1)
+  })
+
+  it('maps a left-only signal onto the up-left diagonal and right-only onto up-right', () => {
+    const silence = new Float32Array(N)
+    const leftOnly = map(sine(0.8), silence)
+    const rightOnly = map(silence, sine(0.8))
+    for (let n = 0; n < N; n++) {
+      expect(leftOnly[n * 2]).toBeCloseTo(-leftOnly[n * 2 + 1], 6)
+      expect(rightOnly[n * 2]).toBeCloseTo(rightOnly[n * 2 + 1], 6)
+    }
+    // A positive left sample lands up and to the left.
+    const top = sine(0.8).indexOf(Math.max(...sine(0.8)))
+    expect(leftOnly[top * 2]).toBeLessThan(0)
+    expect(leftOnly[top * 2 + 1]).toBeGreaterThan(0)
+  })
+
+  it('maps anti-phase content onto a horizontal line', () => {
+    const points = map(sine(0.8), sine(0.8, -1))
+    let widest = 0
+    for (let n = 0; n < N; n++) {
+      expect(points[n * 2 + 1]).toBeCloseTo(0, 6)
+      widest = Math.max(widest, Math.abs(points[n * 2]))
+    }
+    expect(widest).toBeGreaterThan(1)
+  })
+
+  it('strides, scales, clips, reports the peak and never overruns', () => {
+    const left = sine(1)
+    const right = new Float32Array(N)
+    const out = new Float32Array(10)
+    const peak = new Float32Array(1)
+    const count = mapPhasePoints(left, right, 2, out, 4, 1, peak)
+    expect(count).toBe(5)
+    for (const value of out) expect(Math.abs(value)).toBeLessThanOrEqual(1)
+    expect(peak[0]).toBeGreaterThan(0)
+    expect(peak[0]).toBeLessThanOrEqual(Math.SQRT1_2 + 1e-6)
+  })
+
+  it('draws no live sweep while the read answers nothing, and its glow fades out', () => {
+    const ctx = new RecordingContext()
+    const phase = createPhase(ctx, 'auto')
+    phase.resize(800, 800)
+    const frame = makeFrame()
+    const stage = makeStage()
+    for (let n = 0; n < 30; n++) {
+      animateStereo(stage, n / 60)
+      stage.stereo!.live = true
+      phase.frame(frame, makePalette(), stage, 1 / 60)
+    }
+    stage.stereo!.live = false
+    ctx.ops = []
+    phase.frame(frame, makePalette(), stage, 1 / 60)
+    const strokes = ctx.ops.filter((op) => op.kind === 'stroke')
+    // The graticule and the fading history, no live sweep in the accent colour.
+    expect(strokes.length).toBeGreaterThan(1)
+    expect(strokes.some((op) => op.kind === 'stroke' && op.style === makePalette().css[11])).toBe(
+      false
+    )
+
+    for (let n = 0; n < 200; n++) phase.frame(frame, makePalette(), stage, 1 / 30)
+    ctx.ops = []
+    phase.frame(frame, makePalette(), stage, 1 / 60)
+    expect(ctx.ops.filter((op) => op.kind === 'stroke')).toHaveLength(1)
+    phase.dispose()
+  })
+
+  it('lays sweeps at the same pace whatever the frame rate', () => {
+    function sweepsAfter(dt: number): number {
+      const ctx = new RecordingContext()
+      const phase = createPhase(ctx, 'auto')
+      phase.resize(800, 800)
+      const frame = makeFrame()
+      const stage = makeStage()
+      for (let time = 0; time < 0.3; time += dt) {
+        animateStereo(stage, time)
+        stage.stereo!.live = true
+        phase.frame(frame, makePalette(), stage, dt)
+      }
+      ctx.ops = []
+      phase.frame(frame, makePalette(), stage, 0)
+      return ctx.ops.filter((op) => op.kind === 'stroke').length
+    }
+    expect(Math.abs(sweepsAfter(1 / 144) - sweepsAfter(1 / 60))).toBeLessThanOrEqual(1)
   })
 })

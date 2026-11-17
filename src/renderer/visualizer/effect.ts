@@ -2,6 +2,7 @@ import type { VisualizerQuality } from '@shared/settings'
 import type { AnalysisFrame } from './analysisFrame'
 import type { StageCoverInput } from './coverDecode'
 import type { Palette } from './palette'
+import type { StereoInput } from './stereoFeed'
 import type { EffectParamSpec, EffectParams } from './params'
 import type { WashLook } from './wash'
 
@@ -59,6 +60,11 @@ export interface StageInputs {
   readonly wash: WashInput | null
   /** Null unless the effect declares `needs.cover` (D35.11). */
   readonly cover: StageCoverInput | null
+  /**
+   * Left and right samples (D35.10). Null unless the effect declares
+   * `needs.stereo`; the host holds the engine's stereo tap open only then.
+   */
+  readonly stereo: StereoInput | null
 }
 
 /**
@@ -100,6 +106,10 @@ export interface VisualizerEffect {
   /** Shown on switch and in the palette. */
   readonly label: string
   readonly surface: VisualizerSurface
+  /**
+   * `stereo`: the effect reads `stage.stereo`, and is not offered when the
+   * engine has no stereo tap (D35.10).
+   */
   readonly needs?: { readonly cover?: boolean; readonly stereo?: boolean }
   /** D35.12. */
   readonly emergence: 'overlay' | 'grow'
