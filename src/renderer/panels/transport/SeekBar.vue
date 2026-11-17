@@ -17,11 +17,10 @@ import { formatTime, pointerFraction } from './seekTime'
  * its own background above or below — and never reaches above its top edge, so
  * whatever sits above it (a list's horizontal scrollbar, most of all) stays fully
  * visible and clickable. The pointer target is taller than the line, but it
- * grows downward, over the transport's own padding, not up. For the same reason
- * the thumb is a playhead that hangs from the line rather than a dot centred on
- * it: a centred dot wider than the line would poke up into the content.
- * The hover readout is the one thing drawn above, and it is transient and
- * `pointer-events-none`, so it can never take a click from the content.
+ * grows downward, over the transport's own padding, not up. Two things do draw
+ * above it, both only while the pointer is on the bar: the thumb, a dot centred
+ * on the line that overhangs it by a couple of pixels, and the hover readout,
+ * which is `pointer-events-none` so it can never take a click from the content.
  */
 const playback = usePlaybackStore()
 
@@ -84,7 +83,7 @@ const markerLeft = computed(() => `${(hoverFraction.value ?? 0) * 100}%`)
         track: 'rounded-none h-1',
         range: 'rounded-none h-1',
         thumb:
-          'opacity-0 cursor-pointer group-hover:opacity-100 focus-visible:opacity-100 top-0 w-1 h-2.5 rounded-full bg-primary ring-0 z-20 transition-opacity'
+          'opacity-0 cursor-pointer group-hover:opacity-100 focus-visible:opacity-100 -top-0.5 w-2 h-2 z-20 transition-transform'
       }"
       @pointerdown="playback.beginScrub()"
       @pointermove="onPointerMove"
