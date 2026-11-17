@@ -1,7 +1,7 @@
 ---
 taskId: 01M69F1DBWCCEF1Z42E1CHYZGN
 title: Phase — X/Y Lissajous scope
-status: todo
+status: in-review
 priority: low
 labels:
   - D35.9
@@ -13,9 +13,9 @@ workstreamId: W23-14
 dependsOn:
   - 01M69F174SBVQFK74JYKJA2DK5
   - 01M69EYSQ430SQBYD9GP7TRQ2Z
-order: 13
+order: 33
 created: '2026-10-31T17:10:11.066Z'
-updated: '2026-10-31T17:37:35.193Z'
+updated: '2026-11-17T18:11:35.229Z'
 ---
 Spec: wiki `oscine-visualizers` → D35.9, D35.10.
 

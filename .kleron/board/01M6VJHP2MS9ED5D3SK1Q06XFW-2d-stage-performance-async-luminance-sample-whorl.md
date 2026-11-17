@@ -1,7 +1,7 @@
 ---
 taskId: 01M6VJHP2MS9ED5D3SK1Q06XFW
 title: '2D stage performance — async luminance sample, Whorl to WebGL'
-status: in-progress
+status: in-review
 priority: medium
 labels:
   - D35.6
@@ -13,7 +13,7 @@ workstream: W23
 workstreamId: W23-16
 order: 0
 created: '2026-11-07T17:57:49.771Z'
-updated: '2026-11-07T19:15:01.281Z'
+updated: '2026-11-17T18:05:37.553Z'
 ---
 ## Problem
 
