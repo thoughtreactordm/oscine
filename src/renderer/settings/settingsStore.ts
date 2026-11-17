@@ -330,6 +330,17 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
     return descriptor.scope === 'view' ? view.get(descriptor.key) : state.value[descriptor.key]
   }
 
+  /**
+   * A scope as it may cross IPC: a fresh plain object. Callers routinely hand in
+   * scopes read out of reactive state (the EQ pane's assignment rows are a deep
+   * `ref`), and a Vue proxy is not structured-cloneable — Electron refuses the
+   * whole request with "An object could not be cloned". Copying the two fields
+   * here, at the one boundary, means no caller has to remember `toRaw`.
+   */
+  function wireScope(scope: SettingScopeRef): SettingScopeRef {
+    return { kind: scope.kind, id: scope.id }
+  }
+
   function note(notice: SettingNotice): void {
     ownNotices.value = [...ownNotices.value, notice]
   }
@@ -390,7 +401,7 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
     if (running) return running
 
     const load = durable
-      .getOverrides({ scope })
+      .getOverrides({ scope: wireScope(scope) })
       .then((result) => {
         const next: Record<string, StoredSetting> = { ...overrides.value[scoped] }
         for (const [key, entry] of Object.entries(result.stored)) {
@@ -632,7 +643,7 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
     const { key, scope } = entry
     inFlight.add(target)
     try {
-      const changes = await durable.set({ key, value: entry.value, scope })
+      const changes = await durable.set({ key, value: entry.value, scope: wireScope(scope) })
       const change = changes.find(
         (one) => one.key === key && scopeKey(one.scope) === scopeKey(scope)
       )
@@ -795,7 +806,7 @@ export function createSettingsStore(deps: SettingsStoreDeps): SettingsStore {
     }
 
     try {
-      applyRemote(await durable.reset({ ...request, scope }))
+      applyRemote(await durable.reset({ ...request, scope: wireScope(scope) }))
       for (const descriptor of targets) {
         // Main answers with a change only when something actually moved, so the
         // already-absent case has to be settled here rather than by the echo.

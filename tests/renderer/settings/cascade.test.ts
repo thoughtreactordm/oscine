@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { computed, effectScope, watch } from 'vue'
+import { computed, effectScope, reactive, watch } from 'vue'
 import { AUDIO_CROSSFADE_MS, GLOBAL_SCOPE } from '../../../src/shared/settings'
 import {
   createSettingsStore,
@@ -325,5 +325,43 @@ describe('another window’s change', () => {
     await Promise.all([loading, written])
 
     expect(store.cascade(AUDIO_CROSSFADE_MS, PLAYLIST).value).toBe(3000)
+  })
+})
+
+describe('a scope read out of reactive state', () => {
+  // The EQ pane's "Assigned to" rows are a deep `ref`, so the scope its remove
+  // button hands to `clearOverride` is a Vue proxy. Electron's IPC is structured
+  // clone, which refuses a proxy outright ("An object could not be cloned"); the
+  // store has to send a plain copy whatever it is given.
+  function cloningBridge(bridge: ReturnType<typeof durableBridgeFixture>) {
+    const wrap =
+      <A, R>(call: (request: A) => R) =>
+      (request: A): R =>
+        call(structuredClone(request))
+    return {
+      ...bridge,
+      set: wrap(bridge.set.bind(bridge)),
+      reset: wrap(bridge.reset.bind(bridge)),
+      getOverrides: wrap(bridge.getOverrides.bind(bridge))
+    }
+  }
+
+  it('loads, sets and clears an override through a reactive scope', async () => {
+    const bridge = durableBridgeFixture({ stored: { [KEY]: 2000 } })
+    const store = createSettingsStore({
+      durable: cloningBridge(bridge),
+      view: viewSettingsFixture().settings,
+      debounceMs: 0
+    })
+    await store.ready
+    const scope = reactive({ kind: 'playlist' as const, id: 7 })
+
+    await store.loadOverrides(scope)
+    const written = await store.setOverride(AUDIO_CROSSFADE_MS, scope, 500)
+    expect(written.ok).toBe(true)
+    expect(bridge.overrides.get('playlist:7')?.get(KEY)).toBe(500)
+
+    await store.clearOverride(AUDIO_CROSSFADE_MS, scope)
+    expect(bridge.overrides.get('playlist:7')?.has(KEY)).toBe(false)
   })
 })
