@@ -3,6 +3,7 @@ import type { AnalysisFrame } from '../analysisFrame'
 import type { EffectInstance, EffectTarget, StageInputs } from '../effect'
 import type { Palette } from '../palette'
 import type { EffectParams } from '../params'
+import type { StereoInput } from '../stereoFeed'
 import type { Cover2D, Draw2D, Effect2DInstance, Stage2D } from './draw2d'
 
 /**
@@ -29,6 +30,7 @@ interface MutableStage2D {
   intensity: number
   wash: { source: Image2D } | null
   cover: Cover2D<Image2D> | null
+  stereo: StereoInput | null
 }
 
 function isTexture(source: CanvasImageSource | WebGLTexture): source is WebGLTexture {
@@ -45,7 +47,13 @@ export function create2D(
     const inner = core(target.context, target.quality, target.params)
     /** Made the first time the host hands over a 2D wash, then updated in place. */
     let wash: { source: Image2D } | null = null
-    const stage2d: MutableStage2D = { emergence: 0, intensity: 1, wash: null, cover: null }
+    const stage2d: MutableStage2D = {
+      emergence: 0,
+      intensity: 1,
+      wash: null,
+      cover: null,
+      stereo: null
+    }
     const view: Stage2D<Image2D> = stage2d
     return {
       resize: (width, height) => inner.resize(width, height),
@@ -53,6 +61,7 @@ export function create2D(
         stage2d.emergence = stage.emergence
         stage2d.intensity = stage.intensity
         stage2d.cover = stage.cover
+        stage2d.stereo = stage.stereo
         const input = stage.wash
         if (input && !isTexture(input.source)) {
           if (wash) {

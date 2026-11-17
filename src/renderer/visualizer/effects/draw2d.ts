@@ -1,4 +1,5 @@
 import type { CoverBitmap, CoverInput, CoverSlot } from '../cover'
+import type { StereoInput } from '../stereoFeed'
 
 /**
  * The structural 2D surface the W23-7 effects draw on — **D35.1**.
@@ -64,6 +65,7 @@ export interface Stage2D<I> {
   readonly intensity: number
   readonly wash: { readonly source: I } | null
   readonly cover: Cover2D<I> | null
+  readonly stereo: StereoInput | null
 }
 
 export type Quality2D = 'auto' | 'low' | 'high'
