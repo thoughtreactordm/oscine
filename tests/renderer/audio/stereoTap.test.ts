@@ -38,6 +38,9 @@ class FakeNode {
 }
 
 class FakeGain extends FakeNode {
+  channelCount = 2
+  channelCountMode = 'max'
+  channelInterpretation = 'speakers'
   readonly gain = {
     value: 1,
     cancelScheduledValues: vi.fn(),
@@ -58,7 +61,15 @@ class FakeAnalyser extends FakeNode {
 }
 
 class FakeSplitter extends FakeNode {
-  channelInterpretation = 'discrete'
+  /** As the spec pins it: assigning anything but 'discrete' throws, as Chromium does. */
+  get channelInterpretation(): string {
+    return 'discrete'
+  }
+  set channelInterpretation(value: string) {
+    if (value !== 'discrete') {
+      throw new Error('InvalidStateError: a ChannelSplitterNode must stay discrete')
+    }
+  }
   constructor(readonly outputs: number) {
     super()
   }
@@ -110,13 +121,23 @@ class FakeContext {
   close = vi.fn(async () => {})
   resume = vi.fn(async () => {})
 
-  /** The splitter and two analysers of a live stereo tap, if one is attached. */
-  liveTap(): { splitter: FakeSplitter; left: FakeAnalyser; right: FakeAnalyser } | null {
+  /**
+   * The mixer, splitter and two analysers of a live stereo tap, if one is
+   * attached. The mixer is the tap's entry: sources connect to it.
+   */
+  liveTap(): {
+    mixer: FakeGain
+    splitter: FakeSplitter
+    left: FakeAnalyser
+    right: FakeAnalyser
+  } | null {
     const splitter = this.splitters.at(-1)
     if (!splitter || splitter.edges.length === 0) return null
+    const mixer = this.gains.find((gain) => gain.feeds(splitter))
+    if (!mixer) return null
     const left = splitter.edges.find((edge) => edge.output === 0)?.to as FakeAnalyser
     const right = splitter.edges.find((edge) => edge.output === 1)?.to as FakeAnalyser
-    return { splitter, left, right }
+    return { mixer, splitter, left, right }
   }
 }
 
@@ -175,7 +196,7 @@ describe('StereoTap', () => {
     expect(context.splitters).toHaveLength(1)
     expect(context.analysers).toHaveLength(2)
     const live = context.liveTap()!
-    expect(gain.feeds(live.splitter)).toBe(true)
+    expect(gain.feeds(live.mixer)).toBe(true)
     expect(live.left.fftSize).toBe(WAVEFORM_SAMPLE_COUNT)
     expect(live.right.fftSize).toBe(WAVEFORM_SAMPLE_COUNT)
     // Leaves: nothing new reaches anywhere.
@@ -189,15 +210,20 @@ describe('StereoTap', () => {
     expect(tap.attached).toBe(false)
     // Only the splitter edge went; the route onward survives.
     expect(gain.edges.map((edge) => edge.to)).toEqual([onward])
+    expect(live.mixer.edges).toHaveLength(0)
     expect(live.splitter.edges).toHaveLength(0)
   })
 
-  it('up-mixes by speaker rules, so a mono input reaches both channels', () => {
+  it('up-mixes by speaker rules ahead of a discrete splitter, so mono reaches both channels', () => {
     const context = new FakeContext()
     const tap = new StereoTap(context)
     tap.subscribe()
-    expect(context.splitters[0].outputs).toBe(2)
-    expect(context.splitters[0].channelInterpretation).toBe('speakers')
+    const live = context.liveTap()!
+    expect(live.splitter.outputs).toBe(2)
+    expect(live.splitter.channelInterpretation).toBe('discrete')
+    expect(live.mixer.channelCount).toBe(2)
+    expect(live.mixer.channelCountMode).toBe('explicit')
+    expect(live.mixer.channelInterpretation).toBe('speakers')
   })
 
   it('wires a source set while attached, and one set before the first subscription', () => {
@@ -206,11 +232,11 @@ describe('StereoTap', () => {
     const early = new FakeGain()
     tap.setSource(early)
     const release = tap.subscribe()
-    expect(early.feeds(context.liveTap()!.splitter)).toBe(true)
+    expect(early.feeds(context.liveTap()!.mixer)).toBe(true)
 
     const later = new FakeGain()
     tap.setSource(later)
-    expect(later.feeds(context.liveTap()!.splitter)).toBe(true)
+    expect(later.feeds(context.liveTap()!.mixer)).toBe(true)
     release()
     expect(later.edges).toHaveLength(0)
   })
@@ -292,9 +318,9 @@ describe('DecodedAudioEngine stereo tap', () => {
     const second = engine.subscribeStereoWaveform()
     expect(context.splitters).toHaveLength(1)
     const live = context.liveTap()!
-    expect(transition.feeds(live.splitter)).toBe(true)
+    expect(transition.feeds(live.mixer)).toBe(true)
     // Ahead of master volume, like the mono tap.
-    expect(master.feeds(live.splitter)).toBe(false)
+    expect(master.feeds(live.mixer)).toBe(false)
 
     live.left.level = 0.3
     live.right.level = -0.3
@@ -307,7 +333,7 @@ describe('DecodedAudioEngine stereo tap', () => {
     expect(context.liveTap()).not.toBeNull()
     second()
     expect(context.liveTap()).toBeNull()
-    expect(transition.feeds(live.splitter)).toBe(false)
+    expect(transition.feeds(live.mixer)).toBe(false)
     // The track still reaches the master gain.
     expect(transition.feeds(master)).toBe(true)
     engine.dispose()
@@ -318,7 +344,7 @@ describe('DecodedAudioEngine stereo tap', () => {
     engine.subscribeStereoWaveform()
     engine.seek(3)
     const fresh = context.gains.at(-2)!
-    expect(fresh.feeds(context.liveTap()!.splitter)).toBe(true)
+    expect(fresh.feeds(context.liveTap()!.mixer)).toBe(true)
     engine.dispose()
     expect(context.liveTap()).toBeNull()
   })
@@ -382,7 +408,7 @@ describe('browserStreamingPlatform stereo tap', () => {
     const second = created.subscribeStereoWaveform!()
     expect(context.splitters).toHaveLength(1)
     const live = context.liveTap()!
-    expect(normalization.feeds(live.splitter)).toBe(true)
+    expect(normalization.feeds(live.mixer)).toBe(true)
 
     live.left.level = 0.2
     live.right.level = 0.4
@@ -394,7 +420,7 @@ describe('browserStreamingPlatform stereo tap', () => {
     first()
     second()
     expect(context.liveTap()).toBeNull()
-    expect(normalization.feeds(live.splitter)).toBe(false)
+    expect(normalization.feeds(live.mixer)).toBe(false)
     // Normalization still reaches master volume and the mono analyser.
     expect(normalization.edges).toHaveLength(2)
 

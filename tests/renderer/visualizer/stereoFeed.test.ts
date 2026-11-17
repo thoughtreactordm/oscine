@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createStereoFeed,
   stereoSupported,
@@ -103,6 +103,32 @@ describe('the stereo feed (W23-14)', () => {
     const silent = createStereoFeed(quiet.source)
     silent.sync(PHASE)
     expect(silent.read()?.live).toBe(false)
+  })
+
+  it('contains a tap that throws, so the stage loop survives', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const throwing: StereoSource = {
+      subscribeStereoWaveform() {
+        throw new Error('InvalidStateError')
+      },
+      readStereoWaveform: () => true
+    }
+    const feed = createStereoFeed(throwing)
+    expect(() => feed.sync(PHASE)).not.toThrow()
+    expect(feed.subscribed).toBe(false)
+    expect(feed.read()).toBeNull()
+    expect(warn).toHaveBeenCalledOnce()
+
+    const { source } = fakeSource()
+    const failingRead = createStereoFeed({
+      subscribeStereoWaveform: source.subscribeStereoWaveform,
+      readStereoWaveform() {
+        throw new Error('detached')
+      }
+    })
+    failingRead.sync(PHASE)
+    expect(failingRead.read()?.live).toBe(false)
+    warn.mockRestore()
   })
 
   it('never subscribes to a surface without the pair', () => {
