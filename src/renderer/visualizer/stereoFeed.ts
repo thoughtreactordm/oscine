@@ -106,7 +106,14 @@ export function createStereoFeed(source: StereoSource): StereoFeed {
         left.fill(0)
         right.fill(0)
         input.live = false
-        release = source.subscribeStereoWaveform!()
+        // The tap is the engine's, and a throw from it must not take the
+        // host's frame loop down with it: the effect draws nothing instead.
+        try {
+          release = source.subscribeStereoWaveform!()
+        } catch (error) {
+          release = null
+          console.warn('[visualizer] the stereo tap could not be opened', error)
+        }
       } else if (!wants) {
         drop()
       }
@@ -114,7 +121,11 @@ export function createStereoFeed(source: StereoSource): StereoFeed {
 
     read() {
       if (!release) return null
-      input.live = source.readStereoWaveform!(left, right)
+      try {
+        input.live = source.readStereoWaveform!(left, right)
+      } catch {
+        input.live = false
+      }
       return input
     },
 

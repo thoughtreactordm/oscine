@@ -7,12 +7,13 @@ import { WAVEFORM_SAMPLE_COUNT, type WaveformBuffer } from './AudioEngine'
  * ribbon and useless for an X/Y scope. This splits the same tap point into its
  * two channels and reads each through its own analyser.
  *
- * Built lazily, on the `EqualizerRouter.subscribeClip` precedent: the splitter
- * and both analysers exist only while at least one subscriber holds the tap, and
- * come down when the last one lets go. Two analysers on every track forever, for
- * one effect, is not free. Every node here is a leaf — the splitter feeds the
- * analysers and the analysers feed nothing — so attaching the tap never adds a
- * route to the destination and detaching it never removes one.
+ * Built lazily, on the `EqualizerRouter.subscribeClip` precedent: the mixer,
+ * the splitter and both analysers exist only while at least one subscriber
+ * holds the tap, and come down when the last one lets go. Two analysers on
+ * every track forever, for one effect, is not free. Every node here is a leaf
+ * branch — the mixer feeds the splitter, the splitter the analysers and the
+ * analysers nothing — so attaching the tap never adds a route to the
+ * destination and detaching it never removes one.
  *
  * Both paths own one of these: `DecodedAudioEngine` points it at each source's
  * transition gain as the source is built, and the streaming platform points it
@@ -32,18 +33,23 @@ export interface StereoTapAnalyser extends StereoTapNode {
   getFloatTimeDomainData(array: Float32Array<ArrayBuffer>): void
 }
 
-export interface StereoTapSplitter extends StereoTapNode {
+/** The up-mix stage ahead of the splitter: a unity `GainNode`. */
+export interface StereoTapMixer extends StereoTapNode {
+  channelCount: number
+  channelCountMode: string
   channelInterpretation: string
 }
 
 /** The slice of `AudioContext` the tap needs. */
 export interface StereoTapContext {
-  createChannelSplitter(numberOfOutputs?: number): StereoTapSplitter
+  createGain(): StereoTapMixer
+  createChannelSplitter(numberOfOutputs?: number): StereoTapNode
   createAnalyser(): StereoTapAnalyser
 }
 
 interface Attached {
-  splitter: StereoTapSplitter
+  mixer: StereoTapMixer
+  splitter: StereoTapNode
   left: StereoTapAnalyser
   right: StereoTapAnalyser
 }
@@ -52,7 +58,7 @@ export class StereoTap {
   readonly #context: StereoTapContext
   #subscribers = 0
   #attached: Attached | null = null
-  /** The node whose output is tapped, connected to the splitter iff attached. */
+  /** The node whose output is tapped, connected to the mixer iff attached. */
   #source: StereoTapNode | null = null
 
   constructor(context: StereoTapContext) {
@@ -90,7 +96,7 @@ export class StereoTap {
    */
   setSource(node: StereoTapNode | null): void {
     this.#source = node
-    if (node && this.#attached) node.connect(this.#attached.splitter)
+    if (node && this.#attached) node.connect(this.#attached.mixer)
   }
 
   /**
@@ -98,8 +104,8 @@ export class StereoTap {
    * with both buffers untouched.
    *
    * `mono` copies the left reading into the right rather than reading the right
-   * analyser. The splitter's speaker up-mix already duplicates a mono input
-   * into both channels (see `#attach`); a caller that knows its source is mono
+   * analyser. The mixer's speaker up-mix already duplicates a mono input into
+   * both channels (see `#attach`); a caller that knows its source is mono
    * passes this to skip a read whose answer it already has.
    */
   read(left: WaveformBuffer, right: WaveformBuffer, mono = false): boolean {
@@ -120,21 +126,27 @@ export class StereoTap {
 
   #attach(): void {
     if (this.#attached) return
+    // A splitter's channel interpretation is pinned to 'discrete' — the spec
+    // makes assigning anything else throw InvalidStateError (W23-14 found it in
+    // the running app; W23-13's fakes accepted it). Discrete up-mixing fills
+    // channel 0 and leaves channel 1 silent, so a mono file would draw a flat
+    // right channel. A unity gain forced to two channels with speaker
+    // interpretation does the up-mix instead: mono lands in both, anything
+    // wider than stereo folds down to it, and the splitter sees exactly two.
+    const mixer = this.#context.createGain()
+    mixer.channelCount = 2
+    mixer.channelCountMode = 'explicit'
+    mixer.channelInterpretation = 'speakers'
     const splitter = this.#context.createChannelSplitter(2)
-    // A splitter interprets its input as discrete channels by default, which
-    // up-mixes mono by filling channel 0 and leaving channel 1 silent — a scope
-    // that drew a flat right channel for every mono file. Speaker
-    // interpretation copies mono into both and folds anything wider than
-    // stereo down to it, which is what the scope should see.
-    splitter.channelInterpretation = 'speakers'
     const left = this.#context.createAnalyser()
     const right = this.#context.createAnalyser()
     left.fftSize = WAVEFORM_SAMPLE_COUNT
     right.fftSize = WAVEFORM_SAMPLE_COUNT
+    mixer.connect(splitter)
     splitter.connect(left, 0)
     splitter.connect(right, 1)
-    this.#attached = { splitter, left, right }
-    this.#source?.connect(splitter)
+    this.#attached = { mixer, splitter, left, right }
+    this.#source?.connect(mixer)
   }
 
   #detach(): void {
@@ -145,11 +157,12 @@ export class StereoTap {
       // Just this edge — the source's route onward to the master gain must
       // survive, or closing the scope would silence the track.
       try {
-        this.#source.disconnect(attached.splitter)
+        this.#source.disconnect(attached.mixer)
       } catch {
         // Already disconnected wholesale by a teardown that raced the release.
       }
     }
+    attached.mixer.disconnect()
     attached.splitter.disconnect()
   }
 }
